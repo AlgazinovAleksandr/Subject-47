@@ -94,6 +94,51 @@ Mirrors the destination path, so it is obvious what each source becomes:
 | `video/ending_scene.mp4` | `game/assets/video/ending_scene.ogv` | `ffmpeg` (see below) | local |
 | `video/dungeon_wake.mp4` | `game/assets/video/dungeon_wake.ogv` | `ffmpeg` (see below) | local |
 | `video/seeds/*.png` | *nothing — Veo conditioning frames, `VIDEO_PROMPTS.md` §2* | — | local |
+| `models/hollow_crown/*.glb` (six) | `game/assets/models/hollow_crown.glb` | `tools/merge_creature_glb.py --shrink` | local |
+| `textures/level_6_breach/breach_door_raw.jpg` | `game/assets/textures/level_6_breach/breach_door.png` | `tools/make_breach_door.py` | **yes** |
+| `audio/pre_remaster/*` | *originals of the stings `tools/remaster_scares.py` rewrote in place* | — | local |
+
+### `models/hollow_crown/` — the creature, and the one place this folder's own rule is broken
+
+⚠️ **These six files ARE a tool input and are still NOT committed.** By the rule above
+(*committed if an automated step reads it*) they should be tracked; they are not, and the reason
+is arithmetic rather than principle. Meshy exports one file per animation, each carrying a
+complete copy of the same 114,456-vertex mesh, the same 24-joint skin and the same 2048² texture
+— **15.2 MB each, 91 MB total, for 129 KB of animation data that actually differs.** Committing
+them would put 91 MB of duplicated mesh permanently into a `.git` that is already 854 MB.
+
+`tools/merge_creature_glb.py` collapses them into ONE 9.8 MB artefact, which IS committed and is
+what the game loads. It also does the material surgery the source needs (see below).
+
+⚠️ **The consequence, stated so it is discovered here rather than in an hour of confusion: the
+creature cannot be re-merged from a fresh clone.** Same trade as the five cutscenes. What makes
+it recoverable is that the inputs are re-downloadable from Meshy and the SHA-256s of exactly what
+shipped are recorded here:
+
+```
+aca07e8df70c04c7  ..._Animation_RunFast_withSkin.glb
+975915a21347dac5  ..._Animation_Running_withSkin.glb
+dfa2c94129492ccb  ..._Animation_Slow_Orc_Walk_withSkin.glb
+8884971b493eab97  ..._Animation_Unsteady_Walk_withSkin.glb
+1212a936e620413a  ..._Animation_Walking_withSkin.glb
+8b00fc16b290fe39  ..._Animation_run_fast_10_withSkin.glb
+```
+
+⚠️ **The merge tool refuses to run unless all six describe the same rig** — node names, child
+lists, skin joints and the SHA-256 of the shared mesh/texture bufferViews must all match. Animation
+channels address joints by NODE INDEX and are copied verbatim, so that guard is the only thing
+standing between a re-download and a silently scrambled skeleton.
+
+⚠️ **Two defects in the source that the tool fixes and you must not undo:**
+1. `materials[0]` has **no `metallicFactor`**, and glTF's default is **1.0** — imported as-is the
+   creature is a 100 % metal, i.e. a black mirror in a level lit at 0.02 ambient.
+2. the albedo map is *also* wired as an `emissiveTexture` with `emissiveFactor [1,1,1]`, i.e. the
+   model is fully self-illuminating — unusable in a game whose premise is that you only see what
+   the torch finds.
+
+⚠️ And `run_fast_10` ships with **2.279 m of baked root motion** (2.849 m/s). The tool strips the
+linear component and keeps the residual sway; that measured speed is what anchors
+`CreatureAnim.CLIP_SPEED`, so it is data, not junk.
 
 ## Regenerating
 
@@ -242,7 +287,7 @@ destination, no tool reads it, and it is local-only.
 
 | File | What it is |
 |---|---|
-| `monster_model.png` | Full-body character reference for the planned replacement creature — front orthographic, 1024×1536, opaque RGB on flat grey. See `backlogs/00-cross-level.md` **X61**: `Void_creature.glb` stands in a T-pose in both KONTUR and THE BREACH, and the decision (2026-08-18) is to **replace the asset rather than pose it**, so no rigging work should be spent on the current GLB. When the new model lands it must carry **no embedded textures** and **no `AnimationPlayer`**, and both levels must keep using **one** asset — meeting the creature behind glass in KONTUR and being hunted by it in THE BREACH have to read as the same thing |
+| `monster_model.png` | Full-body character reference for the planned replacement creature — front orthographic, 1024×1536, opaque RGB on flat grey. See `backlogs/00-cross-level.md` **X61**: `Void_creature.glb` stands in a T-pose in both KONTUR and THE BREACH, and the decision (2026-08-18) is to **replace the asset rather than pose it**, so no rigging work should be spent on the current GLB. ⚠️ **SUPERSEDED 2026-09-03 — the model landed as `hollow_crown.glb` and BOTH of those requirements were wrong.** They were written for the old asset's failure modes (a Mixamo export whose embedded skin fought a `material_override`, and auto-playing animations that moved a creature nothing was driving). The replacement keeps its 2048² skin *because* the retint now **duplicates and multiplies** the imported material rather than overriding it (`creature_anim.gd:tinted_material()`), and it keeps its `AnimationPlayer` *because that is the entire point* — the old one stood in a T-pose. What actually has to hold is what `check_creature_anim.gd` asserts: the GLB resolved rather than the capsule fallback, the clips advance, no clip translates the skeleton root, and the model is not self-lit. Both levels do still use **one** asset — meeting the creature behind glass in KONTUR and being hunted by it in THE BREACH have to read as the same thing |
 
 ⚠️ This is **not** a texture and must not be treated as one: it has no alpha, so billboarding it
 would render a grey rectangle (the `apparition_figure.jpg` bug). Turning it into a cutout would

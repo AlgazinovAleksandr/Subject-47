@@ -70,7 +70,35 @@ const SETTLE_MAX := 16.0            # ...and at most this, so they never move in
 # art is 43.6 lum and the Sprawl's floor is 29.5-36.3, so an untinted figure was a LIGHTER
 # patch than the ground it was supposed to be occluding. Slightly cool rather than neutral
 # grey, because the hall is uniformly yellow and a warm shadow disappears into it.
-const FIGURE_TINT := Color(0.42, 0.42, 0.48, 1.0)
+#
+# ⚠️⚠️ HALVED 2026-09-03 — A MODEST IMPROVEMENT, AND THE FIRST MEASUREMENT BEHIND IT WAS WRONG.
+# This is an albedo on an UNSHADED billboard, i.e. a FIXED rendered luminance, while the surface
+# it must occlude is lit by the room. `watcher.gd`'s premise — "a dark shape OCCLUDING a lit
+# surface" — is therefore a claim about a RATIO, and this constant is only half of it. The
+# darkness pass cut the other half hard (ambient 0.2 -> 0.07, `STRIP_ENERGY` 1.0 -> 0.6,
+# `DEAD_LIGHT_CHANCE` 0.3 -> 0.55) while the figure stood still, so it was re-derived rather than
+# assumed.
+#
+# ⚠️ THE HONEST NUMBERS, from `probe_congregation_tint.gd` (figure vs what is DIRECTLY behind it,
+# ONE figure isolated, two runs x three distances — the Congregation randomises placement, so a
+# single pose is an anecdote):
+#     eye at        2.5 m        4.0 m        8.0 m
+#     0.42 (old)    0.44 / 0.61  0.84 / 0.85  0.92 / 0.93
+#     0.21 (now)    0.32 / 0.51  0.71 / 0.82  0.83 / 1.02
+# So: better where a figure is actually noticed, a wash at 8 m, and never harmful. ⚠️ The ratio
+# does NOT halve when the albedo does — the mask includes alpha-blended cutout edges through which
+# the background shows — so do not predict this constant's effect arithmetically.
+#
+# ⚠️ RETRACTED: the first pass justified this with "0.90 -> 0.45, i.e. it was effectively gone".
+# That came from a mask built by hiding ALL SIX figures at once, which averaged six silhouettes at
+# six depths over ~60 % of the frame. The old tint was a silhouette at every sample; it was simply
+# a weaker one. Issue 164 carries the correction.
+#
+# ⚠️ THE RESIDUAL IS STRUCTURAL AND IS NOT FIXED. Beyond ~8 m the background darkens toward the
+# figure's fixed luminance and the ratio approaches parity (1.02 on one run). No value of this
+# constant solves that — only a SHADED figure would, and `watcher.gd` is deliberately unshaded so
+# the flashlight cannot light it up. Filed as cross-level X67.
+const FIGURE_TINT := Color(0.21, 0.21, 0.24, 1.0)
 
 var _origin: Vector3 = Vector3.ZERO
 var _pillars: Array[Vector3] = []

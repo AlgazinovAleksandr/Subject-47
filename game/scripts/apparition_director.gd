@@ -85,6 +85,21 @@ func _process(delta: float) -> void:
 	_fire()
 
 
+# ⚠️ A LEVEL THAT FIRES ITS OWN APPARITION MUST SAY SO, or this node's pacing is a lie. The
+# director owns WHEN — that is the whole reason it exists — but it can only own it for the
+# appearances it starts. The Lab now has a SECOND clock (`level_1.gd:_tick_apparition()`, the
+# scripted teaching beat at 42-50 s), and the two ran blind to each other: `LEVEL_GRACE` 45 s
+# means the director's own first window opens in the same seconds, so the player could meet two
+# apparitions 43 s apart. `count_apparitions.gd` caught it — shortest gap 43.2 s against a 60 s
+# floor, i.e. no rarer than the fixed metronome this whole system replaced.
+#
+# ⚠️ It resets the gap the same way `_fire()` does, from `_elapsed`, so an externally-fired
+# apparition costs exactly what an internally-fired one costs. It does NOT touch the teach
+# ledger — `arm()` already owns that, and the caller has been through it.
+func note_external_fire() -> void:
+	_next_at = _elapsed + randf_range(MIN_GAP, MAX_GAP)
+
+
 func _resolve_player() -> CharacterBody3D:
 	if _player and is_instance_valid(_player):
 		return _player

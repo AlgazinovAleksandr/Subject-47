@@ -126,6 +126,28 @@ func _freeze_player() -> void:
 		p.process_mode = Node.PROCESS_MODE_DISABLED
 
 
+# ⭐ THE BLACK FLASH, and the silence in front of it (2026-09-03).
+#
+# ⚠️ THIS FILE DID NOT DO WHAT `CLAUDE.md` SAID IT DID. The documented sequence has always been
+# "black flash -> screamer image fullscreen -> loud audio burst", and the code did none of it:
+# `_screamer_image` is a CHILD of `_black_panel` (see `_ready()`), so `_black_panel.visible =
+# true` put the black and the face on screen in the same frame, with `_audio.play()` on the
+# very next line. There was no black beat, and — unlike `flash_scare()`, which has ducked
+# `Ambience` since the day `HoldBreath` landed — the FATAL path had no silence either. The
+# loudest moment in the game arrived on top of a running ambience bed, at full ambience level.
+#
+# It matters more than a re-mastered file does. On 2026-09-03 the sourced stings were measured
+# and the honest finding was that six of the eight fatal screamers are already within ~1 dB of
+# each other and of the ceiling — there is no gain left in the FILES. What there is, is
+# CONTRAST, and it is free: `BLACK_HOLD` of nothing at all, on a bus that has just been pulled
+# down 30 dB, is worth more perceived level than any amount of saturation.
+#
+# ⚠️ The hold is deliberately short. At 0.2 s it reads as the cut itself; much past 0.35 s and
+# the player starts to register "the screen went black" as its own event, which gives them time
+# to brace — the exact opposite of the point. It also comes OUT of `RESTART_DELAY` rather than
+# being added to it, so the time from death to reload does not move.
+const BLACK_HOLD := 0.2
+
 func trigger(image_override: String = "") -> void:
 	if _is_triggering:
 		return
@@ -137,13 +159,29 @@ func trigger(image_override: String = "") -> void:
 	_apply_level_av()
 	if image_override != "" and ResourceLoader.exists(image_override):
 		_screamer_image.texture = load(image_override)
-	_black_panel.visible = true
-	if _audio.stream:
-		_audio.play()
-	await get_tree().create_timer(RESTART_DELAY).timeout
+	await _black_then_scream()
+	await get_tree().create_timer(maxf(0.0, RESTART_DELAY - BLACK_HOLD)).timeout
 	_black_panel.visible = false
+	_screamer_image.visible = true
 	_is_triggering = false
 	GameState.restart_current_level()
+
+
+# Cut to black in silence, hold, then the face and the scream together.
+#
+# ⚠️ `HoldBreath.dip()` is fire-and-forget on purpose (awaiting it would delay the scare by the
+# whole dip). It restores `Ambience` itself, and `AudioBuses.reset_all()` runs on the level
+# reload that follows regardless, so a dip interrupted by the scene change cannot leak.
+# ⚠️ The timer is `process_always` — `trigger()` unpauses the tree, but `trigger_to_menu()` can
+# be reached from a paused NoteUI, and a paused SceneTreeTimer here would hang on black forever.
+func _black_then_scream() -> void:
+	_screamer_image.visible = false
+	_black_panel.visible = true
+	HoldBreath.dip(get_tree(), PRE_SCARE_SILENCE)
+	await get_tree().create_timer(BLACK_HOLD, true, false, true).timeout
+	_screamer_image.visible = true
+	if _audio.stream:
+		_audio.play()
 
 
 # image_override lets a caller force a specific fatal image regardless of the
@@ -160,11 +198,10 @@ func trigger_to_menu(image_override: String = "") -> void:
 	_apply_level_av()
 	if image_override != "" and ResourceLoader.exists(image_override):
 		_screamer_image.texture = load(image_override)
-	_black_panel.visible = true
-	if _audio.stream:
-		_audio.play()
-	await get_tree().create_timer(RESTART_DELAY).timeout
+	await _black_then_scream()
+	await get_tree().create_timer(maxf(0.0, RESTART_DELAY - BLACK_HOLD), true, false, true).timeout
 	_black_panel.visible = false
+	_screamer_image.visible = true
 	_is_triggering = false
 	GameState.go_to_main_menu()
 
@@ -197,6 +234,11 @@ func flash_scare(image_path: String, audio_base: String, hold: float = 0.8) -> v
 	if stream:
 		_audio.stream = stream
 		_audio.play()
+	# ⚠️ Defensive: the fatal path hides `_screamer_image` for its BLACK_HOLD beat and restores
+	# it afterwards. The `_is_triggering` guard above already stops the two overlapping, but a
+	# survivable scare that rendered a black rectangle because a previous death left this false
+	# would be silent, invisible and very hard to trace. One line.
+	_screamer_image.visible = true
 	_black_panel.visible = true
 	await get_tree().create_timer(hold).timeout
 	# A fatal trigger may have taken over mid-flash — don't yank its panel.

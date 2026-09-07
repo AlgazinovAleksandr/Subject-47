@@ -60,7 +60,11 @@ import math
 import os
 import random
 import struct
+import sys
 import wave
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sfx_loudness import format_row as loud_row, loudify  # noqa: E402
 
 SR = 44100
 TAU = math.tau
@@ -71,10 +75,27 @@ OUT_DIR = os.path.join(
 random.seed(709)  # level 9, seven sconces
 
 
-def write_wav(name, samples):
-    """samples: list of floats in [-1, 1]."""
+def write_wav(name, samples, loud=None):
+    """samples: list of floats in [-1, 1].
+
+    `loud` is a target loudest-300 ms dBFS, applied through tools/sfx_loudness.py before the
+    peak normalise. ⚠️ PASS IT ONLY FOR SCARE STINGS. Every file here is already peak-normalised
+    to 0.89, so raising one is a CREST FACTOR change, not a gain — and doing that to ambience,
+    a footstep or a mechanical one-shot changes the mix rather than the fright. See the header
+    of sfx_loudness.py for why compression alone cannot do this.
+    """
+    # ⚠️ NORMALISE BEFORE MEASURING. The raw mixed buffer routinely peaks well above 1.0
+    # (layers sum past unity and the 0.89 normalise below is what brings it back), so measuring
+    # it as-is reports nonsense — `matron_shriek` came back as "+34.03 dBFS, already loud" on
+    # the first attempt. And tanh is NOT scale-invariant, so a drive chosen against a buffer
+    # peaking at +7 dB is not the drive that buffer needs. Scale first, then measure, then
+    # saturate; `loudify` preserves the peak it is handed, so no second normalise is needed.
     peak = max(1e-9, max(abs(s) for s in samples))
     norm = 0.89 / peak  # leave headroom
+    if loud is not None:
+        samples, info = loudify([s * norm for s in samples], SR, target_db=loud)
+        print(loud_row(name, info))
+        norm = 1.0
     os.makedirs(OUT_DIR, exist_ok=True)
     path = os.path.normpath(os.path.join(OUT_DIR, name))
     with wave.open(path, "wb") as w:
@@ -719,9 +740,9 @@ def main():
     write_wav("ambient_dungeon.wav", ambient_dungeon())
     write_wav("matron_theme.wav", matron_theme())
     write_wav("matron_step.wav", matron_step())
-    write_wav("matron_shriek.wav", matron_shriek())
+    write_wav("matron_shriek.wav", matron_shriek(), loud=-4.0)
     write_wav("hollow_knock.wav", hollow_knock())
-    write_wav("hollow_reveal.wav", hollow_reveal())
+    write_wav("hollow_reveal.wav", hollow_reveal(), loud=-8.0)
     write_wav("bone_scrape.wav", bone_scrape())
     write_wav("skeleton_fall.wav", skeleton_fall())
     write_wav("candle_light.wav", candle_light())
@@ -729,10 +750,10 @@ def main():
     write_wav("candle_die.wav", candle_die())
     write_wav("spark_flint.wav", spark_flint())
     write_wav("sconce_light.wav", sconce_light())
-    write_wav("child_laugh.wav", child_laugh())
+    write_wav("child_laugh.wav", child_laugh(), loud=-6.0)
     write_wav("child_peek.wav", child_peek())
     write_wav("frame_weep.wav", frame_weep())
-    write_wav("frame_ignite.wav", frame_ignite())
+    write_wav("frame_ignite.wav", frame_ignite(), loud=-8.0)
     write_wav("whisper_dungeon.wav", whisper_dungeon())
     write_wav("cot_sleep.wav", cot_sleep())
 

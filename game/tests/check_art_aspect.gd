@@ -24,6 +24,15 @@ extends SceneTree
 # black-backed canvas to crop away the backdrop, and a naive pixel-aspect test would call
 # that correct code wrong.
 #
+# ⭐ X47 IS CLOSED (2026-09-03) and three deferrals went with it: `lab_door.png` (1.569x),
+# `house_door.png` (1.177x) and `dungeon_door.png` (1.315x), plus the two KONTUR Gate-1 leaves.
+# All five were one defect — `door.gd:build_visual()` sized its art quad to the DOOR and handed
+# the artwork whatever shape was left over. A door's width is set by its doorway and its height
+# by the room, so neither could move to suit a picture, which is why this sat deferred for as
+# long as this guard has existed. `door.gd:crop_uv_to_fit()` samples a centred sub-rect instead.
+# ⚠️ If a door texture reappears in a deferral list below, the crop has been bypassed — check
+# that the call site goes through `build_visual()` rather than hand-rolling a quad.
+#
 # ⚠️ It asserts its own SAMPLE SIZE, per scene. A scene that builds no quads, or a renamed
 # node, must not produce a tidy green "0 quads checked ... PASS" — that has happened twice in
 # this project (count_apparitions.gd, check_apparition_clearance.gd).
@@ -74,8 +83,6 @@ const CONFIG := {
 		# game code; every ratio below is this run's own measurement, and each is on the
 		# backlog rather than in the guard's blind spot (backlogs/01-lab.md, cross-level X23).
 		"deferred": {
-			"lab_door.png": "1.569x on BOTH exit-door leaves — and it is `door.gd`'s shared "
-				+ "`build_visual()`, so it is the same stretch in every level (X47)",
 			"lab_surgical_tray.png": "1.500x — the morgue's instant-fail tray",
 			"lab_warning_sign.png": "1.125x — the Records warning sign",
 			"poster_lab.png": "2.444x — the morgue's cursed poster",
@@ -94,7 +101,6 @@ const CONFIG := {
 			"forest.png": "1.625x — the living-room window's moonlit forest",
 			"note_paper.png": "1.433x — the fridge note",
 			"house_lock_transparent.png": "1.250x — the combination lock's face",
-			"house_door.png": "1.177x on both door leaves — `door.gd`'s shared quad (X47)",
 			"lab_oneway_mirror.png": "1.874x — two LivingMirrors, the shared-prop stretch X41",
 			"shared_screamer_figure.png": "1.141x — the figures behind them",
 		},
@@ -152,7 +158,6 @@ const CONFIG := {
 		"deferred": {
 			"dn_cot.png": "3.194x on both cots — the Antechamber's and the bed at the far end, "
 				+ "i.e. the object the whole level is about lying down on",
-			"dungeon_door.png": "1.315x on both door leaves — `door.gd`'s shared quad (X47)",
 			"hiding_cabinet_front.png": "1.333x — the shared Breach cabinet, reused here",
 			"dn_hollow_figure.png": "1.185x / 1.190x — the Hollow One and the Child",
 		},

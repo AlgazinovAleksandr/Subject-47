@@ -194,6 +194,26 @@ const TEAR_AGITATED := 0.34
 var _agitated: bool = false
 
 
+# ⭐ RED / YELLOW (2026-09-03, the user's design for the Sprawl).
+#
+# ⚠️ WHY IT EXISTS. `is_real` was a PURE BOOL — read in exactly one place (`_on_body`) and driving
+# nothing visual, so all four of the Sprawl's walls were built by one loop with the same size,
+# the same texture, the same shader and the same `tear_amount`. There was no way to look at a
+# wall and learn anything about it. Now every wall is painted WRONG until the thing in the crate
+# runs through the real one, and that one goes back to the level's own yellow.
+#
+# ⚠️ IT IS A HUE CHANGE AT MATCHED LUMINANCE, NOT A GLOW. The design notes on `set_agitated()`
+# below record that BRIGHTNESS was offered as the Sprawl's mark and declined — the glitch wall is
+# already the brightest surface in its room by 2.3x. `TINT_REAL` is literally `vec3(1.0)`, i.e.
+# the wallpaper's own colour returning; nothing is added.
+const TINT_FAKE := Color(1.0, 0.26, 0.22)
+const TINT_REAL := Color(1.0, 1.0, 1.0)
+
+func set_tint(c: Color) -> void:
+	if _shader_mat:
+		_shader_mat.set_shader_parameter("wall_tint", Vector3(c.r, c.g, c.b))
+
+
 func set_agitated(on: bool) -> void:
 	_agitated = on
 	set_tear_amount(TEAR_AGITATED if on else TEAR_CALM)

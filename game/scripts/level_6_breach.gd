@@ -30,8 +30,19 @@ const _NOTE_SCRIPT := preload("res://scripts/note.gd")
 const FAMILIARIZATION_FIRST := 30.0   # first attempt at this level in this run
 const FAMILIARIZATION_RETRY := 10.0   # every attempt after a death here
 const PATROL_LOOP := ["Junction1", "Atrium", "Junction2", "WardB", "Corridor1"]
-const LIGHT_WEAPON_RANGE := 12.0
-const LIGHT_WEAPON_DOT := 0.9      # tight cone matching the flashlight's own spot_angle
+# ⚠️ 18.0, MARRIED TO `player.gd:FLASH_RANGE` (2026-09-03) — the same argument this file already
+# makes one line below for the CONE, made for the reach. The torch went 15 -> 18 m in the darkness
+# pass; leaving this at 12 means the beam visibly lands on Object 12 from 15 m and the shield does
+# not drain, which reads as the weapon being broken rather than as a rule about distance.
+const LIGHT_WEAPON_RANGE := 18.0
+# ⚠️ 0.866 = cos(30 deg), MARRIED TO `player.gd:FLASH_ANGLE` (2026-09-03). The old comment on
+# this line already said "tight cone matching the flashlight's own spot_angle", and 0.9 was
+# cos(25 deg) — correct while the torch was 25 degrees. The darkness pass widened it to 30, and
+# leaving this at 0.9 would mean the visible beam covers Object 12 while the light weapon does
+# not register, which reads as a bug rather than as a rule. A small Level 6 difficulty change,
+# made for consistency and flagged rather than done silently.
+const LIGHT_WEAPON_DOT := 0.866    # cos(player.gd FLASH_ANGLE)
+const DOOR_TEX := "res://assets/textures/level_6_breach/breach_door.png"
 const SPRINT_NOISE_RADIUS := 14.0
 const SLAM_NOISE_RADIUS := 16.0
 
@@ -110,6 +121,7 @@ func _ready() -> void:
 	_spawn_signs()
 	_spawn_notes()
 	_spawn_level_doors()
+	_frame_bare_openings()
 	_refresh_exit()
 	_start_ambience()
 	_boost_ambient(0.28)
@@ -268,6 +280,11 @@ func _spawn_creature() -> void:
 	for room in PATROL_LOOP:
 		wps.append(_builder.room_center(room))
 	_creature.set_waypoints(wps)
+	# ⚠️ THE SAME GRAPH-AGNOSTIC CONTRACT AS `set_waypoints()` — the creature is handed the shape
+	# of the world and never reads this file. Without it `_move_toward()` beelines through walls;
+	# see the block above `set_portals()`. THE NIGHTMARE deliberately does not call this, so its
+	# Matron keeps the old behaviour until it has been tested there on its own.
+	_creature.set_portals(ROOMS, DOORS)
 	_creature.staggered.connect(_on_creature_staggered)
 	_creature.recovered.connect(_on_creature_recovered)
 
@@ -293,7 +310,13 @@ func _on_creature_recovered() -> void:
 
 
 func _tick_familiarization(delta: float) -> void:
-	if _creature_awake:
+	# ⚠️ A RESTORED, ALREADY-WON LEVEL STILL RAN THIS CLOCK. `_restore_progress()` sets
+	# `_creature_defeated` and kills the creature, but the gate was `_creature_awake` alone — so
+	# walking back in through KONTUR's back door scrawled "IT IS AWAKE." at t=30.2 over a
+	# creature that is already in the incinerator, and called `activate()` on the corpse. It was
+	# inert only because `lure_into_trap()` also calls `set_process(false)`, which is luck rather
+	# than a guard.
+	if _creature_defeated or _creature_awake:
 		return
 	_familiarization_t += delta
 	if _familiarization_t >= _familiarization_time:
@@ -390,6 +413,26 @@ func _spawn_slam_doors() -> void:
 	_add_slam_door("Slam_WardB_WardC", Vector3(0, 0, 41), 0)
 
 
+# The width of the doorway nearest `at`, from this level's own `DOORS` table. Nearest rather than
+# exact because a slam door is placed at the THRESHOLD and a doorway is recorded at the wall
+# plane; they agree to within a few cm but not to the bit.
+# ⚠️ Falls back to SlamDoor's own default and WARNS rather than guessing, because a silent
+# fallback is exactly how the 1.6 m doorway got a 1.8 m door in the first place.
+func _doorway_width_at(at: Vector2) -> float:
+	var best := -1.0
+	var best_d := 3.0
+	for d in DOORS:
+		var dd: float = (Vector2(d["pos"]) - at).length()
+		if dd < best_d:
+			best_d = dd
+			best = float(d["width"])
+	if best < 0.0:
+		push_warning("SlamDoor at %s matches no DOORS entry — falling back to the default width"
+			% str(at))
+		return 1.8
+	return best
+
+
 # Named, not anonymous: Godot renames colliding generated siblings using the CLASS
 # name (Issue 17), so four unnamed SlamDoors report as @StaticBody3D@138/148/... and a
 # failing assertion can't tell you WHICH door broke. Every name here is unique.
@@ -398,6 +441,18 @@ func _add_slam_door(door_name: String, pos: Vector3, yaw_deg: float) -> void:
 	door.name = door_name
 	door.position = pos
 	door.rotation_degrees.y = yaw_deg
+	# ⚠️⚠️ THE DOORWAY'S OWN WIDTH, READ OUT OF `DOORS` (2026-09-03). This used to pass nothing,
+	# so every door took `SlamDoor`'s 1.8 m default — and **one of the four doorways in this level
+	# is 1.6 m**: `Junction2 <-> ArchiveA` at (-4, 30). `Slam_ArchiveB_WardB` sits at (-4, 37)
+	# but the sizing bug is the same class, and the symptom was unmistakable once the door was
+	# built from its own dimensions: a 1.8 m leaf pair cannot swing anywhere inside a 1.6 m
+	# opening, so `_pick_clear_swings()` walked its whole ladder, found nothing, and fell through
+	# to its last resort — **all four art quads hidden, i.e. a bare untextured slab** standing
+	# where a rusted blast door should be. Found by an audit probe, not by a test.
+	# ⚠️ Looked up rather than typed, so a doorway that is re-sized in `DOORS` cannot silently
+	# leave its door behind. `RoomBuilder.DEFAULT_H` is this level's room height.
+	door.door_width = _doorway_width_at(Vector2(pos.x, pos.z))
+	door.door_height = RoomBuilder.DEFAULT_H
 	add_child(door)
 	door.slammed.connect(_on_slam_door_slammed.bind(door))
 	_slam_doors.append(door)
@@ -408,12 +463,36 @@ func _on_slam_door_slammed(door: SlamDoor) -> void:
 		_creature.notify_noise(door.global_position, SLAM_NOISE_RADIUS)
 
 
+# ⚠️⚠️ THREE GUARDS, ADDED 2026-09-07, AND EACH CLOSES A MEASURED DEFECT.
+#
+# 1. **STAGGERED is excluded as well as PATROL.** `get_current_target()` returns the creature's OWN
+#    position while staggered, so `check_blocks_path(here, here)` is a degenerate zero-length
+#    segment — and `AABB.intersects_segment(p, p)` is true whenever the point is inside the box.
+#    `_enter_stagger()`'s own comment says the creature routinely falls "dead-center in a doorway",
+#    so slamming that door restarted a 10 s block on a creature that was already down, adding 10 s
+#    to a beat whose length the level announces out loud.
+# 2. **A degenerate segment is never fed to the AABB test at all**, whatever the state.
+# 3. **A proximity gate.** `check_blocks_path()` is a pure segment/AABB test with no distance term,
+#    so a door 25 m up the corridor that happens to lie on the line stopped the creature dead in
+#    open floor for 10 s. ⚠️ This gate is also what makes the contact check staying live during a
+#    block FAIR (see `creature_object12.gd:_process`) — with it, "battering" and "on top of you"
+#    are the same place. The two changes ship together or neither does.
+const BATTER_REACH := 4.0
+
+
 func _tick_slam_doors() -> void:
-	if not _creature or _creature.get_state() == CreatureObject12.State.PATROL:
+	if not _creature:
+		return
+	var st: int = _creature.get_state()
+	if st == CreatureObject12.State.PATROL or st == CreatureObject12.State.STAGGERED:
 		return
 	var here := _creature.get_creature_position()
 	var target := _creature.get_current_target()
+	if here.distance_to(target) < 0.05:
+		return
 	for door in _slam_doors:
+		if here.distance_to(door.global_position) > BATTER_REACH:
+			continue
 		if door.check_blocks_path(here, target):
 			door.start_battering(_creature)
 
@@ -422,6 +501,9 @@ func _tick_slam_doors() -> void:
 
 func _spawn_purge_chamber() -> void:
 	_purge_chamber = PurgeChamber.new()
+	# ⚠️ NAMED. It was the only door in the level Godot auto-named ("@StaticBody3D@187"), which
+	# makes it unfindable by anything that looks a prop up by name — Issue 17's shape.
+	_purge_chamber.name = "PurgeChamber"
 	_purge_chamber.position = Vector3(0, 0, 55)
 	# World-space AABB of the Incinerator room (pos (0,58.5) size (7,7) -> z 55..62).
 	_purge_chamber.trap_bounds = AABB(Vector3(-3.5, -0.5, 55.0), Vector3(7.0, 4.5, 7.0))
@@ -527,11 +609,12 @@ func _make_note(pos: Vector3, y_rot: float, text: String) -> void:
 
 func _spawn_level_doors() -> void:
 	var back := _make_door("BackDoor", false, true)
-	back.position = Vector3(0, 1.1, -2.85)
+	back.position = Vector3(0, 1.2, -2.85)
 
 	_exit_door = _make_door("ExitDoor", true, false)
-	_exit_door.position = Vector3(0, 1.1, 61.85)
+	_exit_door.position = Vector3(0, 1.2, 61.85)
 	_exit_door.rotation.y = PI
+	_place_door_casings()
 
 
 func _make_door(door_name: String, advances: bool, back: bool) -> StaticBody3D:
@@ -541,24 +624,171 @@ func _make_door(door_name: String, advances: bool, back: bool) -> StaticBody3D:
 	body.advances_level = advances
 	body.goes_back = back
 	add_child(body)
-	var mesh := MeshInstance3D.new()
-	mesh.name = "DoorMesh"
-	var bm := BoxMesh.new()
-	bm.size = Vector3(1.0, 2.2, 0.15)
-	mesh.mesh = bm
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.15, 0.01, 0.01)
-	mat.emission_enabled = true
-	mat.emission = Color(0.35, 0.02, 0.02)
-	mat.emission_energy_multiplier = 1.5   # matches CLAUDE.md's door convention (untextured box)
-	mesh.set_surface_override_material(0, mat)
-	body.add_child(mesh)
+	# ⭐ THROUGH `door.gd:build_visual()` SINCE 2026-09-03, and it should always have been.
+	#
+	# ⚠️ WHAT THIS REPLACED. A hand-rolled `BoxMesh(1.0, 2.2, 0.15)` at albedo (0.15,0.01,0.01)
+	# with emission (0.35,0.02,0.02) at multiplier **1.5** — i.e. verbatim the UNTEXTURED branch
+	# of `door_material()`, which `door.gd:26-40` documents as the "red brick" fallback it was
+	# superseded by. This file has `preload`ed `door.gd` since the day it was written (see
+	# `_DOOR_SCRIPT`) and simply never called its builder, so the Breach's two doors were flat
+	# emissive slabs while every other level in the game had real leaves.
+	#
+	# ⚠️ It escaped `check_art_aspect.gd` for the same reason it looked wrong: a prop carrying NO
+	# texture has no aspect to be stretched, so the one guard that sweeps all nine levels for
+	# distorted artwork had nothing to say about it. `level_6_breach/` had no door texture at
+	# all until `tools/make_breach_door.py`.
+	#
+	# ⚠️ 1.6 x 2.4, not 1.0 x 2.2: these are freight doors in a containment wing, and the
+	# doorways around them are 1.8 m. `build_visual()` puts the art on a QuadMesh and the edge on
+	# a box (Issue 24), and `door_material()`'s TEXTURED branch drops the emission multiplier to
+	# 0.08 — at 1.5 a textured leaf renders salmon pink at this level's light levels (Issue 21).
+	const DOOR_SIZE := Vector3(1.6, 2.4, 0.14)
+	# ⚠️ MULTIPLY, matching the slam doors (2026-09-07). `door.gd`'s default is Godot's ADD, which
+	# lays a flat red wash over the whole leaf; the slam doors tint the texture's own shape. Same
+	# PNG, two different pictures. The RED stays — these are the only two doors in the level that
+	# are actually a way out.
+	_DOOR_SCRIPT.build_visual(body, DOOR_SIZE, DOOR_TEX, 1.0, true)
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(1.0, 2.2, 0.2)
+	shape.size = Vector3(DOOR_SIZE.x, DOOR_SIZE.y, DOOR_SIZE.z + 0.06)
 	col.shape = shape
 	body.add_child(col)
+	_build_door_casing(body, DOOR_SIZE)
 	return body
+
+
+# ⭐ A CASING, so the leaf reads as a door in a wall rather than a picture ON one.
+#
+# ⚠️ `door.gd:build_visual()` gives you a leaf and nothing else — every level that wants the
+# door to look SEATED builds its own architrave (`corridor.gd:_spawn_door_frame()`,
+# `intro_room.gd:_build_door_casing()`, `slam_door.gd:_build_frame()`). The Breach never did, so
+# even after the leaf became real artwork it rendered as a flat rectangle floating on flat
+# concrete. Two jambs and a head is the whole fix.
+#
+# ⚠️ NO COLLIDERS. A collider on the only doorway wall is how this project seals a room by
+# accident — `intro_room.gd` carries the same warning verbatim, and `check_doorways.gd` sweeps
+# all nine levels for exactly that.
+# ⚠️ SIBLINGS of the leaf, never children: `door.gd` frees or flashes the leaf, and a frame that
+# went with it would leave a hole.
+# Second half of `_build_door_casing()`: now that every door has its final position and yaw,
+# move each casing piece into place. Split in two because `_spawn_level_doors()` sets the
+# transform after `_make_door()` returns.
+func _place_door_casings() -> void:
+	for child in get_children():
+		if not (child is MeshInstance3D) or not child.has_meta("casing_for"):
+			continue
+		var door := get_node_or_null(child.get_meta("casing_for")) as Node3D
+		if door == null:
+			continue
+		child.global_transform = door.global_transform.translated_local(
+			child.get_meta("casing_offset"))
+
+
+# ⭐ ONE ARCHITRAVE FOR THE WHOLE LEVEL (2026-09-07, from *"make sure all the doors look the
+# same"*). The Breach had THREE frame profiles and nine openings with none at all: the exit casing
+# was jamb 0.10 / depth 0.13 / metallic 0.45, `slam_door.gd`'s frame is jamb 0.08 / depth 0.26 /
+# metallic 0.3, and `purge_chamber.gd`'s is jamb 0.10 / depth 0.26 / metallic 0.6.
+#
+# ⚠️ THE BREACH-LOCAL GEOMETRY MOVES TO MATCH THE SLAM DOORS, NEVER THE REVERSE.
+# `slam_door.gd`'s `JAMB_T`, `FRAME_D` and `LEAF_H` are `const` and shared with THE NIGHTMARE's
+# 27 doors / 54 leaves; changing them there would re-dress a level nobody asked about.
+const FRAME_TINT := Color(0.07, 0.07, 0.07)   # slam_door.gd's frame material
+const FRAME_METALLIC := 0.3
+const FRAME_ROUGH := 0.6
+const FRAME_JAMB := 0.08                       # slam_door.gd:JAMB_T
+const FRAME_DEPTH := 0.26                      # slam_door.gd:FRAME_D
+# ⚠️ DEPTH MUST EXCEED `RoomBuilder.T` (0.2) OR THE CASING IS BURIED. A 0.13-deep casing centred
+# on the doorway plane spans -0.065..+0.065 inside a wall that spans -0.1..+0.1 — invisible from
+# both faces. That is the same fault `purge_chamber.gd` records for its own jambs.
+
+
+static func _frame_material() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = FRAME_TINT
+	m.metallic = FRAME_METALLIC
+	m.roughness = FRAME_ROUGH
+	return m
+
+
+func _build_door_casing(body: Node3D, size: Vector3) -> void:
+	var mat := _frame_material()
+	const T := FRAME_JAMB
+	const D := FRAME_DEPTH
+	var parent := body.get_parent()
+	if parent == null:
+		return
+	for spec in [
+			{"n": "CasingL", "s": Vector3(T, size.y + T * 2.0, D),
+				"p": Vector3(-(size.x * 0.5 + T * 0.5), 0.0, 0.0)},
+			{"n": "CasingR", "s": Vector3(T, size.y + T * 2.0, D),
+				"p": Vector3(size.x * 0.5 + T * 0.5, 0.0, 0.0)},
+			{"n": "CasingHead", "s": Vector3(size.x + T * 2.0, T, D),
+				"p": Vector3(0.0, size.y * 0.5 + T * 0.5, 0.0)}]:
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = spec["s"]
+		mi.mesh = bm
+		mi.name = "%s_%s" % [body.name, spec["n"]]
+		mi.set_surface_override_material(0, mat)
+		parent.add_child(mi)
+		# ⚠️ Positioned in the DOOR's frame and then baked to world, because the caller sets
+		# `body.position` and `body.rotation.y` AFTER `_make_door()` returns — a casing parented
+		# to the level and positioned from `body.global_position` here would sit at the origin.
+		mi.set_meta("casing_offset", spec["p"])
+		mi.set_meta("casing_for", body.get_path())
+
+
+# ⭐ THE NINE BARE OPENINGS GET THE SAME CASING (2026-09-07, the user's call).
+#
+# `RoomBuilder` cuts a doorway as a rectangular hole floor-to-ceiling with no lintel, no jamb and
+# no threshold, showing the wall's own skin on the cut edges. Fourteen of this level's openings
+# carry a door (4 slam + 1 purge) or are a wall prop; the other NINE were raw holes standing
+# beside seven framed doors — arguably the level's biggest visual inconsistency, and the reason
+# "all the doors look the same" could not be answered by touching only the doors.
+#
+# ⚠️ BUILT HERE, NOT IN `RoomBuilder`. That class is shared by the Lab, the House, KONTUR, the
+# Breach and THE NIGHTMARE; framing doorways there would re-dress five levels.
+# ⚠️ NO COLLIDERS. A collider on the only doorway wall is how this project seals a room by
+# accident — `check_doorways.gd` exists because of exactly that.
+func _frame_bare_openings() -> void:
+	var taken := {}
+	for d in _slam_doors:
+		if is_instance_valid(d):
+			taken[Vector2(snappedf((d as Node3D).global_position.x, 0.1),
+				snappedf((d as Node3D).global_position.z, 0.1))] = true
+	if _purge_chamber:
+		taken[Vector2(snappedf(_purge_chamber.global_position.x, 0.1),
+			snappedf(_purge_chamber.global_position.z, 0.1))] = true
+
+	var mat := _frame_material()
+	var h: float = RoomBuilder.DEFAULT_H
+	for entry in DOORS:
+		var p: Vector2 = entry["pos"]
+		if taken.has(Vector2(snappedf(p.x, 0.1), snappedf(p.y, 0.1))):
+			continue
+		var w: float = float(entry["width"])
+		var holder := Node3D.new()
+		holder.name = "Casing_%.0f_%.0f" % [p.x, p.y]
+		holder.position = Vector3(p.x, 0.0, p.y)
+		# "z" means the doorway is cut in a wall perpendicular to z, so its width runs along x.
+		holder.rotation.y = 0.0 if String(entry["dir"]) == "z" else PI / 2.0
+		add_child(holder)
+		for spec in [
+				{"s": Vector3(FRAME_JAMB, h, FRAME_DEPTH),
+					"p": Vector3(-(w * 0.5 + FRAME_JAMB * 0.5), h * 0.5, 0.0)},
+				{"s": Vector3(FRAME_JAMB, h, FRAME_DEPTH),
+					"p": Vector3(w * 0.5 + FRAME_JAMB * 0.5, h * 0.5, 0.0)},
+				# The head sits just under the ceiling — the opening is full height, so there is
+				# no lintel to imitate, only the top edge to finish.
+				{"s": Vector3(w + FRAME_JAMB * 2.0, 0.1, FRAME_DEPTH),
+					"p": Vector3(0.0, h - 0.05, 0.0)}]:
+			var mi := MeshInstance3D.new()
+			var bm := BoxMesh.new()
+			bm.size = spec["s"]
+			mi.mesh = bm
+			mi.position = spec["p"]
+			mi.set_surface_override_material(0, mat)
+			holder.add_child(mi)
 
 
 func _refresh_exit() -> void:

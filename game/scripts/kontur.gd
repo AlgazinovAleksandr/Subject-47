@@ -204,7 +204,7 @@ func _ready() -> void:
 	_spawn_level_doors()
 	_refresh_exit()
 	_start_ambience()
-	_boost_ambient(0.3)
+	_boost_ambient(DARK_AMBIENT)
 
 	GameState.set_objective("PROTOCOL 4-B — PROCEED TO THE MARKED EXIT")
 
@@ -505,17 +505,38 @@ func _reopen_passed_gates() -> void:
 
 # ---------------------------------------------------------------- lighting
 
+# ⭐ THE SOVIET HALF IS DARK (2026-09-03, the user's call, D2).
+#
+# ⚠️ THE SOVIET HALF ONLY — the clinical Airlock/Escort/Terminus wing keeps every lamp. That is
+# a deliberate limit on "KONTUR should be completely dark", taken with the user, because two of
+# this level's beats are MADE of light:
+#   * Gate 7's whole puzzle is that the Blackout room is the room with no lamp. In a level where
+#     nothing is lit, "the unlit room" stops being a place;
+#   * `_ev_escort_begins()` kills every lamp with z < 68 as you commit to the escort corridor.
+#     With the Soviet half already dark that beat still fires — it takes the Airlock's 1.0 lamp,
+#     the brightest thing in the level, out from behind you.
+# So the darkness runs Landing -> Switchboard and stops at the Blackout, which is exactly the
+# boundary the level's own visual arc already uses (peeling wallpaper -> infected concrete ->
+# clinical tile).
+#
+# ⚠️ ZERO, NOT REMOVED. `check_fixtures.gd` asserts a minimum fitting count per level and every
+# fitting is created by `_add_lamp()`; and `_ev_escort_begins()` iterates `_lights` looking for
+# `entry[1]` to zero, which needs the entries to exist.
+const DARK_AMBIENT := 0.02
+const SOVIET_DARK := 0.0
+
 func _spawn_lights() -> void:
-	# Soviet half: sickly, weak, warm-green. Facility half: cold and bright.
-	_add_lamp("Landing", Vector3(0, 2.6, 0), 0.55, Color(0.9, 0.78, 0.5))
-	_add_lamp("Vestibule", Vector3(0, 2.6, 7), 0.5, Color(0.85, 0.8, 0.55))
-	_add_lamp("PassageA", Vector3(0, 2.6, 15), 0.4, Color(0.7, 0.8, 0.65))
-	_add_lamp("PassageB", Vector3(0, 2.6, 19), 0.32, Color(0.7, 0.8, 0.65))
-	_add_lamp("Kitchen", Vector3(0, 2.6, 23.5), 0.5, Color(0.9, 0.8, 0.55))
-	_add_lamp("Records", Vector3(0, 2.6, 31), 0.45, Color(0.8, 0.8, 0.6))
-	_add_lamp("ArchiveA", Vector3(0, 2.6, 37.5), 0.4, Color(0.75, 0.8, 0.7))
-	_add_lamp("ArchiveB", Vector3(0, 2.6, 42), 0.4, Color(0.75, 0.8, 0.7))
-	_add_lamp("Switchboard", Vector3(0, 2.6, 47.5), 0.42, Color(0.75, 0.78, 0.7))
+	# Soviet half: DARK — the torch is the only thing that finds anything here.
+	# Facility half: cold and bright, unchanged.
+	_add_lamp("Landing", Vector3(0, 2.6, 0), SOVIET_DARK, Color(0.9, 0.78, 0.5))
+	_add_lamp("Vestibule", Vector3(0, 2.6, 7), SOVIET_DARK, Color(0.85, 0.8, 0.55))
+	_add_lamp("PassageA", Vector3(0, 2.6, 15), SOVIET_DARK, Color(0.7, 0.8, 0.65))
+	_add_lamp("PassageB", Vector3(0, 2.6, 19), SOVIET_DARK, Color(0.7, 0.8, 0.65))
+	_add_lamp("Kitchen", Vector3(0, 2.6, 23.5), SOVIET_DARK, Color(0.9, 0.8, 0.55))
+	_add_lamp("Records", Vector3(0, 2.6, 31), SOVIET_DARK, Color(0.8, 0.8, 0.6))
+	_add_lamp("ArchiveA", Vector3(0, 2.6, 37.5), SOVIET_DARK, Color(0.75, 0.8, 0.7))
+	_add_lamp("ArchiveB", Vector3(0, 2.6, 42), SOVIET_DARK, Color(0.75, 0.8, 0.7))
+	_add_lamp("Switchboard", Vector3(0, 2.6, 47.5), SOVIET_DARK, Color(0.75, 0.78, 0.7))
 	# NO lamp in the Blackout — the name is the gate. Gate 7 is unplayable if lit.
 	_add_lamp("Airlock", Vector3(_dark_x, 2.6, 63), 1.0, Color(0.85, 0.95, 1.0))
 	for i in range(5):
@@ -552,15 +573,19 @@ func _spawn_dread() -> void:
 	zone.add_child(col)
 	add_child(zone)
 
-	# The infected middle is also dark — the flashlight matters here.
-	var dark := DarkZone.new()
-	var dcol := CollisionShape3D.new()
-	var dshape := BoxShape3D.new()
-	dshape.size = Vector3(10, 4, 7)
-	dcol.shape = dshape
-	dark.add_child(dcol)
-	dark.position = Vector3(0, 2.0, 16.5)
-	add_child(dark)
+	# ⚠️ THE PASSAGE'S `DarkZone` IS GONE (2026-09-03, D4). It sat at (0, 2.0, 16.5) over
+	# PassageA/PassageB and its comment read "the infected middle is also dark — the flashlight
+	# matters here", which was true while those rooms had lamps at 0.4 and 0.32: crossing them
+	# with the torch down was a choice, and +3/s was its price.
+	#
+	# It is not a choice now. The Soviet half runs at SOVIET_DARK with the level at DARK_AMBIENT,
+	# so the torch is the only way to cross ANY of these rooms and the tax no longer
+	# distinguishes the Passage from its neighbours. Worse, it sits UNDER the level-wide
+	# `DreadZone` above — `player.gd`'s panic chain adds dark-zone tax on top of dread pressure
+	# and the dark branch also suppresses decay, so this was **+5/s with no way down** in a
+	# corridor the player now has no way to cross unlit. Issue 18, and the same argument
+	# `kontur.gd` itself makes 600 lines further on for why Gate 7's Blackout room has never had
+	# one. `check_darkness.gd` asserts the absence, with a control.
 
 
 # A wrong answer. Survivable on its own; the third one is not, because add_panic()
@@ -1129,7 +1154,11 @@ func _spawn_gate6_hammer() -> void:
 	else:
 		mat.albedo_color = Color(0.35, 0.3, 0.22)
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	# ⚠️ SHADED since 2026-09-03 — it was UNSHADED, i.e. self-lit, and once the Soviet half went
+	# dark a rusty hammer hung glowing in a black stairwell. It sits 2 m from the spawn point on
+	# the player's first sweep of the room, so the torch finds it immediately; what it must not
+	# do is find the player.
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
 	mesh.set_surface_override_material(0, mat)
 	hammer.add_child(mesh)
 
@@ -1885,6 +1914,14 @@ const STENCIL_TINT := Color(0.30, 0.28, 0.23)
 func _spawn_stencils() -> void:
 	for row in STENCILS:
 		var lbl := Label3D.new()
+	# ⚠️ SHADED (2026-09-03). `Label3D` is UNSHADED by default, i.e. self-lit — it renders at full
+	# `modulate` with no light on it at all. That was invisible while the Soviet half ran at
+	# 0.55-0.32 lamp energy and became the level's loudest bug the moment it went dark: with the
+	# torch off, the stencils, the mailbox slot numbers and the Archive lot cards were the ONLY
+	# things on screen, floating in a black room. These are PAINT and PRINT — they have to be
+	# found by the torch like everything else. Anti-pattern §5.2(8), and `check_darkness.gd`
+	# asserts it.
+		lbl.shaded = true
 		lbl.name = "Stencil_%s" % row[0]
 		lbl.text = row[3]
 		lbl.font_size = 64
@@ -1902,6 +1939,7 @@ func _spawn_stencils() -> void:
 	for row2 in [["Ш-9\nШЛЮЗ", Vector3(_dark_x - 1.84, STENCIL_Y, 63.0), PI / 2.0],
 			["Т-11\nТЕРМИНАЛ", Vector3(_dark_x - 2.84, STENCIL_Y, 95.0), PI / 2.0]]:
 		var l2 := Label3D.new()
+		l2.shaded = true
 		l2.name = "Stencil_%s" % String(row2[0]).split("\n")[0]
 		l2.text = row2[0]
 		l2.font_size = 64
@@ -2215,6 +2253,7 @@ func _build_lot(side: float, shelf: int, z: float, kind: String, card: String) -
 				_mb_box(root, "PlateScrew", Vector3(0.016, 0.016, 0.008),
 					Vector3(sx4 * 0.105, 0.10, 0.014), tin)
 			var num := Label3D.new()
+			num.shaded = true
 			num.text = "217"
 			num.font_size = 64
 			num.pixel_size = 0.0011
@@ -2245,6 +2284,7 @@ func _build_lot(side: float, shelf: int, z: float, kind: String, card: String) -
 
 	# The card. On the shelf LIP, under the lot, facing the aisle.
 	var lbl := Label3D.new()
+	lbl.shaded = true
 	# ⚠️ A UNIQUE NAME PER CARD (Issue 17, and this file has now hit it three times).
 	# Six siblings called "LotCard" and Godot renames five of them to @Label3D@NN, so
 	# anything that looks one up — including the guard that checks they face the aisle —
@@ -2315,6 +2355,7 @@ func _mb_slot(box: Node3D, n: int, at: Vector3, cw: float, ch: float,
 		Vector3(-cw * 0.22, ch * 0.20, door_size.z / 2.0 + 0.004), card)
 
 	var lbl := Label3D.new()
+	lbl.shaded = true
 	lbl.text = str(n)
 	lbl.pixel_size = 0.0016
 	lbl.font_size = 48

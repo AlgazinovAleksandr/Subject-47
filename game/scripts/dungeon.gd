@@ -754,6 +754,13 @@ func _spawn_props() -> void:
 		var d: Dictionary = _gen.doorways[idx]
 		var door := _SLAM_SCRIPT.new()
 		door.name = "Slam_%d" % idx
+		# ⚠️ THE DUNGEON'S DOORWAYS ARE 2.2 m WIDE AND ITS ROOMS 3.2 m TALL, and SlamDoor's
+		# defaults are the Breach's 1.8 / 3.0. Left at the defaults, a "closed" dungeon door
+		# leaves 0.2 m of gap each side and 0.2 m of open air above — it had 0.55 m and 1.0 m
+		# before the class was sized at all. These MUST track dungeon_gen.gd's own constants.
+		door.door_width = DungeonGen.DOOR_WIDTH
+		door.door_height = DungeonGen.ROOM_H
+		door.door_texture = TEX + "dungeon_door.png"
 		door.position = Vector3(d["pos"].x, 0.0, d["pos"].y)
 		door.rotation.y = 0.0 if d["dir"] == "z" else PI / 2.0
 		add_child(door)
@@ -1414,15 +1421,29 @@ func _tick_ambient_dip() -> void:
 	_env.ambient_light_energy = _base_ambient * (1.0 - 0.85 * dip)
 
 
+# ⚠️ THE SAME THREE GUARDS AS `level_6_breach.gd:_tick_slam_doors()` — see the long comment there
+# for what each one closes. This is the second copy of that loop and it had the identical faults:
+# STAGGERED was not excluded, a degenerate zero-length segment was fed to the AABB test, and a door
+# anywhere on the line could stop the Matron in open floor for 10 s.
+const BATTER_REACH := 4.0
+
+
 func _tick_slam_doors() -> void:
 	if not _matron_present or _matron == null:
 		return
-	if _matron.get_state() == 0:   # State.PATROL — nothing to block
+	var st: int = _matron.get_state()
+	if st == 0 or st == 4:   # State.PATROL (nothing to block) / State.STAGGERED (already down)
 		return
 	var here: Vector3 = _matron.get_creature_position()
 	var target: Vector3 = _matron.get_current_target()
+	if here.distance_to(target) < 0.05:
+		return
 	for d in _slam_doors:
-		if is_instance_valid(d) and d.check_blocks_path(here, target):
+		if not is_instance_valid(d):
+			continue
+		if here.distance_to((d as Node3D).global_position) > BATTER_REACH:
+			continue
+		if d.check_blocks_path(here, target):
 			d.start_battering(_matron)
 
 

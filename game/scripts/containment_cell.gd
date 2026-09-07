@@ -18,7 +18,9 @@ class_name ContainmentCell
 # that level is 6. The booth's collider is the only physical thing here; the occupant has
 # none. If a future session wants this to open, it is a new level, not an edit.
 #
-# ⚠️ IT USES `Void_creature.glb` AND `creature_object12.gd`'s PALETTE — HUE SHARED, LEVEL
+# ⚠️ IT USES `hollow_crown.glb` (`CreatureAnim.GLB_PATH`, the same asset the Breach's Object 12
+# and the Void's stalkers use — it replaced `Void_creature.glb`, which had no animations at all,
+# on 2026-09-03) AND `creature_object12.gd`'s PALETTE — HUE SHARED, LEVEL
 # SCALED (revised 2026-08-18). Meeting it here and being hunted by it one level later have
 # to be recognisably the same thing, so `SPECIMEN_ALBEDO` and `SPECIMEN_EMISSION_COLOR`
 # are that script's colours verbatim and are not to be re-picked. What is NOT shared is the
@@ -47,7 +49,17 @@ class_name ContainmentCell
 # ⚠️ Emission does not illuminate anything in this project (no GI, no glow), so a liner
 # raises the BACKGROUND without touching the figure. That is the whole reason it works.
 
-const GLB_PATH := "res://assets/models/Void_creature.glb"
+# ⚠️ The model is loaded by `CreatureAnim`, not from here — one path, one place. GLB_PATH is
+# kept only because it is the name the header and the tests talk about; it now points at the
+# same asset `creature_anim.gd` uses, and a mismatch between the two would mean the cell showed
+# a different creature from the one that hunts you in the Breach, which is the entire point of
+# this prop.
+const GLB_PATH := CreatureAnim.GLB_PATH
+
+# The caged specimen breathes. See `_build_occupant()` for why this clip and this rate.
+const IDLE_RATE := 0.15
+
+var _anim: CreatureAnim = null
 
 const SIZE := Vector2(2.0, 2.0)   # footprint, x by z
 const HEIGHT := 2.6
@@ -284,15 +296,18 @@ func _build_occupant() -> void:
 	add_child(_occupant)
 
 	var visual: Node3D
-	if ResourceLoader.exists(GLB_PATH):
-		var scene: PackedScene = load(GLB_PATH)
-		visual = scene.instantiate()
-		# Blender adds a stray base cube to the export (creature_object12.gd removes the
-		# same one) — keep only the character.
-		var cube := visual.get_node_or_null("Cube")
-		if cube:
-			cube.queue_free()
-		_pose_arms_down(visual)
+	# ⭐ IT BREATHES NOW (2026-09-03). `_anim` is null only if the asset is missing.
+	_anim = CreatureAnim.build(_occupant)
+	if _anim:
+		visual = _anim.visual_root()
+		# ⚠️ `unsteady` (3.0 s), NEVER `shamble`. Measured over a full cycle, `shamble` wanders
+		# 0.515 m laterally and `unsteady` 0.197 m — and this booth's interior is about 2 m
+		# across with the occupant standing in the middle of it. At 5.5 s a shamble would
+		# visibly walk the specimen into its own glass.
+		# ⚠️ IDLE_RATE 0.15 gives the 3 s clip a ~20 s period: it reads as breathing and
+		# shifting weight, not as pacing. Still zero rules — no ScaryObject, no collider, no
+		# panic, no kill radius. It is a thing in a box that is alive.
+		_anim.play(CreatureAnim.CLIP_UNSTEADY, IDLE_RATE)
 	else:
 		# Fallback silhouette, so a missing GLB leaves a shape rather than an empty box.
 		visual = Node3D.new()
@@ -310,17 +325,27 @@ func _build_occupant() -> void:
 		head.mesh = sph
 		head.position.y = 2.32
 		visual.add_child(head)
-	_occupant.add_child(visual)
+		_occupant.add_child(visual)
 
 	# `creature_object12.gd`'s palette, scaled for this level's viewing distance — see the
 	# header for the measurement, and `SPECIMEN_DIM` for how to put it back.
-	_occupant_material = _specimen_mat()
+	#
+	# ⚠️ It DUPLICATES the model's own material now rather than building a fresh one, so the
+	# 1024 skin survives and SPECIMEN_ALBEDO multiplies it instead of replacing it. The three
+	# palette constants are unchanged; only their meaning moved.
 	var applied := 0
-	for mi in _mesh_instances(visual):
-		mi.material_override = _occupant_material
-		applied += 1
-	# ⚠️ A GLB WITH ONE MESH TODAY IS NOT A CONTRACT. `Void_creature.glb` currently
-	# instantiates a single skinned `WhiteClown` under `Armature/Skeleton3D`, and if a
+	if _anim:
+		_occupant_material = _anim.apply_tint(
+			SPECIMEN_ALBEDO, SPECIMEN_DIM, SPECIMEN_SPECULAR,
+			SPECIMEN_EMISSION_COLOR, SPECIMEN_EMISSION)
+		applied = _anim.mesh_instances().size()
+	else:
+		_occupant_material = _specimen_mat()
+		for mi in _mesh_instances(visual):
+			mi.material_override = _occupant_material
+			applied += 1
+	# ⚠️ A GLB WITH ONE MESH TODAY IS NOT A CONTRACT. `hollow_crown.glb` currently
+	# instantiates a single skinned `char1` under `Armature/Skeleton3D`, and if a
 	# re-export ever splits it, an override that reached only some of the parts would
 	# render half a pale man and look like a lighting bug rather than a missing call.
 	# `check_kontur_entities.gd` asserts every renderable carries this exact material.
@@ -328,26 +353,10 @@ func _build_occupant() -> void:
 		push_warning("ContainmentCell: no MeshInstance3D to retint — occupant will render raw")
 
 
-const _ARM_DROP_DEG := 80.0
-const _FOREARM_TUCK_DEG := 12.0
-
-func _pose_arms_down(instance: Node3D) -> void:
-	var skel := instance.find_child("Skeleton3D", true, false) as Skeleton3D
-	if not skel:
-		return
-	_rotate_bone(skel, "mixamorig_LeftArm", deg_to_rad(_ARM_DROP_DEG))
-	_rotate_bone(skel, "mixamorig_RightArm", deg_to_rad(-_ARM_DROP_DEG))
-	_rotate_bone(skel, "mixamorig_LeftForeArm", deg_to_rad(_FOREARM_TUCK_DEG))
-	_rotate_bone(skel, "mixamorig_RightForeArm", deg_to_rad(-_FOREARM_TUCK_DEG))
-
-
-func _rotate_bone(skel: Skeleton3D, bone_name: String, angle_z: float) -> void:
-	var idx := skel.find_bone(bone_name)
-	if idx == -1:
-		return
-	var rest := skel.get_bone_rest(idx)
-	skel.set_bone_pose_rotation(idx,
-		rest.basis.get_rotation_quaternion() * Quaternion(Vector3.FORWARD, angle_z))
+# ⚠️ `_pose_arms_down()` / `_rotate_bone()` used to live here, a byte-identical third copy of
+# the same dead code in `creature_stalker.gd` and `creature_object12.gd`. It was measured in
+# 2026-08 to move nothing at all, and the model it was compensating for (a T-pose with no
+# animation tracks) has been replaced. Deleted rather than ported.
 
 
 func _build_audio() -> void:

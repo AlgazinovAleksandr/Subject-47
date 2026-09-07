@@ -56,6 +56,13 @@ fi
 # index of what this suite actually covers.
 TESTS=(
   check_audio_buses           # the silence architecture: Body survives a dip, beds nest
+  check_scare_loudness        # the stings are LOUD, and the fatal path cuts to black first
+  check_creature_model        # the ASSET: six clips, no root motion, not metal, not self-lit
+  check_creature_anim         # the WIRING: each state's gait, and the Weeping-Angel freeze
+  check_darkness              # Lab/House/KONTUR start black, the torch is infinite, no DarkZones
+  check_dark_payoffs          # ...and the light EARNS its way back: 3 breakers, 3 notes
+  check_apparition_framing    # the apparition ends up ON SCREEN — 8/23 before the fix
+  check_lab_apparition_timing # the Lab's taught apparition is on a clock, not 1.7 s of walking
   check_intro_beats           # the Intro's dread beats, and that it stays UNLOSEABLE
   check_intro_geometry        # Intro wall props are ON their wall (door gap, planks, switch)
   check_art_aspect            # ALL NINE levels: every texture is shown at its own aspect
@@ -77,6 +84,7 @@ TESTS=(
   check_flood_drowned         # THE DROWNED — 6 searchables found by ear, 3 events, zero panic
   check_flood_puzzle          # the Flood is a puzzle: 6 fragments, the plate, an earned exit
   check_sprawl_crate          # the box in the dark: both routes to the real wall, independently
+  check_sprawl_walls          # all four walls read WRONG until the runner turns exactly one
   check_shell_sealed          # ALL NINE levels: you cannot see out, and every point has a ceiling
   check_backrooms_occupants   # the Congregation has NO rules and never lands in your view
   check_backrooms_audio       # the score leads the mix; the Flood's drips stay in the Flood
@@ -92,12 +100,19 @@ TESTS=(
   check_intro_gate            # BACKLOG #12 — no Level 1 without reading the note
   check_kontur_bottles        # BACKLOG #22 — the vinegar softlock
   check_flood_notes           # BACKLOG #24 — the roster digits are findable
-  check_cellar_key            # BACKLOG #16 — the key must be used, not just found
+  check_cellar_key            # BACKLOG #16 — the key must be used, not just found, AND the
+                              #   doorway clears, AND its planks are on the leaf
   check_journal               # the notes journal, and that trap notes stay out of it
   check_lock_input            # the lock takes typed digits, and keeps its Esc hint on a miss
   check_level_resume          # BACKLOG #30 — going back keeps your progress
+  check_breach_creature_beats  # familiarization, the light-weapon gate, and a stagger that ENDS
+  check_breach_doors          # every door carries art; one emission rule; red only on exits
+  check_hiding_spots          # the real enter/exit cycle: the torch comes back, the peek looks out
+  check_frozen_sprint         # a frozen player stops sprinting: no +6 panic/s standing still
   check_level6_breach         # BACKLOG #28 — SlamDoor type crash + doorway clearance
+  check_slam_door_seals       # a CLOSED slam door actually spans its doorway, both widths
   check_purge_interact        # Level 6 win path is reachable by a real E press
+  check_purge_softlock        # winning the level does not wall you out of its exit
   check_interact_reach        # L6/L7 props answer E from a real distance, aiming at the ART
   check_lab_locker            # Lab locker gate + NO_LAMP_ROOMS stay dark
   check_lab_breaker_gate      # a partly-shoved locker must not SHOW or hand over the breaker
@@ -132,6 +147,7 @@ TESTS=(
   check_reachable             # ALL NINE levels: can the player STAND where each prop is
   autoplay_exit_reachable     # every level's exit can be WALKED to and E'd on
   autoplay_house_route        # …and no House prop can SEAL a route by being opened
+  autoplay_lab_nook           # how FAR the nook figure is when it appears, on a real walk
   count_apparitions           # BACKLOG #6 — apparitions are rare, and still happen
 )
 

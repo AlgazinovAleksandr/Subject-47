@@ -41,9 +41,11 @@ const BEARTRAPS := [  # [distance, lateral offset]
 # of the unconditional +2/s dread pressure), so any stretch tagged as both was a
 # guaranteed +5/s with the flashlight off — and the noclip ending (_ev_noclip_onset)
 # FORCE-KILLS the flashlight for the final ~10 m with zero player agency to avoid
-# it. A long level with beartrap QTEs earlier can also burn through the 240 s
-# battery before reaching here, forcing the same double tax by attrition rather
-# than choice. Either way it made the ending an unavoidable panic spike report
+# it. (⚠️ The second half of this reasoning is now HISTORY, not a live hazard: it used to add
+# that "a long level with beartrap QTEs earlier can also burn through the 240 s battery before
+# reaching here". The battery has been infinite since 2026-09-03 — see `player.gd:
+# INFINITE_BATTERY` — so attrition can no longer force the tax. The force-kill above still can,
+# which is why the zone stays dropped.) Either way it made the ending an unavoidable panic spike
 # read as "impossible." Dropped entirely — the dread zone's own pressure is
 # already this stretch's difficulty signature; it doesn't need a second, stacking
 # mechanic under it.

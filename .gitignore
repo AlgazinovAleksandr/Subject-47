@@ -107,9 +107,47 @@ assets_src/video/*.mp4
 assets_src/audio/**/*.flac
 assets_src/**/*_pre2026-*
 assets_src/textures/**/*_raw.*
+# ⚠️ THE 91 MB EXCEPTION (2026-09-03). `assets_src/models/hollow_crown/` holds the six Meshy
+# source GLBs that `tools/merge_creature_glb.py` reads as INPUT, so by this file's own rule
+# ("committed if an automated step reads it") they should be tracked. They are not, and the
+# reason is arithmetic: they are 15.2 MB EACH and identical apart from one animation track, so
+# committing them would put 91 MB of duplicated mesh into a repo whose .git is already 854 MB —
+# permanently, since a blob stays in history. The 9.8 MB merged artefact in
+# `game/assets/models/hollow_crown.glb` IS committed and is what the game loads.
+# ⚠️ CONSEQUENCE, stated so it is not discovered: the creature model cannot be re-merged from a
+# fresh clone. Same trade as the five cutscenes, and `assets_src/README.md` records the SHA-256s
+# so a re-download can be checked against what shipped.
+assets_src/models/
+
+# `tools/remaster_scares.py` copies each sting here before it overwrites it. Local-only: a safety
+# net for the person running the tool, not an input to it — the tool refuses to re-process a file
+# it has already processed, and the shipped audio is what the game loads.
+assets_src/audio/pre_remaster/
+
+# ⚠️ THE SUPPLIED CREATURE ZIP, 71 MB, AT THE REPO ROOT. Ignored for the same reason as
+# `assets_src/models/` — it IS those six GLBs. A .gitignore block that spends ten lines
+# explaining why 91 MB must never enter history, while the same bytes sit unignored one
+# directory up, is not a rule. (Found by an audit probe, 2026-09-03.)
+Meshy_AI_*.zip
+# `tools/remaster_scares.py` copies each sting here before it overwrites it. Local-only: they are
+# a safety net for the person running the tool, not an input to it — the tool refuses to
+# re-process a file it has already processed, and the shipped audio is what the game loads.
+assets_src/audio/pre_remaster/hollow_crown/` holds the six Meshy
+# source GLBs that `tools/merge_creature_glb.py` reads as INPUT, so by this file's own rule
+# ("committed if an automated step reads it") they should be tracked. They are not, and the
+# reason is arithmetic: they are 15.2 MB EACH and identical apart from one animation track, so
+# committing them would put 91 MB of duplicated mesh into a repo whose .git is already 854 MB —
+# permanently, since a blob stays in history. The 9.8 MB merged artefact in
+# `game/assets/models/hollow_crown.glb` IS committed and is what the game loads.
+# ⚠️ CONSEQUENCE, stated so it is not discovered: the creature model cannot be re-merged from a
+# fresh clone. Same trade as the five cutscenes, and `assets_src/README.md` records the SHA-256s
+# so a re-download can be checked against what shipped.
+assets_src/models/
 !assets_src/textures/level_3_corridor/vesper_note_paper_raw.jpg
 !assets_src/textures/level_3_corridor/screamer_false_door_raw.jpg
 !assets_src/textures/level_backrooms/backrooms_note_paper_raw.jpg
 !assets_src/textures/level_1_lab/lab_breaker_panel_raw.png
+# `tools/make_breach_door.py` crops and grades this into the Breach's door leaf.
+!assets_src/textures/level_6_breach/breach_door_raw.jpg
 
 VIDEO_PROMPTS.md

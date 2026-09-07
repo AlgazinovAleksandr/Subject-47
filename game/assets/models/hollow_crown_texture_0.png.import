@@ -2,19 +2,19 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bti6xvi0rn8u8"
-path="res://.godot/imported/Void_creature_whiteclown_normal.png-c5ffd196e1847ffff05e0776d3e34714.ctex"
+uid="uid://ce42fecjpm4w0"
+path="res://.godot/imported/hollow_crown_texture_0.png-3483444ff92687de69ff0ffa85863b12.ctex"
 metadata={
 "vram_texture": false
 }
 generator_parameters={
-"md5": "f790946e533d1fc27c7b58b8ca33047a"
+"md5": "d6261a9005389cfeb2e93be2ea8fe274"
 }
 
 [deps]
 
-source_file="res://assets/models/Void_creature_whiteclown_normal.png"
-dest_files=["res://.godot/imported/Void_creature_whiteclown_normal.png-c5ffd196e1847ffff05e0776d3e34714.ctex"]
+source_file="res://assets/models/hollow_crown_texture_0.png"
+dest_files=["res://.godot/imported/hollow_crown_texture_0.png-3483444ff92687de69ff0ffa85863b12.ctex"]
 
 [params]
 

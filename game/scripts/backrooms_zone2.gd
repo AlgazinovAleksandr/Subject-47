@@ -40,7 +40,14 @@ const ALCOVE_W := 3.4
 const ALCOVE_AT := 11.0
 # The gap in the middle of each side where that side's glitch wall sits flush.
 const GLITCH_GAP := 7.0
-const DEAD_LIGHT_CHANCE := 0.3
+# ⚠️ 0.55, WAS 0.3 (2026-09-03, the user's call: the Sprawl should be darker than the rest of
+# the Backrooms, "but not complete darkness"). Together with STRIP_ENERGY below this roughly
+# halves the light in the hall. It is a per-strip coin flip, so the dark patches move every run
+# and the room never has a memorable lit route through it.
+const DEAD_LIGHT_CHANCE := 0.55
+# The surviving strips are dimmer too. 1.0 was zone 1's value; the Sprawl is the level's
+# middle act and should not look like its lobby.
+const STRIP_ENERGY := 0.6
 
 const SIDES := ["N", "S", "E", "W"]
 const SIDE_AXIS := {
@@ -60,6 +67,8 @@ var _tell_water: AudioStreamPlayer3D    # the positive tell (BUG_FIX.md 3.5) at 
 var _tell_whisper: AudioStreamPlayer3D  # layered with it, closer/quieter
 var _real_side: String = "N"
 var _lights: Array = []
+# Set by `backrooms.gd` before build() so the Sprawl's strips join the level's flicker loop.
+var _level_lights: Array = []
 var _congregation: Congregation = null
 
 # ============================================ THE BOX IN THE DARK (2026-08-17, B-R3)
@@ -338,8 +347,15 @@ func _build_lights() -> void:
 				continue
 			if randf() < DEAD_LIGHT_CHANCE:
 				continue
-			var f := MazeKit.light_strip(self, at, HEIGHT, 1.0, 8.0)
+			var f := MazeKit.light_strip(self, at, HEIGHT, STRIP_ENERGY, 8.0)
 			_lights.append(f)
+			# ⚠️ REGISTERED WITH THE LEVEL SO THEY FLICKER (2026-09-03). `_lights` is appended to
+			# here and NEVER READ AGAIN — the flicker loop in `backrooms.gd:_process()` iterates
+			# `_all_lights`, which only zone 1's build populates. So the Sprawl's 25-strip grid
+			# has been dead-steady for its whole life while the Lobby next door flickered, which
+			# is the single easiest way to tell a Backrooms room is not finished.
+			if _level_lights != null:
+				_level_lights.append(f)
 
 
 # ---------------------------------------------------------------- the four walls
@@ -445,10 +461,24 @@ func _randomise_real_wall() -> void:
 func _on_wall_touched(is_real: bool, side: String) -> void:
 	if is_real:
 		cleared.emit()
-	else:
-		_walls[side].go_solid()
-		mistake.emit()
-		_randomise_real_wall()
+		return
+	_walls[side].go_solid()
+	mistake.emit()
+	# ⚠️⚠️ NEVER RE-ROLL AFTER THE RUNNER HAS BEEN THROUGH (2026-09-03, found by an audit probe
+	# on 2 of 4 seeds). `_randomise_real_wall()` picks a new `_real_side` and then repaints all
+	# four through `_apply_gate()` — which was right while the walls were identical and the answer
+	# was a guess the zone could legitimately reshuffle. It is wrong now: the player has WATCHED
+	# something come out of a crate, cross the hall and go through one specific wall, with the
+	# camera pinned to it (`backrooms.gd:_on_dweller_running`), and that wall turned yellow. A
+	# re-roll silently moves the exit somewhere else and moves the yellow with it, so the one
+	# thing the zone taught is retroactively made false — and the player has no reason to doubt
+	# what they saw.
+	# ⚠️ It is also not needed after the run: the real wall is UNSEALED from that moment, so the
+	# rescue case the re-roll exists for ("every wall outed, nothing left to walk through") cannot
+	# arise — `_on_body()` early-returns on `_solid`, and the real wall is never made solid.
+	if _dweller_done:
+		return
+	_randomise_real_wall()
 
 
 # ---------------------------------------------------------------- pressure
@@ -737,11 +767,25 @@ func _on_dweller_arrived() -> void:
 # ⚠️ Written as a sweep over all four rather than as "seal the new one, unseal the old one":
 # `_randomise_real_wall()` can promote a REVIVED wall, and `revive()` rebuilds the trigger
 # from scratch, so the only state that can be trusted is the one recomputed from `_real_side`.
+# ⭐ THE GATE AND THE PAINT ARE ONE SWEEP (2026-09-03).
+#
+# ⚠️ EVERY WALL IS RED UNTIL THE RUNNER HAS BEEN THROUGH ONE. Before this, `is_real` drove
+# nothing visual at all: four walls built by one loop, same size, same texture, same shader,
+# same tear. The player could stand in front of the real one and learn nothing. Now the whole
+# room is visibly WRONG, and the thing in the crate is the only way to find out which wall is
+# not — which is exactly the flow the crate gate already enforced mechanically and never showed.
+#
+# ⚠️ RECOMPUTED FROM `_real_side` EVERY TIME, never "paint the new one / unpaint the old one".
+# `revive()` rebuilds a wall's material from scratch, and a re-roll moves `_real_side` — a
+# differential update would leave a yellow wall that is no longer real, which is worse than no
+# mark at all (the same reasoning `set_agitated()` already carries).
 func _apply_gate() -> void:
 	for s in SIDES:
 		var w: GlitchWall = _walls.get(s)
 		if is_instance_valid(w):
 			w.set_sealed(s == _real_side and not _dweller_done)
+			var revealed: bool = _dweller_done and s == _real_side
+			w.set_tint(GlitchWall.TINT_REAL if revealed else GlitchWall.TINT_FAKE)
 
 
 func real_wall_is_sealed() -> bool:

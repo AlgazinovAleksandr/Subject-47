@@ -109,7 +109,26 @@ func _report() -> bool:
 func _process(delta: float) -> bool:
 	_t += delta
 	if _stage > 0 and (not is_instance_valid(_scene) or not is_instance_valid(_player)):
-		_ok("the level survived the run", false, "the scene reloaded at t=%.1f s" % _t)
+		# ⚠️ SAY WHICH ONE DIED, AND WHETHER ANYTHING KILLED IT. This fired ONCE in a full-suite
+		# run on 2026-09-03 ("the scene reloaded at t=3.7 s") and could not be reproduced in five
+		# subsequent runs, two of them under deliberate CPU load. The old message could not
+		# distinguish the three things it covers — a screamer reloading the scene, the player node
+		# being freed, or the scene never having built at all — and the failing run logged no
+		# death and no `SCENE ->` line, which points at the third. Without that distinction a rare
+		# flake is undiagnosable by construction, so the next occurrence prints enough to place it.
+		var who := []
+		if not is_instance_valid(_scene):
+			who.append("the LEVEL node")
+		if not is_instance_valid(_player):
+			who.append("the PLAYER node")
+		var cur := "<none>"
+		if current_scene:
+			cur = String(current_scene.name)
+		_ok("the level survived the run", false,
+			("%s went away at t=%.1f s (stage %d); current_scene is now %s. A screamer reloading "
+			+ "the scene and a scene that never finished building look identical from here — if "
+			+ "there is no `SCENE ->` line above this, nothing was ever reloaded.")
+				% [" and ".join(who), _t, _stage, cur])
 		return _report()
 	if _stage > 0:
 		_player.call("set_smiler_active", true)   # the maze charges for standing still

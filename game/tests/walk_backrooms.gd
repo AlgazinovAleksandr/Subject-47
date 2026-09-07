@@ -250,13 +250,29 @@ func _progression() -> void:
 	_ok("zone 1 exit does NOT advance the level",
 		gs.current_level == lvl_before)
 
-	# A wrong wall in the Sprawl: costs panic and sends you back to its spawn.
+	# ⭐ A WRONG WALL IN THE SPRAWL IS FREE (2026-09-03, the user's call, D6). These two
+	# assertions used to read "returns player to the Sprawl spawn" and "costs panic", and they
+	# were right for the zone they were written against: four IDENTICAL walls, one real, so
+	# touching the wrong one was a 1-in-4 gamble and 12 panic plus a walk back was its price.
+	#
+	# ⚠️ The walls are painted now. Every one is visibly WRONG until the thing in the crate runs
+	# through the real one, so walking into a red wall is not a guess — it is the player checking
+	# that the rule they can see is the rule that applies. The penalty is gone; the assertions are
+	# inverted rather than deleted so the removal cannot silently come back.
+	# ⚠️ Zone 3's penalty is UNCHANGED and is still asserted below — the Flood's decoy seams are a
+	# real discrimination test, not a painted warning.
 	var panic_before: float = _player.get_panic_ratio()
-	_player.global_position = z2.spawn_point + Vector3(5, 0, 5)
+	var away: Vector3 = z2.spawn_point + Vector3(6, 0, 6)
+	_player.global_position = away
 	_scene._on_zone_mistake(2)
-	_ok("wrong wall returns player to the Sprawl spawn",
-		_player.global_position.distance_to(z2.spawn_point) < 1.0)
-	_ok("wrong wall costs panic", _player.get_panic_ratio() > panic_before)
+	# ⚠️ This file's `_ok()` takes (label, cond) only — no detail argument — so the measurement
+	# goes into the label.
+	var moved: float = _player.global_position.distance_to(z2.spawn_point)
+	_ok("a red Sprawl wall does NOT throw you back to the spawn (%.1f m away)" % moved,
+		moved > 4.0)
+	var gained: float = _player.get_panic_ratio() - panic_before
+	_ok("...and costs no panic (+%.3f; WRONG_WALL_PANIC would be +0.240)" % gained,
+		gained < 0.05)
 
 	# Real wall in the Sprawl -> the Flood.
 	z2.cleared.emit()

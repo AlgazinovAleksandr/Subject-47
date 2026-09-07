@@ -2,19 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bd7kcrv8q4n3x"
-path="res://.godot/imported/Void_creature_whiteclown_diffuse.png-5d3125f370abeff15066a3924dbbe740.ctex"
+uid="uid://57xjyix7yqye"
+path="res://.godot/imported/breach_door.png-dae8f5ae4a6189ab6961a62a78a6fe78.ctex"
 metadata={
 "vram_texture": false
-}
-generator_parameters={
-"md5": "d64ef46d7a64a9ce6d4c170e69ce1ac2"
 }
 
 [deps]
 
-source_file="res://assets/models/Void_creature_whiteclown_diffuse.png"
-dest_files=["res://.godot/imported/Void_creature_whiteclown_diffuse.png-5d3125f370abeff15066a3924dbbe740.ctex"]
+source_file="res://assets/textures/level_6_breach/breach_door.png"
+dest_files=["res://.godot/imported/breach_door.png-dae8f5ae4a6189ab6961a62a78a6fe78.ctex"]
 
 [params]
 
@@ -26,7 +23,7 @@ compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0
-mipmaps/generate=true
+mipmaps/generate=false
 mipmaps/limit=-1
 roughness/mode=0
 roughness/src_normal=""

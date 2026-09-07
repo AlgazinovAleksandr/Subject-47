@@ -580,10 +580,9 @@ func _check_occupant_material(cell: Node3D) -> void:
 	_ok("the cell publishes the occupant's material", shared != null)
 	if shared == null:
 		return
-	# ⚠️ EVERY renderable, not "at least one". `Void_creature.glb` is a Mixamo export and
-	# CLAUDE.md's standing warning about it is that an embedded skin texture breaks the
-	# dark-material override — a split re-export that left one part unretinted would render
-	# half a pale man in a suit and read as a lighting bug rather than a missing call.
+	# ⚠️ EVERY renderable, not "at least one". A split re-export that left one part unretinted
+	# would render half a pale man in a suit and read as a lighting bug rather than a missing
+	# call.
 	var meshes := _all_meshes(occ)
 	_ok("the occupant has renderable geometry", meshes.size() >= 1,
 		"%d MeshInstance3D" % meshes.size())
@@ -594,26 +593,90 @@ func _check_occupant_material(cell: Node3D) -> void:
 	_ok("EVERY mesh in the occupant carries the retint", missed == 0,
 		"%d of %d mesh(es) render the GLB's own material" % [missed, meshes.size()])
 
+	# ⚠️ ADDED 2026-09-03, and it is the assertion this whole block was missing. The retint used
+	# to build a BRAND-NEW StandardMaterial3D, which threw the model's own textures away — free
+	# when the model was an untextured T-pose, and the exact regression to guard against now
+	# that it carries a real skin. `CreatureAnim.tinted_material()` duplicates the imported
+	# material instead, so `albedo_color` multiplies the texture rather than replacing it.
+	_ok("the retint KEPT the model's own skin", shared.albedo_texture != null,
+		"albedo_texture is null — someone replaced the material instead of tinting it")
+	# The source glTF had NO metallicFactor, and glTF's default is 1.0. A 100 % metal creature
+	# in a room lit at 0.45 is a black mirror. tools/merge_creature_glb.py pins it to 0.0.
+	_ok("the occupant is not metal", shared.metallic <= 0.01, "metallic %.3f" % shared.metallic)
+
 	# The retint is the DIM one, not the Breach's. These are ceilings, not equalities —
 	# `SPECIMEN_DIM` is meant to be tunable; what may not come back is the pale material.
 	var a := shared.albedo_color
 	var lum := 0.2126 * a.r + 0.7152 * a.g + 0.0722 * a.b
-	_ok("the occupant's albedo is dim enough to read as a shadow", lum <= 0.25,
-		"albedo luminance %.3f (the Breach's is 0.383)" % lum)
+	# ⚠️ PRINTED, NOT ASSERTED. `eff = lum * tex_lum` with `tex_lum` in [0,1], so an assertion
+	# `lum <= 0.25` here makes the effective ceiling below it MATHEMATICALLY UNABLE TO BIND —
+	# two assertions where only one can ever fail, and the weaker one shadowing the real one.
+	# The effective value is what reaches the screen, so that is the one that is asserted.
+	print("      albedo luminance %.3f (the Breach's is 0.383)" % lum)
+
+	# ⚠️⚠️ A CEILING ON `albedo_color` ALONE IS A ONE-SIDED GUARANTEE, AND IT GOT WEAKER WHEN THE
+	# MODEL GAINED A SKIN. The tint MULTIPLIES a 2048² texture now, so what reaches the screen is
+	# `albedo_color * texture`, and the assertion above passes ever more comfortably as the real
+	# thing gets darker — a guard that reports greener as the property it protects fails. The
+	# occupant has to be dark enough to read as a shadow AND light enough to still be there
+	# (Issue 147: darkening it alone takes it to invisible at ~0.22 before it gets dark, because
+	# `watcher.gd`'s premise needs a lit surface behind it). So bound it from BELOW as well, on
+	# the effective value, and say plainly where the real answer lives.
+	var tex_lum := 1.0
+	if shared.albedo_texture:
+		var img := shared.albedo_texture.get_image()
+		if img:
+			img.resize(32, 32, Image.INTERPOLATE_BILINEAR)
+			var tot := 0.0
+			for y in range(32):
+				for x in range(32):
+					var c := img.get_pixel(x, y)
+					tot += 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+			tex_lum = tot / 1024.0
+	var eff := lum * tex_lum
+	_ok("the occupant is dim enough to read as a shadow, SKIN INCLUDED", eff <= 0.25,
+		"effective %.3f = albedo %.3f x skin %.3f" % [eff, lum, tex_lum])
+	_ok("...nor darken it into nothing", eff >= 0.05,
+		("effective %.3f — below this the figure stops being a shadow and starts being absent, "
+		+ "which no ceiling can catch. ⚠️ THIS IS A FLOOR ON A PROXY: the authority is "
+		+ "`tests/screenshot_cell_visibility.gd`, which photographs the booth from 23 reachable "
+		+ "headings and requires the occupant to be visible and darker than what is behind it at "
+		+ "every one (last run: 3534-48253 px, contrast 0.228-0.611, occ/bg 0.39-0.77). It needs "
+		+ "a display, so it is not in the suite and this is what stands in for it headlessly.")
+			% eff)
 	_ok("its emission cannot self-light it out of the dark",
 		shared.emission_energy_multiplier <= 0.25,
 		"energy %.2f (the Breach's is 0.35)" % shared.emission_energy_multiplier)
 	_ok("its specular lobe is off", shared.metallic_specular <= 0.01,
 		"metallic_specular %.2f — a dielectric's specular is NOT scaled by albedo"
 			% shared.metallic_specular)
-	# ⚠️ CLAUDE.md's other standing warning about this GLB: Mixamo autoplays an animation,
-	# and a CONTAINED specimen doing idle motion is a different creature.
-	var moving := 0
+	# ⭐ INVERTED 2026-09-03, and the reason matters more than the assertion.
+	#
+	# ⚠️ THIS USED TO READ "nothing in the occupant is animating", and it was RIGHT to at the
+	# time: the old model auto-played a Mixamo clip, and a contained specimen wandering around
+	# its booth is a different creature from a contained specimen. What has changed is that the
+	# model now has deliberate, chosen clips instead of one it came with, and the user's call
+	# (2026-09-03) was that the caged thing should breathe. So the guard is not deleted — it is
+	# tightened into the three things that made "no animation" the safe answer:
+	#   * EXACTLY ONE clip, so nothing is auto-playing on top of the intended one;
+	#   * it is the SLOW one, so it reads as breathing rather than pacing;
+	#   * and it does not TRANSLATE, which is the property "no animation" was really protecting.
+	# The third is checked in `_check_occupant_stays_put()`, over a full clip period.
+	var players: Array = []
 	for n in _all_nodes(occ):
-		if n is AnimationPlayer and (n as AnimationPlayer).is_playing():
-			moving += 1
-	_ok("nothing in the occupant is animating", moving == 0,
-		"%d AnimationPlayer(s) playing" % moving)
+		if n is AnimationPlayer:
+			players.append(n)
+	_ok("the occupant has exactly one AnimationPlayer", players.size() == 1,
+		"%d found" % players.size())
+	if players.size() == 1:
+		var ap: AnimationPlayer = players[0]
+		_ok("the caged specimen is alive (it idles)", ap.is_playing(),
+			"a frozen one reads as a mannequin now that the model can move")
+		_ok("...and it BREATHES rather than paces", ap.speed_scale <= 0.2,
+			"speed_scale %.3f" % ap.speed_scale)
+		_ok("...on the low-wander clip", String(ap.current_animation).ends_with("unsteady"),
+			("'%s' — `shamble` wanders 0.515 m per cycle against `unsteady`'s 0.197, and this "
+			+ "booth is 2 m across") % String(ap.current_animation))
 
 
 func _check_occupant_sightlines(cell: Node3D) -> void:

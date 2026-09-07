@@ -54,6 +54,7 @@ var _spawn_dist: float = 0.0   # horizontal player↔figure distance at appear()
 var _telegraphing: bool = false  # the brief lurch-warning is playing; rush lands after
 var _quad: MeshInstance3D
 var _mat: StandardMaterial3D
+var _turned: bool = false      # the scripted camera turn had to be used for this appearance
 
 
 # One entry point for all three response types. For HOLD the returned node is
@@ -175,6 +176,38 @@ const DIST_FRACTIONS: Array[float] = [1.0, 0.8, 0.6]
 const FLEE_MARGIN := 0.7          # absolute floor
 const FLEE_MARGIN_FRACTION := 0.2 # …or a fifth of however far away it actually landed
 
+# ⭐ IT MUST APPEAR WHERE YOU ARE LOOKING (2026-09-07, the user's call: *"it appeared when I was
+# not looking at it. Let's force the creature appear when you look at it - in the worst case we
+# can force the camera spin."*).
+#
+# ⚠️ HOW IT COULD LAND BEHIND YOU. `HEADINGS_DEG` sweeps the FULL circle — 0, ±22, ±45, ±90, ±135,
+# 180 — and takes the first heading with room. The camera is Godot's default 75 deg VERTICAL fov,
+# which at 16:9 is ±53.75 deg horizontally, so **five of the ten headings are off-screen by
+# construction**; and `LATERAL_NUDGES` reaches ±1.6 m, which at the `MIN_DIST` 1.6 m floor is a
+# further 45 deg, so even a "forward" heading can end up at 90. Measured with
+# `check_apparition_clearance.gd`: **47 of 176 placements exhausted all 270 candidates**, i.e. the
+# rear headings are not a theoretical tail, they are reached routinely in the Lab's tight rooms.
+#
+# ⚠️⚠️ AND IT IS A FAIRNESS DEFECT, NOT A FRAMING ONE. A HOLD apparition kills you for FLEEING, and
+# `_is_fleeing()` is *horizontal distance growing*. A figure that materialises behind you turns
+# walking forward — the thing a player who has seen nothing will obviously do — into a flee, while
+# `DREAD_RATE` charges against something they have never laid eyes on. `SCARY.md` §8.11 names
+# exactly this: never punish a player for a scare they could not have seen coming.
+#
+# ⚠️ THE TEST IS THE FRUSTUM, NOT A HEADING WHITELIST. Trimming `HEADINGS_DEG` to the on-screen
+# five would still ship the bug, because the nudges move the realised bearing; and it would say
+# nothing about PITCH, which matters when the player is looking at the floor. `is_position_in_frustum`
+# answers both at once, against the real camera.
+#
+# ⚠️ `check_nook_figure.gd` measured this same lottery for the BreakerNook figure — 27 % of
+# placements already in frustum — and it was solved there in 2026-08-16 with a scripted turn. That
+# fix was never carried across to this file, which is the older and more dangerous of the two.
+const FRUSTUM_MARGIN := 0.35      # metres of slack, so an edge-of-screen figure still counts
+const TURN_TIME := 0.45           # matches level_1.gd's NOOK_TURN_TIME; the same beat
+const TURN_SETTLE := 0.10         # control comes back a beat after the camera lands
+# The world is taken away as it arrives. `screamer.gd:PRE_SCARE_SILENCE` is 0.6 for the same job.
+const APPEAR_SILENCE := 0.6
+
 
 # Materialise in front of the player, where they're already looking.
 #
@@ -218,9 +251,37 @@ func appear() -> void:
 	_mat.albedo_color.a = 0.0
 	visible = true
 	_engaged = true
+	_turned = not _in_frustum(spot)
 	_play_drone()
-	var t := create_tween()
-	t.tween_property(_mat, "albedo_color:a", 1.0, FADE_IN)
+
+	if not _turned:
+		var t := create_tween()
+		t.tween_property(_mat, "albedo_color:a", 1.0, FADE_IN)
+		return
+
+	# ⭐ THE WORST CASE: nothing legible fits in front of you, so the camera is brought to it.
+	# `level_1.gd:_nook_reveal()` and `backrooms.gd:_tick_crate_watch()` are the same beat —
+	# sound leads, the head follows, the figure resolves as the camera lands.
+	#
+	# ⚠️ THE FREEZE IS LOAD-BEARING FOR FAIRNESS, NOT FRAMING. `_is_fleeing()` starts measuring
+	# from `_spawn_dist`, which was captured two lines ago; without the pin, the flinch away from
+	# a sudden arrival is scored as fleeing and this beat kills you for reacting to it.
+	# ⚠️ AND THE VELOCITY MUST BE ZEROED BY HAND. `player.gd:_apply_movement()` only RETURNS on
+	# `_input_frozen` — `_physics_process` still calls `move_and_slide()`, so a frozen walker
+	# coasts (measured at 9.16 m of travel inside a beartrap that read TRAPPED).
+	# ⚠️ `turn_to_face()`, never `ai_look_at()`: the latter writes `camera.rotation.x` only and
+	# `_rotate_camera()` snaps it back on the next mouse motion.
+	_player.velocity.x = 0.0
+	_player.velocity.z = 0.0
+	_player.freeze_input()
+	_player.turn_to_face(spot + Vector3(0, 1.35, 0), TURN_TIME)
+	var tt := create_tween()
+	tt.tween_interval(TURN_TIME * 0.55)
+	tt.tween_property(_mat, "albedo_color:a", 1.0, FADE_IN)
+	get_tree().create_timer(TURN_TIME + TURN_SETTLE).timeout.connect(func() -> void:
+		if is_instance_valid(_player):
+			_player.unfreeze_input()
+	)
 
 
 # Walk the heading fan and, for each heading that has room, try a few lateral offsets
@@ -234,7 +295,27 @@ func appear() -> void:
 #     never see: a 1.6 m wide billboard placed 0.5 m from a wall clips it no matter
 #     how much clear distance lies AHEAD. Hence the lateral nudges — without them a
 #     player standing near any wall would abort every single time.
+# ⚠️ TWO PASSES. Pass one accepts only candidates the camera can actually SEE; pass two is the
+# original behaviour verbatim, so nothing that used to get an apparition stops getting one — it
+# just gets a camera turn with it. Splitting it this way rather than sorting the fan keeps the
+# existing ordering (dead ahead first, then progressively wider) intact inside each pass.
 func _find_spot(fwd: Vector3, desired: float) -> Variant:
+	var visible_spot: Variant = _scan(fwd, desired, true)
+	if visible_spot != null:
+		return visible_spot
+	return _scan(fwd, desired, false)
+
+
+# Is the figure's CHEST inside the camera's frustum? Chest rather than feet: the feet of a spot
+# 2 m away are below the bottom of the screen while the figure itself fills it.
+func _in_frustum(pos: Vector3) -> bool:
+	if _camera == null:
+		return true
+	return _camera.is_position_in_frustum(pos + Vector3(0, 1.2, 0)) \
+		or _camera.is_position_in_frustum(pos + Vector3(0, 1.2 + FRUSTUM_MARGIN, 0))
+
+
+func _scan(fwd: Vector3, desired: float, require_visible: bool) -> Variant:
 	var base := _player.global_position
 	for deg in HEADINGS_DEG:
 		var dir := fwd.rotated(Vector3.UP, deg_to_rad(deg))
@@ -247,6 +328,8 @@ func _find_spot(fwd: Vector3, desired: float) -> Variant:
 			var dist: float = maxf(reach * frac, MIN_DIST)
 			for lateral in LATERAL_NUDGES:
 				var cand := _snap_to_floor(base + dir * dist + right * lateral)
+				if require_visible and not _in_frustum(cand):
+					continue
 				if _fits(cand):
 					return cand
 	return null
@@ -446,15 +529,49 @@ func _fade_out() -> void:
 # BUG_FIX.md 3.3, corrected after playtest: the scary-sound gap was here, at the
 # moment it first appears — not at the rush (below). Plays a purpose-made snarl
 # instead of the old generic drone, falling back to the drone if it's ever missing.
+# ⭐⭐ THE TWO SOUNDS WERE ON THE WRONG EVENTS, AND CLAUDE.md DOCUMENTED THE OPPOSITE
+# (found and fixed 2026-09-07, from the user's *"the sound is not loud enough"*).
+#
+# BUG_FIX.md 3.3 replaced the rush's pitched-up door creak with a purpose-made `apparition_snarl`
+# — and the snarl was wired into THIS function, the APPEARANCE, while `_play_sting()` kept the
+# creak. The result, decoded and clamped to +-1.0 the way the mixer will:
+#
+#     appearance   apparition_snarl   peak  0.00   loudest-300 ms  -2.39 dBFS
+#     fatal rush   creak              peak -20.07  loudest-300 ms -34.40 dBFS
+#
+# **The telegraph before a lunge that kills you was 32 dB quieter than the thing it telegraphs.**
+#
+# So they are swapped back to the design: a low DRONE while it stands there, the SNARL when it
+# comes. That is also the right signal — a HOLD apparition is survived by standing your ground,
+# and a snarl on arrival argues for exactly the flight that kills you.
+#
+# ⚠️ AND THE APPEARANCE IS NOT QUIETER FOR IT, because `max_db` was the binding constraint all
+# along. Godot clamps `volume_db + attenuation` to `max_db`, which was UNSET, i.e. the 3.0 dB
+# default — and `unit_size 10` reaches +12.0 dB of attenuation gain at 2.5 m, so the emitter was
+# pinned to +3 at every distance under 7.1 m. Raising the ceiling to 6.0 and the gain to +2 lands
+# the drone within 0.2 dB of where the snarl was:
+#
+#     at 2.5 m   snarl  -2.39 + min(-2 + 12.04, 3) = +0.61 dBFS   (old)
+#                drone  -6.82 + min(+2 + 12.04, 6) = -0.82 dBFS   (new)
+#     at 7.0 m   snarl  -2.39 + min(-2 +  3.10, 3) = -1.29 dBFS   (old)
+#                drone  -6.82 + min(+2 +  3.10, 6) = -1.72 dBFS   (new)
+#
+# ⚠️ THE REAL LOUDNESS LEVER IS THE DIP, NOT THE GAIN. Both files are at or within 1 dB of full
+# scale and Master carries a hard limiter at -0.5 dBFS, so there is no headroom left to spend.
+# `HoldBreath.dip()` takes the world away instead — the same 0.6 s pre-silence that made
+# `screamer.gd`'s black flash work, applied to the one scare in the game that had no duck at all.
+# Fire-and-forget, never awaited: awaiting would delay the figure by the whole dip.
 func _play_drone() -> void:
-	var stream := GameState.load_audio("apparition_snarl")
+	HoldBreath.dip(get_tree(), APPEAR_SILENCE)
+	var stream := GameState.load_audio("apparition_drone")
 	if not stream:
-		stream = GameState.load_audio("apparition_drone")
+		stream = GameState.load_audio("apparition_snarl")
 	if not stream:
 		return
 	var p := AudioStreamPlayer3D.new()
 	p.stream = stream
-	p.volume_db = -2.0
+	p.volume_db = 2.0
+	p.max_db = 6.0
 	p.unit_size = 10.0
 	add_child(p)
 	p.position = Vector3(0, 1.2, 0)
@@ -465,16 +582,22 @@ func _play_drone() -> void:
 # A short sharp sting the instant it decides to rush — the audio half of the tell.
 # Reuses the generic door "creak" pitched up, unchanged (the fatal Screamer.trigger()
 # scream that follows is the "screamer" proper, and stays untouched too).
+# ⚠️ `apparition_snarl`, the file BUG_FIX.md 3.3 made for this exact moment — see the block above
+# `_play_drone()` for how it ended up on the wrong event and stayed there. Measured delivery at
+# 2.5 m: `creak` at +2 dB and pitch 1.4 gave **-31.4 dBFS**; the snarl at 0 dB gives **+0.61**,
+# i.e. **+32.0 dB**, and it is the loudest a positional emitter reaches before the Master limiter
+# starts doing the work instead.
+# ⚠️ NO `pitch_scale`. The 1.4 existed only to make a door creak sound like something alive.
 func _play_sting() -> void:
-	var stream := GameState.load_audio("creak")
+	var stream := GameState.load_audio("apparition_snarl")
 	if not stream:
 		stream = GameState.load_audio("apparition_drone")
 	if not stream:
 		return
 	var p := AudioStreamPlayer3D.new()
 	p.stream = stream
-	p.volume_db = 2.0
-	p.pitch_scale = 1.4
+	p.volume_db = 0.0
+	p.max_db = 3.0
 	p.unit_size = 12.0
 	add_child(p)
 	p.position = Vector3(0, 1.2, 0)

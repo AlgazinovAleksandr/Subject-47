@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://lsq6i7y47gn1"
-path="res://.godot/imported/Void_creature.glb-a764d8a224b350554d2efb1dcc4f7e2d.scn"
+uid="uid://cd0m4yvugv6p8"
+path="res://.godot/imported/hollow_crown.glb-e464924f1b63f96bcf4f9ceb618f39d9.scn"
 
 [deps]
 
-source_file="res://assets/models/Void_creature.glb"
-dest_files=["res://.godot/imported/Void_creature.glb-a764d8a224b350554d2efb1dcc4f7e2d.scn"]
+source_file="res://assets/models/hollow_crown.glb"
+dest_files=["res://.godot/imported/hollow_crown.glb-e464924f1b63f96bcf4f9ceb618f39d9.scn"]
 
 [params]
 
@@ -17,7 +17,7 @@ nodes/root_type=""
 nodes/root_name=""
 nodes/root_script=null
 nodes/apply_root_scale=true
-nodes/root_scale=1.0
+nodes/root_scale=1.2012
 nodes/import_as_skeleton_bones=false
 nodes/use_name_suffixes=true
 nodes/use_node_type_suffixes=true

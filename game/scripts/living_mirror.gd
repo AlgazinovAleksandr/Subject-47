@@ -41,6 +41,12 @@ const GAZE_INTENSITY := 0.7
 # is correct in all three — the argument is about WHEN, not whether.
 @export var fit_to_art: bool = false
 
+# ⭐ See the block on `note.gd:paper_material()`. Additive, defaults to today's behaviour; only
+# the Lab and the House set it, because only those two run at ambient 0.0. An unshaded figure at
+# emission 0.5 in a pitch-black room is a lantern with a face on it, and this prop's whole premise
+# is a shape you catch out of the corner of your eye rather than one that announces itself.
+@export var emission_scale: float = 1.0
+
 # The historical sizes, used when fit_to_art is false. Do not change these; change the flag.
 const LEGACY_GLASS := Vector2(1.2, 1.8)
 const LEGACY_FIGURE := Vector2(1.0, 1.7)
@@ -134,7 +140,9 @@ func _build() -> void:
 		_fmat.albedo_texture = tex
 		_fmat.emission_enabled = true
 		_fmat.emission_texture = tex
-		_fmat.emission_energy_multiplier = 0.5
+		# See `emission_scale` — the Lab and the House halve this so the figure stops being the
+		# brightest object in a black room, while the Corridor and the Sprawl are untouched.
+		_fmat.emission_energy_multiplier = 0.5 * emission_scale
 	else:
 		_fmat.albedo_color = Color(0.5, 0.5, 0.55, 1.0)
 	_fmat.albedo_color.a = 0.0
