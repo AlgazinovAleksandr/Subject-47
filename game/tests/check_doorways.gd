@@ -36,6 +36,9 @@ const THROUGH := 1.6               # how far either side of the plane the ray ru
 const GATE_SCRIPTS := [
 	"door.gd", "choice_door.gd", "cellar_gate.gd", "fungal_barrier.gd", "slam_door.gd",
 	"purge_chamber.gd", "ajar_door.gd", "glitch_wall.gd", "dungeon_cot.gd",
+	# archive_gate.gd (KONTUR A5): the transit door that slides open on the hidden keycard — a door,
+	# and doors are allowed to stand in a doorway.
+	"archive_gate.gd",
 ]
 # ...and node names, for gates built as bare CSG by the level itself.
 const GATE_NAMES := ["MorgueShutter", "RosterSeal", "AirlockSeal", "Shutter", "Seal"]

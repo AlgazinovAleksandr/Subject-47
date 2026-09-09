@@ -177,6 +177,8 @@ const CONFIG := {
 			"ChoiceDoor_": "both vestibule doors swing open on E (Gate 1); which is black "
 				+ "is randomised per run, so the prefix opens the pair",
 			"AirlockSeal": "the airlock opens once the catch minigame is passed (Gate 8)",
+			"ArchiveGate": "the transit door slides up once the hidden keycard is found (A5); "
+				+ "the keycard is always findable by searching the six lots",
 		},
 		# ⚠️ 9 since 2026-08-18 — the Landing's briefing notice is an interactable too, and
 		# a statement the player cannot walk up to is a statement they cannot re-read.

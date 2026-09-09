@@ -64,25 +64,33 @@ func _process(_delta: float) -> bool:
 	_kontur = current_scene
 	_gs = root.get_node_or_null("/root/GameState")
 
-	print("--- the shelf starts stocked ---")
-	for kind in ["bleach", "vinegar", "water"]:
-		_ok("Bottle_%s present" % kind, _bottle(kind) != null)
+	# ⚠️ The shelf shows only WRONG agents now (2026-09-09). The vinegar is hidden behind a pinned
+	# notice near the barrier, with no hint — so gate 2 is "find it, then use it".
+	print("--- the shelf shows only WRONG agents; the vinegar is hidden ---")
+	for kind in ["bleach", "poison", "water"]:
+		_ok("Bottle_%s present on the shelf" % kind, _bottle(kind) != null)
+	_ok("the vinegar is NOT on the shelf (hidden behind the notice)", _bottle("vinegar") == null)
 
-	# The exact sequence a real player reported: grab the right bottle, then grab
-	# another one before reaching the barrier.
-	# ⚠️ Every step is guarded. When the fix was removed to prove this test can fail,
-	# an unguarded `_bottle("vinegar").call(...)` on a null aborted _process BEFORE
-	# quit() — so the SceneTree just ran the whole test again, forever, and spewed 1.9 MB.
-	# A test that can't fail cleanly can't be trusted to fail at all.
-	print("--- take vinegar, then take water (the softlock sequence) ---")
+	print("--- tearing the notice reveals the vinegar ---")
+	# ⚠️ 2026-09-09 (cap #2): the cover is now the redacted gate-2 sign itself (node "VinegarSign",
+	# a WallSheet carrying kontur_sign_gate2_shelf.png), not a separate "НЕ ВСКРЫВАТЬ" notice.
+	var sheet := _kontur.get_node_or_null("VinegarSign")
+	_ok("the sign is present and answers E", sheet != null and sheet.has_method("interact"))
+	if sheet:
+		sheet.call("interact")
+	_ok("the vinegar appears behind it", _bottle("vinegar") != null)
+
+	# The exact sequence a real player reported: grab the right bottle, then grab another one
+	# before reaching the barrier. Every step is guarded (see the header) so a null cannot loop.
+	print("--- take vinegar, then take poison (the softlock sequence) ---")
 	if _take("vinegar"):
 		_ok("holding vinegar", _kontur.get("_held_bottle") == "vinegar")
-	if _take("water"):
-		_ok("holding water", _kontur.get("_held_bottle") == "water")
-	_ok("the vinegar went back on the shelf", _bottle("vinegar") != null,
-		"<- this is the whole bug: it used to be gone forever")
+	if _take("poison"):
+		_ok("holding poison", _kontur.get("_held_bottle") == "poison")
+	_ok("the vinegar went back on its ledge", _bottle("vinegar") != null,
+		"<- the softlock: it used to be gone forever")
 
-	print("--- spraying the wrong bottle costs a strike but restocks ---")
+	print("--- spraying a wrong bottle (poison) strikes but restocks ---")
 	var strikes_before: int = _kontur.get("_strikes")
 	var barrier := _kontur.get_node_or_null("FungalBarrier")
 	_ok("FungalBarrier present", barrier != null)
@@ -91,7 +99,7 @@ func _process(_delta: float) -> bool:
 		_ok("a wrong bottle still strikes", _kontur.get("_strikes") == strikes_before + 1,
 			"%d -> %d" % [strikes_before, _kontur.get("_strikes")])
 		_ok("hands are empty after spraying", _kontur.get("_held_bottle") == "")
-		_ok("the spent water restocked", _bottle("water") != null)
+		_ok("the spent poison restocked", _bottle("poison") != null)
 		_ok("gate 2 is still unpassed", _kontur.get("_gates")["shelf"] == false)
 
 		print("--- the gate is still winnable afterwards ---")

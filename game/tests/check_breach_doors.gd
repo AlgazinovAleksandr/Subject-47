@@ -90,8 +90,9 @@ func _process(delta: float) -> bool:
 
 	print("== BREACH DOORS ==  %d exit/back, %d slam, %d purge"
 		% [doors["exit"].size(), doors["slam"].size(), doors["purge"].size()])
-	_ok("the level has its 2 exit/back doors, 4 slam doors and 1 purge chamber",
-		doors["exit"].size() == 2 and doors["slam"].size() == 4 and doors["purge"].size() == 1)
+	# 6 slam doors since the 2026-09-09 maze rework (was 4 — the map is bigger with more chokepoints).
+	_ok("the level has its 2 exit/back doors, 6 slam doors and 1 purge chamber",
+		doors["exit"].size() == 2 and doors["slam"].size() == 6 and doors["purge"].size() == 1)
 
 	# ---- every door carries artwork ------------------------------------------------------
 	var total := 0
@@ -116,8 +117,8 @@ func _process(delta: float) -> bool:
 					is_red == (kind == "exit"),
 					"emission %s" % str(sm.emission))
 	# ⭐ CONTROL. Every assertion above is per-material, so all of them are vacuously true if the
-	# sweep collected nothing. The Breach has 2 single-leaf doors (1 quad each), 4 slam doors
-	# (4 quads each) and the purge chamber (2) = 20.
+	# sweep collected nothing. The Breach has 2 single-leaf doors (1 quad each), 6 slam doors
+	# (4 quads each) and the purge chamber (2) = 28 since the 2026-09-09 maze rework.
 	_ok("CONTROL — the sweep actually found the door art", total >= 18,
 		"%d textured door quads" % total)
 

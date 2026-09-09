@@ -38,16 +38,27 @@ const STICK_TIME := 0.13
 # Set by the builder, not exported — it is a node from the mesh this script does not
 # construct, so there is nothing sensible to point an inspector path at.
 var door_hinge: Node3D = null
+# capture #1: where the page rests once the slot is open (slot-12 local centre + cell size), so
+# the player SEES the paper sitting there and takes it with a separate E — the lab-cabinet /
+# sunken-item "open, then take" beat, one step further than the old "open and the note pops".
+var paper_anchor: Vector3 = Vector3.ZERO
+var cell_size: Vector2 = Vector2(0.3, 0.3)
 
 var _opened: bool = false
 var _presses: int = 0
 var _shift: Tween = null      # the stuck-press wobble; kept only so a new press can kill it
+var _paper: Node3D = null     # the page resting in the open slot, until taken
+var _note_taken: bool = false
 
 
 func interact() -> void:
-	if _opened:
-		# Already open: the page is just a page now, no swing, no wait.
+	if _note_taken:
+		# Already read: the page is on the HUD/journal now; re-show it on demand.
 		NoteUI.show_note(hint_text)
+		return
+	if _opened:
+		# The slot is open and the page is sitting in it — this press TAKES it.
+		_take_paper()
 		return
 	_presses += 1
 	if _presses < PRESSES_NEEDED:
@@ -80,21 +91,77 @@ func _stick() -> void:
 func _swing_open() -> void:
 	_play_creak(1.0, -2.0)
 	if not is_instance_valid(door_hinge):
-		# No hinge to watch (a stripped test rig): don't strand the note behind a tween
-		# that will never run.
-		NoteUI.show_note(hint_text)
+		# No hinge to watch (a stripped test rig): reveal the page immediately so the
+		# open-then-take flow still has something to take.
+		_reveal_paper()
 		return
 	var t := create_tween()
 	t.set_trans(Tween.TRANS_QUAD)
 	t.set_ease(Tween.EASE_OUT)
 	t.tween_property(door_hinge, "rotation_degrees:y", OPEN_ANGLE_DEG, SWING_TIME)
-	# ⚠️ Connected, not awaited, and NOT called on the next line — see the header.
-	t.finished.connect(_reveal)
+	# ⚠️ Connected, not awaited, and NOT called on the next line — see the header. The page
+	# appears AFTER the door finishes swinging, so you open the box and THEN see the paper.
+	t.finished.connect(_reveal_paper)
 
 
-func _reveal() -> void:
-	if not is_inside_tree():
+# The page becomes visible, resting just inside the open slot. It is not read yet — the next E
+# takes it (capture #1: "make it show to me first so then I will pick it up").
+func _reveal_paper() -> void:
+	if not is_inside_tree() or _note_taken or _paper != null:
 		return
+	var paper := MeshInstance3D.new()
+	paper.name = "MailboxPage"
+	var q := QuadMesh.new()
+	# ⚠️ 2026-09-09 (cap #1): the page was tiny and dim inside a dark slot — "the note was not
+	# visible". Now it nearly fills the slot, STICKS OUT of the mouth like a letter, and is bright
+	# enough to read in the dark. Sized to the cell, proud of the face, tilted forward.
+	q.size = Vector2(minf(cell_size.x * 0.82, 0.22), minf(cell_size.y * 0.95, 0.28))
+	paper.mesh = q
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.86, 0.83, 0.74)   # pale paper
+	var page_tex := _page_texture()
+	if page_tex:
+		m.albedo_texture = page_tex
+	m.emission_enabled = true                   # catches the eye in the dark slot
+	m.emission = Color(0.80, 0.77, 0.68)
+	if page_tex:
+		m.emission_texture = page_tex
+	m.emission_energy_multiplier = 0.55
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	paper.material_override = m
+	# paper_anchor is the slot's local centre at the face plane; push the page OUT of the mouth
+	# (+z local) and tilt it forward so it reads as a letter sitting in the open slot.
+	paper.position = paper_anchor + Vector3(0, cell_size.y * 0.06, 0.06)
+	paper.rotation_degrees = Vector3(20, 0, 0)
+	add_child(paper)
+	_paper = paper
+
+
+# A simple aged-paper look for the page, reusing note.gd's paper_material if present so it matches
+# every other page in the game; otherwise the plain cream albedo above carries it.
+func _page_texture() -> Texture2D:
+	var p := "res://assets/textures/level_5_kontur/kontur_note_page.png"
+	if ResourceLoader.exists(p):
+		var t := load(p)
+		if t is Texture2D:
+			return t
+	return null
+
+
+func _take_paper() -> void:
+	if _note_taken:
+		return
+	_note_taken = true
+	if is_instance_valid(_paper):
+		_paper.queue_free()
+	_paper = null
+	_play_creak(1.2, -6.0)             # the small rustle of lifting it out
+	# ⚠️ ARCHIVE IT (P2-D5, 2026-09-09). This is a Gate-7 hint in the one level whose whole
+	# fairness net is the TAB journal, and for its entire life it was shown once and never
+	# recorded — the player could not re-read it two gates later at the Blackout. It is not a
+	# trap note, so record_note is safe, and GameState.record_note de-dupes, so re-opening the
+	# box (the resume path) does not double-file it.
+	GameState.record_note(hint_text, GameState.current_level)
 	NoteUI.show_note(hint_text)
 
 

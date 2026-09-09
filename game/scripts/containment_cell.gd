@@ -115,15 +115,27 @@ var _occupant_material: StandardMaterial3D
 var _player: CharacterBody3D
 var _yaw: float = 0.0
 
+# The blackout beat (kontur.gd BS1, 2026-09-09): the booth's own light dies with the room's.
+var _liners: Array = []                 # [[MeshInstance3D, original_emission_energy], ...]
+var _placard: Label3D = null
+var _placard_tint: Color = Color(1, 1, 1)
+var _glass_ref: StandardMaterial3D = null
+var _charged: bool = false
+
 
 # ---- the specimen's palette -----------------------------------------------------------
 # `creature_object12.gd:_apply_retint()`'s colours, verbatim. Do not re-pick them.
 const SPECIMEN_ALBEDO := Color(0.35, 0.4, 0.32)
 const SPECIMEN_EMISSION_COLOR := Color(0.4, 0.05, 0.05)
-# ...and the three numbers that are this level's, not the Breach's. 1.0 / 0.35 / 0.5 makes
-# the material byte-equivalent to the Breach's; see the header for what that measured.
+# ...and the three numbers that are this level's, not the Breach's. The Breach's loose
+# creature runs 1.0 / 0.12 / 0.2 (creature_object12.gd's `dim` / `EMISSION_BASE` / `specular`)
+# since its own 2026-09-07 darkness pass; setting these three to those values makes the
+# material match it again. They deliberately differ — the Breach meets this creature across a
+# lit facility, KONTUR at 1.5 m with a torch on it — and "the same creature" means the shared
+# HUE (SPECIMEN_ALBEDO / SPECIMEN_EMISSION_COLOR, verbatim above), not identical energies. If
+# the user ever wants identical numbers, that is the one edit.
 const SPECIMEN_DIM := 0.45             # albedo scale
-const SPECIMEN_EMISSION := 0.16        # emission energy (the Breach's is 0.35)
+const SPECIMEN_EMISSION := 0.16        # emission energy (the Breach's is 0.12 now)
 const SPECIMEN_SPECULAR := 0.0
 
 
@@ -178,6 +190,7 @@ func _build_shell() -> void:
 	# transparent, so the fight is invisible in a still and obvious in motion.
 	var glass := _glass_mat()
 	var liner := _liner_mat()
+	_glass_ref = glass          # BS1: charge() flashes this on the impact
 	var pane_w: float = SIZE.x - 2.0 * POST - 0.04
 	var pane_z: float = SIZE.y - 2.0 * POST - 0.04
 	var pane_h: float = HEIGHT - 0.30
@@ -185,16 +198,16 @@ func _build_shell() -> void:
 	_box("PaneN", Vector3(pane_w, pane_h, GLASS_T),
 		Vector3(0, pane_y, hz - GLASS_T), glass)
 	# ...and the one-sided backlit panel standing just inside it. See BACKLIT_ENERGY.
-	_backlit_panel("LinerNorth", Vector2(pane_w, pane_h),
-		Vector3(0, pane_y, BACKLIT_INSET), PI)
+	_capture_liner(_backlit_panel("LinerNorth", Vector2(pane_w, pane_h),
+		Vector3(0, pane_y, BACKLIT_INSET), PI))
 	# West: the clear viewing window, on the side the walking line runs down.
 	_box("PaneWest", Vector3(GLASS_T, pane_h, pane_z),
 		Vector3(-(hx - GLASS_T), pane_y, 0), glass)
 	# ⚠️ EAST IS AN OPAQUE BACKLIT LINER, NOT GLASS. The booth's east face stands 0.15 m
 	# from the Passage wall — nobody can get behind it, so it is worth more as the lit
 	# surface the occupant is a shadow against from the west than as a fourth window.
-	_box("LinerEast", Vector3(GLASS_T, pane_h, pane_z),
-		Vector3(hx - GLASS_T, pane_y, 0), liner)
+	_capture_liner(_box("LinerEast", Vector3(GLASS_T, pane_h, pane_z),
+		Vector3(hx - GLASS_T, pane_y, 0), liner))
 
 	# The door: an opaque steel leaf with an observation port, a wheel, a rail and a
 	# hazard placard. It is geometry only — no hinge, no `interact()`, nothing to press.
@@ -212,7 +225,7 @@ func _build_shell() -> void:
 	# facing +z solves both halves at once. It is drawn for anyone at the north end of the
 	# Passage and culled for anyone at the port, who therefore still looks straight
 	# through the opening at the occupant.
-	_backlit_panel("LinerSouth", Vector2(pane_w, pane_h), Vector3(0, pane_y, dz + 0.10), 0.0)
+	_capture_liner(_backlit_panel("LinerSouth", Vector2(pane_w, pane_h), Vector3(0, pane_y, dz + 0.10), 0.0))
 
 	# The port itself: recessed glass, a proud bead frame, and two bars.
 	var port_h: float = PORT_Y1 - PORT_Y0
@@ -272,6 +285,8 @@ func _build_shell() -> void:
 	plate.position = Vector3(-0.30, 0.90, dz - 0.06)
 	plate.rotation.y = PI
 	add_child(plate)
+	_placard = plate
+	_placard_tint = plate.modulate
 
 	# ⚠️ ONE collider for the whole booth. The occupant has none at all — a collider
 	# around the creature would be a thing the player could bump into through glass, and
@@ -357,6 +372,67 @@ func _build_occupant() -> void:
 # the same dead code in `creature_stalker.gd` and `creature_object12.gd`. It was measured in
 # 2026-08 to move nothing at all, and the model it was compensating for (a T-pose with no
 # animation tracks) has been replaced. Deleted rather than ported.
+
+
+# The blackout beat: when the black door blows the room's lights (kontur.gd:_begin_cell_blackout),
+# the booth's own backlit liners and its placard go dark too, so the occupant is lit ONLY by the
+# player's torch. Restored at the Kitchen. No panic, no rule — a lighting state.
+func _capture_liner(mi: MeshInstance3D) -> MeshInstance3D:
+	if is_instance_valid(mi) and mi.material_override:
+		_liners.append([mi, mi.material_override.emission_energy_multiplier])
+	return mi
+
+
+func set_dark(on: bool) -> void:
+	for entry in _liners:
+		var mi: MeshInstance3D = entry[0]
+		if is_instance_valid(mi) and mi.material_override:
+			mi.material_override.emission_energy_multiplier = 0.0 if on else float(entry[1])
+	if is_instance_valid(_placard):
+		_placard.modulate = Color(0.02, 0.02, 0.02) if on else _placard_tint
+
+
+# ⚠️ ZERO PANIC, CANNOT KILL, NO RULE (the user's call, Q3, 2026-09-09). Object 12 surges at the
+# glass once as the player passes in the dark: a loud snarl AT the port, a camera jolt, a lunge of
+# the occupant toward the viewing side, and an impact flash on the panes. It adds no ScaryObject, no
+# collider, no Screamer, no add_panic — so every assertion in check_kontur_entities (no rules, panic
+# delta 0) still holds. kontur.gd gates it on the blackout being live, which is only ever true after
+# gate 1, so the headless entities test — which never opens gate 1 — never fires it and still
+# measures a still, unsteady occupant.
+# ⚠️ apparition_snarl is a creature lunge, deliberately NOT a fatal screamer file — reusing a death
+# sting for a survivable beat teaches the player the death sound is free (INTRO.md's objection).
+func charge(player: Node3D) -> void:
+	if _charged:
+		return
+	_charged = true
+	var snarl := GameState.load_audio("apparition_snarl")
+	if snarl:
+		var sp := AudioStreamPlayer3D.new()
+		sp.stream = snarl
+		sp.volume_db = 3.0
+		sp.max_db = 6.0
+		sp.unit_size = 8.0
+		add_child(sp)
+		sp.position = Vector3(0, 1.4, -SIZE.y / 2.0)
+		sp.finished.connect(sp.queue_free)
+		sp.play()
+	if player and player.has_method("jolt_camera"):
+		player.jolt_camera(0.16, 0.45)
+	if is_instance_valid(_occupant):
+		var rest := _occupant.position
+		var lunge := rest + Vector3(0, 0, -0.62)   # toward the port (-z), the player's side
+		var t := create_tween()
+		t.tween_property(_occupant, "position", lunge, 0.16) \
+			.set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+		t.tween_interval(0.18)
+		t.tween_property(_occupant, "position", rest, 0.6).set_trans(Tween.TRANS_SINE)
+	# The glass takes the hit — a white impact flash on the shared pane material, then dark.
+	if _glass_ref:
+		_glass_ref.emission_enabled = true
+		_glass_ref.emission = Color(0.9, 0.95, 1.0)
+		var f := create_tween()
+		f.tween_property(_glass_ref, "emission_energy_multiplier", 1.2, 0.05)
+		f.tween_property(_glass_ref, "emission_energy_multiplier", 0.0, 0.5)
 
 
 func _build_audio() -> void:

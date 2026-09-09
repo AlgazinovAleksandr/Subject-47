@@ -153,7 +153,7 @@ func _process(delta: float) -> bool:
 		_peek_limit = float(ps.get("HIDE_PEEK_LIMIT"))
 		print("== HIDING SPOTS ==  %d found, peek cone +-%.0f deg"
 			% [_spots.size(), rad_to_deg(_peek_limit)])
-		_ok("all six hiding spots exist", _spots.size() == 6, "%d found" % _spots.size())
+		_ok("all eight hiding spots exist", _spots.size() == 8, "%d found" % _spots.size())
 		_ok("a live player and creature", _player != null and _creature != null)
 		if _player == null or _spots.is_empty():
 			return _report()
@@ -187,11 +187,19 @@ func _process(delta: float) -> bool:
 				_ok("%s: the shipping ray reaches it from the approach" % label,
 					seen != null and _is_spot(seen, spot), "ray saw %s" % str(seen))
 				_ok("%s: the torch is ON before hiding" % label, _torch_on())
+			var pre_energy: float = float(_player.get("_flash_base_energy"))
 			_player.call("ai_interact")
 			_ok("%s: E hides the player (cycle %d)" % [label, _cycle + 1],
 				bool(_player.call("is_hidden")))
-			_ok("%s: ...and the torch goes out while hidden" % label, not _torch_on(),
-				"deliberate — the cost of hiding; see enter_hiding()")
+			# ⚠️ 2026-09-09 (the user: "when I look out of the wardrobe the visibility is very poor").
+			# The torch is DIMMED, NOT killed, while hidden — you must be able to see out. So it stays
+			# ON (which ALSO keeps the light weapon nominally armed, harmless because hiding drops the
+			# creature out of CHASE), at a fraction of its pre-hide energy.
+			_ok("%s: the torch stays ON (dimmed) while hidden" % label, _torch_on(),
+				"dimmed, not killed — see enter_hiding()")
+			var hid_energy: float = float(_player.get("_flash_base_energy"))
+			_ok("%s: ...and it is DIMMER than before hiding" % label,
+				hid_energy < pre_energy - 0.01, "%.2f < %.2f" % [hid_energy, pre_energy])
 			# ---- the peek cone must be able to see where the creature comes from
 			if _cycle == 0:
 				# ⭐ THE REGRESSION GUARD FOR THE FIX ITSELF: the player must face AWAY from the
@@ -285,6 +293,10 @@ func _process(delta: float) -> bool:
 			_ok("%s: THE TORCH IS HANDED BACK (cycle %d)" % [label, _cycle + 1], _torch_on(),
 				"a player who hides must not step out into the dark holding a torch that "
 				+ "looks broken — and without it they have no light weapon either")
+			# ...at FULL brightness, not left dimmed from the hide (2026-09-09).
+			_ok("%s: and at full brightness, not left dimmed (cycle %d)" % [label, _cycle + 1],
+				float(_player.get("_flash_base_energy")) > 1.0,
+				"energy %.2f" % float(_player.get("_flash_base_energy")))
 			_cycle += 1
 			if _cycle >= CYCLES:
 				_cycle = 0

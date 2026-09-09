@@ -67,6 +67,11 @@ const MAX_PANIC_RATIO := 0.6
 # Optional level-supplied veto, e.g. level_1.gd's `_in_breaker_nook`.
 var suppress: Callable = Callable()
 
+# Optional per-level audio overrides, passed through to each spawned Apparition (empty = shared
+# defaults). KONTUR sets these to "jumpscare" (capture #10). Additive; every other level unaffected.
+var appear_audio: String = ""
+var teach_flash_audio: String = ""
+
 var _elapsed: float = 0.0
 var _next_at: float = 0.0
 var _player: CharacterBody3D = null
@@ -138,6 +143,11 @@ func _fire() -> void:
 	_elapsed = 0.0
 	_next_at = randf_range(MIN_GAP, MAX_GAP)
 	var a := Apparition.spawn(get_parent(), Apparition.Rule.HOLD, Vector3.ZERO, false) as Apparition
+	if a:
+		if appear_audio != "":
+			a.appear_audio = appear_audio
+		if teach_flash_audio != "":
+			a.teach_flash_audio = teach_flash_audio
 	var taught := arm(a)
 	var dbg := get_node_or_null("/root/DebugLog")
 	if dbg:

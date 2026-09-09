@@ -53,9 +53,15 @@ const STANDSTILL_GRACE := 4.0      # seconds still before the maze starts punish
 const STANDSTILL_PANIC_RATE := 3.0 # panic per second while standing still too long
 const FOOTSTEP_ECHO_DELAY := 0.4   # phantom step plays this long after each real one
 const FOOTSTEP_ECHO_VOLUME_DB := -11.0
-const HIDE_PEEK_LIMIT := deg_to_rad(50)  # restricted look while hidden (a locker-door crack)
-const HIDE_FOV := 35.0                   # narrowed FOV while hidden — peering through a gap
+const HIDE_PEEK_LIMIT := deg_to_rad(55)  # restricted look while hidden (a locker-door crack)
+# ⚠️ WIDENED 2026-09-09 (the user: "when I look out of the wardrobe the visibility is very poor").
+# Was 35 with a 0.96-alpha slit — the player peered into black through a keyhole in a ~0.025-ambient
+# level. 55 with a wider, lighter overlay window makes "looking out" legible while still reading as
+# a gap. The dominant fix is the DIMMED-not-killed torch below; these are the framing half.
+const HIDE_FOV := 55.0                   # narrowed FOV while hidden — peering through a gap
 const HIDE_FOV_TWEEN_TIME := 0.25
+# While hidden the torch is DIMMED to this fraction rather than killed, so the player can see out.
+const HIDE_TORCH_DIM := 0.32
 
 @onready var camera: Camera3D = $Camera3D
 @onready var flashlight: SpotLight3D = $Camera3D/Flashlight
@@ -87,6 +93,7 @@ var _no_decay: bool = false             # THE NIGHTMARE's silence: panic holds, 
 var _flashlight_dead: bool = false      # force-killed: F only clicks, never re-enables
 var _flashlight_locked: bool = false    # reversible; distinct from _flashlight_dead (Intro Room)
 var _flash_was_on: bool = false         # remembered across force_flashlight_off()
+var _hide_prev_energy: float = -1.0      # torch energy saved while hidden (dimmed, not killed)
 var _input_frozen: bool = false         # blocks movement + look during a forced camera beat (Intro Room)
 var _qte_active: bool = false           # clamped but not frozen (the beartrap escape) — see begin_qte()
 var _hidden: bool = false               # inside a HidingSpot — movement blocked, look restricted
@@ -183,11 +190,14 @@ func _build_hide_overlay() -> void:
 	_hide_overlay.visible = false
 	interact_ui.add_child(_hide_overlay)
 
-	var c := Color(0.0, 0.0, 0.0, 0.96)
-	_hide_overlay.add_child(_make_hide_bar(c, 0.0, 0.0, 1.0, 0.32))    # top
-	_hide_overlay.add_child(_make_hide_bar(c, 0.0, 0.68, 1.0, 1.0))    # bottom
-	_hide_overlay.add_child(_make_hide_bar(c, 0.0, 0.32, 0.30, 0.68))  # left
-	_hide_overlay.add_child(_make_hide_bar(c, 0.70, 0.32, 1.0, 0.68))  # right
+	# ⚠️ 0.82, not 0.96, and a WIDER window (20-80% each way, was 32-70/30-70) — see HIDE_FOV. A
+	# near-opaque slit plus a 35 FOV plus a killed torch was three compounding reasons you saw
+	# nothing; all three are eased.
+	var c := Color(0.0, 0.0, 0.0, 0.82)
+	_hide_overlay.add_child(_make_hide_bar(c, 0.0, 0.0, 1.0, 0.20))    # top
+	_hide_overlay.add_child(_make_hide_bar(c, 0.0, 0.80, 1.0, 1.0))    # bottom
+	_hide_overlay.add_child(_make_hide_bar(c, 0.0, 0.20, 0.20, 0.80))  # left
+	_hide_overlay.add_child(_make_hide_bar(c, 0.80, 0.20, 1.0, 0.80))  # right
 
 
 func _make_hide_bar(color: Color, l: float, t: float, r: float, b: float) -> ColorRect:
@@ -230,6 +240,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("interact"):
 		_try_interact()
 		get_viewport().set_input_as_handled()
+
+	# SECONDARY interact (Space / push_effort) — a general opt-in: a prop that implements
+	# `secondary_interact()` gets a second verb on the same aim. KONTUR's Gate 6 uses it so E
+	# ANSWERS a phone and Space SMASHES it. Safe alongside the Lab locker's own Space mash: the
+	# locker freezes the player, and a frozen non-hidden player never reaches here (the guard at
+	# the top of _unhandled_input returns first), so the locker's own poll owns Space during it.
+	if event.is_action_pressed("push_effort"):
+		if _try_secondary():
+			get_viewport().set_input_as_handled()
 
 	if event.is_action_pressed("toggle_flashlight"):
 		if flashlight.visible:
@@ -496,6 +515,16 @@ func _try_interact() -> void:
 		return
 	if _interact_target and _interact_target.has_method("interact"):
 		_interact_target.interact()
+
+
+# The Space verb. Returns true if it acted, so the caller only swallows the event when it did.
+func _try_secondary() -> bool:
+	if _qte_active or _hidden:
+		return false
+	if _interact_target and _interact_target.has_method("secondary_interact"):
+		_interact_target.secondary_interact()
+		return true
+	return false
 
 
 func _handle_gaze(delta: float) -> void:
@@ -922,6 +951,12 @@ func ai_interact() -> void:
 	_try_interact()
 
 
+# Test hook for the Space verb (Input.parse_input_event does not work headless). Mirrors
+# ai_interact(): drive the ray with ai_look_at + ai_interact_target() first, then call this.
+func ai_secondary() -> void:
+	_try_secondary()
+
+
 # What the "Press E" prompt is currently pointing at, or null. Lets a test assert that
 # a prop is REACHABLE — the question Issue 30 showed nobody was asking.
 func ai_interact_target() -> Node:
@@ -965,18 +1000,20 @@ func enter_hiding(spot: Node) -> void:
 	_hide_yaw_center = rotation.y
 	velocity = Vector3.ZERO
 	_input_frozen = true
-	# ⚠️⚠️ `force_flashlight_off()`, NOT `lock_flashlight()` (fixed 2026-09-07). See the block
-	# above `force_flashlight_off()` — `lock_flashlight()`/`unlock_flashlight()` hides the light
-	# and never hands it back, so a player climbing out of a locker stood in the dark holding a
-	# torch that F appeared to have stopped operating. It also silently disarmed them:
-	# `level_6_breach.gd:_tick_light_weapon()` returns early on `not is_flashlight_on()`, so the
-	# light weapon was gone too, with no feedback either way.
+	# ⚠️⚠️ DIM THE TORCH, DON'T KILL IT (2026-09-09, the user: "when I look out of the wardrobe the
+	# visibility is very poor"). The previous code called `force_flashlight_off()` — correct for
+	# handing the torch back, but it left the player peering into a ~0.025-ambient black room through
+	# a keyhole. Instead, drop `_flash_base_energy` (which `_tick_battery()` re-asserts every frame,
+	# so a direct write to `light_energy` would be reverted) to a fraction, and restore it on exit.
 	#
-	# ⚠️ THIS WAS A STALE CALLER, NOT A DESIGN DECISION, and git says so: `enter_hiding()` was
-	# written 2026-07-24 with `lock_flashlight()`; `force_flashlight_off()`/`restore_flashlight()`
-	# arrived 2026-07-30 for the House, and this caller was never migrated. The warning comment
-	# six lines above the bug was written about exactly this failure mode.
-	force_flashlight_off()
+	# ⚠️ SAFE re: the light weapon: `creature_object12.gd:apply_light_damage()` only drains/staggers
+	# in CHASE, and hiding drops the creature out of CHASE (`_detect_player()` returns false when
+	# hidden), so a dimmed torch left on cannot be used to stagger it from cover. And a torch that is
+	# OFF/dead when you hide (you turned it off, or THE NIGHTMARE's dead torch) stays that way — we
+	# only dim a torch that is actually on.
+	if flashlight.visible and _hide_prev_energy < 0.0:
+		_hide_prev_energy = _flash_base_energy
+		_flash_base_energy = _flash_base_energy * HIDE_TORCH_DIM
 	if _hide_overlay:
 		_hide_overlay.visible = true
 	var tween := create_tween()
@@ -987,10 +1024,11 @@ func exit_hiding() -> void:
 	_hidden = false
 	_hide_spot = null
 	_input_frozen = false
-	# ⚠️ The other half of the pair — see `enter_hiding()`. `restore_flashlight()` hands the torch
-	# back exactly as it was, and correctly refuses to resurrect one that `kill_flashlight()` has
-	# taken (THE NIGHTMARE also spawns HidingSpots, and its torch is dead from level start).
-	restore_flashlight()
+	# ⚠️ The other half of the dim (see `enter_hiding()`): put the torch's energy back. Nothing to
+	# do for a torch that was off/dead when you hid — it was never dimmed.
+	if _hide_prev_energy >= 0.0:
+		_flash_base_energy = _hide_prev_energy
+		_hide_prev_energy = -1.0
 	if _hide_overlay:
 		_hide_overlay.visible = false
 	var tween := create_tween()

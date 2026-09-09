@@ -45,6 +45,12 @@ const RUSH_BASE := "res://assets/textures/screamers/shared_screamer_2"          
 var rule: int = Rule.HOLD
 var teach: bool = false
 
+# Optional per-level audio overrides (ADDITIVE; empty = the shared defaults, so every other level
+# renders byte-for-byte as before). KONTUR sets these to "jumpscare" via its ApparitionDirector
+# (capture #10: "this creature should also come with a jumpscare sound, not the one currently used").
+var appear_audio: String = ""       # the sound on appearance (default apparition_drone)
+var teach_flash_audio: String = ""  # the survivable-rush flash sting (default all_levels_screamer)
+
 var _player: CharacterBody3D
 var _camera: Camera3D
 var _engaged: bool = false
@@ -499,7 +505,8 @@ func _rush() -> void:
 		img = _resolve_tex(FIG_BASE)
 	if teach:
 		# A survivable lesson: it lunges, you flinch, you live — learn not to run.
-		Screamer.flash_scare(img, "all_levels_screamer", 0.7)
+		var flash := teach_flash_audio if teach_flash_audio != "" else "all_levels_screamer"
+		Screamer.flash_scare(img, flash, 0.7)
 		if _player:
 			_player.jolt_camera(0.1, 0.4)
 			_player.add_panic(TEACH_PANIC)
@@ -563,7 +570,8 @@ func _fade_out() -> void:
 # Fire-and-forget, never awaited: awaiting would delay the figure by the whole dip.
 func _play_drone() -> void:
 	HoldBreath.dip(get_tree(), APPEAR_SILENCE)
-	var stream := GameState.load_audio("apparition_drone")
+	var base := appear_audio if appear_audio != "" else "apparition_drone"
+	var stream := GameState.load_audio(base)
 	if not stream:
 		stream = GameState.load_audio("apparition_snarl")
 	if not stream:

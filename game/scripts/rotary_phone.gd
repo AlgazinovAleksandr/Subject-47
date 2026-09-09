@@ -34,6 +34,16 @@ signal smashed
 # caller) is completely unaffected.
 @export var smashable: bool = false
 
+# The phone body's colour. KONTUR Gate 6 has three phones — yellow / blue / green — and the colour
+# is which verb the player owes it (told on a note in Records). Default is the near-black 1970s
+# handset, so the Backrooms phones and the Perëkozhnik's COLOURLESS decoy are unaffected — and the
+# colourless one among three coloured ones is half the mimic tell.
+@export var tint: Color = Color(0.05, 0.05, 0.06)
+
+# When true the phone does NOT ring on its own timer; a controller (kontur.gd's phone cycle) calls
+# set_ringing() so exactly one of the three rings at a time. Backrooms leaves this false (self-rings).
+@export var externally_driven: bool = false
+
 # Which ring to load, and how loud.
 #
 # The Backrooms mixes its ring UNDER that level's score so it reads as "distant" — it
@@ -65,6 +75,8 @@ signal smashed
 
 var _answered: bool = false
 var _smashed: bool = false
+var _resolved: bool = false      # KONTUR: the gate has accepted this phone (green answered, or smashed)
+var _should_ring: bool = false   # externally_driven: the controller wants this one ringing now
 var _ring_timer: float = 2.0
 var _ring_player: AudioStreamPlayer3D
 var _whisper_player: AudioStreamPlayer3D
@@ -108,7 +120,7 @@ func _ready() -> void:
 
 
 func _build_mesh() -> void:
-	build_visual(self)
+	build_visual(self, tint)
 
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
@@ -122,9 +134,9 @@ func _build_mesh() -> void:
 # as a disguise (`mimic_shell.gd`), and a mimic has to be built from the SAME geometry as
 # the thing it imitates — two builders drift, and "which of these two is not ringing" only
 # works if the two are otherwise identical. Additive: nothing else calls it.
-static func build_visual(parent: Node3D) -> void:
+static func build_visual(parent: Node3D, body_tint: Color = Color(0.05, 0.05, 0.06)) -> void:
 	var black := StandardMaterial3D.new()
-	black.albedo_color = Color(0.05, 0.05, 0.06)
+	black.albedo_color = body_tint
 	black.roughness = 0.4
 	black.metallic = 0.1
 
@@ -158,7 +170,13 @@ static func build_visual(parent: Node3D) -> void:
 
 
 func _process(delta: float) -> void:
-	if _answered or _smashed:
+	if _answered or _smashed or _resolved:
+		return
+	if externally_driven:
+		# The controller owns the cadence; we only keep the burst alive while it wants us ringing
+		# (every .wav.import here is loop_mode=0, so a finished burst must be replayed).
+		if _should_ring and _ring_player.stream and not _ring_player.playing:
+			_ring_player.play()
 		return
 	if not rings:
 		# Off the hook: a continuous, quiet leak instead of a ring. Self-restarted, because
@@ -182,25 +200,55 @@ func _process(delta: float) -> void:
 
 
 func interact() -> void:
-	if _answered or _smashed:
+	if _answered or _smashed or _resolved:
+		return
+	if open_note:
+		# Backrooms read-to-die: answering LOCKS the call open and bleeds panic. Hang up to live.
+		_answered = true
+		_ring_player.stop()
+		if _whisper_player.stream:
+			_whisper_player.play()
+		answered.emit()
+		NoteUI.show_note(WHISPER_TEXT, ANSWER_PANIC_RATE)
+	else:
+		# KONTUR: E ANSWERS. The level decides the outcome (fatal / hallucination / hint) and
+		# whether this resolves the phone — answering does NOT lock it, so a phone the player must
+		# still SMASH stays smashable. The ring stops on pickup; the controller re-rings it if it
+		# is still unresolved.
+		_ring_player.stop()
+		_should_ring = false
+		answered.emit()
+
+
+# Space / push_effort — SMASH (KONTUR Gate 6). E answers, Space smashes; the two verbs on one aim
+# are the whole choice. Needs the hammer (`smashable`). A no-op for the Backrooms phones, which are
+# never smashable, so their only verb stays E.
+func secondary_interact() -> void:
+	if _answered or _smashed or _resolved:
 		return
 	if smashable:
 		_smash()
+
+
+# The controller (kontur.gd) turns exactly one unresolved phone on at a time.
+func set_ringing(on: bool) -> void:
+	if _resolved or _smashed or _answered:
 		return
-	_answered = true
-	_ring_player.stop()
-	if _whisper_player.stream:
-		_whisper_player.play()
-	answered.emit()
-	# Read-to-die: NoteUI feeds panic while the call is open; hang up to survive.
-	if open_note:
-		NoteUI.show_note(WHISPER_TEXT, ANSWER_PANIC_RATE)
+	_should_ring = on
+	if on:
+		if _ring_player.stream and not _ring_player.playing:
+			_ring_player.play()
+	else:
+		_ring_player.stop()
 
 
-# KONTUR Gate 6: the hammer resolution. Silences the phone for good instead of
-# answering it.
+func is_resolved() -> bool:
+	return _resolved or _smashed
+
+
 func _smash() -> void:
 	_smashed = true
+	_should_ring = false
 	_ring_player.stop()
 	if _smash_player.stream:
 		_smash_player.play()
@@ -211,16 +259,23 @@ func _smash() -> void:
 	tw.parallel().tween_property(self, "position:y", position.y - 0.06, 0.15)
 
 
-# The RESTORE path: this phone was smashed on an earlier visit and the level has just
-# rebuilt it from scratch (kontur.gd's _reopen_passed_gates). Silent — no sound, no
-# `smashed` signal, no tween — because nothing is happening; the world is catching up
-# with a ledger that already says so. Additive and default-preserving: the Backrooms'
-# two phones never call it.
-func mark_smashed() -> void:
-	if _smashed:
+# The RESTORE path (kontur.gd resume) and the green-answered accept. Silent — no sound, no signal,
+# no re-trigger — the world is catching up with a ledger that already says this phone is done.
+# `smashed_look` tilts the handset (a phone the player smashed); an ANSWERED green phone stays
+# upright. Additive: the Backrooms' phones never call it.
+func mark_resolved(smashed_look: bool = true) -> void:
+	if _resolved or _smashed:
 		return
-	_smashed = true
+	_resolved = true
+	_should_ring = false
 	if _ring_player:
 		_ring_player.stop()
-	rotation.z = deg_to_rad(28.0)
-	position.y -= 0.06
+	if smashed_look:
+		_smashed = true
+		rotation.z = deg_to_rad(28.0)
+		position.y -= 0.06
+
+
+# Back-compat alias for the old single-phone resume path.
+func mark_smashed() -> void:
+	mark_resolved(true)

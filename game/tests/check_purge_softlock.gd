@@ -15,7 +15,11 @@ extends SceneTree
 # ON the doorway plane, so it cannot distinguish the two sides and has never asked this.
 
 const LEVEL := "res://scenes/level_6_breach.tscn"
-const OUTSIDE_Z := 53.5      # PurgeAnte — the exact pose check_purge_interact.gd presses from
+# ⚠️ 2026-09-09 (cap #4): the seal room is ExitVault (west-wing dead-end) and the exit is at the
+# spine's end (Incinerator) — so the exit is never behind the blast door and the original softlock
+# is structurally impossible. This now verifies the blast door still vents AND the (separate) exit is
+# reachable and unlocked after winning. Seal from the ArchiveC side of the door at z=48.
+const OUTSIDE_Z := 46.5
 
 var _t := 0.0
 var _wall := 0.0
@@ -90,8 +94,8 @@ func _process(delta: float) -> bool:
 		# detected the parked player at 4.2 m, chased, and stood 0.79 m in front of them, which
 		# is what blocked the interact ray for four runs of this probe. What is under test here
 		# is the DOOR, not the chase.
-		_creature.get("_body").global_position = Vector3(0, 0, 58.5)
-		_player.global_position = Vector3(0, 0.1, OUTSIDE_Z)
+		_creature.get("_body").global_position = Vector3(-7, 0, 51.0)   # inside ExitVault trap_bounds
+		_player.global_position = Vector3(-7, 0.1, OUTSIDE_Z)           # ArchiveC side of the blast door
 		# ⚠️ A Node3D's forward is −Z, so facing +z is PI, not 0. At 0 the interact ray pointed
 		# back down the corridor, found NOTHING, the door was never sealed, and the creature —
 		# which `interact()` would have frozen — chased the parked player down and killed them.
@@ -158,26 +162,29 @@ func _process(delta: float) -> bool:
 		_ok("the door SEALED on the press", _sealed_during,
 			"if it never shut, 'it reopened' proves nothing")
 		_ok("the blast door VENTS after the purge", not sealed,
-			"sealed=%s; the exit is at z=61.85, INSIDE the room this door closes" % str(sealed))
-		print("   player z = %.2f  (Incinerator is z 55..62; the exit is inside it)" % pz)
+			"sealed=%s (the creature is contained; the exit is elsewhere either way)" % str(sealed))
+		print("   sealed player z = %.2f (ArchiveC side of the ExitVault blast door)" % pz)
 		if not won:
 			return _report()
-		# Walk at the exit for a few seconds and see how close we get.
-		_player.ai_active = true
-		_player.ai_move_dir = Vector2(0, -1)      # forward, +z
+		# The exit is at the spine's end (Incinerator), never behind this door — verify it is
+		# genuinely reachable and unlocked after winning by standing at it and resolving the ray.
+		_player.ai_active = false
+		_player.global_position = Vector3(0, 0.1, 59.5)   # Incinerator, near the exit
+		_player.rotation.y = PI                            # face +z toward the door at z~61.85
 		_phase = 2
 		_t = 0.0
 		return false
 
 	if _phase == 2:
-		if _t < 6.0:
+		if _t < 3.0:
 			return false
-		_player.ai_move_dir = Vector2.ZERO
-		var pz2: float = _player.global_position.z
-		var d: float = _player.global_position.distance_to(_exit.global_position) if _exit else -1.0
-		print("   after walking 6 s at the exit: player z = %.2f, %.2f m from the exit door" % [pz2, d])
-		_ok("...and the player can actually REACH the exit side after winning", pz2 > 55.0,
-			"ended at z=%.2f, %.2f m from the exit; under 55 is PurgeAnte, i.e. walled out" % [pz2, d])
+		var tgt2 = _player.get("_interact_target")
+		var locked := true
+		if _exit:
+			locked = bool(_exit.get("extra_lock"))
+		_ok("the exit (Incinerator, spine end) is reachable — its ray resolves after winning",
+			tgt2 == _exit, "ray saw %s at %s" % [tgt2, str(_exit.global_position) if _exit else "?"])
+		_ok("...and it is unlocked once the creature is contained", not locked)
 		return _report()
 
 	return false

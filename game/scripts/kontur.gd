@@ -99,7 +99,35 @@ const AIRLOCK_CATCHES_NEEDED := 3
 # cancels it exactly), so this pressure only ever accumulates until the phone is
 # smashed. Silencing it, not just avoiding it, is what passes the gate now.
 const PHONE_PRESSURE_RANGE := 7.0
-const PHONE_PRESSURE_RATE := 4.5  # panic/s while unresolved and the player is near
+# ⚠️ 4.5 → 2.0 (2026-09-09, the user's call). Gate 6 became THREE phones — smash yellow and blue,
+# answer green — so a correct run spends 15–20 s in the room instead of one quick smash. At 4.5/s
+# that killed a correct run; 2.0/s makes a ~20 s dawdle cost 40 of 50 and a brisk correct run ~15.
+const PHONE_PRESSURE_RATE := 2.0  # panic/s from the CURRENTLY-RINGING phone, within range
+const PHONE_RING_ON := 3.6        # seconds one phone rings before the cycle moves to the next
+const BLUE_PANIC_TARGET := 0.90   # answering blue raises panic to ~90% (survivable; no decay here)
+
+# The three lines. Colour is which verb the player owes each — told on a memo in Records: the GREEN
+# line is answered, the YELLOW and BLUE lines are smashed. Answering yellow is fatal; answering blue
+# is a survivable hallucination but still leaves it to be smashed.
+const PHONE_YELLOW_TINT := Color(0.55, 0.50, 0.12)
+const PHONE_BLUE_TINT := Color(0.12, 0.22, 0.52)
+const PHONE_GREEN_TINT := Color(0.14, 0.42, 0.20)
+
+# ⚠️ SPREAD ACROSS THREE ROOMS (2026-09-09, captures #6/#7). The whole line-discipline rule used to
+# be one memo in Records; the user wants "notes regarding different phones should be spread in
+# different rooms in the kontur." So one note per colour, each a room apart, and a player who rushed
+# past a room reaches the Switchboard not knowing whether to answer or smash that colour.
+const PHONE_NOTE_GREEN := """WING 4 — GREEN LINE.
+
+The GREEN line is the only one still ours. If it rings, answer it — the voice is a colleague, and he knew how the floor below this one is meant to be closed."""
+
+const PHONE_NOTE_YELLOW := """WING 4 — YELLOW LINE.
+
+The YELLOW line was cut years ago. Whatever rings on it now is not a person. Do not lift the handset. If you cannot make it stop, break it."""
+
+const PHONE_NOTE_BLUE := """WING 4 — BLUE LINE.
+
+The BLUE line was cut the same year as the yellow. Do not answer it — there is no one on the other end. If it will not stop ringing, break it."""
 
 # The shared "hold your nerve" apparition (Lab/House already have it; the Void,
 # Corridor and Backrooms deliberately don't — they run their own bespoke scares).
@@ -111,10 +139,11 @@ const RANDOM_APPARITIONS := true
 var _builder: RoomBuilder
 var _lights: Array = []           # [OmniLight3D, base_energy]
 var _strikes: int = 0
-var _held_bottle: String = ""     # "" | "vinegar" | "bleach" | "water"
+var _held_bottle: String = ""     # "" | "vinegar" | "bleach" | "poison" | "water"
 var _barrier: FungalBarrier
+var _vinegar_sheet: WallSheet = null
+var _vinegar_revealed: bool = false
 var _took_offering: bool = false
-var _answered_phone: bool = false
 var _gate1_done: bool = false
 var _gate3_scored: bool = false
 var _banished: bool = false       # guards the fall handler against re-entry
@@ -165,9 +194,23 @@ var _mimic_mark: Vector3 = Vector3.ZERO
 # same perceived level (tools/make_sfx_kontur_extra.py prints both).
 const MIMIC_SHED_DB := 10.2
 
-# Gate 6 state.
-var _phone: RotaryPhone
+# Gate 6 state — three phones, one ringing at a time.
+var _phone_slots: Array = []       # [{phone, colour, role}]
+var _ring_cur: RotaryPhone = null  # the phone ringing this moment (the only one charging panic)
+var _ring_t: float = 0.0
+var _blue_hallucinated: bool = false
 var _has_hammer: bool = false
+var _subject_lot: Node3D = null    # P2-F1: the Archive's empty lot 23-Z, which fills with strikes
+var _subject_card: Label3D = null
+
+# A5 (capture #8): the bait-vs-real Archive keycard. One of the six lots hides the real keycard;
+# finding it unlocks the Archive→Switchboard transit door. Randomised, restored not re-rolled.
+var _archive_keycard_slot: int = -1     # which lot index (0..5) hides it; -1 = not yet rolled
+var _archive_keycard_taken: bool = false
+var _archive_door_open: bool = false
+var _archive_lots: Array = []           # the six ArchiveLot bodies, in build order
+var _archive_gate = null                # the locked transit door (door.gd)
+var _archive_keycard = null             # the KeyItem, once revealed
 
 # Everything a resumed run has to be able to UNSEAL again. Held as references rather
 # than looked up by name because Godot renames colliding siblings (Issue 17) and three
@@ -205,6 +248,7 @@ func _ready() -> void:
 	_refresh_exit()
 	_start_ambience()
 	_boost_ambient(DARK_AMBIENT)
+	_spawn_pa()
 
 	GameState.set_objective("PROTOCOL 4-B — PROCEED TO THE MARKED EXIT")
 
@@ -400,12 +444,16 @@ func save_progress() -> Dictionary:
 		"forfeited": _forfeited,
 		"has_hammer": _has_hammer,
 		"held_bottle": _held_bottle,
+		"vinegar_revealed": _vinegar_revealed,
 		"took_offering": _took_offering,
 		"gate3_scored": _gate3_scored,
 		"gate1_done": _gate1_done,
 		"dark_x": _dark_x,
 		"gate1_black_east": _gate1_black_east,
 		"mimic_site": _mimic_site,
+		"archive_keycard_slot": _archive_keycard_slot,
+		"archive_keycard_taken": _archive_keycard_taken,
+		"archive_door_open": _archive_door_open,
 	}
 
 
@@ -433,6 +481,9 @@ func _preload_snapshot() -> void:
 	_dark_x = float(data["dark_x"])
 	_gate1_black_east = bool(data["gate1_black_east"])
 	_mimic_site = String(data.get("mimic_site", _mimic_site))
+	# A5: which lot hides the keycard is a randomisation too — restore it before the Archive is
+	# built, never re-roll (marking a search solved against an answer that had moved, _dark_x's rule).
+	_archive_keycard_slot = int(data.get("archive_keycard_slot", -1))
 	_randomisation_restored = true
 
 
@@ -449,6 +500,25 @@ func _restore_progress() -> void:
 	_took_offering = bool(data.get("took_offering", false))
 	_gate3_scored = bool(data.get("gate3_scored", false))
 	_gate1_done = bool(data.get("gate1_done", false))
+	# A5: if the keycard was already found, the key lot is searched (no second card), the flag is
+	# set, and the transit door is unlocked; if it was already opened, open it instantly. Restoring
+	# the ledger without the world it describes is worse than not restoring it (the _reopen rule).
+	_archive_keycard_taken = bool(data.get("archive_keycard_taken", false))
+	_archive_door_open = bool(data.get("archive_door_open", false))
+	if _archive_keycard_taken:
+		if _archive_keycard_slot >= 0 and _archive_keycard_slot < _archive_lots.size():
+			(_archive_lots[_archive_keycard_slot] as ArchiveLot).mark_searched_instantly()
+		if is_instance_valid(_archive_gate):
+			_archive_gate.locked_message = "TRANSIT DOOR — KEYCARD ACCEPTED. PRESS E."
+	if _archive_door_open and is_instance_valid(_archive_gate):
+		_archive_gate.open_instantly()
+	# If the vinegar was already found, the notice is torn and the bottle is on its ledge.
+	if bool(data.get("vinegar_revealed", false)):
+		_vinegar_revealed = true
+		if is_instance_valid(_vinegar_sheet):
+			_vinegar_sheet.mark_torn()
+		if get_node_or_null("Bottle_vinegar") == null and _held_bottle != "vinegar":
+			_spawn_bottle("vinegar")
 	if _held_bottle != "":
 		GameState.set_carried(_held_bottle)
 		var stale := get_node_or_null("Bottle_" + _held_bottle)
@@ -460,8 +530,7 @@ func _restore_progress() -> void:
 		var hammer := get_node_or_null("Hammer")
 		if hammer:
 			hammer.queue_free()
-		if is_instance_valid(_phone):
-			_phone.smashable = true
+		_arm_phones()
 	_reopen_passed_gates()
 	_refresh_exit()
 
@@ -499,8 +568,11 @@ func _reopen_passed_gates() -> void:
 		for widget in [_airlock_seal, _airlock_track, _airlock_meter, _airlock_marker]:
 			if is_instance_valid(widget):
 				widget.queue_free()
-	if _gates["phone"] and is_instance_valid(_phone):
-		_phone.mark_smashed()
+	if _gates["phone"]:
+		# All three lines are resolved on a passed run; restore them silently (green upright).
+		for s in _phone_slots:
+			if is_instance_valid(s.phone):
+				s.phone.mark_resolved(s.colour != "green")
 
 
 # ---------------------------------------------------------------- lighting
@@ -598,6 +670,7 @@ func _strike(message: String) -> void:
 		p.jolt_camera(0.1, 0.5)
 		p.add_panic(STRIKE_PANIC)
 	_notice(message, Color(1.0, 0.3, 0.25))
+	_log_strike_to_archive()   # the facility files it in lot 23-Z (P2-F1)
 
 	# Playtest instrumentation. Guarded so removing the DebugLog autoload is enough
 	# to strip it — nothing here affects play.
@@ -753,6 +826,7 @@ func _on_gate1_chosen(correct: bool) -> void:
 		_pass_gate("doors")
 		GameState.set_objective("DECONTAMINATION REQUIRED — THE WAY ON IS SEALED")
 		_play_at("door_seal", Vector3(0, 1.5, 10), 0.0)
+		_begin_cell_blackout()
 	else:
 		# No strike. The door simply opens onto nothing; the drop is the answer.
 		_play_at("door_seal", Vector3(0, 1.5, 10), 0.0)
@@ -799,8 +873,11 @@ func _spawn_gate2_shelf() -> void:
 	shelf.material = sm
 	add_child(shelf)
 
-	for kind in BOTTLE_SLOTS:
+	# Only the three WRONG agents stand on the shelf. The vinegar is hidden behind a notice near the
+	# barrier; a player who never tries the notice never finds it and must guess.
+	for kind in ["bleach", "poison", "water"]:
 		_spawn_bottle(kind)
+	_spawn_vinegar_niche()
 
 	_barrier = FungalBarrier.new()
 	_barrier.name = "FungalBarrier"
@@ -820,16 +897,28 @@ func _spawn_gate2_shelf() -> void:
 # longer a dead end.
 const BOTTLE_SLOTS := {
 	"bleach": 22.3,
-	"vinegar": 23.5,
+	"poison": 23.5,
 	"water": 24.7,
+	"vinegar": 26.0,   # ⚠️ z UNUSED for vinegar — it spawns at VINEGAR_NICHE_POS (west wall), not the shelf
 }
 
-# One silhouette per agent (see bottle_item.gd's PROFILES). Legibility only — the shape
-# says nothing at all about which one dissolves O-41.
+# ⚠️ THE VINEGAR IS HIDDEN BEHIND THE REDACTED GATE-2 SIGN ITSELF (2026-09-09, cap #2, refining the
+# round-1 west-wall move). The "APPROVED AGENT: DOMESTIC" notice the player reads for the hint IS the
+# tear-away cover: E tears it off and the vinegar is on a wall ledge directly behind it. So the sign
+# lives HERE, on the Kitchen west wall centre (z 23.5), proud of the wall, with the ledge+bottle
+# behind it — NOT in _spawn_signs. Kitchen west inner face is x=-3.9.
+const VINEGAR_NICHE_Z := 23.5
+const VINEGAR_NICHE_POS := Vector3(-3.6, 1.33, VINEGAR_NICHE_Z)
+
+# One silhouette per agent (see bottle_item.gd's PROFILES). Legibility only — the shape says nothing
+# about which one dissolves O-41. ⚠️ The shelf shows only WRONG agents now (bleach/poison/water); the
+# vinegar is behind a tear-away notice, so a player who never tries the notice must guess and pay a
+# strike — the user's call (captures #5/#6): "it should not be that obvious to find vinegar here."
 const BOTTLE_PROFILES := {
 	"bleach": "jug",
-	"vinegar": "flask",
+	"poison": "vial",
 	"water": "carboy",
+	"vinegar": "flask",
 }
 
 func _spawn_bottle(kind: String) -> void:
@@ -852,8 +941,13 @@ func _spawn_bottle(kind: String) -> void:
 	# `label_%s.png` is the generator's original — a label photographed on a saturated
 	# backdrop, kept as the crop's only input, never hung on a bottle again.
 	b.label_path = TEX + "label_%s_paper.png" % kind
-	b.position = Vector3(3.4, 0.99, BOTTLE_SLOTS[kind])
-	b.rotation.y = -PI / 2.0    # label faces into the room (-x)
+	if kind == "vinegar":
+		# The revealed bottle sits on the west-wall niche ledge, not the east shelf.
+		b.position = VINEGAR_NICHE_POS
+		b.rotation.y = PI / 2.0     # label faces +x into the room (west wall)
+	else:
+		b.position = Vector3(3.4, 0.99, BOTTLE_SLOTS[kind])
+		b.rotation.y = -PI / 2.0    # east shelf: label faces into the room (-x)
 	b.taken.connect(_on_bottle_taken)
 	add_child(b)
 
@@ -890,6 +984,40 @@ func _on_barrier_sprayed() -> void:
 		GameState.set_carried("")
 		_spawn_bottle(spent)
 		_strike("IT DRANK IT")
+
+
+# The vinegar's hiding place: a small ledge near the barrier, covered by a pinned KONTUR notice.
+# E on the notice tears it away and the vinegar is on the ledge behind it. No hint anywhere.
+func _spawn_vinegar_niche() -> void:
+	var wood := _mat("", 1.0, Color(0.24, 0.20, 0.15))
+	var ledge := CSGBox3D.new()
+	ledge.name = "VinegarLedge"
+	ledge.size = Vector3(0.42, 0.05, 0.42)
+	ledge.position = Vector3(-3.55, 1.28, VINEGAR_NICHE_Z)   # a wall ledge behind the sign
+	ledge.use_collision = false
+	ledge.material = wood
+	add_child(ledge)
+
+	# The redacted gate-2 sign IS the cover (cap #2): the "APPROVED AGENT: DOMESTIC" notice the
+	# player reads for the hint tears off on E and reveals the vinegar behind it. Carried on a
+	# WallSheet so it counts as one of the eight redacted signs (check_kontur_signs finds signs by
+	# texture filename) and stays readable until torn. Proud of the wall so it hides the ledge.
+	var sheet := WallSheet.new()
+	sheet.name = "VinegarSign"
+	sheet.sign_texture_path = TEX + "kontur_sign_gate2_shelf.png"
+	sheet.sheet_size = Vector2(SIGN_H, SIGN_H)     # WallSheet re-derives the width from the art aspect
+	sheet.position = Vector3(-3.4, 1.4, VINEGAR_NICHE_Z)   # eye level, proud, covering the ledge
+	sheet.rotation.y = PI / 2.0
+	sheet.torn.connect(_on_vinegar_sheet_torn)
+	add_child(sheet)
+	_vinegar_sheet = sheet
+
+
+func _on_vinegar_sheet_torn() -> void:
+	_vinegar_revealed = true
+	if get_node_or_null("Bottle_vinegar") == null:
+		_spawn_bottle("vinegar")
+	_play_at("metal_creak", Vector3(-3.5, 1.35, VINEGAR_NICHE_Z), -4.0)
 
 
 # ---------------------------------------------------------------- gate 3: the offering
@@ -1077,52 +1205,279 @@ func _spawn_gate5_roster() -> void:
 # from _spawn_props); carry it here and interact() smashes the phone for good instead
 # of answering it. Answering it (without the hammer, or by choice) still instantly
 # forfeits the run — that temptation is unchanged.
+# ---------------------------------------------------------------- the PA (option C: the facility runs)
+# A tannoy on a timetable — the institution carrying on as if the player were not there. Zero panic,
+# no gate answer, no proximity cue (GAME_MECHANICS_IDEAS N4's rule). A chime, then one of four
+# announcements, every 40–75 s. Non-positional (it is the building, not a speaker), on Master so a
+# duck never mutes it.
+const PA_FIRST := 18.0
+const PA_MIN_GAP := 40.0
+const PA_MAX_GAP := 75.0
+const PA_LINE_DB := -5.0
+var _pa_player: AudioStreamPlayer
+var _pa_chime: AudioStreamPlayer
+var _pa_t: float = PA_FIRST
+var _pa_lines: Array = ["pa_kontur_1", "pa_kontur_2", "pa_kontur_3", "pa_kontur_4"]
+
+func _spawn_pa() -> void:
+	_pa_chime = AudioStreamPlayer.new()
+	var ch := GameState.load_audio("pa_kontur_chime")
+	if ch:
+		_pa_chime.stream = ch
+	_pa_chime.volume_db = PA_LINE_DB
+	add_child(_pa_chime)
+	_pa_player = AudioStreamPlayer.new()
+	_pa_player.volume_db = PA_LINE_DB
+	add_child(_pa_player)
+
+
+func _tick_pa(delta: float) -> void:
+	if _pa_player == null:
+		return
+	_pa_t -= delta
+	if _pa_t > 0.0:
+		return
+	_pa_t = randf_range(PA_MIN_GAP, PA_MAX_GAP)
+	if _pa_chime and _pa_chime.stream:
+		_pa_chime.play()
+	# The line follows the chime; process_always = false so it waits out a note being read.
+	get_tree().create_timer(0.9, false).timeout.connect(func() -> void:
+		var base: String = _pa_lines[randi() % _pa_lines.size()]
+		var s := GameState.load_audio(base)
+		if s and is_instance_valid(_pa_player):
+			_pa_player.stream = s
+			_pa_player.play()
+	)
+
+
+# ⭐ GATE 6 — THREE PHONES (2026-09-09, the user's design). Yellow / blue / green, spread around the
+# Switchboard, one ringing at a time. E answers, Space smashes (with the hammer). Smash yellow and
+# blue, answer or smash green. Answering yellow is a loud jumpscare and the run is lost; answering
+# blue is a survivable "there is no exit" hallucination that still leaves it to be smashed; answering
+# green plays a colleague's voice with the Breach quest. The colour rule is written on a memo in
+# Records — the level's own hint, per the user's pivot: for the phones, the answer is INSIDE KONTUR.
 func _spawn_gate6_phone() -> void:
+	_spawn_switchboard_desk(Vector3(-2.4, 0.0, 47.5))
+	_add_phone("yellow", "smash", PHONE_YELLOW_TINT, Vector3(-2.4, 0.78, 45.9))
+	_add_phone("green", "answer", PHONE_GREEN_TINT, Vector3(-2.4, 0.78, 49.1))
+	_spawn_phone_shelf(Vector3(3.0, 1.0, 47.5))
+	_add_phone("blue", "smash", PHONE_BLUE_TINT, Vector3(3.0, 1.03, 47.5))
+
+	# The line-discipline rule, one colour per room on the way in (captures #6/#7). Each is a real
+	# note.gd page that archives to the TAB journal, so a player who read all three can re-check them
+	# at the phones. GREEN in the Passage (west wall — the containment booth is on the east side),
+	# YELLOW in the Kitchen (east wall, south of the bottle shelf), BLUE in Records (east wall, where
+	# the single memo used to hang; the west wall carries the roster sign).
+	var green_pos := _builder.wall_point("Passage", Vector2(-1, 0), 1.5, 0.16)
+	_make_note(green_pos, PI / 2.0, PHONE_NOTE_GREEN)
+	var yellow_pos := _builder.wall_point("Kitchen", Vector2(1, 0), 1.5, 0.16)
+	yellow_pos.z = 20.9    # south of the shelf (z 22.3..26), on the solid east wall
+	_make_note(yellow_pos, -PI / 2.0, PHONE_NOTE_YELLOW)
+	# ⚠️ BLUE ON THE WEST WALL (2026-09-09, cap #3): it used to sit on the east wall at z≈31 —
+	# directly behind the RosterLock (also east wall, (3.6,1.3,31)), which read as a note stuck to
+	# the back of the lock. Moved to the opposite (west) wall, south of the roster sign (west centre
+	# z=31) and clear of the south doorway (z=27).
+	var blue_pos := _builder.wall_point("Records", Vector2(-1, 0), 1.4, 0.16)
+	blue_pos.z = 28.6
+	_make_note(blue_pos, PI / 2.0, PHONE_NOTE_BLUE)
+
+
+func _add_phone(colour: String, role: String, tint: Color, pos: Vector3) -> void:
 	var phone := RotaryPhone.new()
-	phone.name = "SwitchboardPhone"
-	phone.open_note = false     # the forfeit IS the punishment; don't also bleed them
+	phone.name = "Phone_" + colour
+	phone.open_note = false          # the level owns the outcome; no read-to-die note here
+	phone.externally_driven = true   # the cycle in _tick_phones rings exactly one at a time
 	phone.smashable = _has_hammer
-	# A real recorded ring, at full level and audible across the room. The gate is
-	# "silence the phone" — if the player cannot clearly hear it ringing, the rule on
-	# the sign is about nothing and the whole gate reads as a bug.
+	phone.tint = tint
 	phone.ring_audio = "phone_ringing"
 	phone.ring_volume_db = 0.0
 	phone.ring_unit_size = 12.0
-	phone.position = Vector3(-2.2, 0.75, 47.5)
-	phone.answered.connect(func() -> void:
-		_answered_phone = true
-		_forfeit("YOU ANSWERED IT")
-	)
-	phone.smashed.connect(func() -> void:
-		_pass_gate("phone")
-		GameState.set_objective("LIGHTING FAULT — SECTOR DARK. FIND THE TRANSIT DOOR.")
-	)
+	phone.position = pos
+	phone.answered.connect(_on_phone_answered.bind(colour))
+	phone.smashed.connect(_on_phone_smashed.bind(colour))
 	add_child(phone)
-	_phone = phone
-
-	# A desk to stand it on, with no collider — a desk collider would intercept the
-	# interaction ray before it reached the phone (the House key-stand lesson).
-	var desk := CSGBox3D.new()
-	desk.name = "SwitchboardDesk"
-	desk.size = Vector3(1.4, 0.75, 0.7)
-	desk.position = Vector3(-2.2, 0.375, 47.5)
-	desk.use_collision = false
-	desk.material = _mat("", 1.0, Color(0.26, 0.24, 0.2))
-	add_child(desk)
+	_phone_slots.append({"phone": phone, "colour": colour, "role": role})
 
 
-# While the phone rings unsmashed and the player is nearby, it costs panic every
-# frame — KONTUR's floor-wide DreadZone cancels decay exactly everywhere, so this
-# pressure never drains on its own. Fatal within ~11s of dawdling; a quick hammer
-# run is cheap by comparison. Called from _process().
-func _tick_phone_pressure(delta: float) -> void:
-	if not is_instance_valid(_phone) or _gates["phone"] or _forfeited:
+func _on_phone_answered(colour: String) -> void:
+	match colour:
+		"yellow":
+			Screamer.trigger()          # a dead line answers with a scream; the run is lost
+		"blue":
+			_blue_answer_hallucinate()
+		"green":
+			_green_answer()
+
+
+func _on_phone_smashed(_colour: String) -> void:
+	# RotaryPhone._smash() already tilted and silenced it; just score the gate.
+	_check_phones_done()
+
+
+func _green_answer() -> void:
+	_play_at("phone_green_voice", _phone_pos("green"), 10.0)   # telephone voice sits ~9 dB low
+	var slot := _slot("green")
+	if not slot.is_empty():
+		slot.phone.mark_resolved(false)     # answered = upright, not smashed
+	_check_phones_done()
+
+
+func _blue_answer_hallucinate() -> void:
+	if _blue_hallucinated:
 		return
+	_blue_hallucinated = true
+	# A despairing voice, panic to ~90 %, a slow camera roll, figures at the edge of the room that
+	# are gone when you look, and the whisper carrying on after you hang up. Survivable, one-shot —
+	# and the blue phone still has to be SMASHED, so this is a cost, not a resolution.
+	_play_at("phone_blue_voice", _phone_pos("blue"), 10.0)
+	_play_at("phone_whisper", _phone_pos("blue"), 0.0)
 	var p := _player()
-	if not p:
+	if p:
+		var cur: float = p.get_panic_ratio()
+		if BLUE_PANIC_TARGET > cur:
+			p.add_panic((BLUE_PANIC_TARGET - cur) * 50.0)   # PANIC_MAX = 50; stays under it
+		p.jolt_camera(0.12, 0.6)
+		_hallucination_roll(p)
+	_spawn_hallucination_figures()
+
+
+func _hallucination_roll(p: Node) -> void:
+	var cam := p.get_node_or_null("Camera3D")
+	if cam == null:
 		return
-	if p.global_position.distance_to(_phone.global_position) <= PHONE_PRESSURE_RANGE:
-		p.add_panic(PHONE_PRESSURE_RATE * delta)
+	# _rotate_camera only writes yaw and pitch, never roll, so a z-tween is safe and self-restores.
+	var t := create_tween()
+	t.tween_property(cam, "rotation:z", deg_to_rad(7.0), 1.2).set_trans(Tween.TRANS_SINE)
+	t.tween_property(cam, "rotation:z", deg_to_rad(-5.0), 1.6).set_trans(Tween.TRANS_SINE)
+	t.tween_property(cam, "rotation:z", 0.0, 1.2).set_trans(Tween.TRANS_SINE)
+
+
+func _spawn_hallucination_figures() -> void:
+	# Zero-panic Watchers at the room's edges, gone within a few seconds — watcher.gd's no-rules
+	# contract, dark-tinted so they read as shapes rather than lights.
+	for pos in [Vector3(3.1, 0.0, 44.8), Vector3(-3.1, 0.0, 50.2)]:
+		Watcher.spawn(self, pos, TEX + "creature_shapechanger.png", 3.5, true, 1.9,
+			Color(0.33, 0.31, 0.35))
+
+
+func _check_phones_done() -> void:
+	if _gates["phone"]:
+		return
+	for slot in _phone_slots:
+		if not slot.phone.is_resolved():
+			return
+	_pass_gate("phone")
+	GameState.set_objective("LIGHTING FAULT — SECTOR DARK. FIND THE TRANSIT DOOR.")
+
+
+func _slot(colour: String) -> Dictionary:
+	for s in _phone_slots:
+		if s.colour == colour:
+			return s
+	return {}
+
+
+func _phone_pos(colour: String) -> Vector3:
+	var s := _slot(colour)
+	if s.is_empty():
+		return Vector3(0, 1.5, 47.5)
+	return (s.phone as Node3D).global_position
+
+
+func _arm_phones() -> void:
+	for s in _phone_slots:
+		if is_instance_valid(s.phone):
+			s.phone.smashable = true
+
+
+# The ring cycle + the pressure. Only the phone ringing THIS moment charges panic, and only within
+# range, so the room's pressure is real but a brisk correct run pays little. Resolved phones drop out
+# of the rotation; once all three are resolved the gate has passed. Called from _process().
+func _tick_phones(delta: float) -> void:
+	if _forfeited or _phone_slots.is_empty():
+		return
+	if _gates["phone"]:
+		_ring_cur = null
+		return
+	var any_live := false
+	for s in _phone_slots:
+		if not s.phone.is_resolved():
+			any_live = true
+			break
+	if not any_live:
+		return
+	_ring_t -= delta
+	if _ring_cur == null or not is_instance_valid(_ring_cur) or _ring_cur.is_resolved() or _ring_t <= 0.0:
+		_advance_ring()
+	if _ring_cur and is_instance_valid(_ring_cur) and not _ring_cur.is_resolved():
+		var p := _player()
+		if p and p.global_position.distance_to(_ring_cur.global_position) <= PHONE_PRESSURE_RANGE:
+			p.add_panic(PHONE_PRESSURE_RATE * delta)
+
+
+func _advance_ring() -> void:
+	for s in _phone_slots:
+		s.phone.set_ringing(false)
+	var start := 0
+	if _ring_cur:
+		for i in _phone_slots.size():
+			if _phone_slots[i].phone == _ring_cur:
+				start = i + 1
+				break
+	for k in _phone_slots.size():
+		var s: Dictionary = _phone_slots[(start + k) % _phone_slots.size()]
+		if not s.phone.is_resolved():
+			_ring_cur = s.phone
+			s.phone.set_ringing(true)
+			_ring_t = PHONE_RING_ON
+			return
+	_ring_cur = null
+
+
+# The Switchboard desk, built from parts (P2-D7 — capture #9's "grey box with two blobs"). No
+# collider, so the interaction ray reaches the phones standing on it (the House key-stand lesson).
+func _spawn_switchboard_desk(base: Vector3) -> void:
+	var wood := _mat("", 1.0, Color(0.24, 0.22, 0.18))
+	var top := CSGBox3D.new()
+	top.name = "SwitchboardDesk"
+	top.size = Vector3(0.7, 0.06, 4.2)
+	top.position = base + Vector3(0, 0.72, 0)
+	top.use_collision = false
+	top.material = wood
+	add_child(top)
+	for i in range(2):
+		var end := CSGBox3D.new()
+		end.name = "SwitchDeskEnd%d" % i
+		end.size = Vector3(0.62, 0.72, 0.06)
+		end.position = base + Vector3(0, 0.36, (-1.9 if i == 0 else 1.9))
+		end.use_collision = false
+		end.material = wood
+		add_child(end)
+	var rail := CSGBox3D.new()
+	rail.name = "SwitchDeskRail"
+	rail.size = Vector3(0.08, 0.5, 4.0)
+	rail.position = base + Vector3(-0.30, 0.47, 0)
+	rail.use_collision = false
+	rail.material = _mat("", 1.0, Color(0.13, 0.12, 0.11))
+	add_child(rail)
+
+
+func _spawn_phone_shelf(pos: Vector3) -> void:
+	var wood := _mat("", 1.0, Color(0.24, 0.22, 0.18))
+	var shelf := CSGBox3D.new()
+	shelf.name = "PhoneShelf"
+	shelf.size = Vector3(0.5, 0.05, 0.5)
+	shelf.position = pos + Vector3(0, -0.03, 0)
+	shelf.use_collision = false
+	shelf.material = wood
+	add_child(shelf)
+	var br := CSGBox3D.new()
+	br.name = "PhoneShelfBracket"
+	br.size = Vector3(0.14, 0.30, 0.44)
+	br.position = pos + Vector3(0.22, -0.18, 0)
+	br.use_collision = false
+	br.material = wood
+	add_child(br)
 
 
 # The hammer that resolves Gate 6, planted near the level entrance so the player
@@ -1130,15 +1485,28 @@ func _tick_phone_pressure(delta: float) -> void:
 # transparent-background render, so it's built as an alpha QuadMesh billboard
 # (matching _wall_panel's convention) rather than wrapped onto a 3D box.
 func _spawn_gate6_hammer() -> void:
+	# A workbench to stand it on — the user's capture #1: "I do not like that the hammer is
+	# floating in the air. Let's create a kind of a table and put it there." Flat-tinted parts,
+	# no texture (Issue 35), no collider on the top so the interaction ray reaches the hammer
+	# (the House key-stand lesson). Built ALWAYS, so it stays after the hammer is taken and on a
+	# resumed run.
+	_spawn_hammer_bench(Vector3(-1.8, 0.0, -1.5))
+
+	# ⚠️ DUPLICATE-HAMMER FIX (P2-D3, 2026-09-09). _restore_progress() runs BEFORE _spawn_props(),
+	# so its `get_node_or_null("Hammer")` found nothing and a resumed run that had already
+	# collected the hammer built a SECOND one on the bench. `_has_hammer` is set by the restore,
+	# so skip the pickup entirely here — the bench above still stands.
+	if _has_hammer:
+		return
+
 	var hammer := KeyItem.new()
 	hammer.name = "Hammer"
 	hammer.label_text = "Hammer collected"
-	hammer.position = Vector3(-1.8, 0.9, -1.5)
+	hammer.position = Vector3(-1.8, 0.95, -1.5)   # resting on the bench top (face at y 0.75)
 	hammer.picked_up.connect(func() -> void:
 		_has_hammer = true
 		GameState.set_carried("hammer")
-		if is_instance_valid(_phone):
-			_phone.smashable = true
+		_arm_phones()
 	)
 	add_child(hammer)
 
@@ -1167,6 +1535,28 @@ func _spawn_gate6_hammer() -> void:
 	shape.size = Vector3(0.4, 0.4, 0.2)
 	col.shape = shape
 	hammer.add_child(col)
+
+
+# A plain workbench under the hammer (P2-D1). Trestle ends 0.56 m deep, never thin legs, so
+# check_prop_mounting does not read them as floating wall props; no collider, so the interact ray
+# passes through to the hammer resting on the top.
+func _spawn_hammer_bench(base: Vector3) -> void:
+	var wood := _mat("", 1.0, Color(0.20, 0.15, 0.11))
+	var top := CSGBox3D.new()
+	top.name = "HammerBenchTop"
+	top.size = Vector3(1.0, 0.06, 0.6)
+	top.position = base + Vector3(0, 0.72, 0)
+	top.use_collision = false
+	top.material = wood
+	add_child(top)
+	for i in range(2):
+		var end := CSGBox3D.new()
+		end.name = "HammerBenchEnd%d" % i
+		end.size = Vector3(0.06, 0.72, 0.56)
+		end.position = base + Vector3((-0.44 if i == 0 else 0.44), 0.36, 0)
+		end.use_collision = false
+		end.material = wood
+		add_child(end)
 
 
 # ---------------------------------------------------------------- gate 7: the dark room
@@ -1226,6 +1616,54 @@ func _spawn_gate7_dark() -> void:
 	_spawn_event(Vector3(_dark_x, 1.5, 61.0), Vector3(3.5, 3, 1.2), func() -> void:
 		_pass_gate("dark")
 	)
+
+	# ⭐ P2-B1 (2026-09-09): a figure in the dark, between you and the real seam. Visible only with
+	# the torch OFF — the very state the real seam needs — and gone the instant you light the room.
+	# Zero panic, no collider, offset from the seam's x so it never occludes the answer.
+	var fig_x: float = _dark_x + (-1.6 if _dark_x >= 0.0 else 1.6)
+	_blackout_fig = _make_dark_figure(Vector3(fig_x, 0.0, 56.0))
+
+
+# A self-lit dark billboard, hidden by default; gate 7 shows it only while the torch is off. Unshaded
+# so it reads in a pitch-black room, dark-tinted so it reads as a shape rather than a lamp.
+func _make_dark_figure(pos: Vector3) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.name = "BlackoutFigure"
+	var q := QuadMesh.new()
+	q.size = Vector2(1.267, 1.9)   # aspect 0.667 = creature_shapechanger.png (undistorted)
+	mi.mesh = q
+	var m := StandardMaterial3D.new()
+	var tex_path := TEX + "creature_shapechanger.png"
+	if ResourceLoader.exists(tex_path):
+		m.albedo_texture = load(tex_path)
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = Color(0.30, 0.29, 0.33)
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mi.material_override = m
+	mi.position = pos + Vector3(0, 0.95, 0)
+	mi.visible = false
+	add_child(mi)
+	return mi
+
+
+func _tick_blackout_figure() -> void:
+	if _blackout_fig == null or not is_instance_valid(_blackout_fig):
+		return
+	var p := _player()
+	if p == null:
+		return
+	var pos := p.global_position
+	var in_room: bool = pos.z > 51.0 and pos.z < 60.5
+	var show: bool = in_room and not p.is_flashlight_on()
+	_blackout_fig.visible = show
+	# capture #9: it should hit with a jumpscare the first time you see it (torch off in the dark
+	# room). Zero panic — the figure is ruleless; the sting + a small jolt are the whole beat.
+	if show and not _blackout_fig_stung:
+		_blackout_fig_stung = true
+		_play_at("jumpscare", _blackout_fig.global_position, 6.0, 6.0, 9.0)
+		p.jolt_camera(0.14, 0.4)
 
 
 # ---------------------------------------------------------------- gate 8: the airlock
@@ -1483,8 +1921,10 @@ func _spawn_creature() -> void:
 			TEX + "label_bleach_paper.png")
 		_mimic_mark = Vector3(-2.6, 0.0, 22.4)
 	else:
-		# The desk runs x -2.9 .. -1.5; the real phone is at -2.2. Two phones, one desk.
-		c.position = Vector3(-1.75, 0.75, 47.5)
+		# On the desk, between the yellow (z 45.9) and green (z 49.1) phones — a fourth handset
+		# among three, and the only COLOURLESS one (build_visual's default black), which is half
+		# the tell. The other half: it never rings.
+		c.position = Vector3(-2.4, 0.78, 47.5)
 		RotaryPhone.build_visual(shell)
 		_mimic_mark = Vector3(2.4, 0.0, 49.6)
 	# ⚠️ POSITION BEFORE add_child. `ScaryObject` is a plain `Node` and breaks the Node3D
@@ -1566,9 +2006,13 @@ func _on_mimic_revealed() -> void:
 	var c := get_node_or_null("Shapechanger") as CreatureShapechanger
 	if c:
 		_play_at("perekozhnik_shed", c.global_position + Vector3(0, 1.0, 0), MIMIC_SHED_DB)
+		# P2-L1 (capture #7): a loud scream ON the reveal. It is the level's own scream, positional
+		# at the figure, and it adds NO panic — the reveal stays zero-panic (the threat is the gaze
+		# and the 2 m kill radius that follow); only the sound changed.
+		_play_at("kontur_scream", c.global_position + Vector3(0, 1.4, 0), 4.0)
 	var p := _player()
 	if p:
-		p.jolt_camera(0.08, 0.4)
+		p.jolt_camera(0.14, 0.5)
 	var dbg := get_node_or_null("/root/DebugLog")
 	if dbg and dbg.has_method("note"):
 		dbg.note("PEREKOZHNIK REVEALED — disguise site '%s'" % _mimic_site)
@@ -1589,11 +2033,26 @@ func _on_mimic_revealed() -> void:
 # occupant on top of one it already had — it is exchanging a billboard nobody reliably saw
 # for something standing on the walking line.
 const CELL_POS := Vector3(2.75, 0.0, 16.9)
+const CELL_CHARGE_DIST := 3.5
+
+# BS1 state (2026-09-09): the black-door blackout and the one-shot glass charge.
+var _blackout_active: bool = false
+var _cell_charged: bool = false
+var _cell: ContainmentCell = null
+# BS1 (2026-09-09, capture #2): the black door now kills the TORCH too for a few seconds and the
+# lamp-break is much louder. `force_flashlight_off` is ref-counted, so this bool guards a single
+# balanced restore whether it comes from the timer or from crossing the booth first.
+var _cell_torch_forced: bool = false
+const BLACKOUT_TORCH_TIME := 3.5
+var _env: Environment = null
+var _blackout_fig: MeshInstance3D = null   # P2-B1: the figure in the gate-7 dark
+var _blackout_fig_stung: bool = false      # capture #9: one-shot jumpscare when it first appears
 
 func _spawn_containment_cell() -> void:
 	var cell := ContainmentCell.new()
 	cell.name = "ContainmentCell"
 	cell.position = CELL_POS
+	_cell = cell
 	# Faces -z, i.e. the door and the placard look back down the spine at someone walking
 	# in from the antechambers; the three glazed faces are the ones they pass.
 	add_child(cell)
@@ -1607,6 +2066,9 @@ func _spawn_apparition_director() -> void:
 		return
 	var d := ApparitionDirector.new()
 	d.name = "ApparitionDirector"
+	# capture #10: the apparition should hit with a jumpscare sting, not the low drone/flash.
+	d.appear_audio = "jumpscare"
+	d.teach_flash_audio = "jumpscare"
 	add_child(d)
 
 
@@ -1623,8 +2085,8 @@ func _spawn_signs() -> void:
 	# text floating in front of a blank plate with a separate black quad for the bar —
 	# the level's only documentation, rendered as UI.
 	_make_sign(Vector3(0, 1.7, 9.85), PI, "gate1_doors")
-	_make_sign(_builder.wall_point("Kitchen", Vector2(-1, 0), 1.7, 0.16), PI / 2.0,
-		"gate2_shelf")
+	# ⚠️ Gate 2's redacted sign is NOT here — it is the tear-away cover over the vinegar
+	# (_spawn_vinegar_niche builds it as a WallSheet carrying kontur_sign_gate2_shelf.png), cap #2.
 	_make_sign(_builder.wall_point("Records", Vector2(-1, 0), 1.7, 0.16), PI / 2.0,
 		"gate5_roster")
 	# ⚠️ Offset 3.3 m SOUTH of the Archive's wall centre. The recovery racks run z 37..42
@@ -2133,8 +2595,26 @@ func _spawn_recovery_archive() -> void:
 		[1.0, 1, 39.9, "handset", "LOT 19-F   INTERNAL LINE — HANDSET, CUT"],
 		[1.0, 0, 41.6, "empty", "LOT 23-Z   SUBJECT 47 — PENDING"],
 	]
+	# A5: one of the six lots hides the real keycard. Rolled once per run, restored (never re-rolled)
+	# from the snapshot — the same _dark_x discipline the rest of this level follows.
+	if _archive_keycard_slot < 0:
+		_archive_keycard_slot = randi() % lots.size()
+	_archive_lots.clear()
 	for l in lots:
 		_build_lot(float(l[0]), int(l[1]), float(l[2]), String(l[3]), String(l[4]))
+	# Tag the key lot and wire every lot's search to the level (which owns the consequence).
+	for i in range(_archive_lots.size()):
+		var lot: ArchiveLot = _archive_lots[i]
+		lot.has_key = (i == _archive_keycard_slot)
+		lot.searched.connect(_on_lot_searched.bind(lot))
+
+	# The transit door this room now gates: a steel seal across the Archive→Switchboard doorway
+	# (z=44), locked until the keycard is in hand.
+	_archive_gate = ArchiveGate.new()
+	_archive_gate.name = "ArchiveGate"
+	_archive_gate.position = Vector3(0, 0, 44.0)
+	_archive_gate.used.connect(_on_archive_gate_used)
+	add_child(_archive_gate)
 
 	# The ledger. ⚠️ On the WEST wall, 3.1 m south of the safety poster that shares it,
 	# and clear of both doorways (which are on the wall centres at z=35 and z=44). It is
@@ -2202,11 +2682,26 @@ func _build_rack(side: float, steel: Material, board: Material) -> void:
 func _build_lot(side: float, shelf: int, z: float, kind: String, card: String) -> void:
 	var y: float = ARCH_SHELF_Y[shelf] + 0.018
 	var x: float = side * (ARCH_RACK_X - 0.10)
-	var root := Node3D.new()
+	# A5: the lot is a searchable body now, not a bare Node3D. The silhouette children below are
+	# unchanged; the root just gains an interact() (archive_lot.gd) and a collider.
+	var root := ArchiveLot.new()
 	root.name = "Lot_%s" % kind
 	root.position = Vector3(x, y, z)
 	root.rotation.y = -PI / 2.0 if side > 0.0 else PI / 2.0
+	root.collision_layer = 2     # interact-only; non-solid so it never blocks the aisle
+	root.collision_mask = 0
 	add_child(root)
+	# ⚠️ A PROTRUDING interact collider. The aisle rack's own SOLID collider spans x = rack_x ± 0.275
+	# and the lot is filed behind its front face, so a ray from the aisle would hit the rack first
+	# (bottle_item.gd's shelf lesson). Push the collider ~0.30 m toward the aisle, set in WORLD space
+	# so the root's ±90° rotation is handled, so it clears the rack front and the ray finds the lot.
+	var lot_col := CollisionShape3D.new()
+	var lot_shape := BoxShape3D.new()
+	lot_shape.size = Vector3(0.44, 0.42, 0.44)
+	lot_col.shape = lot_shape
+	root.add_child(lot_col)
+	lot_col.global_position = Vector3(x - side * 0.30, y + 0.16, z)
+	_archive_lots.append(root)
 
 	var cloth := _mb_mat(Color(0.44, 0.43, 0.40), 0.0, 0.95)
 	var dark := _mb_mat(Color(0.13, 0.13, 0.14), 0.25, 0.55)
@@ -2307,6 +2802,111 @@ func _build_lot(side: float, shelf: int, z: float, kind: String, card: String) -
 		ARCH_SHELF_Y[shelf] + 0.042, z)
 	add_child(lbl)
 
+	# ⭐ P2-F1: the empty lot is the player's own. It fills, one evidence tag per strike, and the
+	# card counts them off "N OF 3" — the three-strike economy stated diegetically and after the
+	# fact (SCARY §8.2 forbids a live progress readout; a facility filing your history does not
+	# violate it). Nothing here charges panic. Synced at build so a resumed run shows its strikes.
+	if kind == "empty":
+		_subject_lot = root
+		_subject_card = lbl
+		_sync_archive_strikes()
+
+
+# The facility files each mistake. Called from _strike(), and once at build for a resumed run.
+func _log_strike_to_archive() -> void:
+	_sync_archive_strikes()
+
+
+func _sync_archive_strikes() -> void:
+	if not is_instance_valid(_subject_lot):
+		return
+	for c in _subject_lot.get_children():
+		if String(c.name).begins_with("StrikeTag"):
+			_subject_lot.remove_child(c)
+			c.queue_free()
+	var tag_mat := _mb_mat(Color(0.10, 0.10, 0.11), 0.1, 0.7)
+	for i in range(mini(_strikes, 3)):
+		_mb_box(_subject_lot, "StrikeTag%d" % i, Vector3(0.07, 0.045, 0.10),
+			Vector3(-0.10 + i * 0.10, 0.032, 0.0), tag_mat)
+	if is_instance_valid(_subject_card):
+		if _strikes <= 0:
+			_subject_card.text = "LOT 23-Z   SUBJECT 47 — PENDING"
+		else:
+			_subject_card.text = "LOT 23-Z   SUBJECT 47 — %d OF 3 LOGGED" % _strikes
+
+
+# ---------------------------------------------------------------- A5: the hidden keycard
+
+# Disturbing a lot. A decoy answers with a dry rattle and nothing else — no text over an empty
+# result (the kitchen/lab-cabinet lesson); the key lot reveals the card, taken with a second E.
+func _on_lot_searched(has_key: bool, lot) -> void:
+	if is_instance_valid(lot):
+		_play_at("metal_creak", (lot as Node3D).global_position, -6.0)
+	if has_key and not _archive_keycard_taken and _archive_keycard == null:
+		_reveal_archive_keycard(lot)
+
+
+func _reveal_archive_keycard(lot) -> void:
+	# ⚠️ Disable the (now inert) lot's own interact collider so it does not occlude the keycard the
+	# ray is trying to reach — an inert prop hit first returns no target and the ray stops there.
+	if is_instance_valid(lot):
+		for c in (lot as Node3D).get_children():
+			if c is CollisionShape3D:
+				(c as CollisionShape3D).disabled = true
+	var key := KeyItem.new()
+	key.name = "ArchiveKeycard"
+	key.label_text = "Security keycard"
+	var side: float = signf((lot as Node3D).position.x)
+	if side == 0.0:
+		side = 1.0
+	# Sit it just aisle-ward of the (now inert) lot so the ray finds the card, not the shelf.
+	key.position = (lot as Node3D).global_position + Vector3(-side * 0.34, 0.10, 0)
+	key.picked_up.connect(_on_archive_keycard_taken)
+	add_child(key)
+	# The card itself: a small emissive plate so it reads in the dark once uncovered.
+	var plate := MeshInstance3D.new()
+	plate.name = "CardMesh"
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.11, 0.005, 0.07)
+	plate.mesh = bm
+	plate.rotation.z = deg_to_rad(74.0)     # stood on edge, leaning, so it catches the eye
+	var cm := StandardMaterial3D.new()
+	cm.albedo_color = Color(0.15, 0.35, 0.22)
+	cm.emission_enabled = true
+	cm.emission = Color(0.20, 0.55, 0.32)
+	cm.emission_energy_multiplier = 0.30    # dimmed like every other self-lit prop in the dark half
+	plate.material_override = cm
+	key.add_child(plate)
+	# A generous grab volume (layer 2), so the reveal is easy to pick up.
+	var kcol := CollisionShape3D.new()
+	var ksh := BoxShape3D.new()
+	ksh.size = Vector3(0.26, 0.26, 0.26)
+	kcol.shape = ksh
+	key.add_child(kcol)
+	key.collision_layer = 2
+	key.collision_mask = 0
+	_archive_keycard = key
+	_notice("Something is tucked behind it — a keycard.", Color(0.7, 0.85, 0.7))
+
+
+func _on_archive_keycard_taken() -> void:
+	_archive_keycard_taken = true
+	_archive_keycard = null
+	if is_instance_valid(_archive_gate):
+		_archive_gate.locked_message = "TRANSIT DOOR — KEYCARD ACCEPTED. PRESS E."
+	_notice("Security keycard recovered. The transit door will take it.", Color(0.6, 0.9, 0.6))
+
+
+func _on_archive_gate_used() -> void:
+	if _archive_keycard_taken:
+		if is_instance_valid(_archive_gate):
+			_archive_gate.open()
+		_archive_door_open = true
+		_play_at("door_seal", Vector3(0, 1.5, 44.0), -2.0)
+	else:
+		if is_instance_valid(_archive_gate):
+			_archive_gate.refuse()
+
 
 func _mb_mat(albedo: Color, metallic: float, rough: float) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
@@ -2346,6 +2946,10 @@ func _mb_slot(box: Node3D, n: int, at: Vector3, cw: float, ch: float,
 		door_parent = hinge
 		door_pos = Vector3(cw / 2.0, 0, 0)
 		(box as KonturMailbox).door_hinge = hinge
+		# capture #1: the note is a real page sitting in the slot, taken with a second E.
+		# Hand the slot's centre (local) + cell size so the box can rest a paper just inside it.
+		(box as KonturMailbox).paper_anchor = at
+		(box as KonturMailbox).cell_size = Vector2(cw, ch)
 
 	var door := _mb_box(door_parent, "Slot%dDoor" % n, door_size, door_pos, door_mat)
 	# Handle + card ride ON the door so they swing with it.
@@ -2451,6 +3055,80 @@ func _spawn_event(pos: Vector3, size: Vector3, callback: Callable) -> void:
 # See level_1.gd / level_2.gd: duplicate the SHARED environment before retuning it,
 # and use a BLACK background — the procedural sky leaks through any geometry seam
 # as daylight, which is fatal to an interior.
+# ---------------------------------------------------------------- BS1: Object 12's presence
+
+# The black door blows the lights. ⚠️ REWORKED 2026-09-09 (capture #2): the old beat left the torch
+# on and played a weak `light_pop` — "the sound of the breaking lamp is not loud at all, and the
+# effect is not strong enough. It should be the way that the torch stops working for several seconds
+# (and then automatically gets restored, almost complete darkness, and very loud sound of the lamp)."
+# So now: a very loud lamp SHATTER (glass_break + light_pop, layered, high ceiling) + the torch is
+# FORCED OFF and the ambient snapped to 0 → near-total black for BLACKOUT_TORCH_TIME, then the torch
+# and ambient come back together. The BOOTH's own self-lit surfaces stay dark until you pass it
+# (z=20.5, "escape the room having a creature in the glass") — that half is unchanged.
+func _begin_cell_blackout() -> void:
+	if _blackout_active:
+		return
+	_blackout_active = true
+	# The lamp bursting: an electrical pop under a glass shatter, pushed toward the Master limiter.
+	_play_at("glass_break", Vector3(0, 2.6, 11.0), 9.0, 15.0, 11.0)
+	_play_at("light_pop", Vector3(0, 2.6, 11.0), 8.0, 14.0, 10.0)
+	var p := _player()
+	if p:
+		p.jolt_camera(0.2, 0.6)
+		p.force_flashlight_off()          # ref-counted; balanced by _restore_cell_torch
+		_cell_torch_forced = true
+	if _env:
+		var t := create_tween()
+		t.tween_property(_env, "ambient_light_energy", 0.0, 0.12)   # snap to black
+	if is_instance_valid(_cell):
+		_cell.set_dark(true)
+	# The torch and room ambient come back on their own after a few blind seconds.
+	var timer := get_tree().create_timer(BLACKOUT_TORCH_TIME)
+	timer.timeout.connect(_restore_cell_torch)
+	# The BOOTH's self-lit surfaces come back as you leave the Passage for the Kitchen, past the
+	# booth. One-shot CorridorEvent; _end_cell_blackout is idempotent in case of a backtrack.
+	_spawn_event(Vector3(0, 1.5, 20.5), Vector3(8, 3, 1.4), _end_cell_blackout)
+
+
+# Hands the torch back and lifts the ambient off zero. Idempotent via _cell_torch_forced, so it is
+# safe whether it fires from the timer or from crossing the booth first (whichever comes first).
+func _restore_cell_torch() -> void:
+	if not _cell_torch_forced:
+		return
+	_cell_torch_forced = false
+	var p := _player()
+	if p:
+		p.restore_flashlight()
+	if _env:
+		var t := create_tween()
+		t.tween_property(_env, "ambient_light_energy", DARK_AMBIENT, 0.5)
+
+
+func _end_cell_blackout() -> void:
+	if not _blackout_active:
+		return
+	_blackout_active = false
+	# If the player sprinted past the booth before the timer, make sure the torch is back.
+	_restore_cell_torch()
+	if is_instance_valid(_cell):
+		_cell.set_dark(false)
+
+
+# Object 12 charges the glass as the player passes, once, in the dark — zero panic, cannot kill
+# (the user's call, Q3). Gated on the blackout being live, which is only ever true after gate 1, so
+# the headless entities test (which never opens gate 1) never fires it and still measures a still,
+# unsteady occupant. containment_cell.charge() holds the whole beat.
+func _tick_cell_charge() -> void:
+	if _cell_charged or not _blackout_active or not is_instance_valid(_cell):
+		return
+	var p := _player()
+	if not p:
+		return
+	if p.global_position.distance_to(_cell.global_position) <= CELL_CHARGE_DIST:
+		_cell_charged = true
+		_cell.charge(p)
+
+
 func _boost_ambient(energy: float) -> void:
 	var we: WorldEnvironment = get_node_or_null("Environment/WorldEnvironment")
 	if not we or not we.environment:
@@ -2462,6 +3140,7 @@ func _boost_ambient(energy: float) -> void:
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color(0, 0, 0)
 	we.environment = env
+	_env = env          # BS1: the black-door blackout tweens this to 0 and back
 
 
 func _start_ambience() -> void:
@@ -2486,15 +3165,15 @@ func _start_ambience() -> void:
 		mp.play()
 
 
-func _play_at(base_name: String, pos: Vector3, volume_db: float = 0.0) -> void:
+func _play_at(base_name: String, pos: Vector3, volume_db: float = 0.0, max_db: float = 6.0, unit_size: float = 8.0) -> void:
 	var stream := GameState.load_audio(base_name)
 	if not stream:
 		return
 	var pl := AudioStreamPlayer3D.new()
 	pl.stream = stream
 	pl.volume_db = volume_db
-	pl.unit_size = 8.0
-	pl.max_db = 6.0
+	pl.unit_size = unit_size
+	pl.max_db = max_db
 	add_child(pl)
 	pl.position = pos
 	pl.finished.connect(pl.queue_free)
@@ -2505,7 +3184,10 @@ func _process(delta: float) -> void:
 	_check_void_fall()
 	_tick_airlock(delta)
 	_update_dark_seams()
-	_tick_phone_pressure(delta)
+	_tick_phones(delta)
+	_tick_pa(delta)
+	_tick_blackout_figure()
+	_tick_cell_charge()
 
 	# Fluorescent unsteadiness in the facility half, a slow sick pulse in the Soviet half.
 	var t := Time.get_ticks_msec() * 0.001

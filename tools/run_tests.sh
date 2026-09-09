@@ -110,6 +110,7 @@ TESTS=(
   check_hiding_spots          # the real enter/exit cycle: the torch comes back, the peek looks out
   check_frozen_sprint         # a frozen player stops sprinting: no +6 panic/s standing still
   check_level6_breach         # BACKLOG #28 — SlamDoor type crash + doorway clearance
+  check_breach_teleport        # B3: the creature relocates near the player (unseen, in SEARCH) when it loses them
   check_slam_door_seals       # a CLOSED slam door actually spans its doorway, both widths
   check_purge_interact        # Level 6 win path is reachable by a real E press
   check_purge_softlock        # winning the level does not wall you out of its exit
@@ -130,9 +131,12 @@ TESTS=(
   check_death_freeze          # a dead player stops accruing panic (Issue 15)
   check_beartrap_hold         # trapped means trapped: movement pinned, look still free
   check_kontur                # KONTUR structure + exit lock
+  check_kontur_archive        # A5: search the lots, find the hidden keycard, open the transit gate
   check_kontur_resume         # KONTUR's randomisations survive a resume; no passed gate comes back as a wall
   check_kontur_signs          # the eight redacted signs are readable from the walking line AND still redacted
   check_kontur_entities       # Object 12 is inert; the mimic costs nothing to look at and can spend nothing
+  check_kontur_blackout       # the black door blows the lights, Object 12 charges the glass (0 panic), lights restore; charge inert pre-gate-1
+  check_kontur_phones         # gate 6 = 3 phones: answer green, smash yellow/blue; blue panic; gate completion; only the ringing one charges
   test_apparition             # HOLD rule: hold still lives, flee dies
   check_apparition_clearance  # BACKLOG #8 — never materialises inside geometry
   test_creature_object12      # BACKLOG #26 — blind is chase-only, 5-7 s

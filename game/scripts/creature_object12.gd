@@ -45,6 +45,17 @@ enum State { PATROL, INVESTIGATE, CHASE, SEARCH, STAGGERED }
 @export var detect_range: float = 10.0
 const FOV_DOT := 0.5           # wide cone (~120 deg) — this creature actively hunts
 const CHEST := 0.9
+
+# ⭐ RELOCATE-WHEN-LOST (2026-09-09, the user's call for the enlarged Breach): "make sure the
+# creature is able to teleport so it will not happen like it's searching for you for eternity — it
+# will be able to teleport somewhere near you, but you will have enough time to hide." When SEARCH
+# gives up (it has walked to your last-known spot and scanned it out), instead of drifting back to a
+# patrol waypoint it jumps to a room 10–14 m from you that you CANNOT currently see and resumes the
+# hunt on foot (SEARCH, at investigate_speed — never straight into CHASE), so you keep the seconds
+# needed to reach a hiding spot. It falls back to the old PATROL give-up when no legal spot exists,
+# which is also what keeps it a NO-OP for THE NIGHTMARE's Matron (no portals -> empty _rooms).
+const RELOCATE_MIN := 10.0
+const RELOCATE_MAX := 14.0
 const SEARCH_TIME := 8.0
 const INVESTIGATE_GIVEUP_TIME := 6.0
 const WAYPOINT_ARRIVE_DIST := 0.6
@@ -634,8 +645,70 @@ func _tick_search(delta: float) -> void:
 	_search_t += delta
 	_body.rotation.y += deg_to_rad(SEARCH_SCAN_SPEED_DEG) * delta
 	if _search_t >= SEARCH_TIME:
+		# Lost for good at this spot — try to reappear near the player (out of sight); otherwise
+		# fall back to drifting to the nearest patrol waypoint.
+		if _relocate_near_player():
+			return
 		_wp_index = _nearest_waypoint_index()
 		_enter(State.PATROL)
+
+
+# Jump to a room 10–14 m from the player that the player cannot currently see, preferring one that
+# is graph-distant (around a corner, not down a long sightline). Returns false — leaving the caller
+# to PATROL — when there are no portals (THE NIGHTMARE's Matron) or nothing legal fits.
+func _relocate_near_player() -> bool:
+	if _portals.is_empty() or _rooms.is_empty() or not is_instance_valid(_player):
+		return false
+	var pp := _player.global_position
+	var eye := pp + Vector3(0, CHEST, 0)
+	var player_room := _room_at(pp)
+	var depth := _room_depths(player_room) if player_room >= 0 else {}
+	var best := -1
+	var best_score := -1.0
+	for i in range(_rooms.size()):
+		if i == player_room:
+			continue
+		var c: Vector3 = _rooms[i]["c"]
+		var flat := Vector2(c.x - pp.x, c.z - pp.z).length()
+		if flat < RELOCATE_MIN or flat > RELOCATE_MAX:
+			continue
+		# Reject anywhere the player currently has a clear line of sight — it must reappear unseen.
+		if _has_los(eye, c + Vector3(0, CHEST, 0)):
+			continue
+		# Prefer graph-distant rooms (BFS depth), then farther ones, so it lands around a corner.
+		var dep := float(depth.get(i, 0))
+		var score := dep * 100.0 + flat
+		if score > best_score:
+			best_score = score
+			best = i
+	if best < 0:
+		return false
+	var target: Vector3 = _rooms[best]["c"]
+	_body.global_position = Vector3(target.x, _body.global_position.y, target.z)
+	var to := pp - _body.global_position
+	_body.rotation.y = atan2(to.x, to.z)
+	# Resume the hunt on FOOT toward the player's last spot — SEARCH, never CHASE, so they get the
+	# seconds to reach cover the user asked for.
+	_last_seen_pos = pp
+	_search_t = 0.0
+	_search_arrived = false
+	_enter(State.SEARCH)
+	return true
+
+
+# BFS room-depth from `start` over the doorway graph.
+func _room_depths(start: int) -> Dictionary:
+	var depth := {start: 0}
+	var queue := [start]
+	while not queue.is_empty():
+		var r: int = queue.pop_front()
+		for pi in _adj[r]:
+			var p: Dictionary = _portals[pi]
+			var nb: int = int(p["b"]) if int(p["a"]) == r else int(p["a"])
+			if not depth.has(nb):
+				depth[nb] = int(depth[r]) + 1
+				queue.append(nb)
+	return depth
 
 
 func _tick_staggered(delta: float) -> void:

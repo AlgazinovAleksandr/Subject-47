@@ -186,10 +186,13 @@ func _place_player() -> void:
 		return
 	if GameState.entered_from_ahead:
 		p.global_position = ANTE_ORIGIN + Vector3(3.2, 0.1, 0)
-		p.rotation = Vector3(0, -PI / 2.0, 0)
+		p.rotation = Vector3(0, PI / 2.0, 0)     # came back through the level door (east) — face the room (west)
 	else:
+		# ⚠️ 2026-09-09 (cap #5): entering from the Breach back door, the player used to face +PI/2
+		# (-X, straight at the door they just came through). Face INTO the Antechamber instead
+		# (+X, toward the cot / candle rack / brazier — "look at the level itself").
 		p.global_position = ANTE_ORIGIN + Vector3(-3.2, 0.1, 0)
-		p.rotation = Vector3(0, PI / 2.0, 0)
+		p.rotation = Vector3(0, -PI / 2.0, 0)
 
 
 # Seeds are rolled ONCE and then persisted. ⚠️ On resume they are RESTORED, never

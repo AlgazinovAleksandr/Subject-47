@@ -73,9 +73,10 @@ func _process(delta: float) -> bool:
 			if not _purge or doors == null:
 				return false
 			_slam_doors = doors
-			# Face the Purge Chamber from PurgeAnte, well within INTERACT_RANGE (2.5),
-			# no creature anywhere near — purely testing the raycast + prompt path.
-			_player.global_position = Vector3(0, 0.1, 53.5)
+			# Face the Purge Chamber, well within INTERACT_RANGE, no creature near — purely testing
+			# the raycast + prompt path. ⚠️ 2026-09-09 (cap #4): the chamber moved to the ExitVault
+			# entrance (-7, 0, 48); press it from the ArchiveC side (z<48), facing +z.
+			_player.global_position = Vector3(-7, 0.1, 46.5)
 			_player.rotation.y = PI
 			_phase = 1
 			_t = 0.0

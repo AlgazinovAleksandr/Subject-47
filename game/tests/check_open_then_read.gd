@@ -42,6 +42,7 @@ var _swing_at_note := 0.0
 var _slide_at_note := 0.0
 var _presses_before_open := 0
 var _stick_angles: Array = []
+var _note_during_open := false
 
 
 func _initialize() -> void:
@@ -78,6 +79,7 @@ func _process(delta: float) -> bool:
 		"kontur_load": _kontur_load()
 		"kontur_stick": _kontur_stick()
 		"kontur_swing": _kontur_swing(delta)
+		"kontur_take": _kontur_take()
 		"kontur_done": _kontur_done()
 		"lab_load": _lab_load()
 		"lab_slide": _lab_slide(delta)
@@ -142,26 +144,51 @@ func _kontur_stick() -> void:
 	_phase = "kontur_swing"
 
 
-# ⚠️ THE ASSERTION THIS FILE EXISTS FOR. Watch across real frames, and record the hinge angle
-# in the frame the note first appears. Under the old code that angle was 0.
+# ⚠️ REWRITTEN 2026-09-09 (capture #1). The mailbox is now open-then-TAKE, like the Lab cabinet:
+# the third press SWINGS THE SLOT OPEN and reveals a PAGE sitting in it — and shows no note. The
+# note only appears when a SEPARATE press takes the page. So this phase asserts the swing reveals
+# a page and NOT a note; the take is checked in the next phase.
 func _kontur_swing(_delta: float) -> void:
 	var hinge: Node3D = _mailbox.get("door_hinge")
-	if bool(_note_ui.get("is_open")) and _swing_at_note < 0.0:
+	if bool(_note_ui.get("is_open")):
+		_note_during_open = true
 		_swing_at_note = absf(hinge.rotation_degrees.y)
 	if _elapsed - _t0 < 1.2:
 		return
-	_ok("the note appeared at all", _swing_at_note >= 0.0)
-	_ok("the door had already SWUNG when the note appeared",
-		_swing_at_note >= SWING_MIN_DEG,
-		"%.1f deg of %.0f open" % [_swing_at_note, 105.0])
+	_ok("opening the slot shows NO note by itself", not _note_during_open)
+	var paper := _find(_mailbox, func(n: Node) -> bool:
+		return n is MeshInstance3D and String(n.name) == "MailboxPage")
+	_ok("a page is now sitting in the open slot as an object", paper != null)
+	_ok("the door had already SWUNG open", absf(hinge.rotation_degrees.y) >= SWING_MIN_DEG,
+		"%.1f deg of %.0f open" % [absf(hinge.rotation_degrees.y), 105.0])
+	_phase = "kontur_take"
+
+
+# The second press on the open slot takes the page and THEN reads it.
+func _kontur_take() -> void:
+	if _gs:
+		_gs.journal.clear()
+	_mailbox.call("interact")
+	_t0 = _elapsed
 	_phase = "kontur_done"
 
 
 func _kontur_done() -> void:
+	if _elapsed - _t0 < 0.4:
+		return
+	_ok("taking the page opens the note", bool(_note_ui.get("is_open")))
+	var archived := false
+	if _gs:
+		for e in _gs.journal:
+			archived = true
+	_ok("and it reaches the journal, so TAB can return it later", archived)
+	var paper := _find(_mailbox, func(n: Node) -> bool:
+		return n is MeshInstance3D and String(n.name) == "MailboxPage")
+	_ok("the page is gone from the slot once taken", paper == null)
 	_note_ui.call("_close")
-	# Re-reading an opened box must not wait on a tween that will never run again.
+	# Re-reading an opened, emptied box must not wait on a tween that will never run again.
 	_mailbox.call("interact")
-	_ok("re-reading an already-open box shows the page immediately",
+	_ok("re-reading an already-taken box shows the page immediately",
 		bool(_note_ui.get("is_open")))
 	_note_ui.call("_close")
 	_phase = "lab_load"

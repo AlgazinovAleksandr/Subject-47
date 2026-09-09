@@ -50,7 +50,7 @@ import os
 import sys
 from collections import deque
 
-from PIL import Image
+from PIL import Image, ImageStat
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEX = os.path.join(HERE, "game", "assets", "textures", "level_5_kontur")
@@ -130,9 +130,33 @@ def key_background(img, tol):
     return img, 100.0 * cleared / (w * h)
 
 
+# ⚠️ Gate 1's black leaf must read BLACK, not GREY. The user called it "the grey door":
+# measured, the two shipped leaves were 0.1515 vs 0.1532 mean luma — a 0.99 ratio, i.e. the
+# same brightness — and gate 1's whole discrimination is COLOUR (a wrong choice drops the
+# player through the floor and demotes them a level). So the black leaf is darkened by a
+# straight per-channel multiply, derived to land its mean luma at DARK_TARGET of the red
+# leaf's. A straight multiply is linear in luma and cannot clip on the way down, so the
+# rivets and seams survive proportionally — do NOT crush to a flat black. Applied to the
+# black leaf ONLY (never the red leaf, never the labels), and re-runnable because it starts
+# from the pristine source every time.
+DARK_TARGET = 0.19  # black-leaf mean luma as a fraction of the red leaf's (0.16-0.22 band)
+
+
+def _mean_luma(img):
+    """Mean Rec.601 luma of an RGB image, in 0..1."""
+    return ImageStat.Stat(img.convert("L")).mean[0] / 255.0
+
+
 def main():
     if not os.path.isdir(TEX):
         sys.exit("error: %s not found" % TEX)
+
+    # The red leaf is re-cropped identically from its source, so its mean luma is the same
+    # target whether measured here or off the output. Measured before the loop because the
+    # black leaf (JOBS[0]) is darkened relative to it and is processed first.
+    red_src, _, red_box, _ = next(j for j in JOBS if j[1] == "door_red_leaf.png")
+    red_mean = _mean_luma(Image.open(os.path.join(TEX, red_src)).crop(red_box).convert("RGB"))
+
     for src, out, box, tol in JOBS:
         img = Image.open(os.path.join(TEX, src)).crop(box)
         note = ""
@@ -143,6 +167,15 @@ def main():
             bbox = img.getchannel("A").point(lambda v: 255 if v > 8 else 0).getbbox()
             img = img.crop(bbox)
             note = "  keyed %.1f%% -> bbox %s" % (pct, bbox)
+
+        if out == "door_black_leaf.png":
+            before = _mean_luma(img)
+            factor = min(1.0, DARK_TARGET * red_mean / before)
+            img = img.point(lambda v: int(v * factor))
+            after = _mean_luma(img)
+            note = ("  DARKEN x%.4f  meanL %.4f -> %.4f  (red %.4f, ratio %.4f)"
+                    % (factor, before, after, red_mean, after / red_mean))
+
         img.save(os.path.join(TEX, out))
         print("%-28s %4dx%-4d aspect %.4f%s"
               % (out, img.width, img.height, img.width / img.height, note))

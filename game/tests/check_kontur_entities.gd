@@ -226,22 +226,28 @@ func _measure_kitchen_tell() -> void:
 
 
 func _measure_switchboard_tell() -> void:
-	# Two phone-shaped props on one desk, and exactly one of them able to ring.
-	var real := current_scene.get_node_or_null("SwitchboardPhone") as Node3D
+	# THREE coloured phones (2026-09-09) plus a fourth, COLOURLESS phone-shaped prop — the mimic.
+	# The tell: the three real lines can ring and wear three distinct colours; the mimic can do
+	# neither. (`_has_playing_emitter` counts a phone that HAS a ring emitter, not one mid-burst.)
+	var phones: Array = []
+	for colour in ["yellow", "blue", "green"]:
+		phones.append(current_scene.get_node_or_null("Phone_" + colour))
 	var c := _creature()
-	_ok("there are two phones on the switchboard desk",
-		real != null and c != null
-			and absf(real.global_position.z - c.global_position.z) < 0.4
-			and absf(real.global_position.x - c.global_position.x) < 1.2,
-		"real %v, mimic %v" % [real.global_position if real else Vector3.ZERO,
-			c.global_position if c else Vector3.ZERO])
-	var ringers := 0
-	for node in [real, c]:
-		if node == null:
-			continue
-		if _has_playing_emitter(node):
-			ringers += 1
-	_ok("exactly ONE of them can ring", ringers == 1, "%d ringing emitter(s)" % ringers)
+	_ok("three coloured phones on the switchboard",
+		phones[0] != null and phones[1] != null and phones[2] != null)
+	_ok("and a fourth, phone-shaped prop (the mimic)", c != null)
+	var real_ring := 0
+	for ph in phones:
+		if ph and _has_playing_emitter(ph):
+			real_ring += 1
+	_ok("all three real phones can ring", real_ring == 3, "%d of 3" % real_ring)
+	_ok("the mimic cannot ring (no emitter) — the odd phone out",
+		c != null and not _has_playing_emitter(c))
+	var tints := {}
+	for ph in phones:
+		if ph:
+			tints[str(ph.get("tint"))] = true
+	_ok("the three phones are three distinct colours", tints.size() == 3, str(tints.keys()))
 
 
 # ---------------------------------------------------------------- stages 1..6
@@ -314,12 +320,11 @@ func _stage_control_a() -> void:
 
 func _stage_stare_at_disguise() -> void:
 	_stare_at_disguise = _panic() - _panic_mark
-	# ⚠️ PAIRED, not absolute. At the switchboard site the player is standing inside the
-	# ringing phone's own `PHONE_PRESSURE_RANGE` (7 m, 4.5/s), which is the level's
-	# existing gate-6 mechanic and has nothing to do with the disguise — measured, it adds
-	# 0.117 of PANIC_MAX over this window all by itself. An absolute "zero" assertion there
-	# would be asserting that gate 6 does not work. So the same window is repeated from the
-	# same spot looking at a blank wall, and what is asserted is the DIFFERENCE.
+	# ⚠️ PAIRED, not absolute. At the switchboard site the player stands inside the ringing phone's
+	# own `PHONE_PRESSURE_RANGE` (7 m, 2.0/s since the three-phone redesign), which is gate 6 and
+	# has nothing to do with the disguise. The rate is FLAT within range and the two windows are
+	# taken from the SAME spot (only the facing differs), so that pressure is identical in both and
+	# cancels: what is asserted is the DIFFERENCE.
 	_stand_by_disguise(_creature(), false)
 	_panic_mark = _panic()
 	_stage = 31
@@ -871,7 +876,12 @@ func _bottle_names() -> Array:
 
 
 func _phone_intact() -> bool:
-	var ph := current_scene.get_node_or_null("SwitchboardPhone")
-	if ph == null:
-		return false
-	return not bool(ph.get("_answered")) and not bool(ph.get("_smashed"))
+	# All three Gate-6 phones exist and none has been resolved (answered/smashed). Used to prove
+	# touching the mimic never resolves a phone.
+	for colour in ["yellow", "blue", "green"]:
+		var ph := current_scene.get_node_or_null("Phone_" + colour)
+		if ph == null:
+			return false
+		if bool(ph.call("is_resolved")):
+			return false
+	return true
