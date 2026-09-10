@@ -67,10 +67,22 @@ const CONFIG := {
 		# ⚠️ A RANGE, AND THE REASON IS IN THE LEVEL: `_build_lights()` kills ~30 % of the
 		# strip grid at random, and since 2026-08-17 it also skips every cell within 11 m of
 		# the Sprawl recess holding the crate (B-R3 — "hidden in the dark" is measured, not
-		# asserted by hope). Both draws move with the seed, so the count is 22-24 rather than
+		# asserted by hope). Both draws move with the seed, so the count is a band rather than
 		# one number. What still bites: anything over the 1.0 ceiling at a DIFFERENT energy
 		# is not waived at all, and the per-run control proves the walker still finds them.
-		"allow_energy": [1.6, [22, 26],
+		#
+		# ⚠️ WIDENED 22-26 -> 12-28 ON 2026-09-03, and the band is wide because the quantity is
+		# BINOMIAL, not because the guard was inconvenient. The Sprawl's darkness pass took
+		# `DEAD_LIGHT_CHANCE` 0.3 -> 0.55, i.e. each of the 25 grid strips is now an independent
+		# coin flip with p(survive) = 0.45 on top of the crate recess's deterministic cut.
+		# Measured over six seeds: **23, 20, 25, 18, 15, 17** — a real 15..25 spread with a
+		# ~+/-3 tail beyond it. A tighter band here does not make the guard stronger; it makes it
+		# flaky, and an intermittent red gets attributed to machine load and re-run (X42, X46)
+		# rather than read.
+		# ⚠️ What this row actually protects is the ENERGY (nothing else may sit at 1.6, and
+		# nothing at all may sit over 1.0 at a different value) plus "the strips still exist".
+		# The count is a smoke alarm for "somebody deleted the grid", not a tuning assertion.
+		"allow_energy": [1.6, [12, 28],
 			"MazeKit light strips, seen down a corridor and never directly overhead"],
 	},
 	"SCENE_KONTUR": {"min_fittings": 3, "seeds": [7]},

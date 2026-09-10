@@ -87,55 +87,79 @@ func _ready() -> void:
 	_build_visual()
 
 
-const _GLB_PATH := "res://assets/models/Void_creature.glb"
+# ⭐ THE ANIMATED MODEL (2026-09-03). Was `Void_creature.glb`, which carried **no animation
+# tracks at all** — so the Void's four creatures and THE NIGHTMARE's Still Ones were rigid
+# T-poses, and the `_pose_arms_down()` / `_rotate_bone()` pair that used to sit here (measured
+# in 2026-08 to move nothing) was the whole of the project's skeletal code. Both are deleted.
+#
+# ⚠️ THIS SCRIPT NEVER HAD A RETINT AT ALL, which is why the Void's creatures rendered as the
+# raw pale Mixamo "WhiteClown" skin — bright, and the opposite of the dark occluding shape the
+# design calls for. It has one now.
+var _anim: CreatureAnim = null
+
+# Gait modes. Named rather than inlined because the freeze case is the level's whole mechanic.
+enum Gait { DORMANT, WATCHED, ADVANCING }
+var _gait: int = -1
 
 func _build_visual() -> void:
-	if ResourceLoader.exists(_GLB_PATH):
-		_build_visual_glb()
+	_anim = CreatureAnim.build(_body)
+	if _anim:
+		_apply_retint()
 	else:
 		_build_visual_procedural()
 		_add_eye_glow()  # eye glow only on the procedural fallback
 
 
-func _build_visual_glb() -> void:
-	var scene: PackedScene = load(_GLB_PATH)
-	var instance: Node3D = scene.instantiate()
-	instance.scale = Vector3(1.0, 1.0, 1.0)
-	_body.add_child(instance)
-	# Blender adds a stray base cube to the export — remove it, keep only the character.
-	var cube := instance.get_node_or_null("Cube")
-	if cube:
-		cube.queue_free()
-	_pose_arms_down(instance)
+# ⚠️ TINT, DO NOT REPLACE. `CreatureAnim.apply_tint` duplicates the model's imported material so
+# `albedo_texture` survives and `albedo_color` multiplies it. A fresh StandardMaterial3D here
+# would throw the 1024 skin away — which is exactly what `creature_object12.gd` used to do.
+#
+# ⚠️ ALBEDO 0.55, NOT 0.02. `watcher.gd`'s premise — "a dark shape OCCLUDING a lit surface" —
+# inverts wherever the background is darker than the figure, and these levels are about to run
+# at ~0.02 ambient where the ONLY light is the player's own torch. A near-black creature in a
+# black room lit by a beam you are pointing at it is invisible until it touches you, which is
+# not fair and not frightening. 0.55 keeps the skin's own detail and lets the torch find it.
+#
+# ⚠️ MEASURED at 0.02 ambient under the post-darkness-pass torch (1.6 energy / 18 m / 30 deg),
+# creature mean luminance against the lit floor around it — `tests/screenshot_creature.gd`:
+#
+#     3 m   ratio 3.09   lit BY the beam — bright, detailed, unmistakable
+#     8 m   ratio 1.44   still brighter than its background
+#    15 m   ratio 0.35   a DARK SHAPE against a lit floor — watcher.gd's premise, intact
+#
+# i.e. the tint inverts from figure-brighter to figure-darker somewhere around 10-12 m, and it
+# is legible on both sides of that. Pushing it lower loses the near case; pushing it higher
+# loses the far one.
+# ⚠️ Zero emission: it must never be visible outside the beam.
+const TINT := Color(0.55, 0.55, 0.58)
+
+func _apply_retint() -> void:
+	if _anim:
+		_anim.apply_tint(TINT, 1.0, 0.1, Color.BLACK, 0.0)
 
 
-# The Mixamo GLB ships in its bind T-pose (arms straight out) and carries no
-# animation track, so nothing lowers the arms — it reads as a broken scarecrow.
-# Override the upper-arm bone poses to drop the arms to the sides so it stands as
-# a deliberate, menacing figure. Bone-local rotation about Z swings the arm down.
-const _ARM_DROP_DEG := 80.0
-const _FOREARM_TUCK_DEG := 12.0
-
-func _pose_arms_down(instance: Node3D) -> void:
-	var skel := instance.find_child("Skeleton3D", true, false) as Skeleton3D
-	if not skel:
+# Set the gait to match what the creature is actually doing this frame.
+#
+# ⚠️⚠️ `Gait.WATCHED` IS THE LEVEL'S ENTIRE MECHANIC. This is a Weeping Angel: it moves only
+# while it is NOT being looked at. While the model was a T-pose that rule was invisible — a
+# statue looks identical watched or not — and with a real walk cycle, legs that kept moving
+# while you stared straight at it would actively contradict the one rule the player has to
+# learn. `CreatureAnim.freeze()` sets speed_scale to 0, so it stops MID-STRIDE and resumes the
+# same stride when you look away, rather than snapping to a pose.
+func _set_gait(mode: int) -> void:
+	if _anim == null or _gait == mode:
 		return
-	# Godot sanitizes the glTF "mixamorig:" prefix to "mixamorig_". +Z bone-local
-	# rotation drops the left arm; the right arm mirrors it. A small forearm tuck
-	# pulls the hands in so they hang at the sides instead of splaying outward.
-	_rotate_bone(skel, "mixamorig_LeftArm", deg_to_rad(_ARM_DROP_DEG))
-	_rotate_bone(skel, "mixamorig_RightArm", deg_to_rad(-_ARM_DROP_DEG))
-	_rotate_bone(skel, "mixamorig_LeftForeArm", deg_to_rad(_FOREARM_TUCK_DEG))
-	_rotate_bone(skel, "mixamorig_RightForeArm", deg_to_rad(-_FOREARM_TUCK_DEG))
-
-
-func _rotate_bone(skel: Skeleton3D, bone_name: String, angle_z: float) -> void:
-	var idx := skel.find_bone(bone_name)
-	if idx == -1:
-		return
-	var rest := skel.get_bone_rest(idx)
-	# Compose the drop onto the bind-pose rotation, in bone-local space.
-	skel.set_bone_pose_rotation(idx, rest.basis.get_rotation_quaternion() * Quaternion(Vector3.FORWARD, angle_z))
+	_gait = mode
+	match mode:
+		Gait.WATCHED:
+			_anim.freeze(true)
+		Gait.ADVANCING:
+			_anim.freeze(false)
+			_anim.play_locomotion(CreatureAnim.CLIP_UNSTEADY, STALK_SPEED)
+		Gait.DORMANT:
+			_anim.freeze(false)
+			# Alive, but not coming for you: a barely-moving standing sway.
+			_anim.play(CreatureAnim.CLIP_SHAMBLE, 0.35)
 
 
 func _build_visual_procedural() -> void:
@@ -231,6 +255,19 @@ func _process(delta: float) -> void:
 
 	if to_me.length() > ENGAGE_DIST:
 		_set_scrape(false)
+		# ⚠️⚠️ THE FREEZE HAS TO HOLD AT ANY DISTANCE, and this early return used to skip it.
+		# The stalk RULE was never wrong — nothing translates out here — but the animation
+		# contradicted it: past ENGAGE_DIST 8 m a stared-at creature kept playing `shamble`,
+		# which carries **0.515 m** of lateral hips excursion, so it visibly swayed while the
+		# player looked straight at it. Measured: speed_scale 0.00 at 4.0 and 7.5 m, **0.35 at
+		# 9, 12 and 20 m**. This script's own header designs for legibility at 15 m, and
+		# `check_creature_anim.gd` only ever tested at 4.
+		# ⚠️ It computes `observed` for the GAIT ONLY and deliberately does NOT set `_awakened`
+		# — waking a creature from 20 m would change the stalk rule itself, which is not the bug.
+		if _looks_observed(cam_pos, my_pos, to_me):
+			_set_gait(Gait.WATCHED)
+		else:
+			_set_gait(Gait.DORMANT)
 		return
 
 	var los := _has_line_of_sight(cam_pos, my_pos)
@@ -240,15 +277,18 @@ func _process(delta: float) -> void:
 		_awakened = true
 		_stare_off_timer += delta
 		_set_scrape(false)   # frozen while watched, so the drag stops too
+		_set_gait(Gait.WATCHED)
 		if _stare_off_timer >= STARE_OFF_TIME:
 			_dismiss()
 		return  # frozen while watched
 	_stare_off_timer = 0.0  # reset the moment the player looks away
 	if not _awakened or not los:
 		_set_scrape(false)
+		_set_gait(Gait.DORMANT)
 		return  # never seen, or a wall is between us — stay put
 	if _age < START_GRACE:
 		_set_scrape(false)
+		_set_gait(Gait.DORMANT)
 		return  # opening grace: seen, but not yet hunting
 
 	var flat := Vector2(here.x - _player.global_position.x,
@@ -262,6 +302,17 @@ func _process(delta: float) -> void:
 	_body.global_position = here + dir * STALK_SPEED * delta
 	_body.rotation.y = atan2(dir.x, dir.z)
 	_set_scrape(true)   # advancing: the dry wooden drag is the tell
+	_set_gait(Gait.ADVANCING)
+
+
+# Is the player looking at us right now? Used ONLY to decide the gait beyond ENGAGE_DIST — the
+# in-range branch computes its own `observed` because that one also drives `_awakened` and the
+# stare-off timer, which must not fire from across a level.
+func _looks_observed(cam_pos: Vector3, my_pos: Vector3, to_me: Vector3) -> bool:
+	if not _has_line_of_sight(cam_pos, my_pos):
+		return false
+	var forward := -_camera.global_transform.basis.z
+	return forward.dot(to_me.normalized()) > FOV_DOT
 
 
 func _has_line_of_sight(from: Vector3, to: Vector3) -> bool:
@@ -276,6 +327,7 @@ func _has_line_of_sight(from: Vector3, to: Vector3) -> bool:
 func _dismiss() -> void:
 	_stare_off_timer = 0.0
 	_awakened = false
+	_set_gait(Gait.DORMANT)
 	if _player:
 		var away := Vector3(_body.global_position.x - _player.global_position.x,
 			0, _body.global_position.z - _player.global_position.z).normalized()
@@ -285,6 +337,9 @@ func _dismiss() -> void:
 func _lunge() -> void:
 	_fired = true
 	_set_scrape(false)
+	# The last thing you see is it coming at full tilt, not mid-shuffle.
+	if _anim:
+		_anim.play(CreatureAnim.CLIP_CHARGE, 1.4, 0.05)
 	global_position = _camera.global_position - _camera.global_transform.basis.z * 0.3
 	Screamer.trigger()
 
@@ -296,6 +351,10 @@ func _lunge() -> void:
 func _topple() -> void:
 	_fallen = true
 	_set_scrape(false)
+	# ⚠️ Stop the clip BEFORE the topple tween. A rigid thing falls over; a walking one does
+	# not, and an AnimationPlayer left running would keep the legs cycling as it hits the floor.
+	if _anim:
+		_anim.halt()
 	var tw := create_tween()
 	tw.tween_property(_body, "rotation:x", deg_to_rad(-88.0), 0.45) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)

@@ -4708,3 +4708,991 @@ wrong one. ⚠️ And the second half generalises further: **a flaky check and a
 the same check.** Both symptoms come from a window that does not match the rule — too wide and legal
 behaviour leaks in, too narrow and the regression does not. Prefer a rule stated over the whole run
 with its observation time asserted, over a rule stated inside a hand-timed window.
+
+
+---
+
+## Issue 157 — A darkness pass that three levels survived by glowing: `Label3D` is UNSHADED by default
+
+**Symptom.** The Lab, the House and KONTUR's Soviet half were taken to ambient 0.02 with every lamp
+held at zero — measured and asserted by `check_darkness.gd`, which passed. Then a screenshot of
+KONTUR's spawn **with the torch off** came back showing `Л-1 ЛЕСТНИЦА` in metre-high letters, twelve
+numbered mailbox slots and a rusty hammer, floating in an otherwise perfectly black frame. Nothing
+was lit. Everything visible was self-lit.
+
+**Cause.** `Label3D.shaded` defaults to **false**, i.e. a `Label3D` renders at full `modulate`
+regardless of any light in the scene — and `kontur.gd` builds five of them (the Cyrillic stencils,
+the mailbox slot numbers, the Archive lot cards). The Gate 6 hammer was a `QuadMesh` with
+`SHADING_MODE_UNSHADED`, chosen so an alpha cutout would read cleanly. Both were invisible defects
+while the Soviet half ran at 0.55–0.32 lamp energy; at 0.02 they became the only things on screen.
+
+⚠️ **The file's own comment said the opposite and was believed.** `kontur.gd` describes the
+stencils as *"PAINT, NOT SIGNS … dark-tinted `Label3D`s"*, which is exactly right as an intention
+and says nothing about whether the engine lights them. Paint needs light. A dark tint on an
+unshaded surface is just dark neon.
+
+**Fix.** `shaded = true` on all five, `SHADING_MODE_PER_PIXEL` on the hammer. `check_darkness.gd`
+asserts "no lamp is burning at spawn" per level and, for KONTUR, "nothing burns in the Soviet half"
+— **with ONE documented exception**, Gate 3's offering pedestal, exempted *by its parent node name*
+rather than by a brightness threshold, because a bait keycard on an unlit pedestal is not bait.
+
+**Deliberately NOT fixed:** the House's KONTUR test card (`level_2.gd`), which is text on a CRT. A
+television is a light source; a shaded test card would be invisible unless the player happened to be
+shining a torch at the screen, which is the one place a glow belongs.
+
+**General lesson.** ⚠️ **Darkening a level is not one change to ambient — it is a search for every
+surface that ignores lighting.** `Label3D`, `SHADING_MODE_UNSHADED`, `emission_enabled`, and any
+shader with `render_mode unshaded` all keep rendering when the room does not. Before dropping
+ambient, `grep -c "Label3D.new()\|SHADING_MODE_UNSHADED\|emission_enabled"` the level and decide
+each one; and take the screenshot **with the light off**, because the numbers cannot see this.
+
+---
+
+## Issue 158 — glTF's absent `metallicFactor` is 1.0, not 0.0: the new creature imported as a black mirror
+
+**Symptom.** Caught before it shipped, by reading the source glTF rather than by looking at a render
+— which is the only reason it is a short entry. The replacement creature's `materials[0]` had **no
+`metallicFactor` key at all**.
+
+**Cause.** glTF 2.0 specifies the default as **1.0**. An exporter that omits the key is not saying
+"dielectric", it is saying "fully metallic", and Godot imports it that way. In a level lit at 0.02
+ambient by a single spotlight, a 100 % metal creature is a near-black mirror: it reflects nothing
+(there are no reflection probes anywhere in this project) and is lit by almost nothing.
+
+The same material also wired the albedo map as an `emissiveTexture` with `emissiveFactor [1,1,1]` —
+i.e. fully self-illuminating, which in a game whose entire new premise is *you only see what the
+torch finds* is the one thing that cannot ship.
+
+**Fix.** `tools/merge_creature_glb.py` pins `metallicFactor` to 0.0 and strips the emissive keys as
+part of the merge, and prints both changes. `tests/check_creature_model.gd` asserts `metallic <=
+0.01` and `emission_enabled == false` on every surface — plus `albedo_texture != null`, because the
+*other* way to get this wrong is a retint that replaces the material and throws the skin away.
+
+**General lesson.** ⚠️ **In glTF, a missing key is a value, not a blank.** `metallicFactor`,
+`roughnessFactor` and `emissiveFactor` all default to something opinionated. Read a supplied model's
+JSON before trusting how it looks in a lit editor viewport, because the editor's default lighting is
+nothing like a level at 0.02 ambient.
+
+---
+
+## Issue 159 — Physics queries in `SceneTree._process` see the LAST physics step, not this frame
+
+**Symptom.** `check_slam_door_seals.gd` built a door, closed it, and swept its doorway with point
+queries — and reported **"a CLOSED door … 0 of 37 samples blocked"** on a door that was in fact
+perfectly solid. The Breach door in the same run reported 31 of 31 blocked. Same code, same frame.
+
+**Cause.** `PhysicsDirectSpaceState3D` reflects the state of the last **physics** step, and a
+`SceneTree._process` tick is not one. A body added and queried in the same pass is simply not in the
+space yet; whether it happens to be depends on where the frame boundary falls, which is why one door
+passed and the next did not.
+
+**Fix.** Build everything in one stage, spend one idle frame, measure in a later stage.
+
+⚠️ **A second, independent frame-timing bug in the same test.** Doors were built at the same
+coordinates and `queue_free()`d between cases — but `queue_free()` is DEFERRED, so the freed door was
+still in the space when the next one was measured, and the Dungeon door's "open" sweep reported
+0.24 m of clearance through the Breach door that had just been CLOSED at the same spot. Each case
+now gets its own patch of world.
+
+⚠️ **And a third of the same family, in a screenshot harness.** `screenshot_dark_levels.gd` set
+`torch.visible = false` and captured in the same pass — photographing the previous frame, i.e. the
+torch plainly on, in an image named `notorch`.
+
+**General lesson.** ⚠️ **Set state in one frame, observe in a later one — for physics, for
+`queue_free()`, and for anything you are about to photograph.** This project already had this lesson
+written down for `Tween`s ("a Tween does not run until the next frame", the door-clearance check that
+measured un-swung doors) and it recurred three times in one day in three different disguises.
+
+---
+
+## Issue 160 — `tanh` is not scale-invariant: a loudness pass that made files quieter
+
+**Symptom.** The four SFX generators were given a `loud=` target that runs their output through a
+compressor and a `tanh` saturator. First run printed `matron_shriek.wav already loud: 34.03 dBFS
+(skipped)` and `child_laugh.wav already loud: 31.60 dBFS` — impossible readings for audio.
+
+**Cause.** `write_wav()` peak-normalises to 0.89 as its LAST step, so the buffer handed to the
+loudness pipeline was the raw mix, routinely peaking well above 1.0. Two consequences, and the
+second is the one that matters: the measurement was relative to a peak of +7 dB rather than 0, so
+the numbers were nonsense — and `tanh(s * drive)` depends on the ABSOLUTE scale of `s`, so the drive
+chosen against an over-unity buffer was not the drive that buffer needed. Files that reported
+"reached the target" had in fact been made *quieter* once the 0.89 normalise ran afterwards.
+
+**Fix.** Normalise first, then measure, then saturate; `loudify()` preserves the peak it is handed,
+so no second normalise is needed. Re-run gave sane figures and real gains — `glass_shatter`
+−22.49 → −9.47 dBFS (+13.0), `matron_shriek` −14.70 → −4.00 (+10.7).
+
+⚠️ **A related judgement worth keeping.** Sweeping all eleven sourced stings, the drive each needed
+had almost no relationship to how much it gained: `screamer_lab` took drive 8.09 for **+9.61 dB**,
+while `screamer_void` took drive 9.26 for **+1.22**. A file that needs a big drive for a small gain
+was ALREADY dense and is only being handed harmonics. `remaster_scares.py` therefore refuses to
+write a result whose gain is under `MIN_WORTH_DB` 1.5 and prints "NOT WORTH IT", which is how the
+honest finding surfaced: only four of the eleven were genuinely quiet.
+
+**General lesson.** ⚠️ **Measure in the units the thing will finally be in.** A pipeline whose last
+step is a normalise cannot be reasoned about from its intermediate buffer — and any non-linear stage
+(saturation, compression, tone mapping) makes that not merely inaccurate but wrong in a direction
+you cannot predict.
+
+---
+
+## Issue 161 — Editing `run_tests.sh` while it is running corrupts its own parse
+
+**Symptom.** A full suite run finished every test green and then died with
+`tools/run_tests.sh: line 227: syntax error near unexpected token '|'`, pointing at a line that was
+syntactically fine and that `git diff` showed had not been touched.
+
+**Cause.** Bash reads a script **incrementally**, by byte offset, as it executes. Adding lines to
+the `TESTS` array mid-run shifted every later byte, so when the interpreter next read from its
+remembered offset it landed in the middle of a line.
+
+**Fix.** None needed — the tests themselves were unaffected. Recorded because the symptom is a
+convincing fake: a syntax error on a line that is not wrong, in a file whose diff does not touch it.
+
+**General lesson.** ⚠️ **Do not edit a shell script that is currently executing.** The same applies
+to enrolling a new test while a suite is running; wait for it, or copy the runner.
+
+---
+
+## Issue 162 — A door leaf hinged ON its jamb: a ray from inside a CSG wall reports a clear path
+
+**Symptom.** THE NIGHTMARE generates its layout, so a doorway can land at a corner — a wall in the
+door's own plane and another perpendicular to it starting at the jamb. Six of the 92 door-art quads
+measured **0.0000 m** from a wall box, i.e. inside it: doors visibly through masonry.
+`_pick_clear_swings()` was added to flip a blocked leaf to its other side, using one ray from the
+hinge outward. It took the count from 6 to 2 — and both survivors were leaves the ray had approved
+after flipping them into a second wall.
+
+**Cause.** Issue 59, in a new place. The hinge sits ON the jamb, i.e. INSIDE the wall slab. CSG
+geometry collides as a concave trimesh whose backfaces do not register, so a ray that STARTS inside
+a CSG box reports a clear path straight through it. `hit_from_inside` does not help.
+
+**Fix.** `intersect_point` at several fractions along the leaf, which asks "is this point inside
+something" and has no inside/outside asymmetry — and, crucially, **measured where the quads actually
+end up** rather than where trigonometry predicts: set the rotation, force the transforms, read
+`quad.global_transform`. Two earlier attempts predicted the swept position from a hinge and an angle
+and were both wrong in ways that were invisible (a level-supplied `rotation.y`, the panel offset
+inside its hinge, the art quad offset inside the panel). Embedded leaves: 6 → 0.
+
+**Why existing tests missed it.** `check_wall_overlap.gd` sweeps all nine levels for exactly this.
+It could not see it because **`SlamDoor` carried no artwork at all** — a prop with no `QuadMesh` has
+nothing for the flat-prop clearance rule to measure. The geometry had always been like that; adding
+a texture is what made it visible to the guard.
+
+**General lesson.** ⚠️ **Ask the engine where the thing is; do not compute it.** Any prediction has
+to reproduce every transform in the chain, and the chain here was four deep. ⚠️ And: **a guard that
+finds nothing may be finding nothing because there is nothing to measure.** Giving a prop art can
+turn on assertions that were silently inapplicable for years.
+
+## Issue 163 — A permanent reward that a back-door return silently revokes
+
+**Symptom.** Clear the Lab's dark wing (throw the nook breaker, survive the reveal, the wing lights
+up and the torch is handed back), walk forward to the House, come back through its back door — and
+the wing is pitch black again with its flashlight-lock `Area3D` respawned. The puzzle cannot be
+re-solved, because the only thing that can ever light the wing is that breaker's `flipped` signal
+and a restored breaker never emits it again.
+
+**Cause, and it is a general one.** `_restore_progress()` brought the LEDGER back (`nook_scare_done`
+was saved and restored correctly the whole time) while `_ready()` rebuilt the WORLD from scratch.
+That is KONTUR's Issues 141/142 in a new place: *a ledger and the world it describes must be
+restored together, and the test is not "does the flag come back" but "having come back, can the
+player still finish".*
+
+The House had the same shape one step milder: `_restore_progress()` set `OBJ_LOCK_LIT` and then the
+cellar/key chain **below it** overwrote the objective every time — so a player who had read all
+three safe notes was told to go and open a cellar they must already have been standing in to read
+the third one.
+
+**Fix.** `_light_the_wing()` gained a `silent` parameter and is called from the Lab's restore; the
+House writes its objective LAST. ⚠️ The split that makes this safe is `MovedProp`'s: the **state**
+(tweens, the freed lock zone, the unlocked torch) is restored, the **event** (the "Get out." toast)
+is suppressed. Restoring the event would announce a discovery the player made a level ago.
+
+**Guard.** `check_dark_payoffs.gd` stages 4–6 now drive a real capture-and-reload on both levels and
+assert the lit state, the objective and the absence of the lock zone on arrival. It went red on the
+Lab half before the fix.
+
+⚠️ **THE HOUSE HALF OF THAT GUARD WAS VACUOUS AS FIRST WRITTEN, AND THIS IS THE SHARPER LESSON.**
+Every branch of the cellar/key chain that does the overwriting is gated on `cellar_open` /
+`has_cellar_key` / `map_solved`, and a snapshot taken from three `read` signals alone has all three
+false — so no branch runs, nothing overwrites, and moving the objective write back to its buggy
+position left the file **22 of 22 green** (measured 2026-09-03 by doing exactly that). The stage now
+opens the cellar gate before capturing, which is also the state real play produces: the third safe
+note is *in* the cellar. With that, the revert reports the objective as `OBJ_CODE` and the assertion
+is red. **"Verified red" has to mean the assertion you are claiming went red, not the file.**
+
+⚠️ A Tween does not run until the next frame, so `_light_the_wing()` reported 0 of 10 lamps burning
+when measured in its own stage — the same vacuous-measurement shape this file already documents for
+door clearances. ⚠️ **A retracted trap:** an earlier version of this entry said `Node.get()` cannot
+see a `const`. That is **false** on Godot 4.6.3 — `current_scene.get("OBJ_LOCK_LIT")` returns the
+string, and `check_sprawl_walls.gd` reads `SPRAWL_AMBIENT`/`BASE_AMBIENT` that way in the shipped
+suite. `get_script_constant_map()` is used for coupling to the level's own literal, not because the
+simpler call fails.
+
+
+## Issue 164 — An unshaded silhouette cannot survive its room getting darker
+
+**Symptom.** After the Sprawl's lights were cut (ambient 0.2 → 0.07, `STRIP_ENERGY` 1.0 → 0.6,
+`DEAD_LIGHT_CHANCE` 0.3 → 0.55) the Congregation's figures lost most of their contrast against the
+room.
+
+**Cause.** `Congregation.FIGURE_TINT` is an albedo on an **unshaded** billboard, i.e. a fixed
+rendered luminance, while the surface it is supposed to occlude is lit by the room. `watcher.gd`'s
+premise — *"a dark shape OCCLUDING a lit surface"* — is a claim about a RATIO, and the constant is
+only half of it. Everything on the other half moved; the figure did not.
+
+**Fix.** Halved to `(0.21, 0.21, 0.24)`. Measured by `probe_congregation_tint.gd` — figure against
+what is **directly behind it**, one figure isolated, two runs × three distances:
+
+| eye at | 2.5 m | 4.0 m | 8.0 m |
+|---|---|---|---|
+| 0.42 (old) | 0.44 / 0.61 | 0.84 / 0.85 | 0.92 / 0.93 |
+| 0.21 (now) | 0.32 / 0.51 | 0.71 / 0.82 | 0.83 / 1.02 |
+
+Better where a figure is actually noticed, a wash at 8 m, never harmful.
+
+⚠️⚠️ **A RETRACTION, AND IT IS THE POINT OF THIS ENTRY.** The first version of this fix claimed the
+ratio went **0.90 → 0.45** and that the figures were "effectively gone". That measurement built its
+mask by hiding **all six figures at once**, so it averaged six silhouettes at six depths against six
+different backgrounds over ~60 % of the frame, and it moved run to run with the Congregation's own
+randomised placement. Isolating a single figure says the old tint was a silhouette at **every**
+sample — just a weaker one. The corrected numbers are above; the change stands, its justification
+does not. ⚠️ **Hiding a whole class of objects to build a diff mask measures the class, not the
+object.**
+
+⚠️ **The ratio does NOT halve when the albedo halves** — the mask includes alpha-blended cutout
+edges through which the background shows. Do not predict this constant's effect arithmetically.
+
+⚠️ **The residual is structural and is NOT fixed.** Beyond ~8 m the background darkens toward the
+figure's fixed luminance and the ratio reaches parity (1.02 on one run). No value of this constant
+solves that; only a **shaded** figure would, and `watcher.gd` is deliberately unshaded so the
+flashlight cannot light it up. Cross-level **X67**.
+
+⚠️ Measure against **what is directly behind the figure**, never against the floor — the two
+disagree by a factor of seven here.
+
+
+## Issue 165 — A ceiling that passes harder as the thing it protects fails
+
+**Symptom.** `check_kontur_entities.gd` asserted the caged occupant's `albedo_color` luminance
+`<= 0.25` and called it "dim enough to read as a shadow". When the creature gained a real 2048²
+skin, the retint began **multiplying** that texture instead of replacing it — so what reaches the
+screen is `albedo_color × texture` (0.173 × 0.416 = **0.072**), and the assertion above got *more*
+comfortable as the occupant got darker. A one-sided ceiling on a two-sided property.
+
+**Why it matters here specifically.** Issue 147 established that darkening this occupant alone
+cannot work: it reaches parity with its background at ~0.30 and **goes invisible before it goes
+dark** (contrast 0.006–0.09 at 0.22). So the dangerous direction was the one nothing measured.
+
+**Fix.** Bound the **effective** value from both sides (0.05–0.25), computed from the texture's own
+mean luminance. ⚠️ **And the albedo-only ceiling had to be DEMOTED to a printed value**, because
+`eff = lum × tex_lum` with `tex_lum` in [0,1] means `lum <= 0.25` makes `eff <= 0.25`
+mathematically unable to bind — two assertions where only one can ever fail, the weaker one
+shadowing the real one. That is the same vacuity this entry is about, reintroduced by the fix
+for it. The effective value is what reaches the screen, so it is the one that is asserted; and say in the message where the real answer lives: `screenshot_cell_visibility.gd`
+photographs the booth from 23 reachable headings and is the authority. Last run — 3534–48253 px
+visible at every heading, contrast 0.228–0.611 against a 0.15 floor, occ/bg 0.39–0.77. ⚠️ The
+headless floor is a **proxy**; it exists so a regression is caught in the suite, not so the
+photometric pass can be skipped.
+
+
+## Issue 166 — `OPEN_DEG = -85` was unreachable by construction, on every door in the game
+
+**Symptom.** None visible — doors opened and the level was traversable. Found only by asking which
+angle `_pick_clear_swings()` actually settles on: **62 of 62 leaves** across the Breach and a seeded
+Dungeon rejected ±85° and took ±60°. Every single one, which is a structural refusal, not bad luck.
+
+**Cause.** A leaf hinged on the jamb at 85° lies 5° off the wall plane, so a 1.1 m leaf's far tip
+sits ~0.10 m from that plane — and the wall is 0.2 m thick. The tip is inside the masonry for any
+doorway anywhere. The ladder's next rung was 60°, so it fell a full 25° in one step and every open
+door in both levels stood a quarter of its own width further into the opening than intended.
+
+**Fix.** Intermediate rungs (78/72/66) added. The Dungeon's 54 leaves now take **66°** — a leaf that stands clear of its own opening instead of a quarter of the way across it. ⚠️ **NOT a walkability gain, and the first write-up said it was.** The leaves sit on `INTERACTABLE_LAYER` and the only solid part is `_block_body`, whose collider is `disabled` unless the door is closed — measured, an OPEN Dungeon door leaves **2.22 m of a 2.20 m opening**, i.e. the player never squeezes past a leaf at any angle. What the extra 6° actually buys is LEGIBILITY (the leaf reads as an open door rather than as a panel half across the frame) and interact-ray reach — while the Breach's genuinely cannot exceed 60°. ⚠️ `OPEN_DEG`
+is **not** changed: it is still the intent and still tried first, so a thinner wall or an inset
+hinge would start using it again with no edit.
+
+⚠️ **The lesson is about the ladder pattern, not this door.** A fallback ladder whose first rung is
+impossible degrades silently into "always use the second rung" and looks exactly like a working
+search. If a search has a preferred answer, measure how often it gets it.
+
+## Issue 167 — Two apparition clocks in one level, blind to each other
+
+**Symptom.** `count_apparitions.gd` went red with *"shortest gap 43.2 s is under 60 s — no rarer
+than what it replaced"* — the floor being the fixed 60 s metronome that `ApparitionDirector` was
+built to abolish.
+
+**Cause.** The Lab gained a SECOND apparition clock. `_tick_apparition()` (the scripted teaching
+beat, moved off a tripwire onto a 42–50 s timer on the user's call) fires `ApparitionDirector.arm()`
+directly, while the director's own `_next_at` was set in `_ready()` from `LEVEL_GRACE` 45 s — so the
+two windows open in the same handful of seconds and neither knew the other existed. The player could
+meet two apparitions 43 s apart in a level whose whole pacing design is 90–180 s.
+
+**Fix.** `ApparitionDirector.note_external_fire()` — resets `_next_at` from `_elapsed` exactly as
+`_fire()` does, so an externally-fired apparition costs what an internally-fired one costs. The Lab
+calls it right after `arm()`. Measured after: gaps **138.4 / 152.2 / 166.0 s** (min/mean/max).
+⚠️ It deliberately does **not** touch the teach ledger — `arm()` already owns that.
+
+**The general rule.** *A director that owns "when" can only own it for the events it starts.* The
+moment a level fires one of the managed events itself, it must report it, or the pacing guarantee is
+only true of half the events. Worth checking whenever a level scripts something a global system also
+schedules — `RandomAmbient` is the other system in this project with that shape.
+
+⚠️ **Note what caught this: a test, on a full-suite run, three rounds after the change that caused
+it.** The two clocks are 150 lines apart in one file and both are individually correct.
+
+---
+
+## Issue 168 — Two sounds on the wrong two events, and the documentation described the fix that was never applied
+
+**Symptom.** The user, on the Lab's 45-second apparition: *"the sound is not loud enough."*
+
+**What was actually wired.** `apparition.gd` has two audio calls. `_play_drone()` fires on the
+APPEARANCE and `_play_sting()` fires on the fatal RUSH. Measured, decoded and clamped to ±1.0 the
+way the mixer will:
+
+| event | file | peak | loudest-300 ms |
+|---|---|---|---|
+| appearance | `apparition_snarl.ogg` | 0.00 dBFS | **−2.39 dBFS** |
+| fatal rush | `creak.wav` (the House's door creak, pitched ×1.4) | −20.07 | **−34.40 dBFS** |
+
+**The telegraph before a lunge that kills you was 32 dB quieter than the thing it telegraphs.**
+
+**Why it went unnoticed for so long.** `BUG_FIX.md 3.3` had already identified this and commissioned
+`apparition_snarl` for it, and `CLAUDE.md` states in as many words that the rush *"now plays a
+purpose-made `apparition_snarl`"*. The file was made; it was wired into the other function. So the
+documentation described the intended state, the asset existed to support it, and nothing measured
+which function loaded which name. **A grep for the filename would have found it and reported
+success.**
+
+**The second finding, which is the more general one: `max_db` was the binding constraint and
+nobody had noticed.** `AudioStreamPlayer3D` clamps `volume_db + attenuation` to `max_db`, whose
+default is **3.0**. With `unit_size 10` the inverse-distance term reaches +12.0 dB at 2.5 m, so the
+emitter was pinned to +3 at *every distance under 7.1 m* — and `volume_db` was doing nothing at all
+in the range where the apparition actually appears (`APPEAR_DIST_MIN` is 2.5 m). Raising the gain
+would have changed nothing; raising the ceiling changed everything.
+
+**Fix.** The two files swap onto the events they were made for, which is also the right signal — a
+HOLD apparition is survived by standing your ground, and a snarl on arrival argues for the flight
+that kills you. Then `max_db` 3.0 → 6.0 with `volume_db` −2 → +2, which lands the drone within
+0.2 dB of where the snarl was:
+
+```
+at 2.5 m   snarl  -2.39 + min(-2 + 12.04, 3) = +0.61 dBFS   (old appearance)
+           drone  -6.82 + min(+2 + 12.04, 6) = -0.82 dBFS   (new appearance)
+rush       creak -34.40 + min(+2 + 13.62, 3) = -31.40 dBFS  (old)
+           snarl  -2.39 + min( 0 + 13.62, 3) =  +0.61 dBFS  (new, +32.0 dB)
+```
+
+⚠️ **AND THE REAL LEVER WAS NEITHER.** Both files are at or within 1 dB of full scale and Master
+carries a hard limiter at −0.5 dBFS, so there is no headroom left to spend on any of them.
+`HoldBreath.dip()` takes the world away instead — the same 0.6 s pre-silence that made
+`screamer.gd`'s black flash work, applied to the one scare in the game that had no duck at all.
+**When a file is peak-normalised, "louder" is a statement about contrast or about crest factor,
+never about gain.** (Issue 101 is the crest-factor half of the same lesson.)
+
+---
+
+## Issue 169 — A monster that appears where you are not looking, in a beat that kills you for backing away
+
+**Symptom.** *"it appeared when I was not looking at it."*
+
+**Cause.** `apparition.gd:_find_spot()` fans over `HEADINGS_DEG = [0, ±22, ±45, ±90, ±135, 180]`
+measured from the player's facing and takes the first heading with room. The camera is Godot's
+default **75° VERTICAL** fov, which at 16:9 is **±53.75° horizontally** — so **five of the ten
+headings are off-screen by construction**. `LATERAL_NUDGES` reaches ±1.6 m, a further 45° at the
+1.6 m minimum distance, so even a "forward" heading can realise at 90°. Measured with the repo's
+own harness: **47 of 176 placements exhaust all 270 candidates**, i.e. the rear headings are
+reached routinely in tight rooms, not as a rare tail.
+
+⚠️ **`_fits()`'s docstring claimed it asked "and can the player actually see it?" and it did not.**
+All four of its probes are occlusion tests. Its line-of-sight ray runs from the player's ORIGIN to
+the candidate and is trivially unobstructed for a point directly behind them.
+
+**Why it is a fairness defect and not a framing one.** A HOLD apparition kills you for FLEEING, and
+`_is_fleeing()` is *horizontal distance growing past `_spawn_dist` + margin*. A figure that
+materialises behind you turns walking forward — the obvious thing to do when you have seen nothing
+— into a flee, while `DREAD_RATE` charges the whole time against something you have never laid eyes
+on. `SCARY.md` §8.11 names exactly this.
+
+**Fix, and the shape of it matters.** `_find_spot()` now runs its existing fan **twice**: pass one
+accepts only candidates inside `Camera3D.is_position_in_frustum()`, pass two is the old behaviour
+verbatim. If only an out-of-frame spot fits, `player.turn_to_face()` brings the camera to it
+under a brief `freeze_input()` — `level_1.gd`'s nook reveal and `backrooms.gd`'s crate watch are
+the same beat, and that fix was applied to the nook in 2026-08-16 and never carried across to the
+older, more dangerous file.
+
+⚠️ **THE TEST IS THE FRUSTUM, NOT A HEADING WHITELIST.** Trimming `HEADINGS_DEG` to the on-screen
+five would still ship the bug (the nudges move the realised bearing) and would say nothing about
+PITCH, which is what a player looking at the floor has.
+
+⚠️ **The freeze is load-bearing for fairness, not for framing.** It is what stops the flinch away
+from a sudden arrival being scored as fleeing. And it must zero `velocity.x/z` by hand:
+`_apply_movement()` only RETURNS on `_input_frozen` while `_physics_process` still calls
+`move_and_slide()` (Issue 49).
+
+**Measured, `check_apparition_framing.gd`, 24 hostile poses in the Lab:**
+
+```
+before   8 of 23 placements in frustum   (35 %)
+after   23 of 23                          (100 %) — 15 of them via the turn
+```
+
+⚠️ **The first version of that test was itself vacuous** and is worth recording: its poses were
+*uniformly* hostile, so it reported "19 of 19 in frustum, 19 of 19 needed the turn" — a pass that
+proves only the fallback, and would have gone equally green on a build that seized the camera on
+every single appearance. The sample is now half easy and half hostile with the two passes asserted
+separately: **easy 7 placed / 0 turned, hostile 16 placed / 15 turned.**
+
+---
+
+## Issue 170 — A prop's decoration built from a half-height offset onto a mesh that was already centred
+
+**Symptom.** The user: *"Test whether the door in the basement at the house level works fine."*
+It worked perfectly. It did not look like a door.
+
+**Cause.** `cellar_gate.gd` positions its three planks at `HEIGHT * 0.5 + offset` and its padlock at
+`HEIGHT * 0.5 - 0.1`. But the leaf is a `BoxMesh` **centred on the body origin**, and the body sits
+at y = 1.5 — so local y = 0 is already the leaf's mid-height and the extra half-height lifted every
+child 1.5 m. Computed from the shipped constants:
+
+| child | world y | where |
+|---|---|---|
+| leaf | 0.00 – 3.00 | correct |
+| plank 1 | 2.04 – 2.26 | on the leaf — the only one anyone ever saw |
+| plank 2 | 2.94 – 3.16 | above the leaf, inside `CellarShaftCap` (2.85–3.15) |
+| plank 3 | 3.84 – 4.06 | above the kitchen ceiling, in the sealed void |
+| padlock | 2.79 – 3.01 | ~75 % inside the cap; a 6 cm sliver, 1.1 m above eye line |
+
+The prop's own comment says the planks exist *"so it reads as sealed rather than as a wall the
+builder forgot to cut a doorway in"* — and two thirds of that signal, plus the entire "this needs a
+key" affordance, were off the prop. On a zero-emission slab in a house at ambient 0.02.
+
+⚠️ **`intro_room.gd` builds the same three-plank boarded door and has never had this bug**, because
+it positions from an absolute world y rather than a body-local offset. **When a prop's mesh is
+centred on its own origin, a child's local y IS its offset from the centre** — there is nothing
+else to add.
+
+**Why no guard saw it.** `check_wall_overlap` reported 0 findings; `check_prop_mounting` does not
+classify these as wall panels; `check_doorways` only asks whether the opening is gated; and
+`check_cellar_key.gd`'s own ray flies at y = 1.2 and never looks at a mesh. **A prop's decoration
+being ON the prop is assertable**, and now is: every `MeshInstance3D` child must sit inside the
+tallest child's vertical span.
+
+⚠️ **The tolerance is load-bearing.** At 2 cm the new sweep caught the two displaced planks and let
+the PADLOCK through, because that one happened to clear the leaf's top edge by exactly 0.01 m while
+sitting three quarters inside the shaft cap. At 5 mm it catches all three. **A guard that catches
+the obvious two thirds of a defect is how the last third ships.**
+
+**And the older, larger finding in the same file.** `check_cellar_key.gd` asserted "blocked,
+blocked, blocked, `_opened == true`" and **never re-ran its doorway query after the successful
+key-open** — the one direction a player cares about, in the file whose own header says *"a ray
+through the ramp opening is the real question"*. It also called `_gate.interact()` directly, the
+anti-pattern `player.gd:830` warns about by name. It now walks to the gate, presses E through the
+shipping raycast, waits past the 0.9 s tween, asserts the doorway is clear, walks down the ramp to
+y = −1.32 and climbs back out.
+
+---
+
+## Issue 171 — A direction defined as "toward the mark" that reverses when you stand on the mark
+
+**Symptom.** Found by a new test, not by a player: after the Lab's nook reveal was retuned, the
+`stand_still` branch produced **no figure at all** — the scream fired into an empty corridor.
+
+**Cause.** `_place_nook_figure()` derives `back` as `anchor - player`, commented as *"the way they
+CAME"*. That reading holds only while the player is some distance from the anchor. The anchor sits
+1.25 m east of the breaker, so a player who threw the lever and did not move is within ~1.7 m of it
+and **may be on either side** — and standing east of it makes `back` point WEST, straight at the
+wall the breaker is bolted to. Every player-relative candidate then lands outside the room,
+`_clamp_into_room()` pulls them all onto the same clamped x, they all fail `NOOK_MIN_FRAMING`, and
+so do both world marks, which are closer still.
+
+⚠️ **And that is the branch the design expects.** The beat is five seconds of breathing behind your
+head; standing still and listening is the intended response, and it was the one that lost the
+picture. The walk-out branch worked, which is why nothing noticed.
+
+**Fix.** Inside the nook, "the way out" is unambiguous and geometric — away from the breaker, which
+is on the west wall — so `back` is taken from the breaker's own position when the player is within
+`NOOK_MIN_FRAMING` of the anchor, and from the anchor otherwise. The candidate ladder also gained
+`-back` rungs before falling through to the world marks, so a player cornered on one side is not
+left with nothing.
+
+⚠️ **The general shape: a direction derived from a difference between two points is undefined near
+the point where they coincide, and "undefined" here means "whichever side you happened to stand".**
+`_nook_breaker_pos()` derives the breaker from the same `wall_point()` call that places the panel,
+so the two cannot drift.
+
+**Measured, `autoplay_lab_nook.gd`, both playstyles on a real walk:**
+
+```
+                        before      after
+walk_out                10.26 m     2.40 m
+stand_still             no figure   2.40 m
+```
+
+Screen height for the 2.3 m billboard: ~18 % at 10.26 m, **~70 % at 2.40 m**.
+
+⚠️ `NOOK_TRIGGER_DIST` (3.0, the user's own number) did not move, and neither did the 5 s of
+breathing. The reason the 3 m threshold never bound is that the watch is armed 5 s AFTER the flip,
+and 5 s at 4.0 m/s is up to 20 m — so `far_enough` is true on the first tick and the figure landed
+wherever the player had got to. Fixing the PLACEMENT is the smaller, truer change.
+
+---
+
+## Issue 172 — A pursuer that walks through walls, on a patrol route chosen so it never has to
+
+**Symptom.** None reported. Found by writing the falsification probe **before** the fix, which is
+the only reason it is here rather than in a list of plausible-sounding hypotheses.
+
+**Cause.** `creature_object12.gd:_move_toward()` writes `_body.global_position` directly, and
+`_body` is a **`StaticBody3D`**. A static body does not sweep and does not resolve; there is no
+`move_and_slide`, no `test_move` and no navmesh anywhere in the file.
+
+**Why it has never shown up in play.** `level_6_breach.gd:PATROL_LOOP` is five room centres that
+are **all on x = 0**, and every spine doorway is on x = 0 too. The creature paces one 30 m straight
+line down an unobstructed corridor and is never asked a question it could get wrong. That is also
+the real reason the two bypass loops are unpatrolled — a constraint, not an oversight.
+
+**Measured, `tests/probe_breach_creature_path.gd`** (the player *walked* into WardA through the
+Atrium doorway, then a chase was forced and every per-frame motion segment ray-tested against
+layer 1):
+
+```
+PHASE A (control)  PATROL, 899 steps, 0 wall crossings
+PHASE B            CHASE into WardA: 1 crossing, at (3.92, 0.0, 28.75)
+PHASE C (control)  a 4 m step down the spine at x = 0 reports CLEAR
+```
+
+⚠️ **The count is face crossings, not severity.** Once the body is inside a slab, later short steps
+are wholly inside the CSG trimesh and register nothing (Issues 40/59). One crossing means it went
+through one wall.
+
+⚠️ **NOT FIXED — it is the user's call**, and it has a second consumer: `dungeon.gd` runs this same
+script as the Matron in a *generated* maze, where a door-seeker that fails to resolve a portal
+would orbit a wall for ever. See `backlogs/06-breach.md` C1.
+
+⚠️ **The method is the transferable part.** The hypothesis was "a `StaticBody3D` cannot resolve
+collision, so an off-axis chase must clip". It was written as an assertion that should FAIL on the
+current build, and run before a single line of fix was designed. Two of the three controls exist to
+answer "is the probe itself wrong", which is the question a red result always raises first.
+
+---
+
+## Issue 173 — A float sentinel raced against a decrementing counter: two hours forty-six minutes of "frozen"
+
+**Symptom, reported by the player.** *"When I stopped the creature using the flashlight — it did not
+start moving again even after several minutes has passed."*
+
+**It was not the flashlight.** `creature_object12.gd`'s stagger path is provably clean: `_stagger_t`
+has two writers and `_stagger_len` one; while STAGGERED the only reachable code is `_tick_staggered`
+and a `_regen_shield` that returns immediately; `_enter_stagger` requires CHASE and `notify_noise`
+requires PATROL. The freeze came from somewhere else entirely.
+
+```gdscript
+const _PURGE_FREEZE := 9999.0
+func freeze_for_purge() -> void:
+    _block_t = _PURGE_FREEZE
+func unfreeze_for_purge() -> void:
+    if _block_t >= _PURGE_FREEZE:      # ← never true after the first frame
+        _block_t = 0.0
+```
+
+`_process()` decrements `_block_t` every frame. `purge_chamber.gd` freezes the instant the blast
+door seals and only checks whether the creature is inside `CLOSE_TO_CONFIRM_DELAY = 1.2 s` later —
+by which time `_block_t` is ~9997.8, the guard is false, and **the unfreeze silently does nothing.**
+
+**Measured, `tests/probe_purge_freeze.gd`, written before the fix as a prediction:**
+
+```
+_block_t 0.00 -> 9999.00 on the press
+t+2 s    9996.50   moved 0.00 m
+t+10 s   9989.00   moved 0.00 m
+t+30 s   9968.98   moved 0.00 m
+retry:   9966.36 -> 9999.00      <- and the retry RE-FREEZES it
+```
+
+**The level becomes unwinnable.** Luring Object 12 into that chamber is the only permanent win
+condition, and `_reopen_failed()` sets `_used = false` and presents the attempt as retryable — so
+every attempt to recover deepened the freeze. It reads as a flashlight bug because the freeze
+preserves whatever state it caught: a creature frozen while STAGGERED stays tilted 35°, non-solid,
+glowing at `wound = 1.0`, and never emits `recovered`, so **"IT IS UP AGAIN" never appears after
+"IT RECOILS — 6 SECONDS" already promised a number.**
+
+⚠️ **The guard only worked in the one case where it was not needed.** During the familiarization
+window `_active` is false, `_process` returns before the decrement, and `_block_t` is still exactly
+9999.0 — an unfreeze that succeeds against a creature that was not moving anyway.
+
+**Fix.** The freeze is a **flag** (`_purge_frozen`), it decrements nothing, and the unfreeze is
+unconditional. ⚠️ **Not a wider comparison** — that just moves the failure to a longer confirm delay.
+
+⚠️ **THE GENERAL RULE: never encode "forever" as a large number in a variable something else is
+counting down.** The two mechanisms here needed opposite behaviour and were sharing one field —
+`force_block()` (a door is being battered) must NOT stop the creature killing you, while
+`freeze_for_purge()` must. Splitting them fixed the stunlock in the same edit.
+
+---
+
+## Issue 174 — A stale caller of an API the file itself documents as wrong
+
+**Symptom.** *"When I enter the cabinets — my flashlight stops working and I cannot see anything."*
+
+`player.gd:enter_hiding()` called `lock_flashlight()` and `exit_hiding()` called
+`unlock_flashlight()`. Six lines above the bug, in the same file:
+
+> *"`lock_flashlight()` alone is not enough for a temporary blackout: it hides the light but
+> `unlock_flashlight()` only clears the lock, leaving the player standing in the dark wondering why
+> F did nothing until they pressed it twice."*
+
+**Git dates it as a stale caller, not a design decision.** `enter_hiding()` was written 2026-07-24;
+`force_flashlight_off()`/`restore_flashlight()` arrived 2026-07-30, written for the House, and this
+caller was never migrated. The warning comment was written *about this failure mode* and the code it
+warns about was already there.
+
+⚠️ **It silently disarms the player too.** `level_6_breach.gd:_tick_light_weapon()` returns early on
+`not is_flashlight_on()`, so a player who hid to break a chase stepped out with no torch *and* no
+light weapon, and was told neither.
+
+**The second, separate defect in the same beat.** `_hide_yaw_center` was the yaw at the E-press —
+and you must look AT a prop to interact with it, so the ±50° peek cone was centred **into the wall
+the spot is mounted on**. Measured in Corridor1, the creature's only approach was **~105° off-axis**,
+more than twice the peek limit: hiding was audio-only. It now faces out of the spot, derived from the
+same `basis.z` `hide_anchor()` already uses.
+
+⚠️ **Why no guard saw either half.** `grep enter_hiding|exit_hiding game/tests/` returned **zero
+hits**. `check_lab_locker.gd` asserts `_flashlight_locked` — **the flag, not the light** — and passes
+happily on a torch that is still dark. `check_house_guest.gd` *does* assert the light round-trip end
+to end, but for the other API. **The hole was exactly the shape of the bug**, and
+`check_hiding_spots.gd` closes it by reading `is_flashlight_on()`.
+
+⚠️ **A property worth knowing, found while writing that guard:** `HidingSpot` is a layer-1
+`StaticBody3D` whose interact volume is the carcass grown forward 0.6 m into the room, so a player
+standing at `hide_anchor()` is **inside it** — and the three 2.0 m lockers occlude a chest-to-camera
+ray from the room. At a locker you are partly hidden by geometry whether or not `is_hidden()` is
+true.
+
+---
+
+## Issue 175 — A guard that cannot see a MISSING thing
+
+`check_art_aspect.gd` sweeps every level for stretched artwork. It returns early on a mesh that is
+not a `QuadMesh`/`PlaneMesh`, and again on a null `albedo_texture` — both perfectly reasonable.
+
+The consequence is not: **a prop with no artwork at all is invisible to the only guard in the
+project that exists for artwork.** THE BREACH's `PurgeChamber` — the biggest door in the level and
+its one permanent win condition — was a flat-tinted `BoxMesh(2.2, 3.0, 0.15)` at
+`Color(0.14, 0.14, 0.15)` for its entire life, standing beside two exit doors and eight slam-door
+leaves that all carry `breach_door.png`. Every guard reported green. `check_wall_overlap` had no
+opinion, `check_prop_mounting` does not classify it as a panel, and `check_art_aspect` skipped it
+twice over. **The player found it by looking at it.**
+
+⚠️ **A guard that filters by "has the thing" can only ever report the thing being wrong, never the
+thing being absent.** The fix is a guard that ENUMERATES what should exist:
+`check_breach_doors.gd` names the seven doors, requires each to carry a textured `QuadMesh`, and
+carries a control asserting the sweep found ≥ 18 of the 20 quads — because every per-material
+assertion in it is vacuously true of an empty collection.
+
+Same shape as cross-level **X50** (five suite entries that asserted nothing) and Issue 165 (a
+ceiling that passes harder as the thing it protects fails). Worth checking, whenever a guard has an
+early return: *what does this skip, and would anyone notice?*
+
+---
+
+## Issue 176 — Three faults in one loop: the door-slam stunlock
+
+`level_6_breach.gd:_tick_slam_doors()` + `slam_door.gd`, all found 2026-09-07:
+
+1. **`force_block()`'s early return sat above the whole `match _state` dispatch**, so a battering
+   creature could not kill you **at any range, including zero** — and it also suspended the stagger
+   clock, silently adding 10 s to a beat whose length the level announces out loud.
+2. **`check_blocks_path()` had no proximity term.** A door 25 m up the corridor that happened to lie
+   on the segment triggered a 10 s block with the creature stopped dead in open floor.
+3. **`interact()` could re-close a door the instant `_break_open()` reopened it.** Together: stand at
+   a slam door, press E every ~10 s, and Object 12 can never reach you. Free, indefinite, zero panic.
+
+Plus a fourth: `_tick_slam_doors` excluded only PATROL, and `get_current_target()` returns the
+creature's **own position** while STAGGERED — so `check_blocks_path(here, here)` is a degenerate
+zero-length segment, and `AABB.intersects_segment(p, p)` is true whenever the point is inside the
+box. `_enter_stagger()`'s own comment says the creature routinely falls *"dead-center in a
+doorway"*.
+
+⚠️ **The three fixes are one change, not three.** Making contact live during a block is only fair
+*with* the proximity gate: with it, "battering" and "on top of you" are the same place. Shipping the
+first without the second would be a new §8.11 death.
+
+⚠️ **AND ONE "OBVIOUS FIX" WAS WRONG, caught by an existing test.** `check_blocks_path` subtracts
+only the collider's `y` offset and ignores its `z` — which looks like an oversight until you make
+the change and watch `check_level6_breach.gd` go red on three doors. `_collider` is the WIDE
+INTERACT volume, pushed 0.223 m into the room so the player can reach it past the swinging leaves;
+subtracting only `y` leaves the tested box centred on the **doorway plane**, which is what a path
+test is about. The comment now says so, because the next reader will reach for the same "fix".
+
+---
+
+## Issue 177 — Three ways a test I wrote this session measured nothing, and how each announced itself
+
+Recorded together because the shape recurs and each was caught by a control rather than by review.
+
+1. **A probe whose pass condition was satisfied by measuring zero steps.**
+   `probe_breach_creature_path.gd` reported *"0 wall crossings — the hypothesis is dead"* after the
+   routing fix. It had taken **0 chase steps**: the creature was already 0.70 m from the player, so
+   the loop's stop condition fired immediately. **A sample-size assertion is not optional on a probe
+   whose finding is an absence.**
+2. **Arming and measuring in different frames, with the game running in between.**
+   `check_breach_creature_beats.gd` set `_shield = 100`, aimed the torch, waited 0.2 s and then
+   asserted the shield drained. The LEVEL'S OWN `_process` runs `_tick_light_weapon()` every frame,
+   so by the assertion the shield was already 0 and the creature had staggered — the test reported
+   *"the light weapon does not drain"* while measuring the aftermath of it draining.
+3. **A fixed offset that puts the player inside a wall.** The same file placed the player at
+   `creature + (0, 0.1, -4)`; the creature is wherever patrol took it, so the LOS ray failed and the
+   test blamed the game for its own placement. It now ray-tests four directions and takes a clear
+   one.
+
+And a fourth, in `check_hiding_spots.gd`: a test that ran longer than `FAMILIARIZATION_FIRST` had
+its parked player hunted down and killed, which **reloads the scene** — and because a freed Node
+compares equal to `null` in GDScript, the setup block re-entered and the test cheerfully reported
+"12 hiding spots found". ⚠️ **`if current_scene != _level` is how a reloaded scene announces
+itself**; without it a test silently restarts and doubles its own sample.
+
+---
+
+## Issue 178 — Two ways a portal router deadlocks, both found by a test that already existed
+
+Added `set_portals()` to `creature_object12.gd` to stop Object 12 walking through walls (Issue 172).
+The router itself was ten minutes' work; the two bugs in it were the interesting part, and
+**`walk_level6_breach.gd` — the level's end-to-end win proof, written long before — caught both.**
+
+**(a) Steering AT the doorway instead of THROUGH it.** `_steer()` returned the portal's own centre.
+`_move_toward()` bails once its target is within 0.01 m, and `_room_at()` still reports the room the
+creature started in — so it re-picks the same portal for ever and stands on the threshold.
+Measured: the creature parked at **z = 54.99995 against a trap boundary at z = 55.0**, five
+hundredths of a millimetre short, and the level's only win condition never fired. A portal is a
+thing you go THROUGH: the steer point is now pushed `PORTAL_PUSH` 0.8 m past it, toward the next
+room's centre.
+
+**(b) A target standing exactly on a shared wall plane belongs to both rooms.** `RoomBuilder`
+requires connected rooms to ABUT — they share an exact plane — so `_room_at()` returns whichever
+room comes first in the table for a point on it. `walk_level6_breach.gd` places the player at
+exactly `z = 55.0` to seal the blast door (its collider is 0.15 m thick, so a pose off the plane
+cannot be hit by the interact ray), and the creature — **already inside the trap** — classified that
+player as being next door and walked back out through the doorway to reach them. The lure never
+confirmed. `_steer()` now checks "is the target inside MY room, padded by one wall thickness"
+*before* asking which room the target is in.
+
+⚠️ **The general shape: room membership is not a function at a boundary, it is a choice.** Any
+routing built on an abutting-room graph has to decide what a point on a shared plane means, and
+"whichever room the table lists first" is a coin flip that changes with the table.
+
+⚠️ **And the bisect is the method worth keeping.** Two features landed in the same session (the
+purge-freeze fix and the router) and one test went red. Disabling each in turn — one line, restored
+from a `/tmp` copy — named the culprit in two runs. The second bisect was the more informative:
+with the freeze disabled the failure changed from *"sealed the door but never won"* to *"never
+reached the trap bounds — last pos z = 54.99995"*, which is the whole diagnosis in one line.
+
+⚠️⚠️ **AMENDED THE SAME DAY — FIX (a) ABOVE WAS ITSELF WRONG, AND AN ADVERSARIAL PASS CAUGHT IT.**
+Pushing the steer point 0.8 m PAST the doorway un-deadlocks the creature and then walks it through
+the wall *beside* the opening, because the steer point is no longer on the boundary and the travel
+line crosses the plane wherever it likes. Measured over the whole room graph: **98 of 391
+traversals still clipped masonry, worst 2.37 m off the doorway centre.** The same pass found the
+same-room pad (fix b) was 0.6 m against **0.2 m walls**, so targets 0.21–0.60 m past a shared plane
+were treated as same-room and walked at through the masonry.
+
+**The correct fix is neither "at" nor "past" — it is "at, then the NEXT one".** These rooms are
+convex axis-aligned boxes, so a segment from any interior point to a point ON the boundary cannot
+leave the room, and a segment between two boundary points of one convex room stays inside it.
+Aiming at the portal CENTRE is therefore what makes the crossing point the hole itself. The
+deadlock was never about the aim — it was about arriving and having nowhere else to go. `_steer()`
+now builds the whole portal chain and returns the first doorway it has **not** already reached
+(`PORTAL_ARRIVE` 0.35 m, comfortably inside a 1.8 m opening's half-width and far clear of
+`_move_toward()`'s 0.01 m bail), and the pad is `SAME_ROOM_PAD` 0.1 — half a wall thickness.
+
+Re-measured with `probe_breach_router_sweep.gd`, 624 traversals over every ordered room pair from
+four start offsets: **0 clipped (0.0 %), 0 failed to arrive**, against a beeline control on the
+identical sample at **431 clipped (69.1 %)**.
+
+⚠️ **The lesson worth keeping is about the EVIDENCE, not the geometry.** The single-traversal probe
+I wrote alongside the original fix reported *"0 wall crossings of 176 steps"* and was perfectly
+correct — on the one traversal it measured. It was green on a build clipping a quarter of its
+routes. **A router is a claim about a graph; measure it on the graph.**
+
+---
+
+## Issue 179 — Two flags that latch because the early return is above the line that clears them
+
+Found by an independent agent PLAYING the level, not by reading it: sprinting into a Breach hiding
+spot killed a motionless player in **6.1 seconds**. Panic climbed 13.20 → 49.20 at exactly
+**+6.00/s = `SPRINT_PANIC_RATE`**, with `velocity` (0.00, 0.00) the whole time.
+
+`_apply_movement()` returns early on `_input_frozen` — and both `_is_sprinting` and `_is_moving`
+are recomputed BELOW that return, so both **latch at whatever the last unfrozen frame set**. Every
+consumer keeps reading them for as long as the freeze lasts:
+
+| consumer | what a latched `true` does |
+|---|---|
+| `player.gd` panic | +6/s **and suppresses decay** — there is no way down |
+| `apparition.gd:_is_fleeing()` | a HOLD apparition **kills you** for fleeing |
+| `creature_smiler.gd` | rushes and **kills you** for sprinting |
+| `level_6_breach.gd:_tick_noise()` | broadcasts your position to the creature you are hiding from |
+| `dungeon.gd` sprint-deafness | ducks the positional tells the level is solved by listening to |
+| `_handle_footsteps()` | keeps playing footsteps while you hide |
+
+⚠️ **This is not a Breach bug.** `player.gd` is shared, `freeze_input()` delivers half the game's
+set pieces (the Intro wheelchair, the Corridor noclip, the Backrooms crate watch, the Dungeon wake),
+and `begin_qte()` — the beartrap — has the identical shape one branch above. The beartrap already
+charges 15 on the snap and 40 on a timeout; a latched sprint quietly added 6/s on top of that.
+
+⚠️ **CLAUDE.md asserted the opposite in as many words** — *"Footstep audio is silenced for free by
+the existing `_is_moving`-gated chain — no separate suppression flag needed."* `_handle_footsteps()`
+needs only `_is_moving and is_on_floor()`, both true for a hidden player who WALKED to the locker,
+which is all of them. The claim was written from the code's intent and never measured.
+
+**The fix is one line per branch** — clear both flags where the movement is suppressed.
+
+⚠️ **And the test's own control caught the test.** The first version of `check_frozen_sprint.gd`
+re-placed the player at `hide_anchor()` **every frame** during its setup, so `is_on_floor()` was
+never true, so `_is_sprinting` never became true — and its three "the flag is cleared" assertions
+passed on a build with the bug in it. The control assertion ("the player really IS sprinting before
+the freeze") is the only reason that was visible. Teleport once, then let the body land.
+
+---
+
+## Issue 180 — Lifting a suppression re-armed a check that had nothing else holding it back
+
+Closing the door-slam stunlock (Issue 176) meant letting the contact check run during a block. That
+was right, and it had a consequence nobody looked for: **`_check_contact()` was a pure horizontal
+distance test with no line-of-sight term**, harmless only because the block had been suppressing
+the whole state dispatch.
+
+Measured by an adversarial pass: player at z = 41.45, creature at z = 40.90, a **CLOSED, battering
+slam door between them** (blocker spanning 40.95–41.05) — separation **0.550 m**, under
+`contact_dist` 1.0, and it killed. A 0.4 m capsule cannot stand further back than that, so
+**slamming a door in its face was a death sentence rather than the counter-play**.
+
+`_check_contact()` now requires `_has_los()` — the helper `_detect_player()` has always used, which
+masks to layer 1, where a shut `SlamDoor`/`PurgeChamber` blocker lives.
+
+⚠️ **The two changes are ONE decision.** Live contact during a block is what stops the stunlock;
+the LOS term is what stops live contact reaching through steel. Shipping either alone is a bug in
+the opposite direction, and the file says so at both sites.
+
+⚠️ **The general shape: when you remove a guard, audit what it was incidentally protecting.** The
+stunlock fix was about *movement*; nobody asked what else `force_block()`'s early return had been
+switching off. It had been switching off a check that was never fair on its own.
+
+---
+
+## Issue 181 — Winning the level sealed the player out of its exit
+
+The Purge Chamber's blast door is the only way into the Incinerator. `trap_bounds` is that whole
+room (z 55…62) — **and the exit door is inside it, at z = 61.85.** `_finish_purge()` never reopened
+the door and `_block_collider` stayed enabled, so the win and the way out were on opposite sides of
+a permanent seal.
+
+⚠️ **The level's own text describes the losing play.** The entry note says *"Lead it inside. Seal
+the door behind it"* and the PurgeAnte sign says *"LURE IT IN — SEAL THE DOOR"*. Behind it means
+from outside. Measured from the pose `check_purge_interact.gd` already presses at:
+
+```
+press E from z = 53.5, creature in the trap
+  creature_defeated = true          <- the level is WON
+  blast door SEALED  = true
+  walk at the exit for 6 s -> z = 54.52, 7.42 m from the exit door, permanently
+```
+
+`_finish_purge()` now vents after `REOPEN_AFTER_PURGE` 2.0 s. There is nothing left to contain —
+`lure_into_trap()` is permanent — so venting is both correct and the only thing that makes the win
+reachable from the side the level tells you to stand on. Re-measured: **z = 57.80, 4.23 m and
+closing.** `check_purge_softlock.gd`.
+
+⚠️ **Why every existing test missed it, and it is not that they were careless.**
+`walk_level6_breach.gd` seals from **(1.8, 0.1, 55.0)** — standing ON the doorway plane, side-on —
+so whichever side the collider pushes it out to, it is never *measurably* on the wrong one; and
+`check_purge_interact.gd` only ever drives the FAILED lure, which reopens by design. Between them
+they cover the press and the retry and neither can see the room the player ends up in.
+**"Did the win register" and "can the player still leave" are different questions, and only the
+second one is completability.**
+
+⚠️ **And the probe was wrong four times before the level was** — worth keeping, because each was a
+documented gotcha firing exactly as documented:
+1. `rotation.y = 0` to "face +z" — a Node3D's forward is **−Z**, so the ray pointed back down the
+   corridor and found nothing.
+2. The scene-reload guard used `_level != null`, and **a freed node compares `== null`**, so it
+   never fired and the setup silently re-entered every frame, printing its header ten times.
+3. `ai_interact_target()` instead of polling `_interact_target` and pressing `_try_interact()` —
+   the raycast needs a few physics frames, and one sample is not waiting.
+4. The real one: it called `activate()` on the creature, which **detected the parked player at
+   4.2 m, chased, and stood 0.79 m in front of them**, blocking the interact ray for four runs.
+   `_confirm_trap()` only reads `get_creature_position()`, so the creature never needed to be
+   active — what was under test was the DOOR, not the chase.
+Only a diagnostic that printed the hit body's parent chain (`@Node3D/@Node/@StaticBody3D` — the
+`ScaryObject` transform chain, i.e. a creature) settled it. **Print what you hit, do not infer it.**
+
+---
+
+## Issue 182 — A fix for one flag re-armed a tax that had been exempt by accident
+
+Issue 179 made `_apply_movement()`'s early returns clear `_is_moving`, which is correct — a frozen
+player is not walking. The Backrooms' standstill tax reads exactly that flag:
+
+```gdscript
+if _standstill_panic_enabled and not _smiler_active and not _standstill_suspended \
+        and not _is_moving:
+```
+
+Before the fix a frozen player latched `_is_moving = true` from their last walking frame and was
+exempt **by accident**. After it, every scripted freeze in the Backrooms began charging +3/s for a
+posture the game imposes — the Sprawl's crate watch is `freeze_input()` with the camera pinned for
+up to 12 s. `check_sprawl_crate.gd` went red with the player **dead at t = 3.6 s, scene reloaded**.
+
+This is Issue 18's shape, and the clause now excludes `_input_frozen` and `_qte_active`.
+
+⚠️ **The lesson is the one Issue 180 states from the other direction**: there, removing a guard
+re-armed a check it had been incidentally suppressing; here, *fixing a flag* re-armed a tax that
+had been incidentally exempt. **A latched value is a de-facto guard, and correcting it removes
+protection nobody knew was load-bearing.** Grep every reader of a flag before you change when it
+is written.
+
+⚠️ **And the first three assertions written for this were VACUOUS, caught by their own control.**
+They started from panic 0 and asserted "gained < 1.0" — but `PANIC_DECAY_RATE` 3.5/s exceeds
+`STANDSTILL_PANIC_RATE` 3.0/s, so a taxed player standing still still nets −0.5/s, clamps at zero,
+and reads a comfortable **0.00 on the broken build too**. They now seed panic to 30 and measure the
+**decay differential**: untaxed 22.75, taxed 15.28, threshold between. *When two rates fight, assert
+the difference, never the absolute.*
+
+
+
+## Issue 183 — A difficulty coupling nobody had typed: the map slowed down with the player's panic
+
+`maze_chase_ui.gd` lerped both the drag spring (9 → 3) and the icon's speed cap (240 → 100) on the
+3D player's `get_panic_ratio()`. On its own that is a documented degradation. What nobody had
+written down is that **panic carries across attempts**: `CATCH_PANIC` 18 plus the drip is still on
+the bar when the map is reopened, so the SECOND try of the same puzzle ran ~35 % slower than the
+first, and the 2026-09-10 playtest read that as *"the map slows down"* and died twice INSIDE the
+map to panic rather than to a catch. The user's ruling: *"the ideal speed is constant."* One
+`SPRING_K` 7.5 and one `PLAYER_SPEED` 210, between the two measured regimes; `_drag_step()` still
+receives `panic_ratio` and ignores it, ⚠️ DELIBERATE at the constant. `check_maze_chase.gd`'s bot
+could never have seen this — it moves the icon at its own `ESCAPE_SPEED` and never reads the
+spring — which is why `check_maze_speed.gd` exists and carries a control that reinstates the lerp.
+
+⚠️ The general lesson: **a per-frame modifier read from state that OUTLIVES the thing it modifies
+is a hidden difficulty ramp.** Ask what the input's lifetime is before lerping on it.
+
+## Issue 184 — "Open" and "read" were one press again, one level after the fix
+
+`kitchen_drawer.gd` opened on E and showed its note from the slide tween's `finished` — the
+correct ORDER (Issue 58) and still the wrong BEAT: the Lab cabinet (Issue 66/67) and the Flood
+(B-R2) had both already moved to *open, see the page, then take it* on the user's request, and
+the House drawer was left on auto-read. Capture #5, 2026-09-10: *"The note should be physically
+seen in this cabinet before it will be taken."* Now a nested `DrawerPage` body (layer 2, collider
+disabled until the slide finishes) on `DrawerSlide`, a second E to take it, `record_note()` only
+then. `check_open_then_read.gd`'s House half asserts the journal does NOT grow on E1.
+
+⚠️ When a beat is redesigned in one prop, `grep` for its siblings — three drawers in this game
+open on E and they had drifted into three different contracts.
+
+## Issue 185 — ⚠️ DELIBERATE: the grandfather clock kills at 14 s, and the user kept it
+
+Corridor death #3 in the 2026-09-10 playtest: the chime (+10 at d 45–47) then exactly 20 panic/s
+of gaze at the clock — the level's only 1.0-intensity panel, 2 × 3 m floor to ceiling — and the
+bar filled 14 s into the level. The clock is now a 3D case (`grandfather_clock.gd`) and its
+`CLOCK_INTENSITY` is **1.0, unchanged, on the user's explicit call** after being shown that log:
+*"3D clock, keep 1.0"*. Recorded here so the next session that sees an early Corridor death does
+not "fix" it. `check_corridor_clock.gd` asserts the value with the note.

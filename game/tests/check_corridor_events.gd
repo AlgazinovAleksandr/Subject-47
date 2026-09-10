@@ -195,8 +195,12 @@ func _process(delta: float) -> bool:
 			_stage = 3
 			_t = 0.0
 		3:
-			# FALSE_DOOR_HOLD 0.9 + FALSE_DOOR_SCRAWL_DELAY 0.45, plus slack.
-			if _t < 1.9:
+			# 2026-09-10: the beat is IN THE WORLD now. Watch it every frame — the panic lands at
+			# the lunge (FALSE_DOOR_LUNGE_AT), not at E; the figure must come to the face and
+			# then leave; the camera is pinned and then released; and NO fullscreen panel may
+			# ever show. The scrawl lands at FALSE_DOOR_SCRAWL_DELAY 1.6 and lives 3.6 s.
+			_false_door_watch(delta)
+			if _t < 2.8:
 				return false
 			_false_door_after()
 			_stage = 4
@@ -206,8 +210,10 @@ func _process(delta: float) -> bool:
 			# server's state, so a body added and positioned in the previous call is simply not
 			# there yet — the first version of this control reported 3.05 m of free floor with
 			# a 2.4 m block standing in it.
-			if _t < 0.3:
+			if _t < 0.4:
 				return false
+			_ok("the figure is GONE once it has fled (freed, not parked)",
+				_find(_scene, "DoorLunger") == null)
 			_free_width_control()
 			return _report()
 	return false
@@ -413,10 +419,59 @@ func _false_door_open() -> void:
 			% [_player.global_position.distance_to(_door.global_position),
 				str(_player.call("ai_interact_target"))])
 	_player.call("ai_interact")
-	# ⚠️ SAMPLED HERE, NOT IN THE NEXT STAGE. Panic decays at 3.5/s, and the scrawl this test
-	# also has to wait for lands 1.35 s later — so measuring the spike after the wait reported
-	# +8.4 for a +15 event and looked like a real defect. Measure a spike where it happens.
-	_panic_gain = (_player.get_panic_ratio() - _panic_before) * 50.0
+	# ⚠️ The spike is measured as a PEAK over the following frames (`_false_door_watch`), not
+	# here: since 2026-09-10 it lands with the lunge, FALSE_DOOR_LUNGE_AT after E. Panic decays
+	# at 3.5/s, so the peak is sampled every frame and compared with a tolerance of one frame's
+	# decay — measuring it after a fixed wait once reported +8.4 for a +15 event.
+	_panic_gain = 0.0
+	_panic_peak = _panic_before
+	_panic_prev = _panic_before * 50.0
+	_panic_prev_set = true
+	_lunger_seen = false
+	_lunger_nearest = INF
+	_lunger_farthest = 0.0
+	_flash_seen = false
+	_pin_seen = false
+	_pin_released = false
+
+
+var _panic_peak := 0.0
+var _panic_prev := 0.0
+var _panic_prev_set := false
+var _lunger_seen := false
+var _lunger_nearest := INF
+var _lunger_farthest := 0.0
+var _flash_seen := false
+var _pin_seen := false
+var _pin_released := false
+
+
+func _false_door_watch(_delta: float) -> void:
+	# The spike is the largest FRAME-TO-FRAME jump, not "peak minus the level at E": the
+	# baseline decays at 3.5/s during the 0.30 s before the lunge, and measuring against it
+	# reported +13.9 for a +15 event.
+	var now: float = _player.get_panic_ratio() * 50.0
+	if _panic_peak > 0.0 or _panic_prev_set:
+		_panic_gain = maxf(_panic_gain, now - _panic_prev)
+	_panic_prev = now
+	_panic_prev_set = true
+	_panic_peak = maxf(_panic_peak, _player.get_panic_ratio())
+	var screamer := root.get_node_or_null("/root/Screamer")
+	if screamer:
+		var panel := screamer.get("_black_panel") as CanvasItem
+		if panel and panel.visible:
+			_flash_seen = true
+	var l := _find(_scene, "DoorLunger") as Node3D
+	if l:
+		_lunger_seen = true
+		var d: float = _cam().global_position.distance_to(l.global_position + Vector3(0, 1.2, 0))
+		if float(l.call("alpha")) > 0.5:
+			_lunger_nearest = minf(_lunger_nearest, d)
+		_lunger_farthest = maxf(_lunger_farthest, d)
+	if _t > 0.5 and _t < 1.2 and _player.is_input_frozen():
+		_pin_seen = true
+	if _t > 2.2 and not _player.is_input_frozen():
+		_pin_released = true
 
 
 func _false_door_after() -> void:
@@ -424,9 +479,17 @@ func _false_door_after() -> void:
 		return
 	var cs: GDScript = _scene.get_script()
 	_ok("opening it costs FALSE_DOOR_PANIC and nothing else",
-		is_equal_approx(_panic_gain, float(cs.get("FALSE_DOOR_PANIC"))), "+%.1f" % _panic_gain)
+		absf(_panic_gain - float(cs.get("FALSE_DOOR_PANIC"))) < 0.5, "+%.1f" % _panic_gain)
 	_ok("the leaf actually swung", not is_zero_approx(_door.rotation.y - _door_rest_y()),
 		"%.1f deg" % rad_to_deg(absf(_door.rotation.y - _door_rest_y())))
+	# ---- THE THING THAT COMES OUT (2026-09-10).
+	_ok("a figure came out of the doorway", _lunger_seen)
+	_ok("...to arm's length of the camera", _lunger_nearest <= 1.1,
+		"nearest %.2f m while visible" % _lunger_nearest)
+	_ok("...and then ran away", _lunger_farthest >= 6.0, "farthest %.2f m" % _lunger_farthest)
+	_ok("NO fullscreen picture was shown at any point — the flash is gone by design", not _flash_seen)
+	_ok("the camera was pinned on it", _pin_seen)
+	_ok("...and handed back afterwards", _pin_released)
 
 	# ---- THE SCRAWL. The user asked for "the title written with red that It was an illusion",
 	# and `ScreenText.scrawl` parents to the TREE ROOT, not to the level.
@@ -567,27 +630,69 @@ func _false_door_payload() -> void:
 	_ok("...and it is NOT the sound the player dies to in this level", base != fatal,
 		"survivable %s vs fatal %s" % [base, fatal])
 
-	# ---- THE IMAGE. Fullscreen, in a renderer with no tonemapping: a pale screamer is a
-	# white flashbang. The reference is the level's OWN fatal screamer rather than a magic
-	# number, so the bar moves if the level's art direction ever does.
-	var ours := _image_stats(String(cs.get("FALSE_DOOR_SCARE_PATH")))
-	var ref := _image_stats(String((level_av.get(3) as Array)[0]))
-	_ok("both screamer images loaded", ours.n > 0 and ref.n > 0,
-		"%d and %d pixels sampled" % [ours.n, ref.n])
-	if ours.n == 0 or ref.n == 0:
+	# ---- THE IMPACT LAYER (2026-09-10): the "louder" that exists past the limiter's ceiling.
+	var impact: String = String(cs.get("FALSE_DOOR_IMPACT"))
+	_ok("the sub-bass impact layer resolves to a stream", impact != ""
+		and gs.call("load_audio", impact) != null, impact)
+
+	# ---- THE FIGURE (2026-09-10). Not a fullscreen picture any more: an unshaded billboard
+	# cutout that comes to 0.6 m of the eye. Its albedo IS its final colour, so it must be a
+	# real RGBA cutout (or it billboards as a rectangle — the apparition_figure.jpg bug), dark
+	# enough not to be a flashbang at arm's length, and still legible.
+	var fig := _cutout_stats(String(cs.get("FALSE_DOOR_FIGURE_PATH")))
+	_ok("the figure's texture loaded", fig.n > 0, "%d opaque pixels sampled" % fig.n)
+	if fig.n == 0:
 		return
-	# ⚠️ ASSERT THE SAMPLE SIZE. A stride sample that silently collapsed to nothing would
-	# report a comfortable mean of 0 and pass.
-	_ok("...and the sample is big enough to mean anything", ours.n >= 10000 and ref.n >= 10000,
-		"%d / %d" % [ours.n, ref.n])
-	_ok("the false-door screamer is no brighter than the level's own screamer",
-		ours.mean <= ref.mean * 1.25,
-		"mean %.1f vs screamer_hotel %.1f" % [ours.mean, ref.mean])
-	_ok("...and it has essentially no blown-out pixels", ours.hot <= 0.25,
-		"%.2f %% above 0.90 sRGB (was 1.97 %% before this pass)" % ours.hot)
-	# It still has to READ in 0.9 s — "dark" must not become "a black rectangle".
-	_ok("...but the subject is still legible against the black panel", ours.p99 >= 40.0,
-		"p99 luminance %.1f of 255" % ours.p99)
+	_ok("...and it is a real RGBA cutout, not a card", fig.has_alpha and fig.coverage > 0.15
+		and fig.coverage < 0.85, "alpha=%s, %.0f %% opaque" % [fig.has_alpha, fig.coverage * 100.0])
+	_ok("...dark enough for arm's length in a renderer with no tonemapping", fig.mean <= 115.0,
+		"opaque-pixel mean %.1f of 255" % fig.mean)
+	_ok("...with essentially no blown-out pixels", fig.hot <= 1.0,
+		"%.2f %% above 0.90 sRGB" % fig.hot)
+	_ok("...but still legible — not a black cut-out", fig.p99 >= 40.0,
+		"p99 luminance %.1f of 255" % fig.p99)
+
+
+# Mean / p99 / hot % over the OPAQUE pixels of an RGBA cutout, plus its alpha coverage.
+func _cutout_stats(path: String) -> Dictionary:
+	var out := {"n": 0, "mean": 0.0, "p99": 0.0, "hot": 0.0, "has_alpha": false, "coverage": 0.0}
+	if not ResourceLoader.exists(path):
+		return out
+	var tex: Texture2D = load(path)
+	var img: Image = tex.get_image()
+	if img == null:
+		return out
+	if img.is_compressed():
+		img.decompress()
+	out.has_alpha = img.detect_alpha() != Image.ALPHA_NONE
+	var lums: Array[float] = []
+	var opaque := 0
+	var total := 0
+	var hot := 0
+	var step := 3
+	for y in range(0, img.get_height(), step):
+		for x in range(0, img.get_width(), step):
+			total += 1
+			var c := img.get_pixel(x, y)
+			if c.a < 0.5:
+				continue
+			opaque += 1
+			var l := (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) * 255.0
+			lums.append(l)
+			if l > 0.90 * 255.0:
+				hot += 1
+	if opaque == 0:
+		return out
+	lums.sort()
+	var sum := 0.0
+	for l in lums:
+		sum += l
+	out.n = opaque
+	out.mean = sum / float(opaque)
+	out.p99 = lums[mini(lums.size() - 1, int(lums.size() * 0.99))]
+	out.hot = 100.0 * float(hot) / float(opaque)
+	out.coverage = float(opaque) / float(maxi(1, total))
+	return out
 
 
 # Mean / p99 / percentage-above-0.90 luminance of an imported texture, stride-sampled.

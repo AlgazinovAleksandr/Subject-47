@@ -24,6 +24,40 @@ const CREAK_MIN := 15.0
 const CREAK_MAX := 40.0
 const PIPE_MIN := 14.0
 const PIPE_MAX := 30.0
+# ⭐ THE HOUSE IS PITCH BLACK UNTIL EVERY NOTE IS FOUND (2026-09-03, the user's call).
+#
+# ⚠️ AND THEN ONLY ONE LAMP COMES ON. Not the house — the wall lamp beside the combination lock
+# at the far end of the ChildRoom, with a sting. That is the whole payoff: a single warm point
+# at the end of a black house that you then have to walk to. `_restore_power()`'s
+# everything-at-once relief is the Lab's beat and would spend this one.
+#
+# ⚠️ Lamps are NOT deleted — `check_fixtures.gd` asserts a minimum fitting count per level
+# (House >= 6) and every fitting is created by `_add_lamp()`. `_drive_lights()` holds them at
+# zero instead, exactly as the Lab does.
+# ⭐ 0.0, NOT 0.02 (2026-09-07). See the identical block in `level_1.gd`: ambient decides whether
+# the unlit house is black or nearly black, and the BEAM below decides how far you can see.
+const DARK_AMBIENT := 0.0
+
+# ⭐ THE HOUSE'S OWN TORCH — `player.gd`'s defaults are 18 m / 30 deg and a child's `_ready()`
+# runs before its parent's, so this narrows the beam afterwards. Lab and House only.
+const TORCH_RANGE := 11.0
+const TORCH_ANGLE := 24.0
+
+# ⭐ EVERYTHING THAT LIGHTS ITSELF IS HALVED (D3 — cross-level X64/X65, the user's call
+# 2026-09-07). Measured in the dark House before the change, brightest first: the living-room
+# forest window 0.90, the TV static panel 0.70, notes 0.60, the cellar key's card 0.50 and the
+# one-way mirror figures 0.50, the beartrap 0.12, the exit and back doors 0.08.
+# ⚠️ `_SCALE` values are MULTIPLIERS into a shared script; the rest are ABSOLUTE energies on a
+# level-local quad. Mixing the two up is how one of these silently becomes a no-op.
+const EM_NOTE_SCALE := 0.42     # note.gd's 0.60 -> 0.25 (and its trap 0.50 -> 0.21)
+const EM_DOOR_SCALE := 0.375    # door.gd's 0.08 -> 0.03
+const EM_MIRROR_SCALE := 0.5    # living_mirror.gd's 0.50 -> 0.25
+const EM_FOREST := 0.40         # was 0.90 — the brightest surface in the level
+const EM_TV := 0.30             # was 0.70
+const EM_KEYCARD := 0.30        # was 0.50, and 0.80 on the untextured fallback
+const LAMP_ON_FADE := 2.2
+const SAFE_NOTES_TOTAL := 3
+
 const BLACKOUT_MIN := 24.0
 const BLACKOUT_MAX := 44.0
 
@@ -50,7 +84,14 @@ const CHILD_VOLUME_DB := 18.0        # "the scream should be much louder" (2026-
 # The cellar sequence, timed exactly as specified on the 2026-07-29 playtest.
 const CHILD_APPEAR_DELAY := 5.5      # dark first, then the child
 const CHILD_HOLD := 3.0              # …and the lights come back this long after
-const CHILD_DIST := 3.2              # how far in front of the player it materialises
+const CHILD_DIST := 3.2              # the FAR end of the ladder now (was the first try)
+# ⭐ 2026-09-10 — near-first (the user: *"the doll should appear very close to you"*). At 1.7 m a
+# 1.95 m figure is ~75 % of the screen's height; the camera is turned onto it whichever
+# candidate wins, so a placement BEHIND the player is now on the ladder too.
+const CHILD_NEAR := [1.7, 2.0, 2.4]  # ahead, tried in this order; then a fan at CHILD_NEAR[1]
+const CHILD_FAN_DEG := 25.0
+const CHILD_TURN_TIME := 0.45        # NOOK_TURN_TIME, the Lab's proven number
+const CHILD_DIP := 0.4               # Ambience silence under the scream
 # ⚠️ 1.25 -> 1.95 m ("the child should be way bigger"). Taller than a real child on purpose:
 # this is a jumpscare at three metres in a pitch-black cellar, not a figure seen across a
 # room, and at child height it read as small and far away rather than as on top of you.
@@ -80,6 +121,7 @@ const OBJ_FIND_KEY := "The cellar is locked. Find the key."
 const OBJ_COLLECT_KEY := "Collect the cellar key"
 const OBJ_UNLOCK_CELLAR := "Unlock the cellar door under the kitchen stairs"
 const OBJ_CODE := "Read the 3 notes for the code, then enter it at the exit lock"
+const OBJ_LOCK_LIT := "Something switched on at the far end of the house"
 
 # The cellar's cross-level hint for THE NIGHTMARE (level 7), on the wall AND on screen.
 const CELLAR_HINT := "TIMING IS EVERYTHING\nIN THE NIGHTMARE."
@@ -116,6 +158,11 @@ var _blackout_timer: float = 0.0
 var _cellar_gate: CellarGate
 var _has_cellar_key: bool = false
 var _map_solved: bool = false
+var _safe_1: Node3D
+var _safe_2: Node3D
+var _safe_notes_read: Array[String] = []   # by node name — a re-read must not double-count
+var _lock_lamp_on: bool = false
+var _lock_lamp_gain: float = 0.0   # 0..1, tweened by _light_the_lock(); see _drive_lights()
 var _apparition: Apparition
 var _apparition_fired: bool = false
 var _tv_card: Label3D
@@ -146,7 +193,10 @@ func _ready() -> void:
 	_spawn_apparition()
 	_spawn_apparition_director()
 	_start_ambience()
-	_boost_ambient(0.35)
+	_boost_ambient(DARK_AMBIENT)
+	var pl0 := _player()
+	if pl0 and pl0.has_method("set_torch_profile"):
+		pl0.set_torch_profile(TORCH_RANGE, TORCH_ANGLE)
 
 	Vignette.spawn(self, Color(1.0, 0.88, 0.72, 1.0), 1.4)
 	RandomAmbient.register_player(_player())
@@ -284,6 +334,13 @@ func save_progress() -> Dictionary:
 		# they are monotonic.
 		"guest_stage": _guest_stage,
 		"fridge_open": _fridge_opened,
+		# ⚠️ BOTH, not just the flag. Restoring `lock_lamp` without `safe_notes` would light the
+		# house for a player who then still has to find every note to learn the code; restoring
+		# `safe_notes` without `lock_lamp` would leave a solved house dark until they re-read a
+		# note they have already read. They describe one state and travel together — the same
+		# rule KONTUR's gate ledger had to learn the hard way (Issues 141/142).
+		"safe_notes": _safe_notes_read.duplicate(),
+		"lock_lamp": _lock_lamp_on,
 	}
 
 
@@ -294,6 +351,26 @@ func _restore_progress() -> void:
 	_apparition_fired = bool(data.get("apparition_fired", false))
 	_forest_fired = bool(data.get("forest_fired", false))
 	GameState.level2_code_correct = bool(data.get("code_correct", false))
+
+	# ⚠️ THE LAMP COMES BACK ON INSTANTLY, not by re-firing the beat. `_light_the_lock()` would
+	# tween it up and play the sting again, i.e. announce a discovery the player already made
+	# two levels ago. This is `MovedProp`'s restore rule: force the STATE, never replay the EVENT.
+	_safe_notes_read.clear()
+	for k in data.get("safe_notes", []):
+		_safe_notes_read.append(String(k))
+	if bool(data.get("lock_lamp", false)):
+		_lock_lamp_on = true
+		# ⚠️ AND THE GAIN, or a restored house arrives with the lamp at zero and never fades up:
+		# `_light_the_lock()` is the only thing that tweens it and it is deliberately not called
+		# here (that would replay the sting). State, not event — the same split the Lab's
+		# `_light_the_wing(true)` makes.
+		_lock_lamp_gain = 1.0
+		# ⚠️ THE OBJECTIVE IS WRITTEN AT THE BOTTOM OF THIS FUNCTION, NOT HERE. It used to be set
+		# on this line and the cellar/key chain below then overwrote it every time — and that
+		# chain is EARLIER in the quest, because the third safe note is in the cellar, so a lamp
+		# that is on implies a cellar that is open. A restored house therefore told a player who
+		# had already read all three notes to go and open the cellar.
+		pass
 
 	# The house stays rearranged. Forced rather than re-armed: the player already saw these
 	# moved before they left, so waiting for another look-away would visibly un-move them.
@@ -322,6 +399,10 @@ func _restore_progress() -> void:
 	elif _map_solved:
 		# Won the map but never picked the key up — it is still lying on the counter.
 		GameState.set_objective(OBJ_COLLECT_KEY)
+
+	# LAST, so it wins: the lamp is the furthest point reached in this level. See above.
+	if _lock_lamp_on:
+		GameState.set_objective(OBJ_LOCK_LIT)
 
 
 # ---------------------------------------------------------------- cellar (lowered)
@@ -519,10 +600,11 @@ func _add_fixture(lamp: OmniLight3D, color: Color) -> StandardMaterial3D:
 
 func _spawn_notes() -> void:
 	# Three safe notes — one digit each (code 472). The third is in the cellar.
-	_make_note(_builder.wall_point("LivingRoom", Vector2(-1, 0), 1.4, 0.1), PI / 2.0,
-		"The first number is scratched by the door frame. It is 4.", false)
-	_make_note(_builder.wall_point("Bedroom", Vector2(0, 1), 1.4, 0.1), PI,
-		"I checked everywhere. The second number must be 7. I'm sure of it.\n\nI'm sure.", false)
+	_safe_1 = _make_note(_builder.wall_point("LivingRoom", Vector2(-1, 0), 1.4, 0.1), PI / 2.0,
+		"The first number is scratched by the door frame. It is 4.", false, "SafeNote_Living")
+	_safe_2 = _make_note(_builder.wall_point("Bedroom", Vector2(0, 1), 1.4, 0.1), PI,
+		"I checked everywhere. The second number must be 7. I'm sure of it.\n\nI'm sure.", false,
+		"SafeNote_Bedroom")
 	# The cellar note is THE GUEST's last trigger: reading it is the deepest point of the
 	# route, so the walk back up is the longest single stretch the player will make with
 	# their back to the whole house.
@@ -535,9 +617,21 @@ func _spawn_notes() -> void:
 	# room. It has one now; see _cellar_wall_point().
 	var cellar_note := _make_note(
 		_cellar_wall_point(Vector2(0, -1), CELLAR_Y + 1.4) + Vector3(-1.5, 0.0, 0.0), 0.0,
-		"Third digit — the one she always used — 2.\n\nDon't forget. Don't forget. Don't forget.", false)
+		"Third digit — the one she always used — 2.\n\nDon't forget. Don't forget. Don't forget.",
+		false, "SafeNote_Cellar")
 	if cellar_note:
 		cellar_note.read.connect(func() -> void: _advance_guest(4))
+
+	# ⚠️ THERE WAS NO NOTE COUNTER BEFORE THIS (2026-09-03). `_spawn_notes()` discarded two of the
+	# three safe notes' return values and only the cellar one's `read` signal was ever wired;
+	# `GameState.journal` is a de-duplicated array across the whole game, not a per-level count.
+	# `_make_note()` already returns the body and `note.gd:17` already has `signal read`, so this
+	# is three connections and an int.
+	# ⚠️ Connected to `read`, which fires on OPEN. Reading-to-the-end is a mechanic reserved for
+	# TRAP notes; requiring it here would make the lights depend on surviving something.
+	for n in [_safe_1, _safe_2, cellar_note]:
+		if n:
+			n.read.connect(_on_safe_note_read.bind(n))
 	# Two trap notes (read-to-die).
 	_make_note(_builder.wall_point("Bathroom", Vector2(1, 0), 1.3, 0.1), -PI / 2.0,
 		"it got in it got in it got in it got in it got in\n\nDONT READ THIS dont read this stop stop stop stop", true)
@@ -548,19 +642,31 @@ func _spawn_notes() -> void:
 # Returns the note body so a caller can hook its `read` signal (note.gd emits that on OPEN,
 # which is the generic hook the project lacked until level_1.gd's locker gate needed it).
 # Existing call sites ignore the return — additive.
-func _make_note(pos: Vector3, y_rot: float, text: String, trap: bool) -> StaticBody3D:
+# ⚠️⚠️ `note_name` EXISTS BECAUSE THE LAMP COUNTER IS KEYED ON IT (2026-09-03). Notes used to be
+# added anonymously, so Godot auto-named them `@StaticBody3D@NNN` — and that number depends on how
+# many nodes were created before, which is NOT the same on a fresh load as on a back-door return
+# (`_restore_progress()` frees and rebuilds props first). So `_safe_notes_read`, restored from a
+# snapshot, matched nothing: a returning player's two saved keys plus two freshly-read ones made
+# FOUR entries and lit the lamp **without the cellar note ever being found** — i.e. without the
+# third digit, which is the whole reason the descent is mandatory.
+# Issue 17's family (Godot silently renames colliding siblings and anything keyed on the name
+# then finds the wrong node), reached from the other direction.
+func _make_note(pos: Vector3, y_rot: float, text: String, trap: bool,
+		note_name: String = "") -> StaticBody3D:
 	var note := StaticBody3D.new()
 	note.set_script(_NOTE_SCRIPT)
 	note.note_text = text
 	note.is_trap = trap
 	note.position = pos
 	note.rotation.y = y_rot
+	if note_name != "":
+		note.name = note_name
 	add_child(note)
 	var mesh := MeshInstance3D.new()
 	var bm := BoxMesh.new()
 	bm.size = Vector3(0.32, 0.42, 0.01)
 	mesh.mesh = bm
-	mesh.set_surface_override_material(0, _NOTE_SCRIPT.paper_material(trap))
+	mesh.set_surface_override_material(0, _NOTE_SCRIPT.paper_material(trap, EM_NOTE_SCALE))
 	note.add_child(mesh)
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
@@ -635,7 +741,8 @@ func _make_door(door_name: String, advances: bool, goes_back: bool) -> StaticBod
 	body.advances_level = advances
 	body.goes_back = goes_back
 	add_child(body)
-	_DOOR_SCRIPT.build_visual(body, Vector3(1.25, 2.45, 0.15), TEX + "house_door.png")
+	_DOOR_SCRIPT.build_visual(body, Vector3(1.25, 2.45, 0.15), TEX + "house_door.png",
+		EM_DOOR_SCALE)
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
 	shape.size = Vector3(1.25, 2.45, 0.2)
@@ -661,7 +768,7 @@ func _spawn_window() -> void:
 		fmat.albedo_texture = ftex
 		fmat.emission_enabled = true
 		fmat.emission_texture = ftex
-		fmat.emission_energy_multiplier = 0.9
+		fmat.emission_energy_multiplier = EM_FOREST
 		fmat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		forest.set_surface_override_material(0, fmat)
 		forest.position = _window_pos + Vector3(0, 0, 0.05)  # behind the glass (+z, toward wall)
@@ -810,12 +917,12 @@ func _spawn_tv() -> void:
 		mat.albedo_texture = load(tv_tex)
 		mat.emission_enabled = true
 		mat.emission_texture = load(tv_tex)
-		mat.emission_energy_multiplier = 0.7
+		mat.emission_energy_multiplier = EM_TV
 	else:
 		mat.albedo_color = Color(0.05, 0.06, 0.06)
 		mat.emission_enabled = true
 		mat.emission = Color(0.1, 0.15, 0.12)
-		mat.emission_energy_multiplier = 0.5
+		mat.emission_energy_multiplier = EM_TV
 	screen.set_surface_override_material(0, mat)
 	body.add_child(screen)
 	var col := CollisionShape3D.new()
@@ -830,6 +937,13 @@ func _spawn_tv() -> void:
 	# the static resolves into a broadcast test card for a few seconds, then loses it
 	# again: you have to be in the room, looking, at the right moment. Rendered as
 	# text over the screen so it needs no new texture. See kontur.gd.
+	# ⚠️ DELIBERATELY LEFT UNSHADED (2026-09-03). `Label3D` is self-lit by default, and the
+	# 2026-09-03 darkness pass made every OTHER Label3D in the game `shaded = true` — painted
+	# stencils and printed cards have to be found by the torch like anything else (`kontur.gd`
+	# carries that note). This one is the exception and the reason is diegetic: it is text ON A
+	# CRT, and a television is a light source. A shaded test card would be invisible in a black
+	# house unless the player happened to be shining a torch at the screen, which is the one
+	# place a glow belongs. It is also KONTUR Gate 2's only hint outside the Lab morgue.
 	_tv_card = Label3D.new()
 	_tv_card.name = "KonturTestCard"
 	_tv_card.text = "O-41 RETARDS ON CONTACT\nWITH ACETIC ACID.\n\nHOUSEHOLD VINEGAR.\nNOTHING ELSE."
@@ -861,6 +975,7 @@ func _spawn_landing_mirror() -> void:
 	# South wall plane is z=11; the inner face is T/2 (0.1) in from that, and the figure
 	# hangs 0.05 behind the glass, so 0.22 of inset is the documented minimum.
 	var mirror := LivingMirror.new()
+	mirror.emission_scale = EM_MIRROR_SCALE
 	mirror.name = "LandingMirror"
 	mirror.position = Vector3(2.5, 1.5, 11.22)
 	mirror.rotation.y = PI      # LivingMirror faces local -Z; PI turns it to face +z
@@ -917,6 +1032,7 @@ func _spawn_bathroom_mirror() -> void:
 	# figure ends up inside the wall and is never visible.
 	var pos: Vector3 = _builder.wall_point("Bathroom", Vector2(0, 1), 1.5, 0.22)
 	var mirror := LivingMirror.new()
+	mirror.emission_scale = EM_MIRROR_SCALE
 	mirror.position = pos
 	mirror.rotation.y = 0.0   # LivingMirror faces local -Z → into the room (-z)
 	add_child(mirror)
@@ -1262,8 +1378,22 @@ func _build_stool(base: Vector3) -> void:
 
 func _spawn_cellar_contents() -> void:
 	var c := CELLAR_CENTER
-	# Dread + dark zone over the whole cellar.
-	for maker in [func() -> Area3D: return DreadZone.new(), func() -> Area3D: return DarkZone.new()]:
+	# ⭐ DREAD ONLY — the cellar's `DarkZone` IS GONE (2026-09-03, D4), and this was the urgent one.
+	#
+	# ⚠️ THE MEASUREMENT. The two zones overlapped exactly, and `player.gd` adds dark-zone tax ON
+	# TOP of dread pressure while the dark branch ALSO suppresses decay: **+5/s with no way down**.
+	# In a house that is now black by default the torch is not optional down here, so the tax only
+	# ever fired when the player had no say — and the cellar contains the one sequence that takes
+	# the torch away on purpose (`_begin_cellar_blackout()` force-kills it for CHILD_APPEAR_DELAY
+	# + CHILD_HOLD = 8.5 s) plus a beartrap on the entry line. That sequence survived only because
+	# `set_smiler_active(true)` suspends the dark branch for its duration; nothing suspended it for
+	# the searching, the note-reading or the beartrap escape either side of it.
+	#
+	# ⚠️ THE DREAD ZONE STAYS. It is the cellar's actual pressure signature (decay and pressure
+	# cancel, so panic holds rather than draining) and it does not depend on the torch.
+	# ⚠️ `check_house_guest.gd` asserts the whole cellar sequence costs ZERO panic; removing this
+	# makes that more robust, not less.
+	for maker in [func() -> Area3D: return DreadZone.new()]:
 		var zone: Area3D = maker.call()
 		var col := CollisionShape3D.new()
 		var shape := BoxShape3D.new()
@@ -1402,7 +1532,7 @@ func _build_cellar_key(pos: Vector3) -> void:
 		qmat.cull_mode = BaseMaterial3D.CULL_DISABLED
 		qmat.emission_enabled = true
 		qmat.emission_texture = tex
-		qmat.emission_energy_multiplier = 0.5   # findable in the dim Landing
+		qmat.emission_energy_multiplier = EM_KEYCARD   # findable, not a beacon
 		kq.set_surface_override_material(0, qmat)
 		kq.rotation = Vector3(-PI / 2.0, 0, 0)  # lie flat, face up
 		key.add_child(kq)
@@ -1416,7 +1546,7 @@ func _build_cellar_key(pos: Vector3) -> void:
 		kmat.metallic = 0.8
 		kmat.emission_enabled = true
 		kmat.emission = Color(0.6, 0.5, 0.1)
-		kmat.emission_energy_multiplier = 0.8
+		kmat.emission_energy_multiplier = EM_KEYCARD
 		km.set_surface_override_material(0, kmat)
 		key.add_child(km)
 	var kcol := CollisionShape3D.new()
@@ -1424,9 +1554,20 @@ func _build_cellar_key(pos: Vector3) -> void:
 	ks.size = Vector3(0.32, 0.24, 0.32)
 	kcol.shape = ks
 	key.add_child(kcol)
+	# ⚠️⚠️ THE KEY CARRIED ITS OWN LIGHT, AND `_drive_lights()` COULD NOT SEE IT (turned off
+	# 2026-09-07, D3). This `OmniLight3D` is created as a CHILD OF THE KEY and never appended to
+	# `_lights` — only `_add_lamp()` does that — so the one function that holds this level's ten
+	# lamps at zero has no idea it exists. From the moment the map minigame is won until the key
+	# is picked up it burned at 0.35 energy over a 2.5 m radius in a house measured at ambient
+	# 0.02, i.e. it was the only real light source in the building.
+	#
+	# ⚠️ KEPT AT ZERO RATHER THAN DELETED, deliberately: the node is the record of the decision,
+	# and the alternative — a light that quietly reappears the next time someone "restores the
+	# key's glow" — is how X64 happened in the first place. The key is found by torchlight now,
+	# on a stool the minigame's own payoff toast points you at.
 	var glow := OmniLight3D.new()
 	glow.light_color = Color(0.9, 0.75, 0.3)
-	glow.light_energy = 0.35
+	glow.light_energy = 0.0
 	glow.omni_range = 2.5
 	key.add_child(glow)
 
@@ -1699,6 +1840,7 @@ const CHILD_RETRY := 0.25
 const CHILD_POSTPONE_MAX := 45.0
 
 var _child_postponed: float = 0.0
+var _child_frozen: bool = false      # WE pinned the player for the appearance (2026-09-10)
 
 
 func _can_show_child() -> bool:
@@ -1739,23 +1881,40 @@ func _cellar_child_appear() -> void:
 		fwd = Vector3.FORWARD
 	fwd = fwd.normalized()
 
-	# Straight ahead if it fits, otherwise closer, otherwise the middle of the room. It must
-	# NOT be allowed to fail silently the way the Hallway version did.
+	# ⭐⭐ CLOSE, AND THE CAMERA IS BROUGHT TO IT (2026-09-10, the user's replay: *"the doll
+	# should appear the same way as the creature in the lab — your camera needs to be forced in
+	# that direction, and the doll should appear very close to you"*). The ladder is
+	# player-relative and NEAR-FIRST — `level_1.gd:_place_nook_figure()`'s shape, which solved
+	# the same "I never saw it" report there — then a fan either side, then a step further,
+	# then BEHIND (the camera turn makes a figure behind you a legitimate placement rather than
+	# a wasted one), then the room centre as the last resort. Every candidate goes through
+	# `Watcher.spawn()`, whose ray-only `_fits()` + line-of-sight probe is the validation.
 	#
-	# ⚠️ `require_los` IS NOW TRUE (2026-08-16). It was passed FALSE, which `watcher.gd:98-109`
+	# ⚠️ `require_los` IS TRUE (2026-08-16). It was passed FALSE, which `watcher.gd:98-109`
 	# and CLAUDE.md both restrict to `congregation.gd` — because the line-of-sight ray is also
 	# the ONLY probe that catches "this point is inside a wall". `_fits()`'s other three tests
 	# (head room, top-down column, 16-ray fan) all ORIGINATE inside the slab for an embedded
 	# candidate and, against a concave CSG trimesh, cross no faces and report clear (Issue 40 /
-	# Issue 59). So the first candidate at CHILD_DIST essentially always passed, the
-	# [3.2, 2.4, 1.8] ladder and the room-centre fallback below were dead code, and a player
-	# facing a wall from a metre got a figure buried in it with the scream still playing.
-	# With the check live, the ladder does its job and a spot that will not work is refused.
+	# Issue 59). With the check live, the ladder does its job and a spot that will not work
+	# is refused rather than buried in a wall with the scream still playing.
 	var here := pl.global_position
-	for d in [CHILD_DIST, 2.4, 1.8]:
-		var cand := Vector3(here.x + fwd.x * d, CELLAR_Y, here.z + fwd.z * d)
+	var side := fwd.rotated(Vector3.UP, deg_to_rad(CHILD_FAN_DEG))
+	var side2 := fwd.rotated(Vector3.UP, deg_to_rad(-CHILD_FAN_DEG))
+	var candidates: Array = []
+	for d in CHILD_NEAR:
+		candidates.append([fwd * d, "ahead %.1f" % d])
+	candidates.append([side * CHILD_NEAR[1], "fan +%.0f" % CHILD_FAN_DEG])
+	candidates.append([side2 * CHILD_NEAR[1], "fan -%.0f" % CHILD_FAN_DEG])
+	candidates.append([fwd * CHILD_DIST, "ahead %.1f" % CHILD_DIST])
+	candidates.append([-fwd * CHILD_NEAR[1], "behind %.1f" % CHILD_NEAR[1]])
+	candidates.append([-fwd * (CHILD_NEAR[2] + 0.2), "behind %.1f" % (CHILD_NEAR[2] + 0.2)])
+	var taken := "room centre"
+	for c in candidates:
+		var off: Vector3 = c[0]
+		var cand := Vector3(here.x + off.x, CELLAR_Y, here.z + off.z)
 		_child_node = Watcher.spawn(self, cand, TEX + "house_child.png", 0.0, true, CHILD_HEIGHT)
 		if _child_node:
+			taken = String(c[1])
 			break
 	if not _child_node:
 		_child_node = Watcher.spawn(self,
@@ -1767,7 +1926,21 @@ func _cellar_child_appear() -> void:
 		# Named so it is distinguishable from the cellar's OTHER Watcher (the one in the far
 		# corner). Two anonymous "Watcher" nodes in one room made the test's count ambiguous.
 		_child_node.name = "GuestChild"
+		# ⚠️ THE PIN AND THE TURN — `level_1.gd:_nook_reveal()` verbatim. The velocity must be
+		# zeroed by hand: `_apply_movement()` only RETURNS on `_input_frozen`, and
+		# `_physics_process` still calls `move_and_slide()`, so a frozen walker coasts (Issue
+		# 49). `turn_to_face()`, never `ai_look_at()` (it writes `_pitch` as well as yaw).
+		# Released by `_end_cellar_blackout()` with the lights, CHILD_HOLD later. Zero panic.
+		pl.velocity.x = 0.0
+		pl.velocity.z = 0.0
+		pl.freeze_input()
+		_child_frozen = true
+		pl.turn_to_face(_child_node.global_position + Vector3(0, 1.35, 0), CHILD_TURN_TIME)
+		HoldBreath.dip(get_tree(), CHILD_DIP)
 	_spawn_guest_child()
+	var _dbgt := get_node_or_null("/root/DebugLog")
+	if _dbgt:
+		_dbgt.note("CELLAR child placement: %s" % taken)
 	# Instrumentation only — logs WHERE the figure went and where the player was standing, so
 	# "I heard it but never saw it" can be diagnosed instead of guessed at.
 	var _dbgc := get_node_or_null("/root/DebugLog")
@@ -1788,6 +1961,11 @@ func _end_cellar_blackout() -> void:
 	if pl:
 		pl.restore_flashlight()
 		pl.set_smiler_active(false)
+		# The pin the appearance put on (2026-09-10). Only if WE froze them: the ABANDONED path
+		# never did, and a QTE or a locker push owns its own freeze.
+		if _child_frozen:
+			_child_frozen = false
+			pl.unfreeze_input()
 	if is_instance_valid(_child_node):
 		_child_node.queue_free()
 		_child_node = null
@@ -1962,14 +2140,13 @@ func _ev_bedroom_dark() -> void:
 		for entry in _lights:
 			if entry[0] == lamp:
 				entry[1] = 0.0
-	var zone := DarkZone.new()
-	var col := CollisionShape3D.new()
-	var shape := BoxShape3D.new()
-	shape.size = Vector3(6, 3, 6)
-	col.shape = shape
-	zone.add_child(col)
-	zone.position = _builder.room_center("Bedroom") + Vector3(0, 1.5, 0)
-	add_child(zone)
+	# ⚠️ THE BEDROOM'S `DarkZone` IS GONE TOO (2026-09-03, D4). This event kills `Lamp_Bedroom`
+	# permanently and used to drop a 6x3x6 tax box on the room to go with it — the lamp dying was
+	# the cause and the +3/s was the consequence. In a house that starts black the lamp was never
+	# burning, so the kill above is already a no-op for LIGHT and the zone was charging for a
+	# darkness the level had imposed before the player arrived.
+	# ⚠️ The BEAT is untouched: the tween still runs (so a restored house still loses this lamp),
+	# the creak still plays, and the event still costs its panic at the call site.
 	_play_at("creak", _builder.room_center("Bedroom") + Vector3(0, 2.5, 0), 2.0)
 	var p := _player()
 	if p:
@@ -2088,19 +2265,90 @@ func _tick_timers(delta: float) -> void:
 			p.add_panic(4.0)
 
 
+# ⭐ THE ONE LAMP. Every safe note read -> the wall lamp beside the exit lock fades up, alone,
+# with a sting. The rest of the house stays black.
+#
+# ⚠️ Counted by NODE NAME, not by an int++. `note.gd` emits `read` on every open, so a player who
+# re-reads the living-room note three times would otherwise light the house without ever having
+# gone down to the cellar for the third digit.
+func _on_safe_note_read(n: Node) -> void:
+	if n == null:
+		return
+	var key := String(n.name)
+	# ⚠️ A HARD REFUSAL, not a fallback. If a safe note ever loses its explicit name it goes back
+	# to `@StaticBody3D@NNN`, and the counter silently starts accepting keys that will not survive
+	# a back-door return — which is precisely the bug this naming exists to prevent, arriving
+	# quietly. Better to warn and let the lamp never fire than to let it fire early.
+	if not key.begins_with("SafeNote_"):
+		push_warning("level_2: a safe note has no stable name ('%s') — the lock lamp counter "
+			% key + "keys on it and will not survive a resume. See _make_note().")
+		return
+	if _safe_notes_read.has(key):
+		return
+	_safe_notes_read.append(key)
+	if _safe_notes_read.size() >= SAFE_NOTES_TOTAL:
+		_light_the_lock()
+
+
+func _light_the_lock() -> void:
+	if _lock_lamp_on:
+		return
+	_lock_lamp_on = true
+	# ⚠️ Tween the GAIN, never the lamp. `_drive_lights()` writes `light_energy` every frame from
+	# `base * flicker * _lock_lamp_gain`, so a tween on the lamp itself is simply overwritten on
+	# the next frame — see the note there. This is the only fade the player ever sees here.
+	var tw := create_tween()
+	tw.tween_property(self, "_lock_lamp_gain", 1.0, LAMP_ON_FADE)
+	# ⚠️ POSITIONAL, AT THE LAMP, so it is a sound from the far end of a dark house rather than an
+	# announcement in your ear — and it is what tells a player standing in the cellar that
+	# something happened somewhere else.
+	_play_at("lamp_wake", Vector3(-0.7, 1.5, 18.75), 0.0)
+	GameState.set_objective(OBJ_LOCK_LIT)
+
+
 func _drive_lights() -> void:
 	var t := Time.get_ticks_msec() * 0.001
 	for entry in _lights:
 		var lamp: OmniLight3D = entry[0]
 		var base: float = entry[1]
+		# ⚠️ THE HOUSE IS DARK UNTIL EVERY NOTE IS FOUND, and then only ONE lamp answers. The
+		# fitting's emission goes to zero with it — emission is most of a surface's colour in
+		# this project, so an unlit diffuser left at FIXTURE_EMISSION would be the brightest
+		# thing in a black room (Issue 21).
+		# ⚠️⚠️ `_lock_lamp_gain`, NOT the flag, and `LAMP_ON_FADE` WAS DEAD WITHOUT IT
+		# (2026-09-03). `_light_the_lock()` set `_lock_lamp_on = true` and THEN started a 2.2 s
+		# tween on the lamp — but this function runs every frame and is the last writer, so from
+		# the very next frame it wrote the full flicker value and the lamp snapped on in one
+		# frame. Measured 0.4129 at t+0.4 s of a 2.2 s fade, i.e. 103 % of a 0.40 target, which
+		# can only be `base * (1.0 + sin(...))` — this function, not the tween.
+		# ⚠️ The tween now drives a 0..1 GAIN that this function multiplies in, so there is
+		# exactly ONE writer of `light_energy` and the fade is real. The Lab's wing had the same
+		# collision and resolved it the other way (a flag plus its own base); the shape to avoid
+		# is two writers, whichever wins.
+		if not _lock_lamp_on or lamp.name != "Lamp_Lock":
+			lamp.light_energy = 0.0
+			if entry.size() > 2 and entry[2] != null:
+				(entry[2] as StandardMaterial3D).emission_energy_multiplier = 0.0
+			continue
 		if _child_dark:
 			# THE GUEST is present: total darkness, no flicker, no exceptions. Checked before
 			# the blackout branch so the two cannot fight over the same lamp.
 			lamp.light_energy = 0.0
 		elif _blackout_timer > 0.0:
-			lamp.light_energy = base * (0.05 + maxf(0.0, sin(t * 33.0) * sin(t * 9.0)) * 0.15)
+			lamp.light_energy = base * _lock_lamp_gain \
+				* (0.05 + maxf(0.0, sin(t * 33.0) * sin(t * 9.0)) * 0.15)
 		else:
-			lamp.light_energy = base * (1.0 + sin(t * 7.0 + lamp.position.x) * 0.04)
+			# ⚠️⚠️ `* _lock_lamp_gain` IS THE FADE, AND IT WAS MISSING FOR THE WHOLE LIFE OF THE
+			# FEATURE. The gain was declared, tweened 0 → 1 over `LAMP_ON_FADE`, and documented
+			# twice as the thing that makes the fade real — and this function, the only writer of
+			# `light_energy`, never read it. Measured: the lamp was at 0.4117 on the FIRST FRAME
+			# while the gain was still 0.0031, i.e. the 2.2 s ramp drove nothing and the lamp
+			# snapped on. ⚠️ The comment below still describes the design correctly; what was
+			# wrong was that nothing implemented it. A tween on a variable no function reads is
+			# indistinguishable from a working fade unless you sample DURING it — and
+			# `check_dark_payoffs.gd` samples 3 s later, when both behaviours are identical.
+			lamp.light_energy = base * _lock_lamp_gain \
+				* (1.0 + sin(t * 7.0 + lamp.position.x) * 0.04)
 		# Keep the visible bulb in step with the light it stands for.
 		if entry.size() > 2 and entry[2] != null:
 			var fixture: StandardMaterial3D = entry[2]

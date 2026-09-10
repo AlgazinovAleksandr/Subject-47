@@ -85,8 +85,10 @@ func _process(_delta: float) -> bool:
 
 	print("--- prop counts ---")
 	var counts := _count_props(current_scene)
-	_check("HidingSpot count == 6", counts["hiding"] == 6, "%d" % counts["hiding"])
-	_check("SlamDoor count == 4", counts["slam"] == 4, "%d" % counts["slam"])
+	# ⚠️ 8 / 6 since the 2026-09-09 maze rework (was 6 / 4): a bigger map with a teleporting hunter
+	# gets more hiding spots and more chokepoint slam doors.
+	_check("HidingSpot count == 8", counts["hiding"] == 8, "%d" % counts["hiding"])
+	_check("SlamDoor count == 6", counts["slam"] == 6, "%d" % counts["slam"])
 	_check("PurgeChamber count == 1", counts["purge"] == 1, "%d" % counts["purge"])
 
 	# The four SlamDoors crashed the level for the life of the feature: line 189 of

@@ -133,15 +133,18 @@ func _phase_build() -> void:
 	p.call("ai_interact")
 	_ok("gate 1 is passed", bool((k.get("_gates") as Dictionary)["doors"]))
 
-	# ---- gate 2, through the real interact ray ------------------------------------
-	p.global_position = Vector3(2.4, 0.1, 23.5)
-	p.velocity = Vector3.ZERO
-	p.call("ai_look_at", Vector3(3.4, 1.1, 23.5))
-	var bottle: Node = p.call("ai_interact_target")
-	_ok("the vinegar bottle answers the interact ray",
-		bottle != null and String(bottle.name) == "Bottle_vinegar",
-		"target=%s" % (bottle.name if bottle else "<none>"))
-	p.call("ai_interact")
+	# ---- gate 2 (the vinegar is hidden behind a notice now) -----------------------
+	# The interact-RAY path for the shelf is covered by check_kontur_bottles; here the point is the
+	# resume, so reveal + take directly (a body added this frame is not in the physics space yet).
+	var sheet := k.get_node_or_null("VinegarSign")   # the redacted gate-2 sign is the cover now (cap #2)
+	_ok("the vinegar sign is present", sheet != null)
+	if sheet:
+		sheet.call("interact")            # tear it -> reveals the vinegar
+	var vin := k.get_node_or_null("Bottle_vinegar")
+	_ok("the vinegar is revealed behind the notice", vin != null)
+	if vin:
+		vin.call("interact")              # take it
+	_ok("holding vinegar", String(k.get("_held_bottle")) == "vinegar")
 	p.global_position = Vector3(0.0, 0.1, 25.6)
 	p.velocity = Vector3.ZERO
 	p.call("ai_look_at", Vector3(0.0, 1.5, 27.0))

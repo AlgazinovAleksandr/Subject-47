@@ -182,8 +182,11 @@ func save_progress() -> Dictionary:
 		# many fragments were in the frame would hand a returning player an unwinnable wing:
 		# the objects are silent, and the plate is back to zero. Three numbers, all restored
 		# together — emptied objects, fragments set, fragments still in hand.
-		out["flood_set"] = _zone3.pieces_set()
-		out["flood_held"] = _zone3.pieces_held()
+		# ⭐ KIND ARRAYS since 2026-09-10 (candle/book/skull/bell/key/doll), because the six
+		# pieces are different objects with their own altar slots now. The loader accepts the
+		# old ints too, so a snapshot from before this change still resumes.
+		out["flood_set"] = _zone3.set_kinds()
+		out["flood_held"] = _zone3.held_kinds()
 	return out
 
 
@@ -194,11 +197,12 @@ func _restore_progress() -> void:
 	var zone: int = int(data.get("zone", 1))
 	_counter = int(data.get("counter", 0))
 	var searched: Array = data.get("flood_searched", [])
-	var set_count: int = int(data.get("flood_set", 0))
-	var held: int = int(data.get("flood_held", 0))
-	if (not searched.is_empty() or set_count > 0) and is_instance_valid(_zone3) \
+	var set_v = data.get("flood_set", 0)          # kind array, or a legacy int
+	var held_v = data.get("flood_held", 0)
+	var any_set: bool = (set_v.size() > 0) if set_v is Array else (int(set_v) > 0)
+	if (not searched.is_empty() or any_set) and is_instance_valid(_zone3) \
 			and _zone3.has_method("restore_searched"):
-		_zone3.restore_searched(searched, set_count, held)
+		_zone3.restore_searched(searched, set_v, held_v)
 	if zone > 1:
 		_enter_zone(zone)      # teleports to that zone's spawn and re-announces it
 	elif _counter > 0:
@@ -229,6 +233,11 @@ func _build_later_zones() -> void:
 	_zone2 = BackroomsZone2.new()
 	_zone2.name = "ZoneSprawl"
 	add_child(_zone2)
+	# ⚠️ BEFORE build(), because `_build_lights()` appends to it. Without this the Sprawl's 25
+	# ceiling strips never enter `_all_lights` and never flicker — they were dead-steady for the
+	# zone's whole life while zone 1 next door flickered, which is the easiest possible tell that
+	# a Backrooms room is unfinished.
+	_zone2.set("_level_lights", _all_lights)
 	_zone2.build(ZONE2_ORIGIN)
 	_zone2.cleared.connect(func() -> void: _enter_zone(3))
 	_zone2.mistake.connect(_on_zone_mistake.bind(2))
@@ -276,7 +285,11 @@ func _enter_zone(n: int) -> void:
 			# pointing at a door that is not open yet, which is worse than saying nothing.
 			# The replacement names no verb and no place; the thing in the dark is calling
 			# the whole time, and finding it is the puzzle.
-			GameState.set_objective("Four walls tear. Something in here knows which one")
+			# ⚠️ REWRITTEN AGAIN (2026-09-03). "Four walls tear. Something in here knows which
+			# one" was accurate but described a room where all four walls looked the same; they
+			# now look visibly WRONG, and the line should say what the player can see.
+			GameState.set_objective("None of these walls are real. Something in here is.")
+			_set_zone_ambient(SPRAWL_AMBIENT)
 			# ⚠️ ISSUE 18 FIX, in the shipped game. `enable_standstill_panic()` is armed for
 			# the WHOLE level (+3/s after 4 s still), and the Sprawl's tell is a sound you
 			# have to stop and localise — on top of a floor-wide DreadZone. So the zone was
@@ -293,8 +306,47 @@ func _enter_zone(n: int) -> void:
 			# fragment, and the back-door restore. `level_2.gd`'s OBJ_* consts exist because
 			# exactly that drift shipped three times in the House.
 			GameState.set_objective(_zone3.objective_text())
+			_set_zone_ambient(BASE_AMBIENT)
 			if is_instance_valid(_player) and _player.has_method("set_standstill_suspended"):
 				_player.set_standstill_suspended(false)
+
+
+# ⭐ THE SPRAWL IS DARKER THAN THE REST OF THE BACKROOMS (2026-09-03, the user's call).
+#
+# ⚠️ AMBIENT IS MOVED ON ZONE ENTRY, NOT AT BUILD TIME, because all three zones live in ONE
+# SCENE at three world offsets and therefore share one `Environment`. There is no per-zone
+# ambient to set; there is only "what it is right now", and the zones are entered in order.
+#
+# ⚠️ 0.07, NOT 0.02. The Lab, House and KONTUR went to 0.02 in the same pass — the user's brief
+# for those was "almost complete dark". For the Sprawl it was explicitly "darker than usual, BUT
+# NOT complete darkness", and the difference is load-bearing: this zone's puzzle is finding a
+# CRATE by ear in a 40x40 m hall, and at 0.02 the hall stops having a shape to search.
+# ⚠️ `backrooms.gd:_black_background()` deliberately leaves ambient alone (it measured the
+# background change as 0.0026 of linear ambient luminance and says so). This is the first thing
+# in this level that moves it, which is why it is restored on the way into the Flood rather than
+# left for the next zone to discover.
+const BASE_AMBIENT := 0.2        # the scene's own value, restored for the Flood
+const SPRAWL_AMBIENT := 0.07
+const ZONE_AMBIENT_FADE := 1.5
+
+func _set_zone_ambient(energy: float) -> void:
+	var we := get_node_or_null("Environment/WorldEnvironment") as WorldEnvironment
+	if we == null or we.environment == null:
+		return
+	# ⚠️⚠️ NEVER TWEEN THE SHARED ENVIRONMENT. `assets/elements/environment.tscn` holds ONE
+	# `Environment` sub-resource and every level instances the same scene, so mutating it in
+	# place would darken every level loaded afterwards for the rest of the process — the exact
+	# shape of the bug `AudioBuses.reset_all()` exists to prevent (`corridor.gd:_tick_hush()`
+	# pulled `Ambience` to -40 dB with no restore and silenced the Backrooms from then on).
+	#
+	# `_black_background()` already duplicates it in `_ready()`, so in the shipping order this is
+	# a no-op — which is precisely why it is worth having: a future caller that reaches
+	# `_enter_zone()` before that runs would leak silently and be found three levels later.
+	if not we.environment.has_meta("zone_local"):
+		we.environment = we.environment.duplicate()
+		we.environment.set_meta("zone_local", true)
+	var tw := create_tween()
+	tw.tween_property(we.environment, "ambient_light_energy", energy, ZONE_AMBIENT_FADE)
 
 
 func _teleport(to: Vector3) -> void:
@@ -303,21 +355,34 @@ func _teleport(to: Vector3) -> void:
 
 
 func _on_zone_mistake(which: int) -> void:
-	# A wrong wall: the same shape of penalty as a wrong turn in zone 1, but it also
-	# sends you back across the room, so guessing costs distance as well as panic.
+	# ⭐ THE SPRAWL'S RED WALLS ARE INERT (2026-09-03, the user's call, D6).
+	#
+	# ⚠️ THE PENALTY MADE SENSE WHEN IT WAS A GUESS AND DOES NOT NOW. Four identical walls, one
+	# of them real: touching the wrong one cost `WRONG_WALL_PANIC` 12 and threw you back across
+	# the room, and that was a fair price for a 1-in-4 gamble. Since the walls are painted
+	# visibly WRONG until the runner has been through one, walking into a red wall is not a
+	# guess — it is the player checking that the rule they can see is the rule that applies.
+	# Charging 24 % of the panic bar for that is punishing curiosity.
+	#
+	# ⚠️ THE WALL STILL GOES SOLID (`glitch_wall.gd:go_solid()`, called by the zone before this
+	# fires), so the attempt is not invisible — you can see you tried it.
+	if which == 2:
+		# ⚠️ ONE SILENT CONSEQUENCE KEPT. `populate_one_more()` adds a Congregation figure: no
+		# panic, no sound, no teleport, and the Congregation only ever relocates off-screen — so
+		# it is inside "nothing at all" as the user described it, while `check_backrooms_occupants
+		# .gd:128` asserts that a mistake CAN add a figure. Removing it would turn a guard red
+		# for no design gain.
+		if _zone2.has_method("populate_one_more"):
+			_zone2.populate_one_more()
+		return
+
+	# Zone 3 (the Flood) is unchanged: its seams are earned by assembling the plate, and its
+	# decoys are a real discrimination test rather than a painted warning.
 	_play("light_pop", _player.global_position + Vector3(0, 2, 0), 2.0)
 	Screamer.flash_scare(TEX_DIR + "backrooms_wallpaper_albedo.png", "light_pop", 0.35)
 	_player.add_panic(WRONG_WALL_PANIC)
 	_player.jolt_camera(0.1, 0.35)
-	if which == 2:
-		_teleport(_zone2.spawn_point)
-		# The room gets more crowded as you fail. ZERO extra panic — the mistake already
-		# charges WRONG_WALL_PANIC, and a scare with no number attached cannot be optimised
-		# against (SCARY.md §0.2). See congregation.gd.
-		if _zone2.has_method("populate_one_more"):
-			_zone2.populate_one_more()
-	else:
-		_teleport(_zone3.spawn_point)
+	_teleport(_zone3.spawn_point)
 
 
 # Zone name card on entry — reuses the progress label's presentation so the level
@@ -1324,8 +1389,9 @@ func _process(delta: float) -> void:
 # ⚠️ AND IT HAS A BACKSTOP. `WATCH_MAX` is not a difficulty constant, it is a safety valve of
 # the `CHILD_POSTPONE_MAX` kind: `dweller_arrived` is what releases the camera, and if the
 # runner is ever freed or blocked, an un-released freeze is a player who can neither move nor
-# look for the rest of the level. The crossing is 2.2-6.6 s measured (recess and wall are
-# both randomised), so this is roughly double the worst case.
+# look for the rest of the level. Since 2026-09-10 the run is ~7 m straight down the crate's
+# own recess at 4 m/s (about 2 s; the recess is fixed relative to the crate), so this is
+# several times the worst case.
 const WATCH_REAIM := 0.18       # s between re-targets — a re-aim cadence, not a tween rate
 const WATCH_MAX := 12.0
 # ⚠️ HELD PAST THE ARRIVAL. `SprawlDweller` emits `arrived` at the surface and only THEN
@@ -1356,6 +1422,12 @@ func _on_dweller_running(runner: Node3D) -> void:
 
 
 func _on_dweller_arrived() -> void:
+	# ⚠️ THE OBJECTIVE STOPS LYING. On entry it reads "None of these walls are real. Something in
+	# here is." — true of a room where all four are painted wrong, and false the moment the
+	# runner turns one of them. `level_2.gd`'s OBJ_* consts exist because exactly this drift
+	# shipped three times in the House; the Flood already fixed it by asking its zone
+	# (`_zone3.objective_text()`).
+	GameState.set_objective("It went through that one. Follow it.")
 	if _watching == null:
 		return
 	# Keep looking at the wall it left through, not at the space where it used to be.

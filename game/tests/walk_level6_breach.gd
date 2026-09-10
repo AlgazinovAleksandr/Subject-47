@@ -65,14 +65,17 @@ func _process(_delta: float) -> bool:
 			_purge = _level.get("_purge_chamber")
 			if not _creature or not _purge:
 				return false
-			_player.global_position = Vector3(0, 0.1, 58.0)
-			_player.rotation.y = PI
+			# ⚠️ 2026-09-09 (cap #4): the SEAL room is ExitVault now (west-wing dead-end). Player deep
+			# inside it, creature at its entrance (z=48), so the chase pulls the creature into the
+			# trap bounds; the player then seals from the ArchiveC side of the blast door.
+			_player.global_position = Vector3(-7, 0.1, 53.0)
+			_player.rotation.y = 0.0                             # face -z, toward the entrance/creature
 			var body = _creature.get("_body")
 			if body:
-				body.global_position = Vector3(0, 0, 52.0)
+				body.global_position = Vector3(-7, 0, 48.6)
 				body.rotation.y = 0.0
 			_creature.call("activate")
-			print("phase0: player @ z=58 (Incinerator), creature @ z=52 (PurgeAnte), activated")
+			print("phase0: player deep in ExitVault (seal room), creature at its entrance, activated")
 			_phase = 1
 			_t = 0.0
 
@@ -103,11 +106,10 @@ func _process(_delta: float) -> bool:
 				# in Z (centered at z=55), so a ray at z=55.5 (0.5m off) can NEVER
 				# geometrically hit it no matter the x range or facing: this was the
 				# real bug in the last two failed runs, not a rotation error.
-				_player.global_position = Vector3(1.8, 0.1, 55.0)
-				# player.gd's raycast forward is (-sin(y), 0, -cos(y)) for rotation.y=y
-				# (verified against check_purge_interact.gd's passing rotation.y=PI
-				# case, which must face +z) — PI/2 here faces -x, toward the door.
-				_player.rotation.y = PI / 2.0
+				# Seal from the ArchiveC side of the blast door (z=48). The door's collider is thin
+				# in z, so stand ~1.5 m in front of it at z<48 facing +z (rotation.y=PI).
+				_player.global_position = Vector3(-7, 0.1, 46.5)
+				_player.rotation.y = PI
 				_phase = 25
 				_t = 0.0
 			elif _t > 20.0:
@@ -133,11 +135,33 @@ func _process(_delta: float) -> bool:
 		3:
 			var defeated = _level.get("_creature_defeated")
 			if defeated:
-				print("RESULT: PASS — creature_defeated=true, win sequence confirmed end-to-end")
-				quit(0)
-				return true
+				# ⚠️ 2026-09-09: the exit moved OUT of this room into the ExitVault dead-end (west
+				# wing). Sealing the creature is no longer the last step — the player must reach the
+				# relocated breach door and it must be unlocked. "Did the win register" and "can the
+				# player still leave" are different questions (Issue 181's lesson).
+				print("phase3: creature_defeated=true — checking the exit (Incinerator, spine end) is reachable + unlocked")
+				_player.global_position = Vector3(0, 0.1, 59.5)    # Incinerator, near the exit
+				_player.rotation.y = PI                            # face +z toward the door at z~61.85
+				_phase = 4
+				_t = 0.0
 			elif _t > 6.0:
 				print("RESULT: FAIL (sealed the door but creature_defeated never became true)")
+				quit(1)
+				return true
+
+		4:
+			var exit_door = _level.get("_exit_door")
+			var target = _player.get("_interact_target")
+			if exit_door != null and target == exit_door:
+				if not bool(exit_door.get("extra_lock")):
+					print("RESULT: PASS — creature sealed AND the relocated breach exit is reachable and unlocked")
+					quit(0)
+				else:
+					print("RESULT: FAIL (reached the exit but it is still locked after the purge)")
+					quit(1)
+				return true
+			elif _t > 4.0:
+				print("RESULT: FAIL (could not reach/aim at the relocated exit door — target=%s)" % [target])
 				quit(1)
 				return true
 

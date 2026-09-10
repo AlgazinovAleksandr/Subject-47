@@ -89,7 +89,8 @@ func _structure() -> void:
 		for c in z2.get_children():
 			if c is GlitchWall:
 				walls += 1
-		_ok("zone 2 has 4 glitch walls (got %d)" % walls, walls == 4)
+		# 2026-09-10: four perimeter decoys plus the exit at the end of the crate's recess.
+		_ok("zone 2 has 5 glitch walls (got %d)" % walls, walls == 5)
 		_ok("zone 2 has a silence pocket",
 			z2.get_node_or_null("SilencePocket") != null)
 		_ok("zone 2 spawn is inside the hall",
@@ -107,59 +108,51 @@ func _structure() -> void:
 
 
 func _zone2_logic() -> void:
-	print("\n--- zone 2: exactly one real wall, always solvable ---")
+	print("\n--- zone 2: exactly one real wall, fixed at the crate recess, always solvable ---")
 	var z2 = _scene.get_node_or_null("ZoneSprawl")
 	if not z2:
 		return
-
-	# Exactly one wall may be real at a time, across many re-randomisations.
-	var bad_counts := 0
-	for i in range(40):
-		z2._randomise_real_wall()
-		var real := 0
-		for c in z2.get_children():
-			if c is GlitchWall and c.is_real:
-				real += 1
-		if real != 1:
-			bad_counts += 1
-	_ok("exactly one real wall over 40 rerolls", bad_counts == 0)
-
-	# ⚠️ THE GATE FOLLOWS EVERY REROLL (2026-08-18, B-S2). The real wall is SEALED until the
-	# crate's runner goes through it, so a reroll has to carry the seal to the new answer and
-	# take it off the old one — otherwise a wrong wall would leave two sealed walls (one of
-	# them a fake the player can no longer out) or none.
-	var gate_bad := 0
-	for i in range(40):
-		z2._randomise_real_wall()
-		var sealed := 0
-		var real_sealed := false
-		for c in z2.get_children():
-			if c is GlitchWall and c.is_sealed():
-				sealed += 1
-				real_sealed = real_sealed or c.is_real
-		if sealed != 1 or not real_sealed:
-			gate_bad += 1
-	_ok("the seal is on exactly the real wall over 40 rerolls (%d misplaced)" % gate_bad,
-		gate_bad == 0)
-
-	# Out every wall, then reroll: the zone must rescue itself rather than soft-lock.
+	# ⚠️ REWRITTEN 2026-09-10. There is no `_randomise_real_wall()` any more: the exit is the
+	# end wall of the crate's recess, fixed at build, and nothing a player does re-rolls it.
+	# What has to hold instead: exactly one real wall; it is beyond the perimeter plane; it is
+	# the only sealed one; outing every decoy leaves it intact; reviving them changes nothing.
+	var real_walls: Array = []
+	var sealed := 0
+	var sealed_real := 0
 	for c in z2.get_children():
 		if c is GlitchWall:
+			if c.is_real:
+				real_walls.append(c)
+			if c.is_sealed():
+				sealed += 1
+				if c.is_real:
+					sealed_real += 1
+	_ok("exactly one real wall", real_walls.size() == 1)
+	var half: float = float(z2.get_script().get_script_constant_map().get("HALF", 20.0))
+	if real_walls.size() == 1:
+		var rw := real_walls[0] as Node3D
+		var reach: float = (rw.global_position - (z2 as Node3D).global_position).length()
+		_ok("...and it stands at the END of a recess, beyond the perimeter (%.1f m)" % reach,
+			reach > half + 1.0)
+		_ok("...keyed by the crate's recess (%s)" % String(z2.real_side()),
+			String(z2.real_side()) == "%s%d" % [String(z2.get("_crate_side")), int(z2.get("_crate_k"))])
+	_ok("the seal is on exactly the real wall (%d sealed, %d of them real)" % [sealed, sealed_real],
+		sealed == 1 and sealed_real == 1)
+
+	# Out every decoy: the exit must be untouched — still real, still sealed, never solid.
+	for c in z2.get_children():
+		if c is GlitchWall and not c.is_real:
 			c.go_solid()
-	z2._randomise_real_wall()
-	var reachable := 0
+	var intact := 0
 	for c in z2.get_children():
-		if c is GlitchWall and c.is_real and not c.is_solid():
-			reachable += 1
-	_ok("all-walls-outed still leaves a reachable exit", reachable == 1)
-	# ...and the rescued wall comes back GATED, not open. `revive()` rebuilds the trigger
-	# from scratch, so this is the one path where the seal could silently be dropped.
-	var rescued_sealed := 0
+		if c is GlitchWall and c.is_real and not c.is_solid() and c.is_sealed():
+			intact += 1
+	_ok("outing every decoy leaves the exit intact and still gated on the crate", intact == 1)
+	_ok("...and the answer did not move", String(z2.real_side()) ==
+		"%s%d" % [String(z2.get("_crate_side")), int(z2.get("_crate_k"))])
 	for c in z2.get_children():
-		if c is GlitchWall and c.is_real and c.is_sealed():
-			rescued_sealed += 1
-	_ok("...and the rescued wall is still gated on the crate (%d sealed)" % rescued_sealed,
-		rescued_sealed == 1)
+		if c is GlitchWall and not c.is_real:
+			c.revive()
 
 
 func _zone3_logic() -> void:
@@ -250,13 +243,29 @@ func _progression() -> void:
 	_ok("zone 1 exit does NOT advance the level",
 		gs.current_level == lvl_before)
 
-	# A wrong wall in the Sprawl: costs panic and sends you back to its spawn.
+	# ⭐ A WRONG WALL IN THE SPRAWL IS FREE (2026-09-03, the user's call, D6). These two
+	# assertions used to read "returns player to the Sprawl spawn" and "costs panic", and they
+	# were right for the zone they were written against: four IDENTICAL walls, one real, so
+	# touching the wrong one was a 1-in-4 gamble and 12 panic plus a walk back was its price.
+	#
+	# ⚠️ The walls are painted now. Every one is visibly WRONG until the thing in the crate runs
+	# through the real one, so walking into a red wall is not a guess — it is the player checking
+	# that the rule they can see is the rule that applies. The penalty is gone; the assertions are
+	# inverted rather than deleted so the removal cannot silently come back.
+	# ⚠️ Zone 3's penalty is UNCHANGED and is still asserted below — the Flood's decoy seams are a
+	# real discrimination test, not a painted warning.
 	var panic_before: float = _player.get_panic_ratio()
-	_player.global_position = z2.spawn_point + Vector3(5, 0, 5)
+	var away: Vector3 = z2.spawn_point + Vector3(6, 0, 6)
+	_player.global_position = away
 	_scene._on_zone_mistake(2)
-	_ok("wrong wall returns player to the Sprawl spawn",
-		_player.global_position.distance_to(z2.spawn_point) < 1.0)
-	_ok("wrong wall costs panic", _player.get_panic_ratio() > panic_before)
+	# ⚠️ This file's `_ok()` takes (label, cond) only — no detail argument — so the measurement
+	# goes into the label.
+	var moved: float = _player.global_position.distance_to(z2.spawn_point)
+	_ok("a red Sprawl wall does NOT throw you back to the spawn (%.1f m away)" % moved,
+		moved > 4.0)
+	var gained: float = _player.get_panic_ratio() - panic_before
+	_ok("...and costs no panic (+%.3f; WRONG_WALL_PANIC would be +0.240)" % gained,
+		gained < 0.05)
 
 	# Real wall in the Sprawl -> the Flood.
 	z2.cleared.emit()
@@ -282,23 +291,29 @@ func _solid_walls_block() -> void:
 		if c is GlitchWall:
 			walls.append(c)
 
+	# 2026-09-10: out the DECOYS; the exit stays SEALED (the shipped state) and must stop
+	# the same ray — sealed is a collider, not a hidden node.
 	for w in walls:
-		w.go_solid()
+		if not w.is_real:
+			w.go_solid()
 	await process_frame
 
 	var leaks := 0
 	for w in walls:
-		# Ray from the hall centre outward through the wall. A solid wall must stop it.
-		var outward: Vector3 = (w.global_position - z2.global_position)
-		outward.y = 0.0
-		outward = outward.normalized()
-		var from: Vector3 = z2.global_position + Vector3(0, 1.5, 0) + outward * 5.0
-		var to: Vector3 = z2.global_position + Vector3(0, 1.5, 0) + outward * 26.0
+		# A ray THROUGH the wall along its own front (-Z), from 3 m in front to 2 m behind.
+		# ⚠️ Not from the hall centre: a recess-end wall stands 32 m out, past the old ray's
+		# 26 m reach, so that version passed vacuously on the exit.
+		var front: Vector3 = -w.global_transform.basis.z
+		front.y = 0.0
+		front = front.normalized()
+		var from: Vector3 = w.global_position + front * 3.0 + Vector3(0, -0.6, 0)
+		var to: Vector3 = w.global_position - front * 2.0 + Vector3(0, -0.6, 0)
 		var q := PhysicsRayQueryParameters3D.create(from, to)
 		if space.intersect_ray(q).is_empty():
 			leaks += 1
 			print("      LEAK through %s" % w.name)
-	_ok("no walk-through gaps once every wall is outed (%d leaks)" % leaks, leaks == 0)
+	_ok("no walk-through gaps once every decoy is outed and the exit is sealed (%d leaks)" % leaks,
+		leaks == 0)
 
 	# And the out-of-world catcher must recover a player who gets past anyway.
 	_player.global_position = z2.global_position + Vector3(0, -20.0, 22.0)
@@ -308,7 +323,8 @@ func _solid_walls_block() -> void:
 		_player.global_position.distance_to(z2.spawn_point) < 1.0)
 
 	for w in walls:
-		w.revive()
+		if not w.is_real:
+			w.revive()
 
 
 func _seams_reachable() -> void:

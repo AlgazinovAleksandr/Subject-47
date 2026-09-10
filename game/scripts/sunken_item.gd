@@ -106,6 +106,9 @@ var is_taken: bool = false
 # `interact()` is the second line of defence, not the first.
 var _piece_at: Vector3 = Vector3.ZERO
 var _piece: SunkenPiece = null
+# Which of the six RITUAL PIECES this object holds (2026-09-10): candle / book / skull /
+# bell / key / doll, from the zone's `DROWNED` table. "" builds the old grey shard.
+var piece: String = ""
 
 var _visual: Node3D = null
 var _lid: Node3D = null
@@ -119,11 +122,12 @@ var _collider_size: Vector3 = Vector3(1, 1, 1)
 
 
 static func build(parent: Node, item_name: String, item_kind: String, pos: Vector3,
-		yaw: float, text: String) -> SunkenItem:
+		yaw: float, text: String, piece_kind: String = "") -> SunkenItem:
 	var s := SunkenItem.new()
 	s.name = item_name
 	s.kind = item_kind
 	s.note_text = text
+	s.piece = piece_kind
 	parent.add_child(s)
 	s.position = pos
 	s.rotation.y = yaw
@@ -486,6 +490,10 @@ func has_piece() -> bool:
 	return is_instance_valid(_piece) and not _piece.taken
 
 
+func piece_kind() -> String:
+	return piece
+
+
 func interact() -> void:
 	if is_taken:
 		return
@@ -582,26 +590,38 @@ func _build_piece() -> void:
 	var p := SunkenPiece.new()
 	p.name = "Fragment"
 	p.item = self
+	p.kind = piece
 	add_child(p)
 	p.position = _piece_at
 	p.rotation.y = randf_range(-0.5, 0.5)
 	_piece = p
 
 
-# One of the six pieces of THE PLATE. A shard of dark enamel with a pale broken edge —
-# the pale edge is the whole readability budget, because this zone is solved in the dark
-# and nothing down here may be emissive (§5.2(8)).
+# One of the six pieces of THE PLATE. ⭐ Since 2026-09-10 a RITUAL PIECE (`ritual_piece.gd`
+# — candle, book, skull, bell, key or doll, per `kind`), built by the same builder the altar
+# uses so what you lift out is what you later see set. With no kind it is the old shard of
+# dark enamel with a pale broken edge. Either way nothing here is emissive (§5.2(8)): this
+# zone is solved in the dark.
 class SunkenPiece extends StaticBody3D:
 	const SHARD := Vector3(0.30, 0.020, 0.22)
 	const GRAB := Vector3(0.42, 0.30, 0.36)
 
 	var item: Node = null
+	var kind: String = ""
 	var taken: bool = false
 	var _col: CollisionShape3D = null
 
 	func _ready() -> void:
 		collision_layer = 2
 		collision_mask = 0
+
+		if kind != "":
+			# The piece's base sits where the shard's underside used to be.
+			var rp := RitualPiece.build(kind, self, "Piece")
+			rp.position = Vector3(0, -SHARD.y / 2.0, 0)
+			_build_grab()
+			set_active(false)
+			return
 
 		var mi := MeshInstance3D.new()
 		mi.name = "Shard"
@@ -630,7 +650,10 @@ class SunkenPiece extends StaticBody3D:
 		edge.position = Vector3(0.0, 0.012, -SHARD.z / 2.0 + 0.02)
 		edge.rotation.x = deg_to_rad(-9.0)
 		add_child(edge)
+		_build_grab()
+		set_active(false)
 
+	func _build_grab() -> void:
 		var col := CollisionShape3D.new()
 		var shape := BoxShape3D.new()
 		# Generous, like the Lab page's: the player is reaching into an open object from
@@ -640,7 +663,6 @@ class SunkenPiece extends StaticBody3D:
 		col.shape = shape
 		_col = col
 		add_child(col)
-		set_active(false)
 
 	func set_active(on: bool) -> void:
 		visible = on

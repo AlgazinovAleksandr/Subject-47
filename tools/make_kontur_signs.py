@@ -72,7 +72,7 @@ SIGNS = [
     ("gate7_dark", "9-З", "LIGHTING FAULT — SECTOR 9",
      "THE TRUE DOOR IS SEEN WHEN", "", "СЕКТОР 7 · АВАРИЯ"),
     ("gate8_airlock", "12-К", "DECONTAMINATION CYCLE",
-     "TO CYCLE, THE SUBJECT MUST REMAIN", "", "СЕКТОР 8 · ШЛЮЗ"),
+     "THE GATE ADMITS ONE WHO CATCHES THE", "", "СЕКТОР 8 · ШЛЮЗ"),
     ("gate4_escort", "7-Т", "TRANSIT PROTOCOL 7",
      "DO NOT", "THE ESCORT", "СЕКТОР 8 · ПЕРЕХОД"),
 ]

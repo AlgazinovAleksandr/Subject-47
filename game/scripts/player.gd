@@ -26,17 +26,42 @@ const SPRINT_PANIC_RATE := 6.0   # running feeds fear — "Walk. Do not run."
 const SPRINT_FOOTSTEP_INTERVAL := 0.32
 const DREAD_DECAY_RATE := 2.0    # weakened decay inside a dread zone (Zone C)
 const DREAD_PANIC_RATE := 2.0    # constant pressure inside a dread zone
-const BATTERY_MAX := 240.0       # seconds of flashlight per level
+# ⭐ THE BATTERY IS INFINITE (2026-09-03, the user's call alongside the darkness pass).
+#
+# ⚠️ IT IS A CONSEQUENCE OF THE DARKNESS, NOT A SOFTENING. With ambient at 0.02 the torch is the
+# only way to see anything at all in the Lab, the House and KONTUR's Soviet half, so a battery
+# that runs out is not a resource decision — it is a level that becomes unplayable 240 seconds
+# in, with no pickup anywhere in the game to recover from it.
+#
+# ⚠️ `_battery` AND `BATTERY_MAX` STAY, and every read of them is untouched. `kill_flashlight()`
+# still writes `_battery = 0.0`, which is what the Corridor's noclip, THE NIGHTMARE's candle and
+# `check_dungeon_entities.gd:118` all depend on; the toggle at `_input` still gates on
+# `_battery > 0.0`; `restore_flashlight()` still checks it. Only the DRAIN is gone, so the flag
+# keeps working as a flag.
+const BATTERY_MAX := 240.0       # kept as the "not dead" sentinel — see INFINITE_BATTERY
 const BATTERY_FLICKER_BELOW := 48.0
+const INFINITE_BATTERY := true
+
+# The torch, written into the scene's SpotLight3D by `_ready()` — see there for why.
+const FLASH_ENERGY := 1.6        # was 1.2 in all ten scenes
+const FLASH_RANGE := 18.0        # was 15.0
+const FLASH_ANGLE := 30.0        # was 25.0
+const FLASH_ATTEN := 0.3         # unchanged; a softer edge would wash the cone out
 # Backrooms-only mechanics (opt-in via the methods below; default off so the
 # other four levels behave exactly as before).
 const STANDSTILL_GRACE := 4.0      # seconds still before the maze starts punishing
 const STANDSTILL_PANIC_RATE := 3.0 # panic per second while standing still too long
 const FOOTSTEP_ECHO_DELAY := 0.4   # phantom step plays this long after each real one
 const FOOTSTEP_ECHO_VOLUME_DB := -11.0
-const HIDE_PEEK_LIMIT := deg_to_rad(50)  # restricted look while hidden (a locker-door crack)
-const HIDE_FOV := 35.0                   # narrowed FOV while hidden — peering through a gap
+const HIDE_PEEK_LIMIT := deg_to_rad(55)  # restricted look while hidden (a locker-door crack)
+# ⚠️ WIDENED 2026-09-09 (the user: "when I look out of the wardrobe the visibility is very poor").
+# Was 35 with a 0.96-alpha slit — the player peered into black through a keyhole in a ~0.025-ambient
+# level. 55 with a wider, lighter overlay window makes "looking out" legible while still reading as
+# a gap. The dominant fix is the DIMMED-not-killed torch below; these are the framing half.
+const HIDE_FOV := 55.0                   # narrowed FOV while hidden — peering through a gap
 const HIDE_FOV_TWEEN_TIME := 0.25
+# While hidden the torch is DIMMED to this fraction rather than killed, so the player can see out.
+const HIDE_TORCH_DIM := 0.32
 
 @onready var camera: Camera3D = $Camera3D
 @onready var flashlight: SpotLight3D = $Camera3D/Flashlight
@@ -68,6 +93,7 @@ var _no_decay: bool = false             # THE NIGHTMARE's silence: panic holds, 
 var _flashlight_dead: bool = false      # force-killed: F only clicks, never re-enables
 var _flashlight_locked: bool = false    # reversible; distinct from _flashlight_dead (Intro Room)
 var _flash_was_on: bool = false         # remembered across force_flashlight_off()
+var _hide_prev_energy: float = -1.0      # torch energy saved while hidden (dimmed, not killed)
 var _input_frozen: bool = false         # blocks movement + look during a forced camera beat (Intro Room)
 var _qte_active: bool = false           # clamped but not frozen (the beartrap escape) — see begin_qte()
 var _hidden: bool = false               # inside a HidingSpot — movement blocked, look restricted
@@ -105,7 +131,26 @@ func _ready() -> void:
 	# the bit on its reflection camera; this is the other half of that contract.
 	camera.cull_mask &= ~(1 << (MIRROR_ONLY_LAYER - 1))
 	interact_label.visible = false
+	# ⭐ THE TORCH IS CONFIGURED HERE, NOT IN TEN SCENES (2026-09-03).
+	#
+	# ⚠️ The `Flashlight` SpotLight3D is duplicated VERBATIM in all ten level `.tscn` files, and
+	# every one carried the same four values. Widening the beam for the darkness pass would have
+	# meant editing ten scenes that will drift apart the first time someone edits nine of them.
+	# Written before `_flash_base_energy` is captured below, so the stutter and every later
+	# restore use the new energy.
+	#
+	# ⚠️ WHY WIDER AT ALL. The Lab, House and KONTUR drop from ~0.35 ambient to 0.02, i.e. the
+	# torch stops being decoration and becomes the only way to see anything. A 25 degree cone at
+	# 15 m is a searchlight for looking AT things; navigating a room by it is a pinhole. 30
+	# degrees and 18 m is still a beam — off to the sides you see nothing at all — but it is one
+	# you can walk down a corridor with.
+	flashlight.light_energy = FLASH_ENERGY
+	flashlight.spot_range = FLASH_RANGE
+	flashlight.spot_angle = FLASH_ANGLE
+	flashlight.spot_angle_attenuation = FLASH_ATTEN
 	_flash_base_energy = flashlight.light_energy
+	# ⚠️ ...AND A LEVEL MAY NARROW IT AFTERWARDS. See `set_torch_profile()`; Godot calls a
+	# child's `_ready()` before its parent's, so a level's `_ready()` always runs after this.
 	# Your own body goes on the un-duckable bus. This is the half of the silence
 	# architecture that makes the other half mean anything: when a HoldBreath dip or a
 	# SilenceZone takes the world away, your pulse and your footsteps are what is left.
@@ -145,11 +190,14 @@ func _build_hide_overlay() -> void:
 	_hide_overlay.visible = false
 	interact_ui.add_child(_hide_overlay)
 
-	var c := Color(0.0, 0.0, 0.0, 0.96)
-	_hide_overlay.add_child(_make_hide_bar(c, 0.0, 0.0, 1.0, 0.32))    # top
-	_hide_overlay.add_child(_make_hide_bar(c, 0.0, 0.68, 1.0, 1.0))    # bottom
-	_hide_overlay.add_child(_make_hide_bar(c, 0.0, 0.32, 0.30, 0.68))  # left
-	_hide_overlay.add_child(_make_hide_bar(c, 0.70, 0.32, 1.0, 0.68))  # right
+	# ⚠️ 0.82, not 0.96, and a WIDER window (20-80% each way, was 32-70/30-70) — see HIDE_FOV. A
+	# near-opaque slit plus a 35 FOV plus a killed torch was three compounding reasons you saw
+	# nothing; all three are eased.
+	var c := Color(0.0, 0.0, 0.0, 0.82)
+	_hide_overlay.add_child(_make_hide_bar(c, 0.0, 0.0, 1.0, 0.20))    # top
+	_hide_overlay.add_child(_make_hide_bar(c, 0.0, 0.80, 1.0, 1.0))    # bottom
+	_hide_overlay.add_child(_make_hide_bar(c, 0.0, 0.20, 0.20, 0.80))  # left
+	_hide_overlay.add_child(_make_hide_bar(c, 0.80, 0.20, 1.0, 0.80))  # right
 
 
 func _make_hide_bar(color: Color, l: float, t: float, r: float, b: float) -> ColorRect:
@@ -193,6 +241,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		_try_interact()
 		get_viewport().set_input_as_handled()
 
+	# SECONDARY interact (Space / push_effort) — a general opt-in: a prop that implements
+	# `secondary_interact()` gets a second verb on the same aim. KONTUR's Gate 6 uses it so E
+	# ANSWERS a phone and Space SMASHES it. Safe alongside the Lab locker's own Space mash: the
+	# locker freezes the player, and a frozen non-hidden player never reaches here (the guard at
+	# the top of _unhandled_input returns first), so the locker's own poll owns Space during it.
+	if event.is_action_pressed("push_effort"):
+		if _try_secondary():
+			get_viewport().set_input_as_handled()
+
 	if event.is_action_pressed("toggle_flashlight"):
 		if flashlight.visible:
 			flashlight.visible = false
@@ -226,6 +283,12 @@ func _physics_process(delta: float) -> void:
 
 func _tick_battery(delta: float) -> void:
 	if not flashlight.visible:
+		return
+	if INFINITE_BATTERY:
+		# ⚠️ Still assert the energy every frame: `restore_flashlight()` and the old stutter both
+		# wrote `light_energy`, and a level that dimmed the torch for a scripted beat must not
+		# leave it dim for the rest of the run.
+		flashlight.light_energy = _flash_base_energy
 		return
 	_battery = maxf(0.0, _battery - delta)
 	if _battery <= 0.0:
@@ -273,12 +336,25 @@ func _apply_movement() -> void:
 	#
 	# Gravity is deliberately untouched: velocity.y still applies, so a pinned player still
 	# rests on the floor instead of hanging in the air.
+	#
+	# ⚠️⚠️ AND CLEAR `_is_sprinting` / `_is_moving` IN BOTH BRANCHES (2026-09-07, Issue 179).
+	# Both are recomputed BELOW this point, so an early return LATCHES them at whatever the last
+	# unfrozen frame set — and every consumer keeps reading them. Measured: sprinting into a
+	# Breach hiding spot killed a motionless player in 6.1 s, panic climbing at exactly
+	# SPRINT_PANIC_RATE with `velocity` (0.00, 0.00), because line ~521 charges +6/s AND
+	# suppresses decay. Two of the five consumers are FATAL — `apparition.gd:_is_fleeing()`
+	# kills you for sprinting during a HOLD, and `creature_smiler.gd` rushes on it — so this is
+	# not a Breach bug, it is every scripted freeze in the game. `_is_moving` latches the same
+	# way and keeps FOOTSTEPS playing while you hide from a creature that hunts by noise.
 	if _qte_active:
 		velocity.x = 0.0
 		velocity.z = 0.0
 		_is_moving = false
+		_is_sprinting = false
 		return
 	if _input_frozen:
+		_is_moving = false
+		_is_sprinting = false
 		return
 	var speed := SPEED * (SLOW_MULTIPLIER if _slow_timer > 0.0 else 1.0)
 	var input_dir := ai_move_dir if ai_active \
@@ -441,6 +517,16 @@ func _try_interact() -> void:
 		_interact_target.interact()
 
 
+# The Space verb. Returns true if it acted, so the caller only swallows the event when it did.
+func _try_secondary() -> bool:
+	if _qte_active or _hidden:
+		return false
+	if _interact_target and _interact_target.has_method("secondary_interact"):
+		_interact_target.secondary_interact()
+		return true
+	return false
+
+
 func _handle_gaze(delta: float) -> void:
 	var target := _get_raycast_target(GAZE_RANGE)
 	if target and target.has_method("on_gaze_tick"):
@@ -499,7 +585,16 @@ func _update_panic(delta: float, target: Node) -> void:
 
 	# Backrooms: standing still too long lets panic climb (the maze forbids rest).
 	# Suspended while a Smiler is active — then freezing is the correct, safe move.
+	# ⚠️⚠️ AND NEVER WHILE THE PLAYER CANNOT MOVE (2026-09-07). This clause is Issue 18's shape
+	# exactly — charging for a posture the game is imposing. It became reachable the moment
+	# Issue 179 made a freeze clear `_is_moving`: before that a frozen player latched
+	# `_is_moving = true` from their last walking frame and was exempt by accident, and the fix
+	# turned that accident into +3/s through the Sprawl's 12 s scripted crate watch, which is
+	# `freeze_input()` with the camera pinned and no input accepted. Measured by the suite —
+	# `check_sprawl_crate.gd` went red with the player DEAD at t = 3.6 s, scene reloaded.
+	# `_qte_active` is here for the same reason: the beartrap already charges 15 + 40.
 	if _standstill_panic_enabled and not _smiler_active and not _standstill_suspended \
+			and not _input_frozen and not _qte_active \
 			and not _is_moving:
 		_standstill_timer += delta
 		if _standstill_timer >= STANDSTILL_GRACE:
@@ -629,6 +724,36 @@ func _ensure_dead_click_player() -> void:
 	add_child(_dead_click_player)
 
 
+# ⭐ A PER-LEVEL TORCH (2026-09-07, the user's call). Lab and House only, at 11 m / 24 deg.
+#
+# ⚠️ WHY THIS EXISTS AT ALL. The three values above are the GAME'S defaults and there was no
+# override of any kind — `grep` for `spot_range` outside this file finds only `intro_room.gd`, and
+# that is a table lamp, not the player's. So "make the Lab and the House darker" had nowhere to
+# go: ambient was already 0.02 and every lamp was already held at zero, which leaves the beam as
+# the only remaining lever. An 18 m cone at 30 deg reads a 7 x 6 m room from its doorway; 11 m at
+# 24 deg makes you walk it.
+#
+# ⚠️ IT MUST STAY PER-LEVEL, and not become a new default. `level_6_breach.gd:LIGHT_WEAPON_DOT` is
+# `cos(FLASH_ANGLE)` and is asserted equal to it by `check_darkness.gd` — the visible cone and the
+# weapon's cone are married, and a global narrowing would silently desync every level that did not
+# ask for it. KONTUR keeps the wide beam deliberately: its Soviet half is dark but its clinical
+# wing is lit, and Gate 7's whole puzzle is a room with no lamp.
+#
+# ⚠️ ENERGY GOES THROUGH `_flash_base_energy`, NEVER STRAIGHT AT THE LIGHT. `_tick_battery()`
+# re-asserts `light_energy = _flash_base_energy` every frame while the torch is on (that is what
+# stops a level's scripted dim from becoming permanent), so a direct write would be reverted on
+# the next frame and the change would look like it silently did nothing. Range and angle are not
+# re-asserted, but they are set here anyway so the three stay one call.
+func set_torch_profile(range_m: float, angle_deg: float, energy: float = -1.0) -> void:
+	if flashlight == null:
+		return
+	flashlight.spot_range = range_m
+	flashlight.spot_angle = angle_deg
+	if energy > 0.0:
+		flashlight.light_energy = energy
+		_flash_base_energy = energy
+
+
 # Force the flashlight off for the rest of the scene; F now only clicks uselessly.
 func kill_flashlight() -> void:
 	_flashlight_dead = true
@@ -717,13 +842,30 @@ func unlock_flashlight() -> void:
 #
 # Used by the House for the moment the child is present — a scripted, seconds-long darkness,
 # not a punishment. Deliberately NOT `kill_flashlight()`, which is permanent.
+# ⚠️⚠️ RE-ENTRANT SINCE 2026-09-07, AND IT HAD TO BECOME SO THE MOMENT IT GAINED A SECOND
+# CALLER. Nested, the old pair lost the torch FOR EVER: the outer call records `_flash_was_on`
+# = true and hides the light, the inner call then records `flashlight.visible` — which is
+# already **false** — and both restores therefore decline to bring it back. Today's two callers
+# are `level_2.gd`'s cellar blackout and `enter_hiding()`, and the House has no hiding spots,
+# so it is not reachable in the shipped game; it became reachable-shaped when Issue 174 made
+# hiding the second caller, and a latent permanent loss of the only light source is not worth
+# leaving to the next level that adds a locker to a blackout.
+# Only the OUTERMOST call samples the state, and only the outermost restore gives it back.
+var _flash_off_depth: int = 0
+
+
 func force_flashlight_off() -> void:
-	_flash_was_on = flashlight.visible
+	if _flash_off_depth == 0:
+		_flash_was_on = flashlight.visible
+	_flash_off_depth += 1
 	_flashlight_locked = true
 	flashlight.visible = false
 
 
 func restore_flashlight() -> void:
+	_flash_off_depth = maxi(0, _flash_off_depth - 1)
+	if _flash_off_depth > 0:
+		return          # an outer blackout still owns the torch
 	_flashlight_locked = false
 	if _flash_was_on and _battery > 0.0 and not _flashlight_dead:
 		flashlight.visible = true
@@ -809,6 +951,12 @@ func ai_interact() -> void:
 	_try_interact()
 
 
+# Test hook for the Space verb (Input.parse_input_event does not work headless). Mirrors
+# ai_interact(): drive the ray with ai_look_at + ai_interact_target() first, then call this.
+func ai_secondary() -> void:
+	_try_secondary()
+
+
 # What the "Press E" prompt is currently pointing at, or null. Lets a test assert that
 # a prop is REACHABLE — the question Issue 30 showed nobody was asking.
 func ai_interact_target() -> Node:
@@ -830,10 +978,42 @@ func enter_hiding(spot: Node) -> void:
 	_hide_spot = spot
 	if spot.has_method("hide_anchor"):
 		global_position = spot.hide_anchor()
+	# ⭐⭐ FACE OUT OF THE SPOT, NOT INTO IT (2026-09-07). `_hide_yaw_center` used to be the yaw at
+	# the moment of the E-press — which, because you must look AT a prop to interact with it, is
+	# the yaw pointing straight at the wall the spot is mounted on. The ±50° peek cone was
+	# therefore centred INTO the wall. Measured in Corridor1: the creature's only approach is
+	# ~105° off-axis, more than twice the peek limit, so a hidden player could not watch it arrive
+	# at all — the 8 s it spends searching was 8 s of staring at an unlit box.
+	#
+	# `hide_anchor()` already places the player along the spot's +Z (out into the room), so that
+	# same vector is the direction to look. Player forward is -Z, hence the negations.
+	#
+	# ⚠️ THE TRADE, STATED: `hiding_spot.gd`'s comment says the reposition exists so the player
+	# "ends up facing the (now-closing) door". They now have their back to it and hear it instead.
+	# That is the right way round — a peek cone that cannot see the room is not a peek cone.
+	if spot is Node3D:
+		var out_dir: Vector3 = (spot as Node3D).global_transform.basis.z
+		out_dir.y = 0.0
+		if out_dir.length() > 0.01:
+			out_dir = out_dir.normalized()
+			rotation.y = atan2(-out_dir.x, -out_dir.z)
 	_hide_yaw_center = rotation.y
 	velocity = Vector3.ZERO
 	_input_frozen = true
-	lock_flashlight()
+	# ⚠️⚠️ DIM THE TORCH, DON'T KILL IT (2026-09-09, the user: "when I look out of the wardrobe the
+	# visibility is very poor"). The previous code called `force_flashlight_off()` — correct for
+	# handing the torch back, but it left the player peering into a ~0.025-ambient black room through
+	# a keyhole. Instead, drop `_flash_base_energy` (which `_tick_battery()` re-asserts every frame,
+	# so a direct write to `light_energy` would be reverted) to a fraction, and restore it on exit.
+	#
+	# ⚠️ SAFE re: the light weapon: `creature_object12.gd:apply_light_damage()` only drains/staggers
+	# in CHASE, and hiding drops the creature out of CHASE (`_detect_player()` returns false when
+	# hidden), so a dimmed torch left on cannot be used to stagger it from cover. And a torch that is
+	# OFF/dead when you hide (you turned it off, or THE NIGHTMARE's dead torch) stays that way — we
+	# only dim a torch that is actually on.
+	if flashlight.visible and _hide_prev_energy < 0.0:
+		_hide_prev_energy = _flash_base_energy
+		_flash_base_energy = _flash_base_energy * HIDE_TORCH_DIM
 	if _hide_overlay:
 		_hide_overlay.visible = true
 	var tween := create_tween()
@@ -844,7 +1024,11 @@ func exit_hiding() -> void:
 	_hidden = false
 	_hide_spot = null
 	_input_frozen = false
-	unlock_flashlight()
+	# ⚠️ The other half of the dim (see `enter_hiding()`): put the torch's energy back. Nothing to
+	# do for a torch that was off/dead when you hid — it was never dimmed.
+	if _hide_prev_energy >= 0.0:
+		_flash_base_energy = _hide_prev_energy
+		_hide_prev_energy = -1.0
 	if _hide_overlay:
 		_hide_overlay.visible = false
 	var tween := create_tween()

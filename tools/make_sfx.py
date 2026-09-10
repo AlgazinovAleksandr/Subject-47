@@ -11,15 +11,36 @@ import math
 import os
 import random
 import struct
+import sys
 import wave
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sfx_loudness import format_row as loud_row, loudify  # noqa: E402
 
 SR = 44100
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "game", "assets", "audio", "level_3_corridor")
 
-def write_wav(name, samples):
-    """samples: list of floats in [-1, 1]."""
+def write_wav(name, samples, loud=None):
+    """samples: list of floats in [-1, 1].
+
+    `loud` is a target loudest-300 ms dBFS, applied through tools/sfx_loudness.py before the
+    peak normalise. ⚠️ PASS IT ONLY FOR SCARE STINGS. Every file here is already peak-normalised
+    to 0.89, so raising one is a CREST FACTOR change, not a gain — and doing that to ambience,
+    a footstep or a mechanical one-shot changes the mix rather than the fright. See the header
+    of sfx_loudness.py for why compression alone cannot do this.
+    """
+    # ⚠️ NORMALISE BEFORE MEASURING. The raw mixed buffer routinely peaks well above 1.0
+    # (layers sum past unity and the 0.89 normalise below is what brings it back), so measuring
+    # it as-is reports nonsense — `matron_shriek` came back as "+34.03 dBFS, already loud" on
+    # the first attempt. And tanh is NOT scale-invariant, so a drive chosen against a buffer
+    # peaking at +7 dB is not the drive that buffer needs. Scale first, then measure, then
+    # saturate; `loudify` preserves the peak it is handed, so no second normalise is needed.
     peak = max(1e-9, max(abs(s) for s in samples))
     norm = 0.89 / peak  # leave headroom
+    if loud is not None:
+        samples, info = loudify([s * norm for s in samples], SR, target_db=loud)
+        print(loud_row(name, info))
+        norm = 1.0
     path = os.path.normpath(os.path.join(OUT_DIR, name))
     with wave.open(path, "wb") as w:
         w.setnchannels(1)
@@ -194,8 +215,8 @@ def make_whispers():
 def main():
     random.seed(217)  # room 217 — reproducible builds
     write_wav("clock_chime.wav", make_clock_chime())
-    write_wav("glass_shatter.wav", make_glass_shatter())
-    write_wav("beartrap_snap.wav", make_beartrap_snap())
+    write_wav("glass_shatter.wav", make_glass_shatter(), loud=-8.0)
+    write_wav("beartrap_snap.wav", make_beartrap_snap(), loud=-8.0)
     write_wav("door_slam.wav", make_door_slam())
     write_wav("whispers.wav", make_whispers())
 

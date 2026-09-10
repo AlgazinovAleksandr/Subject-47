@@ -100,9 +100,12 @@ func _process(delta: float) -> bool:
 			# permanently-failing test is worse than no test: it teaches everyone to
 			# stop reading the column. (Found 2026-07-27; confirmed identical on HEAD
 			# before any of this session's changes.)
+			# ArchiveGate (A5): the transit door is SUPPOSED to seal the Archive→Switchboard
+			# doorway until the player finds the hidden keycard — a shut gate, not a stray prop.
 			var is_gate: bool = nm == "FungalBarrier" \
 				or nm.begins_with("ChoiceDoor_") \
-				or nm == "RosterSeal" or nm == "AirlockSeal"
+				or nm == "RosterSeal" or nm == "AirlockSeal" \
+				or nm == "ArchiveGate"
 			print("  %s %s  <- %s" % ["GATE(ok)  " if is_gate else "BLOCKED   ", d[3], nm])
 			if not is_gate:
 				_fails += 1
@@ -152,7 +155,9 @@ func _process(delta: float) -> bool:
 	# reach load_audio() (a static func) through the script resource instead.
 	var gs: GDScript = load("res://scripts/game_state.gd")
 	for base in ["ambient_kontur", "breathing_behind", "door_seal", "acid_hiss",
-			"pedestal_alarm", "kontur_flash", "screamer_kontur"]:
+			"pedestal_alarm", "kontur_flash", "screamer_kontur",
+			"phone_green_voice", "phone_blue_voice", "pa_kontur_chime",
+			"pa_kontur_1", "pa_kontur_2", "pa_kontur_3", "pa_kontur_4"]:
 		if gs.load_audio(base):
 			print("  OK        %s" % base)
 		else:
@@ -201,6 +206,7 @@ func _check_recovery_archive(space: PhysicsDirectSpaceState3D, player: Character
 	print("--- the recovery archive ---")
 	var seen := 0
 	var empties := 0
+	var key_lots := 0
 	for lot_name in ARCHIVE_LOTS:
 		var lot := current_scene.get_node_or_null(lot_name) as Node3D
 		if lot == null:
@@ -215,17 +221,61 @@ func _check_recovery_archive(space: PhysicsDirectSpaceState3D, player: Character
 		if parts < 3:
 			print("  FAIL      %s is %d mesh part(s) — that is a box" % [lot_name, parts])
 			_fails += 1
-		# Zero rules: nothing on these shelves may be taken, and nothing may charge panic.
-		if lot.has_method("interact"):
-			print("  FAIL      %s has interact() — a lot must not be takeable" % lot_name)
+		# ⚠️ A5 (capture #8): lots are SEARCHABLE now — each answers E and reveals its catalogued
+		# item (nothing more) or, for exactly ONE, the hidden keycard. So interact() is now
+		# REQUIRED. But a lot still costs NO panic (no ScaryObject) and takes nothing by force.
+		if not lot.has_method("interact"):
+			print("  FAIL      %s has no interact() — a lot must be searchable now" % lot_name)
 			_fails += 1
 		if _has_scary_ancestor_or_child(lot):
 			print("  FAIL      %s carries a ScaryObject — a lot must cost no panic" % lot_name)
 			_fails += 1
+		if bool(lot.get("has_key")):
+			key_lots += 1
 		if lot_name == "Lot_empty":
 			empties += 1
-	print("  OK        %d of %d lots present, all built from parts, none interactive"
+		# ⭐ TEXTURED (2026-09-10, capture #13): every lot carries at least one textured part.
+		# It was flat tints only, and the room read as grey boxes on grey shelves.
+		if _textured_meshes(lot) < 1:
+			print("  FAIL      %s has no textured part" % lot_name)
+			_fails += 1
+		if lot_name == "Lot_plate":
+			var art_ok := false
+			var stale_label := false
+			for c in lot.get_children():
+				if c is MeshInstance3D and (c as MeshInstance3D).mesh is QuadMesh:
+					var m := (c as MeshInstance3D).material_override as StandardMaterial3D
+					if m and m.albedo_texture and \
+							m.albedo_texture.resource_path.ends_with("archive_plate_217.png"):
+						art_ok = true
+				if c is Label3D and (c as Label3D).text == "217":
+					stale_label = true
+			if not art_ok:
+				print("  FAIL      Lot_plate carries no archive_plate_217.png art quad")
+				_fails += 1
+			if stale_label:
+				print("  FAIL      Lot_plate still has the old Label3D \"217\" in front of the art")
+				_fails += 1
+	print("  OK        %d of %d lots present, all built from parts, all searchable, all textured"
 		% [seen, ARCHIVE_LOTS.size()])
+	for rack_name in ["RecoveryRack_W", "RecoveryRack_E"]:
+		var rack := current_scene.get_node_or_null(rack_name)
+		if rack == null:
+			print("  FAIL      %s is missing" % rack_name)
+			_fails += 1
+		elif _textured_meshes(rack) < 4:
+			print("  FAIL      %s uprights/shelves carry no texture" % rack_name)
+			_fails += 1
+	# Exactly one lot hides the real keycard (the bait stays on the gate-3 pedestal).
+	if key_lots != 1:
+		print("  FAIL      expected exactly ONE lot to hide the keycard, found %d" % key_lots)
+		_fails += 1
+	else:
+		print("  OK        exactly one lot hides the real keycard")
+	# And the transit door it opens is present and sealed.
+	if current_scene.get_node_or_null("ArchiveGate") == null:
+		print("  FAIL      the Archive transit gate (ArchiveGate) is missing")
+		_fails += 1
 	if empties != 1:
 		print("  FAIL      expected exactly one EMPTY lot, found %d" % empties)
 		_fails += 1
@@ -441,3 +491,15 @@ func _find_by_prefix(root: Node, prefix: String) -> Node:
 		if child.name.begins_with(prefix):
 			return child
 	return null
+
+
+# Meshes under `n` (recursively) whose material_override has an albedo texture.
+func _textured_meshes(n: Node) -> int:
+	var count := 0
+	if n is MeshInstance3D:
+		var m := (n as MeshInstance3D).material_override as StandardMaterial3D
+		if m and m.albedo_texture != null:
+			count += 1
+	for c in n.get_children():
+		count += _textured_meshes(c)
+	return count

@@ -281,8 +281,21 @@ func _process(delta: float) -> bool:
 			var src := "" if sfx.stream == null else sfx.stream.resource_path
 			_ok("…and it is the purpose-made wheelchair sample, not the creak fallback",
 				src.get_file().get_basename() == "wheelchair", "stream: %s" % src)
-			_ok("…at the gain measured from the file, not a plausible number",
-				is_equal_approx(sfx.volume_db, -7.6), "volume_db %.2f" % sfx.volume_db)
+			# ⚠️ Read off the script, never a literal: the literal -7.6 sat here while the
+			# constant moved to +1.0 (2026-09-10), which is exactly how a test starts asserting
+			# the past. The ceiling is asserted too — Godot's default max_db 3.0 silently eats
+			# any gain a near emitter is given.
+			var consts: Dictionary = _scene.get_script().get_script_constant_map()
+			var want_db := float(consts.get("WHEELCHAIR_SFX_DB", -999.0))
+			var want_max := float(consts.get("WHEELCHAIR_SFX_MAX_DB", -999.0))
+			_ok("…at the gain the level's own constant names",
+				is_equal_approx(sfx.volume_db, want_db),
+				"volume_db %.2f vs WHEELCHAIR_SFX_DB %.2f" % [sfx.volume_db, want_db])
+			_ok("…and it is LOUD — the 2026-09-10 call, +1.0 dB on a -2.3 dBFS file",
+				want_db >= 0.5, "WHEELCHAIR_SFX_DB %.2f" % want_db)
+			_ok("…with a raised ceiling so the gain is not clamped away at 2.7 m",
+				sfx.max_db >= 8.0 and is_equal_approx(sfx.max_db, want_max),
+				"max_db %.2f" % sfx.max_db)
 		_advance(7)
 
 	elif _stage == 7 and _t - _stage_at > 1.4:

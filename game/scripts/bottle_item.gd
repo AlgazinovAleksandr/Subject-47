@@ -37,6 +37,9 @@ const PROFILES := {
 		"cap": true, "handle": true, "tint": Color(0.72, 0.72, 0.68), "rough": 0.62},
 	"carboy": {"rb": 0.062, "rt": 0.058, "hm": 0.62, "neck": 0.046, "neck_h": 0.016,
 		"cap": false, "handle": false, "tint": Color(0.52, 0.58, 0.60), "rough": 0.12},
+	# vial: short, dark, narrow — a poison bottle (KONTUR Gate 2's third decoy, 2026-09-09).
+	"vial":   {"rb": 0.034, "rt": 0.027, "hm": 0.74, "neck": 0.015, "neck_h": 0.044,
+		"cap": true, "handle": false, "tint": Color(0.20, 0.10, 0.22), "rough": 0.30},
 }
 
 @export var kind: String = "vinegar"

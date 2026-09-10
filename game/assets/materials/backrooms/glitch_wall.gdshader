@@ -8,6 +8,13 @@ render_mode cull_disabled, unshaded;
 uniform sampler2D base_tex : source_color;
 uniform float tear_amount = 0.12;
 uniform float speed = 6.0;
+// ⭐ THE SPRAWL'S RED/YELLOW TELL (2026-09-03). Multiplied into the final colour, so it is a HUE
+// change on the wallpaper rather than a second light source.
+// ⚠️ The default is white, i.e. every existing caller (zone 1's seam, the Flood's three) renders
+// byte-identically. Only `backrooms_zone2.gd` sets it.
+// ⚠️ `render_mode unshaded` above means this tint reads at full strength however dark the room
+// gets — which is exactly why the Sprawl can be darkened AND keep this readable.
+uniform vec3 wall_tint = vec3(1.0);
 
 float hash(float n) {
 	return fract(sin(n) * 43758.5453123);
@@ -40,5 +47,6 @@ void fragment() {
 	// darken + flicker toward black so it reads as a void seam
 	float flick = 0.55 + 0.45 * hash(t + band * 0.3);
 	col *= flick * 0.7;
+	col *= wall_tint;
 	ALBEDO = col;
 }

@@ -94,7 +94,17 @@ func _process(delta: float) -> void:
 		return
 
 	# Keep the breathing pinned just behind the player, so it pans as they turn.
-	_breath.global_position = _player.global_position + BREATH_OFFSET
+	# ⚠️ BEHIND THE FACING, not world +Z (SCARY.md §2.11 #2 / P2-D2, fixed 2026-09-09). A
+	# Node3D's forward is -basis.z, so +basis.z is straight behind the camera; the old
+	# `+ BREATH_OFFSET` added a WORLD offset, so the breath sat at world +z no matter which
+	# way the player faced — "behind you" only when they happened to look down -z. The camera
+	# is what yaws in this game, so its basis is the one to use.
+	var back := _camera.global_transform.basis.z
+	back.y = 0.0
+	if back.length() > 0.001:
+		back = back.normalized()
+	_breath.global_position = _player.global_position + Vector3(0, BREATH_OFFSET.y, 0) \
+		+ back * BREATH_OFFSET.z
 	_update_temptation()
 
 	if _cooldown > 0.0:

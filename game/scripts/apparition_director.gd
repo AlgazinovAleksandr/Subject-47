@@ -67,6 +67,13 @@ const MAX_PANIC_RATIO := 0.6
 # Optional level-supplied veto, e.g. level_1.gd's `_in_breaker_nook`.
 var suppress: Callable = Callable()
 
+# Optional per-level audio overrides, passed through to each spawned Apparition (empty = shared
+# defaults). KONTUR sets these to "jumpscare" (capture #10). Additive; every other level unaffected.
+var appear_audio: String = ""
+var teach_flash_audio: String = ""
+# The arrival shock (2026-09-10): "" = the Apparition's own default (the shared screamer).
+var arrival_sting: String = ""
+
 var _elapsed: float = 0.0
 var _next_at: float = 0.0
 var _player: CharacterBody3D = null
@@ -83,6 +90,21 @@ func _process(delta: float) -> void:
 	if not _can_fire(_elapsed - _next_at >= OVERDUE_AFTER):
 		return          # retried next frame; the gap only resets on an actual spawn
 	_fire()
+
+
+# ⚠️ A LEVEL THAT FIRES ITS OWN APPARITION MUST SAY SO, or this node's pacing is a lie. The
+# director owns WHEN — that is the whole reason it exists — but it can only own it for the
+# appearances it starts. The Lab now has a SECOND clock (`level_1.gd:_tick_apparition()`, the
+# scripted teaching beat at 42-50 s), and the two ran blind to each other: `LEVEL_GRACE` 45 s
+# means the director's own first window opens in the same seconds, so the player could meet two
+# apparitions 43 s apart. `count_apparitions.gd` caught it — shortest gap 43.2 s against a 60 s
+# floor, i.e. no rarer than the fixed metronome this whole system replaced.
+#
+# ⚠️ It resets the gap the same way `_fire()` does, from `_elapsed`, so an externally-fired
+# apparition costs exactly what an internally-fired one costs. It does NOT touch the teach
+# ledger — `arm()` already owns that, and the caller has been through it.
+func note_external_fire() -> void:
+	_next_at = _elapsed + randf_range(MIN_GAP, MAX_GAP)
 
 
 func _resolve_player() -> CharacterBody3D:
@@ -123,6 +145,13 @@ func _fire() -> void:
 	_elapsed = 0.0
 	_next_at = randf_range(MIN_GAP, MAX_GAP)
 	var a := Apparition.spawn(get_parent(), Apparition.Rule.HOLD, Vector3.ZERO, false) as Apparition
+	if a:
+		if appear_audio != "":
+			a.appear_audio = appear_audio
+		if teach_flash_audio != "":
+			a.teach_flash_audio = teach_flash_audio
+		if arrival_sting != "":
+			a.arrival_sting = arrival_sting
 	var taught := arm(a)
 	var dbg := get_node_or_null("/root/DebugLog")
 	if dbg:

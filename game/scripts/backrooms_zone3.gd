@@ -177,18 +177,23 @@ func _build_wader() -> void:
 # the zone's DREAD_DRIP does not tick behind a page). The only cost of a full search is the
 # WALKING, measured against the entry cap in `check_flood_drowned.gd` and reported to the user
 # rather than tuned — this file changes no difficulty constant.
+# ⭐ `piece` (2026-09-10): which of the six RITUAL PIECES the object holds — candle · book ·
+# skull · bell · key · doll (`ritual_piece.gd`). Each kind appears exactly once and the altar
+# in the Basin has one outlined slot per kind, so the six are a SET rather than six copies of
+# a grey shard. A container's silhouette says nothing about its piece; the order below is
+# just the order the wing is usually searched in.
 const DROWNED := [
-	{"name": "Drowned_Landing", "room": "Landing", "kind": "footlocker",
+	{"name": "Drowned_Landing", "room": "Landing", "kind": "footlocker", "piece": "candle",
 		"offset": Vector2(-1.70, 0.30), "yaw": 0.35},
-	{"name": "Drowned_Descent", "room": "Descent", "kind": "gurney",
+	{"name": "Drowned_Descent", "room": "Descent", "kind": "gurney", "piece": "book",
 		"offset": Vector2(-0.85, 0.00), "yaw": PI / 2.0},
-	{"name": "Drowned_Basin", "room": "Basin", "kind": "drawers",
+	{"name": "Drowned_Basin", "room": "Basin", "kind": "drawers", "piece": "skull",
 		"offset": Vector2(3.40, 1.60), "yaw": -0.30},
-	{"name": "Drowned_EastRun", "room": "EastRun", "kind": "suitcase",
+	{"name": "Drowned_EastRun", "room": "EastRun", "kind": "suitcase", "piece": "bell",
 		"offset": Vector2(-0.80, -1.20), "yaw": 0.9},
-	{"name": "Drowned_WestRun", "room": "WestRun", "kind": "toolchest",
+	{"name": "Drowned_WestRun", "room": "WestRun", "kind": "toolchest", "piece": "key",
 		"offset": Vector2(1.00, -1.10), "yaw": -0.6},
-	{"name": "Drowned_Throat", "room": "Throat", "kind": "wheelchair",
+	{"name": "Drowned_Throat", "room": "Throat", "kind": "wheelchair", "piece": "doll",
 		"offset": Vector2(1.10, 1.60), "yaw": 2.4},
 ]
 
@@ -285,7 +290,7 @@ const PLATE_OFFSET := Vector2(-3.2, -1.2)   # from the Basin's centre
 const PLATE_YAW := 0.35
 
 var _plate: FloodPlate = null
-var _held := 0          # fragments in hand, not yet set
+var _held_kinds: Array = []   # piece kinds in hand, not yet set (2026-09-10: kinds, not a count)
 var _taken := 0         # fragments lifted out of objects, ever
 var _plate_done := false
 
@@ -299,12 +304,12 @@ func _build_plate() -> void:
 
 
 func _on_plate_used() -> void:
-	if _held <= 0:
+	if _held_kinds.is_empty():
 		return
-	var n := _held
-	_held = 0
+	var kinds: Array = _held_kinds.duplicate()
+	_held_kinds.clear()
 	_plate.set_carried(0)
-	_plate.seat(n)
+	_plate.seat_kinds(kinds)
 	_refresh_objective()
 
 
@@ -370,7 +375,7 @@ func _build_drowned() -> void:
 		# Lobby — the same two-errors-cancelling trap the drip ticker's comment describes.
 		var item := SunkenItem.build(self, String(spec["name"]), kind,
 			Vector3(c.x + off.x, 0.0, c.z + off.y), float(spec["yaw"]),
-			String(DROWNED_NOTES.get(kind, "")))
+			String(DROWNED_NOTES.get(kind, "")), String(spec.get("piece", "")))
 		item.searched.connect(_on_item_searched)
 		item.piece_taken.connect(_on_piece_taken)
 		_drowned.append(item)
@@ -389,7 +394,16 @@ func pieces_set() -> int:
 
 
 func pieces_held() -> int:
-	return _held
+	return _held_kinds.size()
+
+
+# The kinds in hand / set in the altar, for the snapshot (`backrooms.gd:save_progress`).
+func held_kinds() -> Array:
+	return _held_kinds.duplicate()
+
+
+func set_kinds() -> Array:
+	return _plate.set_kinds() if is_instance_valid(_plate) else []
 
 
 func pieces_taken() -> int:
@@ -405,20 +419,29 @@ func plate_done() -> bool:
 # if the wing was already emptied, because "the wing is quieter now" is progress the player
 # earned. ⚠️ The FRAGMENTS restore too: an emptied object whose fragment came back would
 # hand the player a seventh piece, and one whose fragment did not would strand them.
-func restore_searched(names: Array, set_count: int = 0, held: int = 0) -> void:
+# ⚠️ `set_v` / `held_v` are KIND ARRAYS since 2026-09-10 and INTS before that; both are
+# accepted, because a snapshot written by an older build must still resume. An int is
+# resolved against the restored objects' own pieces, in `DROWNED` order, so "3 emptied, 2 set,
+# 1 held" restores to two of THOSE three kinds in the frame and the third in hand — never a
+# kind the player has not lifted out of anything.
+func restore_searched(names: Array, set_v = 0, held_v = 0) -> void:
+	var taken_kinds: Array = []
 	for it in _drowned:
 		if is_instance_valid(it) and names.has(it.name):
 			it.mark_searched_instantly()
 			_searched += 1
 			_taken += 1
+			taken_kinds.append(it.piece_kind())
 	if _searched >= _drowned.size() and _drowned.size() > 0:
 		_apply_emptied()
 		_surfaced = true
 	if is_instance_valid(_plate):
-		_plate.restore(set_count)
-		_held = clampi(held, 0, maxi(0, _taken - set_count))
-		_plate.set_carried(_held)
-		if _held > 0 or set_count > 0:
+		var set_kinds: Array = _resolve_kinds(set_v, taken_kinds, [])
+		var held: Array = _resolve_kinds(held_v, taken_kinds, set_kinds)
+		_plate.restore_kinds(set_kinds)
+		_held_kinds = held
+		_plate.set_carried(_held_kinds.size())
+		if not _held_kinds.is_empty() or not set_kinds.is_empty():
 			_plate.begin_calling()
 		if _plate.is_complete():
 			_plate_done = true
@@ -437,11 +460,30 @@ func _on_item_searched(_item: SunkenItem) -> void:
 	_searched += 1
 
 
-func _on_piece_taken(_item: SunkenItem) -> void:
+# A kind list from either a kind array (deduplicated, valid kinds, not in `exclude`) or a
+# legacy count (the first N of `pool` not in `exclude`).
+func _resolve_kinds(v, pool: Array, exclude: Array) -> Array:
+	var out: Array = []
+	if v is Array:
+		for k in v:
+			var ks := String(k)
+			if RitualPiece.KINDS.has(ks) and not out.has(ks) and not exclude.has(ks):
+				out.append(ks)
+		return out
+	var n: int = int(v)
+	for k in pool:
+		if out.size() >= n:
+			break
+		if not out.has(k) and not exclude.has(k):
+			out.append(k)
+	return out
+
+
+func _on_piece_taken(item: SunkenItem) -> void:
 	_taken += 1
-	_held += 1
+	_held_kinds.append(item.piece_kind())
 	if is_instance_valid(_plate):
-		_plate.set_carried(_held)
+		_plate.set_carried(_held_kinds.size())
 		_plate.begin_calling()
 	_refresh_objective()
 	if _taken == ANSWER_AT:

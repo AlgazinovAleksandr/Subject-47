@@ -4,11 +4,23 @@ class_name BackroomsZone2
 # ZONE 2 — THE SPRAWL.
 #
 # Zone 1 taught the verb (walk into the wall). This zone makes you find the right
-# wall. Four glitch walls tear identically on the four sides of a big pillar hall;
-# only one is real, and the tell is not visual — near the real one the ambient bed
-# fades to nothing. You listen your way out. Touch a fake and it goes solid, costs
-# `backrooms.gd:WRONG_WALL_PANIC` (12, not the 18 this comment claimed until
-# 2026-07-27), and the real wall re-randomises, so brute force is a losing line.
+# wall. Four glitch walls tear identically on the four sides of a big pillar hall, all
+# four painted WRONG — and none of them is the way out. The exit is at the far END of
+# one of the eight deep recesses: the one the whisper leads to, where a crate stands in
+# the dark, and the thing inside it runs straight down the recess and through the wall
+# at its end, which then turns yellow. Touch one of the four big red walls and it goes
+# solid and the room gains a watcher; nothing re-rolls, because the answer is fixed.
+#
+# ⭐⭐ THE EXIT MOVED INTO THE CRATE'S OWN RECESS ON 2026-09-10 (the user's design, on a
+# replay): *"When the creature escapes the box it runs very far away through one of the
+# yellow blocks, I cannot see it well... How about we make this place having this creature
+# bigger and at the end of it there will be a wall, once it runs through it it becomes
+# yellow and visible. So it will run the opposite direction from us."* Before this the
+# runner crossed up to 45 m of pillar hall to a perimeter wall and was lost behind the
+# pillars. Now the run is ~7 m, straight AWAY from the player who is standing at the mouth
+# looking in, unoccluded, and the wall it goes through is the one they are already facing.
+# All eight recesses are deep so the crate's cannot be told apart by shape; the whisper is
+# still the route.
 #
 # The scale is the other half of the horror. Zone 1 is 3 m corridors; this is a
 # 40 m room with a 4.5 m ceiling and nothing to orient by — the pillars are
@@ -32,15 +44,36 @@ const T := 0.3
 const PILLAR := 0.9
 const PILLAR_GRID := 6             # 6x6 pillars
 const PILLAR_SPACING := 6.0
-const ALCOVE_D := 3.0              # alcove depth
+# ⭐ 10.0, WAS 3.0 (2026-09-10). Every recess is a 10 m corridor now, so the crate's recess —
+# the one whose END WALL is the exit — is not identifiable by shape. Everything that placed
+# itself by this number (the note, the mirror, the mirage doors, the dread span, the light
+# cut, `_alc_centre`) follows it; `_side_runs()` never depended on it.
+const ALCOVE_D := 10.0             # alcove depth
 const ALCOVE_W := 3.4
+# How far inside the perimeter plane every glitch wall stands (the four decoys AND the exit).
+const GLITCH_INSET := 0.05
+# The crate stands this far in from its recess's mouth, so the run to the end wall is
+# ALCOVE_D - CRATE_IN - DWELLER_OUT ~= 7 m, straight away from the player at the mouth.
+const CRATE_IN := 2.0
+# The seven recesses that are not the crate's get one dim strip at mid-depth (the crate's
+# stays dark — CRATE_DARK_R). Emission 0.9 stays under check_fixtures' 1.0 clamp.
+const RECESS_STRIP_ENERGY := 0.35
+const RECESS_STRIP_RANGE := 6.0
+const RECESS_STRIP_EMISSION := 0.9
 # ⚠️ How far along each side the two alcoves sit. This was the literal `11.0`, repeated in
 # four places (`_build_alcoves`, the contents helper, the mirage doors, the mirror) — and the
 # perimeter, which has to be CUT at exactly the same offset, is a fifth. One number now.
 const ALCOVE_AT := 11.0
 # The gap in the middle of each side where that side's glitch wall sits flush.
 const GLITCH_GAP := 7.0
-const DEAD_LIGHT_CHANCE := 0.3
+# ⚠️ 0.55, WAS 0.3 (2026-09-03, the user's call: the Sprawl should be darker than the rest of
+# the Backrooms, "but not complete darkness"). Together with STRIP_ENERGY below this roughly
+# halves the light in the hall. It is a per-strip coin flip, so the dark patches move every run
+# and the room never has a memorable lit route through it.
+const DEAD_LIGHT_CHANCE := 0.55
+# The surviving strips are dimmer too. 1.0 was zone 1's value; the Sprawl is the level's
+# middle act and should not look like its lobby.
+const STRIP_ENERGY := 0.6
 
 const SIDES := ["N", "S", "E", "W"]
 const SIDE_AXIS := {
@@ -54,12 +87,20 @@ var _wall_mat: StandardMaterial3D
 var _floor_mat: StandardMaterial3D
 var _ceil_mat: StandardMaterial3D
 var _origin: Vector3
-var _walls := {}                   # side -> GlitchWall
+# key -> GlitchWall. The four decoys are keyed by their side ("N".."W"); the exit is keyed
+# by its recess, "%s%d" % [side, k] (e.g. "S1"), which is also `_real_side` since 2026-09-10.
+var _walls := {}
 var _silence: SilenceZone
 var _tell_water: AudioStreamPlayer3D    # the positive tell (BUG_FIX.md 3.5) at the real wall
 var _tell_whisper: AudioStreamPlayer3D  # layered with it, closer/quieter
+# ⚠️ Since 2026-09-10 this is the `_walls` KEY of the exit wall, not a compass side: it is
+# set once in `build()` from the crate's recess and never re-rolled. `real_side()` keeps its
+# name for the level and the tests.
 var _real_side: String = "N"
+var _exit_axis: Vector3 = Vector3(0, 0, 1)   # the exit recess's outward axis
 var _lights: Array = []
+# Set by `backrooms.gd` before build() so the Sprawl's strips join the level's flicker loop.
+var _level_lights: Array = []
 var _congregation: Congregation = null
 
 # ============================================ THE BOX IN THE DARK (2026-08-17, B-R3)
@@ -96,9 +137,9 @@ var _congregation: Congregation = null
 # CONFIRMATION rather than the route. Removing it would leave the wall silent until the
 # moment the runner arrives, and the run is the only cue there is.
 #
-# ⚠️ THE MARK FOLLOWS A RE-ROLL. Touching a fake re-randomises the real wall
-# (`_randomise_real_wall()`), so a mark left on the old one would be a LIE — worse than no
-# mark. If the dweller has already run, the new real wall is marked in the same breath.
+# ⚠️ NOTHING RE-ROLLS (2026-09-10). The exit is the crate recess's end wall, fixed at build:
+# there is no `_randomise_real_wall()` any more, a fake touch costs a watcher and nothing
+# else, and the mark the runner leaves can never be made a lie by a later mistake.
 #
 # ⚠️ ONE ALCOVE, CHOSEN PER RUN, AND ITS LIGHT IS CUT. "Hidden in the dark" is a measurable
 # claim: `_build_lights()` skips any ceiling strip within `CRATE_DARK_R` of the chosen
@@ -110,16 +151,18 @@ const CRATE_DARK_R := 11.0
 const CRATE_SCARE_IMAGE := "res://assets/textures/level_backrooms/sprawl_dweller_face.png"
 const CRATE_SCARE_AUDIO := "crate_shriek"
 const CRATE_SCARE_HOLD := 0.9
-# The dweller is spawned a step in front of the crate, facing out of the recess, so it is
-# never inside the geometry it came out of.
-const DWELLER_OUT := 1.3
+# The dweller is spawned a step BEHIND the crate — deeper into the recess, on the line it is
+# about to run — so it is never inside the geometry it came out of and never in the hall.
+# ⚠️ The sign matters: `+ axis`, toward the end wall. `- axis` puts it in the hall running
+# THROUGH the crate and the player (the pre-2026-09-10 value pointed that way, correctly for
+# a run that crossed the hall).
+const DWELLER_OUT := 1.0
 
 var _crate: SprawlCrate = null
 var _crate_side: String = "S"
 var _crate_k: int = 1
 var _dweller: SprawlDweller = null
 var _dweller_done := false
-var _voice: Array = []
 
 const CONGREGATION_START := 6       # grows by one per wrong wall, capped in congregation.gd
 # House-style wall-prop clearance. RoomBuilder's `wall_point()` clamps its own 3 cm minimum
@@ -170,6 +213,9 @@ func build(origin: Vector3) -> void:
 	var pick: Array = CRATE_ALCOVES[randi() % CRATE_ALCOVES.size()]
 	_crate_side = String(pick[0])
 	_crate_k = int(pick[1])
+	# The exit IS that recess's end wall, from now until the zone is cleared.
+	_real_side = _wall_key(_crate_side, _crate_k)
+	_exit_axis = SIDE_AXIS[_crate_side]
 
 	_build_shell()
 	_build_pillars()
@@ -179,7 +225,8 @@ func build(origin: Vector3) -> void:
 	_build_pressure()
 	_build_alcove_contents()
 	_build_low_ceiling()
-	_randomise_real_wall()
+	_apply_gate()
+	_build_tells()
 	# THE CONGREGATION. Zero panic, no rules — see congregation.gd. Kept OFF the calm island
 	# so the one recovery anchor in the zone stays a place you can stand and breathe.
 	_congregation = Congregation.build(self, _origin, _pillar_positions(),
@@ -310,9 +357,15 @@ func _build_alcoves() -> void:
 			# fans 16 of them for the same reason. Both that check and the new
 			# `check_shell_sealed.gd` now sweep laterally.
 			var back: Vector3 = centre + axis * (ALCOVE_D / 2.0 + T / 2.0)
-			MazeKit.wall(self, "AlcBack%s%d" % [s, k], back,
-				Vector3(T, 0, ALCOVE_W) if is_x else Vector3(ALCOVE_W, 0, T),
-				HEIGHT, _wall_mat)
+			# ⭐ The crate's recess has NO masonry at its end (2026-09-10): the exit GlitchWall
+			# stands there instead, built in `_build_glitch_walls()`, sealed until the runner
+			# has been through. In this zone a glitch wall IS the shell — see set_sealed().
+			if s == _crate_side and k == _crate_k:
+				pass
+			else:
+				MazeKit.wall(self, "AlcBack%s%d" % [s, k], back,
+					Vector3(T, 0, ALCOVE_W) if is_x else Vector3(ALCOVE_W, 0, T),
+					HEIGHT, _wall_mat)
 			for side_sign in [1.0, -1.0]:
 				var lat: Vector3 = Vector3(axis.z, 0, axis.x) * side_sign * (ALCOVE_W / 2.0 + T / 2.0)
 				# Side walls run along the recess DEPTH and are thin across it, so
@@ -338,83 +391,108 @@ func _build_lights() -> void:
 				continue
 			if randf() < DEAD_LIGHT_CHANCE:
 				continue
-			var f := MazeKit.light_strip(self, at, HEIGHT, 1.0, 8.0)
+			var f := MazeKit.light_strip(self, at, HEIGHT, STRIP_ENERGY, 8.0)
 			_lights.append(f)
+			# ⚠️ REGISTERED WITH THE LEVEL SO THEY FLICKER (2026-09-03). `_lights` is appended to
+			# here and NEVER READ AGAIN — the flicker loop in `backrooms.gd:_process()` iterates
+			# `_all_lights`, which only zone 1's build populates. So the Sprawl's 25-strip grid
+			# has been dead-steady for its whole life while the Lobby next door flickered, which
+			# is the single easiest way to tell a Backrooms room is not finished.
+			if _level_lights != null:
+				_level_lights.append(f)
+	# ⭐ One dim strip at mid-depth in each recess that is NOT the crate's (2026-09-10): a 10 m
+	# recess with no light of its own is a black slot, and seven of the eight hold something
+	# to find. No dead-light coin flip on these. The crate's stays dark on purpose.
+	for s in SIDES:
+		for k in [-1, 1]:
+			if s == _crate_side and k == _crate_k:
+				continue
+			var at2: Vector3 = _alc_centre(s, k) - _origin
+			var f2 := MazeKit.light_strip(self, at2, HEIGHT, RECESS_STRIP_ENERGY,
+				RECESS_STRIP_RANGE, RECESS_STRIP_EMISSION)
+			_lights.append(f2)
+			if _level_lights != null:
+				_level_lights.append(f2)
 
 
 # ---------------------------------------------------------------- the four walls
 
+func _wall_key(side: String, k: int) -> String:
+	return "%s%d" % [side, k]
+
+
+# Local-space centre of a recess's MOUTH plane (the perimeter plane).
+func _mouth(side: String, k: int) -> Vector3:
+	var axis: Vector3 = SIDE_AXIS[side]
+	return axis * HALF + Vector3(axis.z, 0, axis.x) * (float(k) * ALCOVE_AT)
+
+
+func exit_wall() -> GlitchWall:
+	return _walls.get(_real_side) as GlitchWall
+
+
+func exit_axis() -> Vector3:
+	return _exit_axis
+
+
+func _spawn_glitch(wall_name: String, size: Vector2, xz: Vector3, axis: Vector3,
+		real: bool, key: String) -> GlitchWall:
+	var w := GlitchWall.new()
+	w.name = wall_name
+	add_child(w)
+	w.setup(size, HEIGHT, real)
+	w.position = xz + Vector3(0, HEIGHT / 2.0, 0)
+	# Face the approach. The mesh's front is -Z, and the trigger sits at -Z too, so a single
+	# yaw orients both: `axis` is the OUTWARD normal, and this turns -Z back along it.
+	w.rotation.y = atan2(axis.x, axis.z)
+	w.touched.connect(_on_wall_touched.bind(key))
+	_walls[key] = w
+	return w
+
+
+# Four decoys on the perimeter, all fake, plus THE EXIT at the end of the crate's recess.
 func _build_glitch_walls() -> void:
 	for s in SIDES:
 		var axis: Vector3 = SIDE_AXIS[s]
-		var w := GlitchWall.new()
-		w.name = "Glitch" + s
-		add_child(w)
-		w.setup(Vector2(7.0, HEIGHT), HEIGHT, false)
-		w.position = axis * (HALF - 0.05) + Vector3(0, HEIGHT / 2.0, 0)
-		# Face the hall centre. The mesh's front is -Z, and the trigger sits at -Z
-		# too, so a single yaw orients both.
-		w.rotation.y = atan2(axis.x, axis.z)
-		w.touched.connect(_on_wall_touched.bind(s))
-		_walls[s] = w
+		_spawn_glitch("Glitch" + s, Vector2(GLITCH_GAP, HEIGHT),
+			axis * (HALF - GLITCH_INSET), axis, false, s)
+	# ⭐ THE FIFTH WALL (2026-09-10): where the crate recess's masonry would be, sized to the
+	# recess, keyed by the recess. Sealed by `_apply_gate()` until the runner has been through.
+	var ex_axis: Vector3 = SIDE_AXIS[_crate_side]
+	var end_xz: Vector3 = (_alc_centre(_crate_side, _crate_k) - _origin) \
+		+ ex_axis * (ALCOVE_D / 2.0 - GLITCH_INSET)
+	_spawn_glitch("Glitch" + _real_side, Vector2(ALCOVE_W, HEIGHT), end_xz, ex_axis,
+		true, _real_side)
 
 
-func _randomise_real_wall() -> void:
-	# Only walls that haven't already been outed can become the real one — promoting
-	# a wall that has gone solid would leave the zone with no reachable exit.
-	var candidates: Array = []
-	for s in SIDES:
-		var w: GlitchWall = _walls[s]
-		if is_instance_valid(w) and not w.is_solid():
-			candidates.append(s)
-	if candidates.is_empty():
-		# Every wall was touched and outed. Rather than soft-lock, tear one back
-		# open — the maze is allowed to cheat in the player's favour here.
-		var revived: String = SIDES[randi() % SIDES.size()]
-		_walls[revived].revive()
-		candidates = [revived]
-	for s in SIDES:
-		if is_instance_valid(_walls[s]):
-			_walls[s].is_real = false
-	_real_side = candidates[randi() % candidates.size()]
-	_walls[_real_side].is_real = true
-
-	# ⚠️ THE GATE FOLLOWS THE RE-ROLL TOO (2026-08-18). A wrong wall re-randomises which one
-	# is real, so the seal has to move with it: the wall that WAS real becomes an ordinary
-	# fake (unsealed, touchable, worth a strike) and the new one takes the gate. Applying
-	# this before the mark, because `_apply_gate()` is also what re-opens the answer when
-	# the runner has already been through.
-	_apply_gate()
-
-	# ⚠️ THE MARK FOLLOWS THE RE-ROLL (2026-08-17, B-R3). A wrong wall re-randomises which
-	# one is real, so a mark left where the dweller ran would be pointing at a wall that is
-	# now a fake — a tell that lies is worse than no tell, and this one was earned. If the
-	# dweller has already run, the new real wall is marked in the same breath.
-	if _dweller_done:
-		_mark_real_wall()
-
-	# Move the silence pocket to the new real wall.
+# The silence pocket and the water/whisper tell, built ONCE at the exit (2026-09-10; they
+# used to be rebuilt on every re-roll). The pocket is the deep half of the exit recess.
+#
+# The positive tell (BUG_FIX.md 3.5, revised after playtest): silence alone tested as too
+# subtle, and the first version of this tell (a procedural hum) used unit_size=4.5 — audible
+# only once you were basically already at the correct wall. Two layers: `water` carries from
+# far off as a background cue, `whisper` confirms up close. Both sit at the wall itself and
+# stay OFF the "Backrooms" bus on purpose — routing through the bus SilenceZone ducks would
+# have the pocket mute the very tell it is supposed to provide.
+func _build_tells() -> void:
+	var wall := exit_wall()
+	if not is_instance_valid(wall):
+		return
 	if is_instance_valid(_silence):
 		_silence.queue_free()
-	var axis: Vector3 = SIDE_AXIS[_real_side]
+	var axis: Vector3 = _exit_axis
+	var is_x: bool = absf(axis.x) > 0.5
+	var pocket_centre: Vector3 = (_alc_centre(_crate_side, _crate_k) - _origin) \
+		+ axis * (ALCOVE_D / 4.0) + Vector3(0, HEIGHT / 2.0, 0)
+	var pocket_size := Vector3(ALCOVE_D / 2.0, HEIGHT, ALCOVE_W) if is_x \
+		else Vector3(ALCOVE_W, HEIGHT, ALCOVE_D / 2.0)
 	_silence = SilenceZone.new()
-	MazeKit.zone_box(self, _silence, axis * (HALF - 5.0) + Vector3(0, HEIGHT / 2.0, 0),
-		Vector3(11.0, HEIGHT, 11.0), "SilencePocket")
+	MazeKit.zone_box(self, _silence, pocket_centre, pocket_size, "SilencePocket")
 
-	# The positive tell (BUG_FIX.md 3.5, revised after playtest): silence alone tested
-	# as too subtle, and the first version of this tell (a procedural hum) used
-	# unit_size=4.5 — audible only once you were basically already at the correct
-	# wall, in a 40x40 m room with 4 identical ones. Two layers now, both MUCH wider
-	# range so there's something to actually walk toward from across the hall:
-	# `water` carries from far off as a background cue, `whisper` confirms up close.
-	# Both sit at the wall itself (not the wider silence pocket) and stay OFF the
-	# "Backrooms" bus on purpose — routing through the bus SilenceZone ducks would
-	# have the pocket mute the very tell it's supposed to provide.
 	if is_instance_valid(_tell_water):
 		_tell_water.queue_free()
 	if is_instance_valid(_tell_whisper):
 		_tell_whisper.queue_free()
-
 	_tell_water = AudioStreamPlayer3D.new()
 	var water_stream := GameState.load_audio("water")
 	if water_stream:
@@ -424,7 +502,7 @@ func _randomise_real_wall() -> void:
 		_tell_water.bus = "Master"
 		_tell_water.finished.connect(_tell_water.play)
 	add_child(_tell_water)
-	_tell_water.position = _walls[_real_side].position
+	_tell_water.position = wall.position
 	if _tell_water.stream:
 		_tell_water.play()
 
@@ -437,18 +515,25 @@ func _randomise_real_wall() -> void:
 		_tell_whisper.bus = "Master"
 		_tell_whisper.finished.connect(_tell_whisper.play)
 	add_child(_tell_whisper)
-	_tell_whisper.position = _walls[_real_side].position
+	_tell_whisper.position = wall.position
 	if _tell_whisper.stream:
 		_tell_whisper.play()
 
 
-func _on_wall_touched(is_real: bool, side: String) -> void:
+# A decoy touched: it goes solid and the room gains a watcher. The exit touched: cleared.
+# ⚠️ NOTHING RE-ROLLS (2026-09-10). The exit is fixed by construction — the recess the crate
+# stood in — so a mistake can no longer move it, and the mark the runner left on it can
+# never be made a lie. (Before this, a fake touch re-randomised the real wall, which was
+# right while the four were identical guesses and wrong from the moment the player had
+# WATCHED something go through one specific wall.)
+func _on_wall_touched(is_real: bool, key: String) -> void:
 	if is_real:
 		cleared.emit()
-	else:
-		_walls[side].go_solid()
-		mistake.emit()
-		_randomise_real_wall()
+		return
+	var w: GlitchWall = _walls.get(key)
+	if is_instance_valid(w):
+		w.go_solid()
+	mistake.emit()
 
 
 # ---------------------------------------------------------------- pressure
@@ -538,13 +623,16 @@ func _build_alcove_contents() -> void:
 	for spec in [["N", 1], ["W", -1], ["S", 1], ["E", -1]]:
 		var side := String(spec[0])
 		var k := int(spec[1])
-		var p: Vector3 = alc.call(side, k)
+		# ⭐ CRATE_IN from the MOUTH, not at the recess centre (2026-09-10): the recess is 10 m
+		# deep now and the box stands near its opening, so the run to the end wall is the
+		# long way and the player at the mouth sees the whole of it. The three furniture
+		# props take the same offset, so no recess is identifiable by where its box stands.
+		var axis: Vector3 = SIDE_AXIS[side]
+		var p: Vector3 = _mouth(side, k) + axis * CRATE_IN
 		if side == _crate_side and k == _crate_k:
-			# Set back into the recess and turned to face the hall, so the lid opens toward
-			# whoever walked in after the whisper.
-			var axis: Vector3 = SIDE_AXIS[side]
-			_crate = SprawlCrate.build(self, "SprawlCrate",
-				p + axis * 0.55, atan2(-axis.x, -axis.z))
+			# Turned to face the hall, so the lid opens toward whoever walked in after the
+			# whisper — and the thing inside runs the other way.
+			_crate = SprawlCrate.build(self, "SprawlCrate", p, atan2(-axis.x, -axis.z))
 			_crate.opened.connect(_on_crate_opened)
 			continue
 		var b := CSGBox3D.new()
@@ -686,12 +774,15 @@ func _on_crate_opened() -> void:
 	crate_scare.emit()
 	Screamer.flash_scare(CRATE_SCARE_IMAGE, CRATE_SCARE_AUDIO, CRATE_SCARE_HOLD)
 
-	# ...and the thing that was in it leaves. Spawned a step out of the recess, facing the
-	# hall, so it is never standing inside the geometry it came out of (Issue 59 — CSG
-	# backfaces do not collide, so "inside a wall" is a placement bug you cannot ray your
-	# way out of afterwards).
+	# ...and the thing that was in it leaves. Spawned a step BEHIND the crate, deeper into the
+	# recess, on the line it is about to run — never inside the geometry it came out of
+	# (Issue 59 — CSG backfaces do not collide, so "inside a wall" is a placement bug you
+	# cannot ray your way out of afterwards), and never in the hall between the box and the
+	# player (2026-09-10: `+ axis`, see DWELLER_OUT).
 	var axis: Vector3 = SIDE_AXIS[_crate_side]
-	var at: Vector3 = _alc_centre(_crate_side, _crate_k) - axis * DWELLER_OUT
+	var base: Vector3 = _crate.global_position if is_instance_valid(_crate) \
+		else _alc_centre(_crate_side, _crate_k)
+	var at: Vector3 = base + axis * DWELLER_OUT
 	_dweller = SprawlDweller.build(self, "SprawlDweller", Vector3(at.x, _origin.y, at.z))
 	if is_instance_valid(_crate):
 		_dweller.adopt_voice(_crate.voice_players())
@@ -714,7 +805,7 @@ func _on_crate_opened() -> void:
 func _start_the_run() -> void:
 	if not is_instance_valid(_dweller) or _dweller_done:
 		return
-	_dweller.run_to((_walls[_real_side] as Node3D).global_position)
+	_dweller.run_to((exit_wall() as Node3D).global_position)
 	dweller_running.emit(_dweller)
 
 
@@ -722,7 +813,7 @@ func _start_the_run() -> void:
 func _on_dweller_arrived() -> void:
 	_dweller_done = true
 	if is_instance_valid(_dweller):
-		_voice = _dweller.release_voice(_walls[_real_side])
+		_dweller.release_voice(exit_wall())
 	# ⚠️ THIS IS THE GATE OPENING, and it is the only place it opens. Everything else about
 	# the beat is presentation; this line is the zone's win condition becoming reachable.
 	_apply_gate()
@@ -734,14 +825,29 @@ func _on_dweller_arrived() -> void:
 # sealed one; afterwards, nothing is. The three fakes are never sealed — touching one is
 # still a wrong answer and still costs `backrooms.gd:WRONG_WALL_PANIC`.
 #
-# ⚠️ Written as a sweep over all four rather than as "seal the new one, unseal the old one":
-# `_randomise_real_wall()` can promote a REVIVED wall, and `revive()` rebuilds the trigger
-# from scratch, so the only state that can be trusted is the one recomputed from `_real_side`.
+# ⚠️ Written as a sweep over ALL the walls rather than as "seal the new one, unseal the old
+# one": `revive()` rebuilds a trigger from scratch, so the only state that can be trusted is
+# the one recomputed from `_real_side`. Since 2026-09-10 there are five walls — four decoys
+# keyed by side and the exit keyed by its recess — and nothing re-rolls; the sweep stays.
+# ⭐ THE GATE AND THE PAINT ARE ONE SWEEP (2026-09-03).
+#
+# ⚠️ EVERY WALL IS RED UNTIL THE RUNNER HAS BEEN THROUGH ONE. Before this, `is_real` drove
+# nothing visual at all: four walls built by one loop, same size, same texture, same shader,
+# same tear. The player could stand in front of the real one and learn nothing. Now the whole
+# room is visibly WRONG, and the thing in the crate is the only way to find out which wall is
+# not — which is exactly the flow the crate gate already enforced mechanically and never showed.
+#
+# ⚠️ RECOMPUTED FROM `_real_side` EVERY TIME, never "paint the new one / unpaint the old one".
+# `revive()` rebuilds a wall's material from scratch, and a re-roll moves `_real_side` — a
+# differential update would leave a yellow wall that is no longer real, which is worse than no
+# mark at all (the same reasoning `set_agitated()` already carries).
 func _apply_gate() -> void:
-	for s in SIDES:
-		var w: GlitchWall = _walls.get(s)
+	for key in _walls.keys():
+		var w: GlitchWall = _walls.get(key)
 		if is_instance_valid(w):
-			w.set_sealed(s == _real_side and not _dweller_done)
+			w.set_sealed(key == _real_side and not _dweller_done)
+			var revealed: bool = _dweller_done and key == _real_side
+			w.set_tint(GlitchWall.TINT_REAL if revealed else GlitchWall.TINT_FAKE)
 
 
 func real_wall_is_sealed() -> bool:
@@ -754,20 +860,7 @@ func real_wall_is_sealed() -> bool:
 # here; `set_agitated()` drives the shader's own vertex-jitter amplitude instead, and the
 # whisper the player followed into the dark stays at the wall it left through.
 func _mark_real_wall() -> void:
-	for s in SIDES:
-		var w: GlitchWall = _walls[s]
+	for key in _walls.keys():
+		var w: GlitchWall = _walls.get(key)
 		if is_instance_valid(w):
-			w.set_agitated(s == _real_side)
-	_move_voice_to(_walls[_real_side])
-
-
-func _move_voice_to(to: Node3D) -> void:
-	for a in _voice:
-		if not is_instance_valid(a) or not is_instance_valid(to):
-			continue
-		var node := a as Node3D
-		if node.get_parent() == to:
-			continue
-		node.get_parent().remove_child(node)
-		to.add_child(node)
-		node.position = Vector3(0, 0, 0.4)
+			w.set_agitated(key == _real_side)

@@ -18,7 +18,9 @@ class_name ContainmentCell
 # that level is 6. The booth's collider is the only physical thing here; the occupant has
 # none. If a future session wants this to open, it is a new level, not an edit.
 #
-# ⚠️ IT USES `Void_creature.glb` AND `creature_object12.gd`'s PALETTE — HUE SHARED, LEVEL
+# ⚠️ IT USES `hollow_crown.glb` (`CreatureAnim.GLB_PATH`, the same asset the Breach's Object 12
+# and the Void's stalkers use — it replaced `Void_creature.glb`, which had no animations at all,
+# on 2026-09-03) AND `creature_object12.gd`'s PALETTE — HUE SHARED, LEVEL
 # SCALED (revised 2026-08-18). Meeting it here and being hunted by it one level later have
 # to be recognisably the same thing, so `SPECIMEN_ALBEDO` and `SPECIMEN_EMISSION_COLOR`
 # are that script's colours verbatim and are not to be re-picked. What is NOT shared is the
@@ -47,7 +49,17 @@ class_name ContainmentCell
 # ⚠️ Emission does not illuminate anything in this project (no GI, no glow), so a liner
 # raises the BACKGROUND without touching the figure. That is the whole reason it works.
 
-const GLB_PATH := "res://assets/models/Void_creature.glb"
+# ⚠️ The model is loaded by `CreatureAnim`, not from here — one path, one place. GLB_PATH is
+# kept only because it is the name the header and the tests talk about; it now points at the
+# same asset `creature_anim.gd` uses, and a mismatch between the two would mean the cell showed
+# a different creature from the one that hunts you in the Breach, which is the entire point of
+# this prop.
+const GLB_PATH := CreatureAnim.GLB_PATH
+
+# The caged specimen breathes. See `_build_occupant()` for why this clip and this rate.
+const IDLE_RATE := 0.15
+
+var _anim: CreatureAnim = null
 
 const SIZE := Vector2(2.0, 2.0)   # footprint, x by z
 const HEIGHT := 2.6
@@ -103,15 +115,27 @@ var _occupant_material: StandardMaterial3D
 var _player: CharacterBody3D
 var _yaw: float = 0.0
 
+# The blackout beat (kontur.gd BS1, 2026-09-09): the booth's own light dies with the room's.
+var _liners: Array = []                 # [[MeshInstance3D, original_emission_energy], ...]
+var _placard: Label3D = null
+var _placard_tint: Color = Color(1, 1, 1)
+var _glass_ref: StandardMaterial3D = null
+var _charged: bool = false
+
 
 # ---- the specimen's palette -----------------------------------------------------------
 # `creature_object12.gd:_apply_retint()`'s colours, verbatim. Do not re-pick them.
 const SPECIMEN_ALBEDO := Color(0.35, 0.4, 0.32)
 const SPECIMEN_EMISSION_COLOR := Color(0.4, 0.05, 0.05)
-# ...and the three numbers that are this level's, not the Breach's. 1.0 / 0.35 / 0.5 makes
-# the material byte-equivalent to the Breach's; see the header for what that measured.
+# ...and the three numbers that are this level's, not the Breach's. The Breach's loose
+# creature runs 1.0 / 0.12 / 0.2 (creature_object12.gd's `dim` / `EMISSION_BASE` / `specular`)
+# since its own 2026-09-07 darkness pass; setting these three to those values makes the
+# material match it again. They deliberately differ — the Breach meets this creature across a
+# lit facility, KONTUR at 1.5 m with a torch on it — and "the same creature" means the shared
+# HUE (SPECIMEN_ALBEDO / SPECIMEN_EMISSION_COLOR, verbatim above), not identical energies. If
+# the user ever wants identical numbers, that is the one edit.
 const SPECIMEN_DIM := 0.45             # albedo scale
-const SPECIMEN_EMISSION := 0.16        # emission energy (the Breach's is 0.35)
+const SPECIMEN_EMISSION := 0.16        # emission energy (the Breach's is 0.12 now)
 const SPECIMEN_SPECULAR := 0.0
 
 
@@ -166,6 +190,7 @@ func _build_shell() -> void:
 	# transparent, so the fight is invisible in a still and obvious in motion.
 	var glass := _glass_mat()
 	var liner := _liner_mat()
+	_glass_ref = glass          # BS1: charge() flashes this on the impact
 	var pane_w: float = SIZE.x - 2.0 * POST - 0.04
 	var pane_z: float = SIZE.y - 2.0 * POST - 0.04
 	var pane_h: float = HEIGHT - 0.30
@@ -173,16 +198,16 @@ func _build_shell() -> void:
 	_box("PaneN", Vector3(pane_w, pane_h, GLASS_T),
 		Vector3(0, pane_y, hz - GLASS_T), glass)
 	# ...and the one-sided backlit panel standing just inside it. See BACKLIT_ENERGY.
-	_backlit_panel("LinerNorth", Vector2(pane_w, pane_h),
-		Vector3(0, pane_y, BACKLIT_INSET), PI)
+	_capture_liner(_backlit_panel("LinerNorth", Vector2(pane_w, pane_h),
+		Vector3(0, pane_y, BACKLIT_INSET), PI))
 	# West: the clear viewing window, on the side the walking line runs down.
 	_box("PaneWest", Vector3(GLASS_T, pane_h, pane_z),
 		Vector3(-(hx - GLASS_T), pane_y, 0), glass)
 	# ⚠️ EAST IS AN OPAQUE BACKLIT LINER, NOT GLASS. The booth's east face stands 0.15 m
 	# from the Passage wall — nobody can get behind it, so it is worth more as the lit
 	# surface the occupant is a shadow against from the west than as a fourth window.
-	_box("LinerEast", Vector3(GLASS_T, pane_h, pane_z),
-		Vector3(hx - GLASS_T, pane_y, 0), liner)
+	_capture_liner(_box("LinerEast", Vector3(GLASS_T, pane_h, pane_z),
+		Vector3(hx - GLASS_T, pane_y, 0), liner))
 
 	# The door: an opaque steel leaf with an observation port, a wheel, a rail and a
 	# hazard placard. It is geometry only — no hinge, no `interact()`, nothing to press.
@@ -200,7 +225,7 @@ func _build_shell() -> void:
 	# facing +z solves both halves at once. It is drawn for anyone at the north end of the
 	# Passage and culled for anyone at the port, who therefore still looks straight
 	# through the opening at the occupant.
-	_backlit_panel("LinerSouth", Vector2(pane_w, pane_h), Vector3(0, pane_y, dz + 0.10), 0.0)
+	_capture_liner(_backlit_panel("LinerSouth", Vector2(pane_w, pane_h), Vector3(0, pane_y, dz + 0.10), 0.0))
 
 	# The port itself: recessed glass, a proud bead frame, and two bars.
 	var port_h: float = PORT_Y1 - PORT_Y0
@@ -260,6 +285,8 @@ func _build_shell() -> void:
 	plate.position = Vector3(-0.30, 0.90, dz - 0.06)
 	plate.rotation.y = PI
 	add_child(plate)
+	_placard = plate
+	_placard_tint = plate.modulate
 
 	# ⚠️ ONE collider for the whole booth. The occupant has none at all — a collider
 	# around the creature would be a thing the player could bump into through glass, and
@@ -284,15 +311,18 @@ func _build_occupant() -> void:
 	add_child(_occupant)
 
 	var visual: Node3D
-	if ResourceLoader.exists(GLB_PATH):
-		var scene: PackedScene = load(GLB_PATH)
-		visual = scene.instantiate()
-		# Blender adds a stray base cube to the export (creature_object12.gd removes the
-		# same one) — keep only the character.
-		var cube := visual.get_node_or_null("Cube")
-		if cube:
-			cube.queue_free()
-		_pose_arms_down(visual)
+	# ⭐ IT BREATHES NOW (2026-09-03). `_anim` is null only if the asset is missing.
+	_anim = CreatureAnim.build(_occupant)
+	if _anim:
+		visual = _anim.visual_root()
+		# ⚠️ `unsteady` (3.0 s), NEVER `shamble`. Measured over a full cycle, `shamble` wanders
+		# 0.515 m laterally and `unsteady` 0.197 m — and this booth's interior is about 2 m
+		# across with the occupant standing in the middle of it. At 5.5 s a shamble would
+		# visibly walk the specimen into its own glass.
+		# ⚠️ IDLE_RATE 0.15 gives the 3 s clip a ~20 s period: it reads as breathing and
+		# shifting weight, not as pacing. Still zero rules — no ScaryObject, no collider, no
+		# panic, no kill radius. It is a thing in a box that is alive.
+		_anim.play(CreatureAnim.CLIP_UNSTEADY, IDLE_RATE)
 	else:
 		# Fallback silhouette, so a missing GLB leaves a shape rather than an empty box.
 		visual = Node3D.new()
@@ -310,17 +340,27 @@ func _build_occupant() -> void:
 		head.mesh = sph
 		head.position.y = 2.32
 		visual.add_child(head)
-	_occupant.add_child(visual)
+		_occupant.add_child(visual)
 
 	# `creature_object12.gd`'s palette, scaled for this level's viewing distance — see the
 	# header for the measurement, and `SPECIMEN_DIM` for how to put it back.
-	_occupant_material = _specimen_mat()
+	#
+	# ⚠️ It DUPLICATES the model's own material now rather than building a fresh one, so the
+	# 1024 skin survives and SPECIMEN_ALBEDO multiplies it instead of replacing it. The three
+	# palette constants are unchanged; only their meaning moved.
 	var applied := 0
-	for mi in _mesh_instances(visual):
-		mi.material_override = _occupant_material
-		applied += 1
-	# ⚠️ A GLB WITH ONE MESH TODAY IS NOT A CONTRACT. `Void_creature.glb` currently
-	# instantiates a single skinned `WhiteClown` under `Armature/Skeleton3D`, and if a
+	if _anim:
+		_occupant_material = _anim.apply_tint(
+			SPECIMEN_ALBEDO, SPECIMEN_DIM, SPECIMEN_SPECULAR,
+			SPECIMEN_EMISSION_COLOR, SPECIMEN_EMISSION)
+		applied = _anim.mesh_instances().size()
+	else:
+		_occupant_material = _specimen_mat()
+		for mi in _mesh_instances(visual):
+			mi.material_override = _occupant_material
+			applied += 1
+	# ⚠️ A GLB WITH ONE MESH TODAY IS NOT A CONTRACT. `hollow_crown.glb` currently
+	# instantiates a single skinned `char1` under `Armature/Skeleton3D`, and if a
 	# re-export ever splits it, an override that reached only some of the parts would
 	# render half a pale man and look like a lighting bug rather than a missing call.
 	# `check_kontur_entities.gd` asserts every renderable carries this exact material.
@@ -328,26 +368,71 @@ func _build_occupant() -> void:
 		push_warning("ContainmentCell: no MeshInstance3D to retint — occupant will render raw")
 
 
-const _ARM_DROP_DEG := 80.0
-const _FOREARM_TUCK_DEG := 12.0
+# ⚠️ `_pose_arms_down()` / `_rotate_bone()` used to live here, a byte-identical third copy of
+# the same dead code in `creature_stalker.gd` and `creature_object12.gd`. It was measured in
+# 2026-08 to move nothing at all, and the model it was compensating for (a T-pose with no
+# animation tracks) has been replaced. Deleted rather than ported.
 
-func _pose_arms_down(instance: Node3D) -> void:
-	var skel := instance.find_child("Skeleton3D", true, false) as Skeleton3D
-	if not skel:
+
+# The blackout beat: when the black door blows the room's lights (kontur.gd:_begin_cell_blackout),
+# the booth's own backlit liners and its placard go dark too, so the occupant is lit ONLY by the
+# player's torch. Restored at the Kitchen. No panic, no rule — a lighting state.
+func _capture_liner(mi: MeshInstance3D) -> MeshInstance3D:
+	if is_instance_valid(mi) and mi.material_override:
+		_liners.append([mi, mi.material_override.emission_energy_multiplier])
+	return mi
+
+
+func set_dark(on: bool) -> void:
+	for entry in _liners:
+		var mi: MeshInstance3D = entry[0]
+		if is_instance_valid(mi) and mi.material_override:
+			mi.material_override.emission_energy_multiplier = 0.0 if on else float(entry[1])
+	if is_instance_valid(_placard):
+		_placard.modulate = Color(0.02, 0.02, 0.02) if on else _placard_tint
+
+
+# ⚠️ ZERO PANIC, CANNOT KILL, NO RULE (the user's call, Q3, 2026-09-09). Object 12 surges at the
+# glass once as the player passes in the dark: a loud snarl AT the port, a camera jolt, a lunge of
+# the occupant toward the viewing side, and an impact flash on the panes. It adds no ScaryObject, no
+# collider, no Screamer, no add_panic — so every assertion in check_kontur_entities (no rules, panic
+# delta 0) still holds. kontur.gd gates it on the blackout being live, which is only ever true after
+# gate 1, so the headless entities test — which never opens gate 1 — never fires it and still
+# measures a still, unsteady occupant.
+# ⚠️ apparition_snarl is a creature lunge, deliberately NOT a fatal screamer file — reusing a death
+# sting for a survivable beat teaches the player the death sound is free (INTRO.md's objection).
+func charge(player: Node3D) -> void:
+	if _charged:
 		return
-	_rotate_bone(skel, "mixamorig_LeftArm", deg_to_rad(_ARM_DROP_DEG))
-	_rotate_bone(skel, "mixamorig_RightArm", deg_to_rad(-_ARM_DROP_DEG))
-	_rotate_bone(skel, "mixamorig_LeftForeArm", deg_to_rad(_FOREARM_TUCK_DEG))
-	_rotate_bone(skel, "mixamorig_RightForeArm", deg_to_rad(-_FOREARM_TUCK_DEG))
-
-
-func _rotate_bone(skel: Skeleton3D, bone_name: String, angle_z: float) -> void:
-	var idx := skel.find_bone(bone_name)
-	if idx == -1:
-		return
-	var rest := skel.get_bone_rest(idx)
-	skel.set_bone_pose_rotation(idx,
-		rest.basis.get_rotation_quaternion() * Quaternion(Vector3.FORWARD, angle_z))
+	_charged = true
+	var snarl := GameState.load_audio("apparition_snarl")
+	if snarl:
+		var sp := AudioStreamPlayer3D.new()
+		sp.stream = snarl
+		sp.volume_db = 3.0
+		sp.max_db = 6.0
+		sp.unit_size = 8.0
+		add_child(sp)
+		sp.position = Vector3(0, 1.4, -SIZE.y / 2.0)
+		sp.finished.connect(sp.queue_free)
+		sp.play()
+	if player and player.has_method("jolt_camera"):
+		player.jolt_camera(0.16, 0.45)
+	if is_instance_valid(_occupant):
+		var rest := _occupant.position
+		var lunge := rest + Vector3(0, 0, -0.62)   # toward the port (-z), the player's side
+		var t := create_tween()
+		t.tween_property(_occupant, "position", lunge, 0.16) \
+			.set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+		t.tween_interval(0.18)
+		t.tween_property(_occupant, "position", rest, 0.6).set_trans(Tween.TRANS_SINE)
+	# The glass takes the hit — a white impact flash on the shared pane material, then dark.
+	if _glass_ref:
+		_glass_ref.emission_enabled = true
+		_glass_ref.emission = Color(0.9, 0.95, 1.0)
+		var f := create_tween()
+		f.tween_property(_glass_ref, "emission_energy_multiplier", 1.2, 0.05)
+		f.tween_property(_glass_ref, "emission_energy_multiplier", 0.0, 0.5)
 
 
 func _build_audio() -> void:

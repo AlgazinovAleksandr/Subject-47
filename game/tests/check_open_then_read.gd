@@ -42,6 +42,7 @@ var _swing_at_note := 0.0
 var _slide_at_note := 0.0
 var _presses_before_open := 0
 var _stick_angles: Array = []
+var _note_during_open := false
 
 
 func _initialize() -> void:
@@ -78,6 +79,7 @@ func _process(delta: float) -> bool:
 		"kontur_load": _kontur_load()
 		"kontur_stick": _kontur_stick()
 		"kontur_swing": _kontur_swing(delta)
+		"kontur_take": _kontur_take()
 		"kontur_done": _kontur_done()
 		"lab_load": _lab_load()
 		"lab_slide": _lab_slide(delta)
@@ -85,6 +87,7 @@ func _process(delta: float) -> bool:
 		"lab_done": _lab_done()
 		"house_load": _house_load()
 		"house_slide": _house_slide()
+		"house_read": _house_read()
 		"house_done": _house_done()
 		"done":
 			print("%d checks, %d failed" % [_checks, _fails])
@@ -142,26 +145,51 @@ func _kontur_stick() -> void:
 	_phase = "kontur_swing"
 
 
-# ⚠️ THE ASSERTION THIS FILE EXISTS FOR. Watch across real frames, and record the hinge angle
-# in the frame the note first appears. Under the old code that angle was 0.
+# ⚠️ REWRITTEN 2026-09-09 (capture #1). The mailbox is now open-then-TAKE, like the Lab cabinet:
+# the third press SWINGS THE SLOT OPEN and reveals a PAGE sitting in it — and shows no note. The
+# note only appears when a SEPARATE press takes the page. So this phase asserts the swing reveals
+# a page and NOT a note; the take is checked in the next phase.
 func _kontur_swing(_delta: float) -> void:
 	var hinge: Node3D = _mailbox.get("door_hinge")
-	if bool(_note_ui.get("is_open")) and _swing_at_note < 0.0:
+	if bool(_note_ui.get("is_open")):
+		_note_during_open = true
 		_swing_at_note = absf(hinge.rotation_degrees.y)
 	if _elapsed - _t0 < 1.2:
 		return
-	_ok("the note appeared at all", _swing_at_note >= 0.0)
-	_ok("the door had already SWUNG when the note appeared",
-		_swing_at_note >= SWING_MIN_DEG,
-		"%.1f deg of %.0f open" % [_swing_at_note, 105.0])
+	_ok("opening the slot shows NO note by itself", not _note_during_open)
+	var paper := _find(_mailbox, func(n: Node) -> bool:
+		return n is MeshInstance3D and String(n.name) == "MailboxPage")
+	_ok("a page is now sitting in the open slot as an object", paper != null)
+	_ok("the door had already SWUNG open", absf(hinge.rotation_degrees.y) >= SWING_MIN_DEG,
+		"%.1f deg of %.0f open" % [absf(hinge.rotation_degrees.y), 105.0])
+	_phase = "kontur_take"
+
+
+# The second press on the open slot takes the page and THEN reads it.
+func _kontur_take() -> void:
+	if _gs:
+		_gs.journal.clear()
+	_mailbox.call("interact")
+	_t0 = _elapsed
 	_phase = "kontur_done"
 
 
 func _kontur_done() -> void:
+	if _elapsed - _t0 < 0.4:
+		return
+	_ok("taking the page opens the note", bool(_note_ui.get("is_open")))
+	var archived := false
+	if _gs:
+		for e in _gs.journal:
+			archived = true
+	_ok("and it reaches the journal, so TAB can return it later", archived)
+	var paper := _find(_mailbox, func(n: Node) -> bool:
+		return n is MeshInstance3D and String(n.name) == "MailboxPage")
+	_ok("the page is gone from the slot once taken", paper == null)
 	_note_ui.call("_close")
-	# Re-reading an opened box must not wait on a tween that will never run again.
+	# Re-reading an opened, emptied box must not wait on a tween that will never run again.
 	_mailbox.call("interact")
-	_ok("re-reading an already-open box shows the page immediately",
+	_ok("re-reading an already-taken box shows the page immediately",
 		bool(_note_ui.get("is_open")))
 	_note_ui.call("_close")
 	_phase = "lab_load"
@@ -296,6 +324,11 @@ var _house_front: Node3D = null
 var _house_body0 := Vector3.ZERO
 var _house_z0 := 0.0
 var _house_slide_at_note := -1.0
+# 2026-09-10 — TWO PRESSES. E1 opens and shows a page; E2 on the PAGE reads it. The journal
+# size is the proof that opening archived nothing.
+var _house_journal0 := 0
+var _house_page: Node = null
+var _house_note_seen_early := false
 
 
 func _house_load() -> void:
@@ -335,6 +368,18 @@ func _house_load() -> void:
 	_house_body0 = (_house_drawer as Node3D).global_position
 	_house_z0 = front.global_position.z
 	_house_slide_at_note = -1.0
+	_house_journal0 = (_gs.journal as Array).size()
+	_house_note_seen_early = false
+	# The page is built shut inside the box: present, but not yet reachable.
+	_house_page = _find(_house_drawer, func(n: Node) -> bool:
+		return String(n.name) == "DrawerPage")
+	_ok("a page is built into the drawer before it is ever opened", _house_page != null)
+	if _house_page:
+		var col0: CollisionShape3D = _find(_house_page, func(n: Node) -> bool:
+			return n is CollisionShape3D)
+		_ok("...and its grab volume is DISABLED while the drawer is shut (Issue 66)",
+			col0 != null and col0.disabled)
+		_ok("...and the page itself refuses E while shut", not bool(_house_page.call("can_interact")))
 	player.ai_interact()
 	_t0 = _elapsed
 	_phase = "house_slide"
@@ -343,19 +388,54 @@ func _house_load() -> void:
 func _house_slide() -> void:
 	# ⚠️ THE ASSERTION THIS PHASE EXISTS FOR — sampled across REAL frames, never in the frame
 	# the interaction was requested, and TIME-based because a headless run is uncapped so a
-	# frame count is not a clock.
-	var moved: float = absf(_house_front.global_position.z - _house_z0)
-	if bool(_note_ui.get("is_open")) and _house_slide_at_note < 0.0:
-		_house_slide_at_note = moved
+	# frame count is not a clock. Since 2026-09-10 the note must NOT appear on the first press at
+	# all: the drawer slides, the page shows, and nothing else happens.
+	if bool(_note_ui.get("is_open")):
+		_house_note_seen_early = true
 	if _elapsed - _t0 < 1.4:
 		return
 	var consts: Dictionary = (_house_drawer.get_script() as GDScript).get_script_constant_map()
 	var slide: float = absf(float(consts.get("SLIDE", 0.0)))
+	var moved: float = absf(_house_front.global_position.z - _house_z0)
 	_ok("read the drawer's own SLIDE constant", slide > 0.01, "%.2f m" % slide)
-	_ok("the note appeared at all", _house_slide_at_note >= 0.0)
-	_ok("the drawer had already SLID OPEN when the note appeared",
-		_house_slide_at_note >= slide * 0.6,
-		"%.3f m of %.2f" % [_house_slide_at_note, slide])
+	_ok("the drawer SLID OPEN on the first press", moved >= slide * 0.6,
+		"%.3f m of %.2f" % [moved, slide])
+	_ok("...and the first press showed NO note", not _house_note_seen_early
+		and not bool(_note_ui.get("is_open")))
+	_ok("...and archived nothing", (_gs.journal as Array).size() == _house_journal0,
+		"journal %d -> %d" % [_house_journal0, (_gs.journal as Array).size()])
+	_ok("the drawer no longer answers E itself", not bool(_house_drawer.call("can_interact")))
+	var page_ok := is_instance_valid(_house_page) and (_house_page as Node3D).visible
+	_ok("the page is there to be SEEN in the open tray", page_ok)
+	if page_ok:
+		var col: CollisionShape3D = _find(_house_page, func(n: Node) -> bool:
+			return n is CollisionShape3D)
+		_ok("...with its grab volume ENABLED now the slide has finished",
+			col != null and not col.disabled)
+		_ok("...and it came OUT of the counter with the box",
+			(_house_page as Node3D).global_position.z < _house_body0.z - 0.1,
+			"page z %.3f vs body z %.3f" % [(_house_page as Node3D).global_position.z, _house_body0.z])
+		# The second press: aim at the PAGE, through the shipping ray, and it must be the page
+		# that answers — not the drawer standing open around it.
+		var player := current_scene.get_node_or_null("Player") as CharacterBody3D
+		player.ai_look_at((_house_page as Node3D).global_position)
+		_ok("the interact ray finds the PAGE, not the drawer",
+			player.ai_interact_target() == _house_page,
+			"ray saw %s" % [player.ai_interact_target()])
+		player.ai_interact()
+	_t0 = _elapsed
+	_phase = "house_read"
+
+
+func _house_read() -> void:
+	if _elapsed - _t0 < 0.4:
+		return
+	_ok("the SECOND press opens the note", bool(_note_ui.get("is_open")))
+	_ok("...and archives it exactly once",
+		(_gs.journal as Array).size() == _house_journal0 + 1,
+		"journal %d -> %d" % [_house_journal0, (_gs.journal as Array).size()])
+	_ok("...and the page is gone from the drawer",
+		not bool(_house_drawer.call("has_page")))
 	_phase = "house_done"
 
 

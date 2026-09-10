@@ -14,6 +14,7 @@ func _ready() -> void:
 	# ⚠️ The Void is level 8 since THE NIGHTMARE was inserted at 7 (2026-07-27).
 	# The scene file is still level_3.tscn — its name has never matched its index.
 	GameState.current_level = 8
+	_black_background()
 
 	var ambient: AudioStreamPlayer = get_node_or_null("AmbientPlayer")
 	if ambient:
@@ -166,3 +167,36 @@ func _tick_shake(delta: float) -> void:
 
 func _reset_shake_timer() -> void:
 	_shake_timer = randf_range(SHAKE_MIN, SHAKE_MAX)
+
+
+# ⭐ THE VOID WAS RENDERING A DAYLIT PROCEDURAL SKY (2026-09-03).
+#
+# ⚠️ Every other interior in the game switched to a black background long ago and each one wrote
+# down the same reason: `assets/elements/environment.tscn` is `BG_SKY` over a
+# `ProceduralSkyMaterial`, so anywhere the shell has a hole the player sees blue sky. The Lab and
+# House did it in Session 11, the Corridor did it because a mirror was the only thing that could
+# ever see the sky, the Backrooms did it after a player photographed a horizon inside the Sprawl.
+# **The Void never did** — and the Void is the level with the most holes in it by construction:
+# `check_shell_sealed.gd` measures **142 escaping rays from 48 standable points** there, filed as
+# an exact count in `backlogs/08-void.md`, and Room C's floor is deliberately broken open.
+#
+# Found by a play-test probe on 2026-09-03: a pale sky dome filling the upper half of every frame
+# and daylit panels showing through the side walls, in the one level whose four creatures are
+# meant to read as dark shapes. It is the single largest "the game is too light" defect left.
+#
+# ⚠️ THIS IS NOT A LIGHTING CHANGE and the Void's ambient is deliberately untouched. Only
+# `background_mode` and `ambient_light_source` move, which is exactly what `backrooms.gd`
+# measured as a 0.0026 change in linear ambient luminance — i.e. the rooms are as bright as they
+# were, and the holes are now black instead of blue.
+# ⚠️ DUPLICATE FIRST. That `Environment` sub-resource is SHARED by every level; mutating it in
+# place would follow the player into the next one.
+# ⚠️ It does NOT close the holes. `check_shell_sealed.gd`'s 142 rays are still 142 rays, and the
+# fix for those is geometry. This stops them being advertised in blue.
+func _black_background() -> void:
+	if world_env == null or world_env.environment == null:
+		return
+	var env: Environment = world_env.environment.duplicate()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0, 0, 0)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	world_env.environment = env

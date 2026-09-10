@@ -36,7 +36,17 @@ func _ready() -> void:
 # The emission is what keeps a sheet of paper findable in these dark levels, so
 # it stays even now that there's a texture: albedo carries the paper, emission
 # carries the "look at me".
-static func paper_material(trap: bool) -> StandardMaterial3D:
+# ⭐ THE DARKENED LEVELS DIM IT (2026-09-07, cross-level X64/X65 resolved by the user).
+# `emission_scale` is ADDITIVE and defaults to 1.0, so every existing caller renders byte for
+# byte as before; only the Lab and the House pass anything else. With those two at ambient 0.0
+# and an 11 m torch, a self-lit prop is the ONLY thing visible at distance — measured before the
+# change, the House's exit door was legible at ~21 m and a note at 6 m with the torch fully off,
+# which is a permanent north-star in levels that were darkened for blind exploration.
+# ⚠️ DIMMED, NOT KILLED, and that was the decision: the House GATES its payoff on reading all
+# three safe notes and the Lab's locker gates on one, so a note that cannot be found is a level
+# that cannot be finished. Halving moves them from "visible across the building" to "visible when
+# the beam is near", which is the ask.
+static func paper_material(trap: bool, emission_scale: float = 1.0) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.roughness = 0.95
 	if ResourceLoader.exists(PAPER_TEX):
@@ -45,13 +55,13 @@ static func paper_material(trap: bool) -> StandardMaterial3D:
 		mat.emission_enabled = true
 		mat.emission_texture = mat.albedo_texture
 		mat.emission = Color(0.5, 0.08, 0.08) if trap else Color(0.5, 0.46, 0.33)
-		mat.emission_energy_multiplier = 0.5 if trap else 0.6
+		mat.emission_energy_multiplier = (0.5 if trap else 0.6) * emission_scale
 	else:
 		# Pre-texture fallback — the original flat look.
 		mat.albedo_color = Color(0.55, 0.15, 0.15) if trap else Color(0.05, 0.05, 0.04)
 		mat.emission_enabled = true
 		mat.emission = Color(0.4, 0.05, 0.05) if trap else Color(0.55, 0.5, 0.35)
-		mat.emission_energy_multiplier = 0.5 if trap else 0.6
+		mat.emission_energy_multiplier = (0.5 if trap else 0.6) * emission_scale
 	return mat
 
 

@@ -71,7 +71,7 @@ const NEAR_AUDIO := "sprawl_call_near"
 # recess): far cue **-18.0 dBFS, margin +4.0**; at the crate **-12.2, margin +9.8**. The
 # near confirm is +10.1 at 2 m, +3.1 at 10 m and **below the bed past ~18 m**, which is
 # what makes the pair two layers rather than two copies.
-const FAR_DB := 6.0
+const FAR_DB := 7.5   # 2026-09-10: +1.5 dB — the crate stands near its recess MOUTH now and the far corner recesses run 10 m deep, so the worst standable point is ~56 m away; re-measured by check_sprawl_crate
 const NEAR_DB := 6.0
 const FAR_UNIT := 22.0
 const NEAR_UNIT := 4.0

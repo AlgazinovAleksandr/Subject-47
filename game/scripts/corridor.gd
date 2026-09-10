@@ -41,9 +41,11 @@ const BEARTRAPS := [  # [distance, lateral offset]
 # of the unconditional +2/s dread pressure), so any stretch tagged as both was a
 # guaranteed +5/s with the flashlight off — and the noclip ending (_ev_noclip_onset)
 # FORCE-KILLS the flashlight for the final ~10 m with zero player agency to avoid
-# it. A long level with beartrap QTEs earlier can also burn through the 240 s
-# battery before reaching here, forcing the same double tax by attrition rather
-# than choice. Either way it made the ending an unavoidable panic spike report
+# it. (⚠️ The second half of this reasoning is now HISTORY, not a live hazard: it used to add
+# that "a long level with beartrap QTEs earlier can also burn through the 240 s battery before
+# reaching here". The battery has been infinite since 2026-09-03 — see `player.gd:
+# INFINITE_BATTERY` — so attrition can no longer force the tax. The force-kill above still can,
+# which is why the zone stays dropped.) Either way it made the ending an unavoidable panic spike
 # read as "impossible." Dropped entirely — the dread zone's own pressure is
 # already this stretch's difficulty signature; it doesn't need a second, stacking
 # mechanic under it.
@@ -192,8 +194,33 @@ const MIRROR_STARE_PITCH := Vector2(0.72, 1.35)
 #     pulls them through the traps, and it is a lie.
 const FALSE_DOOR_DIST := 185.0
 const FALSE_DOOR_TEX := TEX_DIR + "hotel_door_217.png"
-const FALSE_DOOR_SCARE_PATH := TEX_DIR + "screamer_false_door.png"
-const FALSE_DOOR_HOLD := 0.9        # how long the picture is held; the audio outlives it
+# ⭐⭐ THE THING COMES OUT OF THE DOOR NOW (2026-09-10, the user's replay: *"regenerate the image
+# of the jumpscare behind the fake door. And maybe make it look more natural — like something
+# is actually showing up from there and trying to make you scared and then runs away. Make it
+# louder also"*). Until this pass E swung the leaf behind a 0.9 s FULLSCREEN picture
+# (`screamer_false_door.png`, retired to assets_src/textures/superseded/). Now a generated
+# cutout (`door_lunger.gd`) stands in the doorway as the leaf swings, lunges to arm's length
+# with the sting and a jolt, holds there, then turns and sprints away round the corner into the
+# dark stretch ahead. The camera is pinned on it for FALSE_DOOR_WATCH so the retreat is SEEN —
+# that is the half the user asked for by name. Chosen over "lunge then a short flash" and "only
+# a new picture" by the user.
+# ⚠️ LOUDER, WITH NO HEADROOM LEFT: the sting is already at the Master limiter's ceiling (see
+# below), so "louder" is (1) a longer pre-silence (FALSE_DOOR_SILENCE), (2) the sting on an
+# emitter AT the figure with `max_db` 6 — at 0.6 m that is +6 dB into the limiter, denser not
+# clipped — and (3) `impact_thud`, a sub-bass hit under it that the scream's spectrum does not
+# carry (`tools/make_sfx_impact.py`). Nothing else in the beat moved: the 15 panic, the scrawl.
+const FALSE_DOOR_FIGURE_PATH := TEX_DIR + "false_door_lunger.png"
+const FALSE_DOOR_FIGURE_H := 2.0
+const FALSE_DOOR_SILENCE := 1.0      # Ambience dip opened at E, so the sting lands in a hole
+const FALSE_DOOR_LUNGE_AT := 0.30    # s after E — the leaf is ~50 deg open by then
+const FALSE_DOOR_LUNGE_TIME := 0.22
+const FALSE_DOOR_LUNGE_REACH := 0.6  # m from the eye it stops at
+const FALSE_DOOR_HOLD := 0.28        # s in your face before it turns
+const FALSE_DOOR_FLEE_SPEED := 6.0   # m/s — a sprint, the same 5-6 m/s band as the runner
+const FALSE_DOOR_FLEE_AHEAD := 10.0  # path metres past the corner it runs to
+const FALSE_DOOR_FLEE_FADE := 2.5    # ...fading over its last metres
+const FALSE_DOOR_WATCH := 1.6        # s the camera is pinned to it from E
+const FALSE_DOOR_IMPACT := "impact_thud"
 # ⭐ THE SHARED SCREAMER STING (2026-08-18). Playtest capture 002: *"Use the sounds for shared
 # screamers and make it louder."* This was `false_door_scream`, a purpose-made file
 # (`tools/make_sfx_false_door.py`, now retired) chosen because every existing candidate was
@@ -223,7 +250,7 @@ const FALSE_DOOR_HOLD := 0.9        # how long the picture is held; the audio ou
 # `check_corridor_events.gd` asserts the two stay different.
 const FALSE_DOOR_SCREAM := "all_levels_screamer"
 const FALSE_DOOR_SCRAWL := "IT WAS AN ILLUSION"
-const FALSE_DOOR_SCRAWL_DELAY := 0.45   # lands as the picture drops, not under it
+const FALSE_DOOR_SCRAWL_DELAY := 1.6    # from E: as the camera is handed back and it is gone
 # The blood-red the game has spent three levels teaching means "the way out" — copied
 # verbatim from `_dress_back_door()` and `door.gd:door_material()`. The deception is carried
 # by this at range and by the 217 plate up close.
@@ -499,6 +526,7 @@ func _process(delta: float) -> void:
 	# _make_mirror_real(). One-shot; the array is cleared by the call.
 	if not _mirror_figure_spots.is_empty():
 		_spawn_mirror_figures()
+	_tick_false_door_watch(delta)
 
 	# Falling through the floor owns the rest of the frame — nothing below this point
 	# (turn-mirror proximity, the hush, door slams) means anything once the level is over.
@@ -883,15 +911,44 @@ func _spawn_panels() -> void:
 	# Cursed panels (gaze fills panic): [dist, side, w, h, texture, y_center, intensity]
 	# The plain mirror.png stays a full-height side-wall panel — now one on each
 	# wall in Zone C so the player is flanked by their own reflection.
+	# ⚠️ The clock is NOT in this table any more (2026-09-10): it is a CASE built from parts by
+	# `_spawn_grandfather_clock()` below, at the same d = 48 on the same wall, with the same
+	# scare_intensity 1.0 — the user's call, made knowing it killed them at 14 s.
 	var cursed := [
 		[25.0, -1.0, 1.5, 1.2, "painting.png", 1.8, 0.8],
-		[48.0, 1.0, 2.0, 3.0, "clock.png", 1.5, 1.0],
 		[268.0, 1.0, 1.5, 1.2, "painting.png", 1.8, 1.2],
 		[285.0, -1.0, 2.0, 3.0, "mirror.png", 1.5, 2.5],
 		[288.0, 1.0, 2.0, 3.0, "mirror.png", 1.5, 2.0],
 	]
 	for p in cursed:
 		_spawn_cursed_panel(p[0], p[1], Vector2(p[2], p[3]), TEX_DIR + p[4], p[5], p[6])
+	_spawn_grandfather_clock()
+
+
+# ⭐ THE GRANDFATHER CLOCK IS A CASE, NOT A PICTURE OF ONE (2026-09-10, the user's replay:
+# *"Shall we make that clock 3d?"*). It stood in the `cursed` table above as a 2 x 3 m wall
+# panel carrying `clock.png` — a photograph of a clock on wallpaper, the Issue-35 shape the
+# rest of this level's props were rebuilt out of one by one. `grandfather_clock.gd` builds it
+# from parts with a pendulum swinging behind glass and a drawn dial stopped at 2:17; the case
+# stands on the floor against the +X wall with its back WALL_INSET clear of the plaster.
+# ⚠️⚠️ `CLOCK_INTENSITY` 1.0 IS THE USER'S CALL (2026-09-10) — see the header of
+# `grandfather_clock.gd`. The chime at d 46 (`_ev_clock_chime`) is unchanged and still speaks
+# from the clock's own position.
+const CLOCK_DIST := 48.0
+const CLOCK_SIDE := 1.0
+const CLOCK_INTENSITY := 1.0
+var _clock: GrandfatherClock = null
+
+
+func _spawn_grandfather_clock() -> void:
+	var pt := _path_point(CLOCK_DIST)
+	var side3: Vector3 = pt.side
+	var inward: Vector3 = -side3 * CLOCK_SIDE
+	var pos: Vector3 = pt.pos + side3 * CLOCK_SIDE * (W / 2.0 - WALL_INSET - GrandfatherClock.DEPTH / 2.0)
+	# The same yaw rule as the panels: the case's local +z is its FRONT and must face the hall.
+	var xform := Transform3D(Basis(Vector3.UP, atan2(inward.x, inward.z)), pos)
+	_clock = GrandfatherClock.build(self, xform, CLOCK_INTENSITY,
+		TEX_DIR + "clock_face.png", TEX_DIR + "clock_walnut.png")
 
 	# The creature in the glass: an ornate mirror set on the wall the player walks
 	# straight at when reaching a turn — miss the turn and you walk into it.
@@ -1545,19 +1602,82 @@ func _spawn_false_exit_door() -> void:
 
 # The consequence, owned by the LEVEL. See FALSE_DOOR_PANIC for the number and why it is
 # flagged provisional.
+var _lunger: DoorLunger = null
+var _lunge_watch_t := -1.0      # < 0: the camera is not pinned
+var _lunge_reaim := 0.0
+
+
 func _on_false_door_opened() -> void:
-	# ⚠️ IMMEDIATE, as asked. The 0.34 s swing happens BEHIND the covering image, so when the
-	# picture drops the door is already standing open on blank wallpaper — the room that is
-	# not there is the evidence, and it is the thing the player is left looking at.
-	Screamer.flash_scare(FALSE_DOOR_SCARE_PATH, FALSE_DOOR_SCREAM, FALSE_DOOR_HOLD)
-	_player.jolt_camera(0.10, 0.6)
-	_player.add_panic(FALSE_DOOR_PANIC)
-	# ⚠️ The scrawl is delayed past the picture on purpose: printed over a fullscreen image it
-	# is unreadable, and this is the one line in the level where the GAME speaks to the player
-	# rather than the hotel speaking to Subject 47 (ScreenText.BLOOD — KONTUR's banishment
-	# accusation and the escort corridor's lie are the other two).
-	var t := get_tree().create_timer(FALSE_DOOR_HOLD + FALSE_DOOR_SCRAWL_DELAY)
+	# t = 0 (E). The world goes quiet first — the sting lands in a hole, which is where its
+	# loudness actually comes from (`screamer.gd:flash_scare()`'s pre-silence, longer here).
+	HoldBreath.dip(get_tree(), FALSE_DOOR_SILENCE)
+	# The figure stands in the doorway, INSIDE the leaf's own 0.10 m box at the wall plane and
+	# at alpha 0, so the closed door hides it twice over until the leaf has swung.
+	var centre := _corner_wall_transform(FALSE_DOOR_DIST, 0.0)
+	var at: Vector3 = centre.origin + centre.basis.z * 0.05
+	_lunger = DoorLunger.build(self, at, FALSE_DOOR_FIGURE_PATH, FALSE_DOOR_FIGURE_H)
+	# ⚠️ THE PIN. The user asked to SEE it come out and run — so for FALSE_DOOR_WATCH the camera
+	# is re-aimed at it every WATCH_REAIM (the `backrooms.gd:_tick_crate_watch()` idiom), with
+	# the velocity zeroed by hand because a frozen walker still coasts (Issue 49).
+	_player.velocity.x = 0.0
+	_player.velocity.z = 0.0
+	_player.freeze_input()
+	_lunge_watch_t = 0.0
+	_lunge_reaim = 0.0
+	get_tree().create_timer(FALSE_DOOR_LUNGE_AT).timeout.connect(_false_door_lunge)
+	# ⚠️ The scrawl is delayed past the beat on purpose: this is the one line in the level
+	# where the GAME speaks to the player rather than the hotel speaking to Subject 47
+	# (ScreenText.BLOOD — KONTUR's banishment accusation and the escort corridor's lie are the
+	# other two), and it must not print over the thing it is about.
+	var t := get_tree().create_timer(FALSE_DOOR_SCRAWL_DELAY)
 	t.timeout.connect(func() -> void: ScreenText.scrawl(get_tree(), FALSE_DOOR_SCRAWL, 3.6))
+
+
+# t = FALSE_DOOR_LUNGE_AT. The leaf is half open: the figure resolves and comes for the face.
+func _false_door_lunge() -> void:
+	if not is_instance_valid(_lunger) or not is_instance_valid(_player):
+		return
+	var cam := _player.get_node_or_null("Camera3D") as Camera3D
+	var eye: Vector3 = cam.global_position if cam else _player.global_position + Vector3(0, 1.6, 0)
+	var to := _lunger.global_position - eye
+	to.y = 0.0
+	var dir := to.normalized() if to.length() > 0.01 else Vector3(-1, 0, 0)
+	var feet := Vector3(eye.x + dir.x * FALSE_DOOR_LUNGE_REACH, 0.0, eye.z + dir.z * FALSE_DOOR_LUNGE_REACH)
+	_lunger.lunge_to(feet, FALSE_DOOR_LUNGE_TIME)
+	# Both sounds are CHILDREN of the figure, so they travel with it (the runner's rule).
+	_play_on(_lunger, FALSE_DOOR_SCREAM, Vector3(0, 1.5, 0), 0.0, 6.0)
+	_play_on(_lunger, FALSE_DOOR_IMPACT, Vector3(0, 1.0, 0), 0.0, 6.0)
+	_player.jolt_camera(0.12, 0.6)
+	_player.add_panic(FALSE_DOOR_PANIC)
+	_lunger.lunged.connect(func() -> void:
+		get_tree().create_timer(FALSE_DOOR_HOLD).timeout.connect(_false_door_flee)
+	)
+
+
+# It has had its moment: it turns and goes, round the corner into the leg ahead.
+func _false_door_flee() -> void:
+	if not is_instance_valid(_lunger):
+		return
+	var pt := _path_point(FALSE_DOOR_DIST + FALSE_DOOR_FLEE_AHEAD)
+	_lunger.flee_to(pt.pos as Vector3, FALSE_DOOR_FLEE_SPEED, FALSE_DOOR_FLEE_FADE)
+
+
+func _tick_false_door_watch(delta: float) -> void:
+	if _lunge_watch_t < 0.0:
+		return
+	_lunge_watch_t += delta
+	if _lunge_watch_t >= FALSE_DOOR_WATCH or not is_instance_valid(_lunger) \
+			or not is_instance_valid(_player):
+		_lunge_watch_t = -1.0
+		if is_instance_valid(_player):
+			_player.unfreeze_input()
+		return
+	_player.velocity.x = 0.0
+	_player.velocity.z = 0.0
+	_lunge_reaim -= delta
+	if _lunge_reaim <= 0.0:
+		_lunge_reaim = 0.18
+		_player.turn_to_face(_lunger.global_position + Vector3(0, 1.2, 0), 0.18)
 
 
 func _make_door_body(door_name: String) -> StaticBody3D:
@@ -2392,6 +2512,18 @@ func _has_backing(xf: Transform3D) -> bool:
 		# measured, 14 of 200 sampled positions did exactly that. The corridor's structural
 		# geometry is the only CSG in the scene; every prop is a MeshInstance3D + a body.
 		if not (hit["collider"] is CSGShape3D):
+			return false
+		# ⚠️ AND NOTHING STANDS BETWEEN THE HALL AND THE PICTURE PLANE (2026-09-10). The three
+		# rays above START 0.25 m off the wall, i.e. INSIDE a 0.38 m deep prop standing against
+		# it — and a ray that starts inside a body does not report it. The grandfather clock at
+		# d = 48 is exactly that prop: `check_painting_fall.gd` found the picture hung inside
+		# the case on the first run after the clock landed. So a fourth ray per sample, from
+		# 1.2 m out in the hall to just short of the plane, must reach it untouched.
+		var clear_q := PhysicsRayQueryParameters3D.create(xf.origin + right * lat + n * 1.2,
+			from)
+		clear_q.collide_with_areas = false
+		clear_q.exclude = [_player.get_rid()]
+		if not space.intersect_ray(clear_q).is_empty():
 			return false
 	return true
 

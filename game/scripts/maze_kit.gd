@@ -71,8 +71,11 @@ static func wall(parent: Node, wall_name: String, center_xz: Vector3, size_xz: V
 
 # Recessed flickering fluorescent: emissive panel + the light itself. Returns
 # { light, base } so the caller can register it for the per-frame flicker pass.
+# `emission` is ADDITIVE (2026-09-10) and defaults to the 1.6 every existing caller got, so
+# they render byte for byte as before; the Sprawl's recess strips pass 0.9 to stay under
+# check_fixtures' 1.0 clamp in a recess the player walks right up to.
 static func light_strip(parent: Node, pos: Vector3, height: float,
-		energy: float = 1.1, lrange: float = 6.0) -> Dictionary:
+		energy: float = 1.1, lrange: float = 6.0, emission: float = 1.6) -> Dictionary:
 	var panel := MeshInstance3D.new()
 	var bm := BoxMesh.new()
 	bm.size = Vector3(1.2, 0.06, 0.5)
@@ -81,7 +84,7 @@ static func light_strip(parent: Node, pos: Vector3, height: float,
 	pm.albedo_color = Color(0.95, 0.92, 0.75)
 	pm.emission_enabled = true
 	pm.emission = Color(1.0, 0.95, 0.7)
-	pm.emission_energy_multiplier = 1.6
+	pm.emission_energy_multiplier = emission
 	panel.set_surface_override_material(0, pm)
 	panel.position = Vector3(pos.x, height - 0.05, pos.z)
 	parent.add_child(panel)

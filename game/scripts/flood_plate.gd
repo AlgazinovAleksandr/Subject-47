@@ -92,10 +92,19 @@ const DONE_DB := 2.0
 
 const SCRAWL := "SIX PIECES.\nSET THEM HERE."
 
+# ⭐ THE ALTAR (2026-09-10). One slot per RITUAL PIECE kind (`ritual_piece.gd`), each drawn as
+# a pale OUTLINE of the object that belongs in it — a ring for the candle, skull and bell, a
+# bar frame for the book, key and doll — with the piece itself hidden in the slot until it
+# is set. The frame used to be six identical recesses that took six identical shards; now a
+# player standing over it can read which of the six is still missing. Slot order is fixed;
+# which slot lights up is decided by the KIND set, not by how many have been set.
+const SLOT_KINDS := ["candle", "book", "skull", "bell", "key", "doll"]
+
 var _placed: int = 0
 var _carried: int = 0
 var _complete: bool = false
-var _shards: Array[MeshInstance3D] = []
+var _set_pieces: Array[Node3D] = []      # per slot, in SLOT_KINDS order, hidden until set
+var _slot_filled: Array[bool] = []
 var _far: AudioStreamPlayer3D = null
 var _near: AudioStreamPlayer3D = null
 var _calling: bool = false
@@ -183,14 +192,45 @@ func _build_frame() -> void:
 	for sz in [-1.0, 1.0]:
 		_part("FrameEnd%d" % int(sz), Vector3(w + 0.09, 0.05, 0.05),
 			Vector3(0.0, top + 0.02, sz * (d / 2.0 + 0.02)), frame)
+	var outline := _flat(Color(0.30, 0.28, 0.25), 0.2, 0.7)
 	for i in range(SLOTS):
 		var c := _slot_pos(i, top)
-		# The empty recess, and then the fragment that fills it (hidden until set).
+		var kind: String = SLOT_KINDS[i]
+		# The empty recess, the outline of what goes in it, and then the piece itself
+		# (hidden until set — built by the SAME builder the drowned objects use).
 		_part("Recess%d" % i, Vector3(0.34, 0.012, 0.24), c, hollow)
-		var shard := _part("Shard%d" % i, Vector3(0.30, 0.020, 0.22),
-			c + Vector3(0, 0.016, 0), _flat(Color(0.17, 0.18, 0.19), 0.35, 0.45))
-		shard.visible = false
-		_shards.append(shard)
+		_build_outline(i, kind, c + Vector3(0, 0.009, 0), outline)
+		var piece := RitualPiece.build(kind, self, "Set%d_%s" % [i, kind])
+		piece.position = c + Vector3(0, 0.008, 0)
+		piece.visible = false
+		_set_pieces.append(piece)
+		_slot_filled.append(false)
+
+
+# A pale outline on the recess floor: a thin ring, or four thin bars.
+func _build_outline(i: int, kind: String, at: Vector3, mat: StandardMaterial3D) -> void:
+	var spec: Dictionary = RitualPiece.OUTLINE.get(kind, {"shape": "ring", "r": 0.06})
+	if String(spec["shape"]) == "ring":
+		var mi := MeshInstance3D.new()
+		mi.name = "Outline%d" % i
+		var tm := TorusMesh.new()
+		tm.inner_radius = float(spec["r"]) - 0.006
+		tm.outer_radius = float(spec["r"])
+		tm.rings = 32
+		tm.ring_segments = 6
+		mi.mesh = tm
+		mi.material_override = mat
+		mi.position = at
+		add_child(mi)
+		return
+	var w: float = float(spec["w"])
+	var d: float = float(spec["d"])
+	for sx in [-1.0, 1.0]:
+		_part("Outline%d_x%d" % [i, int(sx)], Vector3(0.006, 0.004, d),
+			at + Vector3(sx * (w / 2.0 - 0.003), 0, 0), mat)
+	for sz in [-1.0, 1.0]:
+		_part("Outline%d_z%d" % [i, int(sz)], Vector3(w, 0.004, 0.006),
+			at + Vector3(0, 0, sz * (d / 2.0 - 0.003)), mat)
 
 
 func _slot_pos(i: int, top: float) -> Vector3:
@@ -312,26 +352,56 @@ func interact() -> void:
 	set_requested.emit()
 
 
-# Seat `n` fragments. Staggered, so setting three at once reads as three acts.
-func seat(n: int) -> void:
-	for i in range(n):
-		if _placed >= SLOTS:
-			break
-		var shard: MeshInstance3D = _shards[_placed]
+# Seat these KINDS, each into its own slot. Staggered, so setting three at once reads as
+# three acts. A kind whose slot is already filled, or that is not one of the six, is ignored.
+func seat_kinds(kinds: Array) -> void:
+	var n := 0
+	for k in kinds:
+		var slot: int = SLOT_KINDS.find(String(k))
+		if slot < 0 or _slot_filled[slot]:
+			continue
+		_slot_filled[slot] = true
 		_placed += 1
-		var delay := 0.22 * float(i)
+		var piece: Node3D = _set_pieces[slot]
+		var delay := 0.22 * float(n)
+		n += 1
 		var tw := create_tween()
 		tw.tween_interval(delay)
 		# Connected, never awaited (Issue 6).
 		tw.finished.connect(func() -> void:
-			if is_instance_valid(shard):
-				shard.visible = true
+			if is_instance_valid(piece):
+				piece.visible = true
 			_play("plate_set", SET_DB))
 	if _placed >= SLOTS and not _complete:
 		_complete = true
 		var done := create_tween()
 		done.tween_interval(0.22 * maxf(1.0, float(n)) + 0.35)
 		done.finished.connect(_finish)
+
+
+# Legacy: seat the first `n` unfilled slots in order.
+func seat(n: int) -> void:
+	var kinds: Array = []
+	for i in range(SLOTS):
+		if kinds.size() >= n:
+			break
+		if not _slot_filled[i]:
+			kinds.append(SLOT_KINDS[i])
+	seat_kinds(kinds)
+
+
+# The kinds currently set, in slot order.
+func set_kinds() -> Array:
+	var out: Array = []
+	for i in range(SLOTS):
+		if _slot_filled[i]:
+			out.append(SLOT_KINDS[i])
+	return out
+
+
+func slot_filled(kind: String) -> bool:
+	var slot: int = SLOT_KINDS.find(kind)
+	return slot >= 0 and _slot_filled[slot]
 
 
 func _finish() -> void:
@@ -341,13 +411,22 @@ func _finish() -> void:
 
 
 # The restore path for a back-door return: silent, instant, no events.
-func restore(n: int) -> void:
-	for i in range(mini(n, SLOTS)):
-		_shards[i].visible = true
-	_placed = mini(n, SLOTS)
+func restore_kinds(kinds: Array) -> void:
+	for k in kinds:
+		var slot: int = SLOT_KINDS.find(String(k))
+		if slot < 0 or _slot_filled[slot]:
+			continue
+		_slot_filled[slot] = true
+		_set_pieces[slot].visible = true
+		_placed += 1
 	if _placed >= SLOTS:
 		_complete = true
 		_stop_calling()
+
+
+# Legacy: the first `n` slots.
+func restore(n: int) -> void:
+	restore_kinds(SLOT_KINDS.slice(0, clampi(n, 0, SLOTS)))
 
 
 func _play(base: String, db: float) -> void:

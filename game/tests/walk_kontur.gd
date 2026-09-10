@@ -77,7 +77,10 @@ func _structure() -> void:
 	_ok("player is in the 'player' group", _player and _player.is_in_group("player"))
 	_ok("exit door built", _scene.get_node_or_null("ExitDoor") != null)
 	_ok("roster lock built", _scene.get_node_or_null("RosterLock") != null)
-	_ok("switchboard phone built", _scene.get_node_or_null("SwitchboardPhone") != null)
+	_ok("three switchboard phones built",
+		_scene.get_node_or_null("Phone_yellow") != null
+			and _scene.get_node_or_null("Phone_blue") != null
+			and _scene.get_node_or_null("Phone_green") != null)
 	_ok("airlock zone built", _scene.get_node_or_null("AirlockZone") != null)
 	_ok("escort gate built", _scene.get_node_or_null("EscortGate") != null)
 	# Eight gates, all starting unpassed.

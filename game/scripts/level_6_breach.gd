@@ -30,8 +30,19 @@ const _NOTE_SCRIPT := preload("res://scripts/note.gd")
 const FAMILIARIZATION_FIRST := 30.0   # first attempt at this level in this run
 const FAMILIARIZATION_RETRY := 10.0   # every attempt after a death here
 const PATROL_LOOP := ["Junction1", "Atrium", "Junction2", "WardB", "Corridor1"]
-const LIGHT_WEAPON_RANGE := 12.0
-const LIGHT_WEAPON_DOT := 0.9      # tight cone matching the flashlight's own spot_angle
+# ⚠️ 18.0, MARRIED TO `player.gd:FLASH_RANGE` (2026-09-03) — the same argument this file already
+# makes one line below for the CONE, made for the reach. The torch went 15 -> 18 m in the darkness
+# pass; leaving this at 12 means the beam visibly lands on Object 12 from 15 m and the shield does
+# not drain, which reads as the weapon being broken rather than as a rule about distance.
+const LIGHT_WEAPON_RANGE := 18.0
+# ⚠️ 0.866 = cos(30 deg), MARRIED TO `player.gd:FLASH_ANGLE` (2026-09-03). The old comment on
+# this line already said "tight cone matching the flashlight's own spot_angle", and 0.9 was
+# cos(25 deg) — correct while the torch was 25 degrees. The darkness pass widened it to 30, and
+# leaving this at 0.9 would mean the visible beam covers Object 12 while the light weapon does
+# not register, which reads as a bug rather than as a rule. A small Level 6 difficulty change,
+# made for consistency and flagged rather than done silently.
+const LIGHT_WEAPON_DOT := 0.866    # cos(player.gd FLASH_ANGLE)
+const DOOR_TEX := "res://assets/textures/level_6_breach/breach_door.png"
 const SPRINT_NOISE_RADIUS := 14.0
 const SLAM_NOISE_RADIUS := 16.0
 
@@ -41,44 +52,85 @@ const SLAM_NOISE_RADIUS := 16.0
 # (RoomBuilder's hard rule — see ISSUES_SOLUTIONS.md's coincident-surface playbook);
 # z-ranges are annotated per room for exactly that reason, matching kontur.gd's ROOMS
 # table style.
+# ⚠️ ENLARGED INTO A 20-ROOM BRANCHING MAZE (2026-09-09, the user's call). The level used to be a
+# straight ~64 m spine you ran to reach the exit; the ask was "I want the player to actually FIND
+# the exit … the geometry will be more complicated, and the level itself will be bigger." So: the
+# +z SPINE remains the critical path to the Purge chamber (lure + seal Object 12 = the permanent
+# kill), and two WINGS hang off it — a WEST wing (a loop plus the hidden-exit dead-end) and an EAST
+# wing (a loop plus two dead-ends). The exit is DECOUPLED from the trap room: sealing the creature
+# unlocks a bespoke breach-membrane door in ExitVault, a west-wing dead-end you must backtrack to
+# find (see _spawn_level_doors / _refresh_exit).
+#
+# ⚠️ AUTHORED ON AN INTEGER GRID so abutment is exact by construction. Every room is an axis-aligned
+# rectangle; connected rooms share an EXACT wall plane and the doorway sits on it (RoomBuilder's two
+# hard rules — no overlapping footprints, exact shared planes; the portal BFS needs both rooms
+# within 0.35 of each doorway). Each room carries `# x a..b  z a..b` so the two invariants can be
+# eyeballed: (1) no two rectangles overlap, (2) every DOORS pos lies on a shared edge of exactly two
+# rooms with width <= the edge length. check_wall_overlap.gd is the net if either slips.
 const ROOMS := [
-	{ "name": "Entry",       "pos": Vector2(0, 0),     "size": Vector2(6, 6) },   # z -3 ..  3
-	{ "name": "Corridor1",   "pos": Vector2(0, 7),     "size": Vector2(4, 8) },   # z  3 .. 11
-	{ "name": "Junction1",   "pos": Vector2(0, 14),    "size": Vector2(8, 6) },   # z 11 .. 17
-	{ "name": "Records",     "pos": Vector2(-7, 14),   "size": Vector2(6, 6) },   # z 11 .. 17
-	{ "name": "Atrium",      "pos": Vector2(0, 22),    "size": Vector2(8, 10) },  # z 17 .. 27
-	{ "name": "WardA",       "pos": Vector2(7, 25),    "size": Vector2(6, 16) },  # z 17 .. 33
-	{ "name": "Junction2",   "pos": Vector2(0, 30),    "size": Vector2(8, 6) },   # z 27 .. 33
-	{ "name": "ArchiveA",    "pos": Vector2(-7, 30.5), "size": Vector2(6, 7) },   # z 27 .. 34
-	{ "name": "ArchiveB",    "pos": Vector2(-7, 37.5), "size": Vector2(6, 7) },   # z 34 .. 41
-	{ "name": "WardB",       "pos": Vector2(0, 37),    "size": Vector2(8, 8) },   # z 33 .. 41
-	{ "name": "WardC",       "pos": Vector2(0, 45),    "size": Vector2(8, 8) },   # z 41 .. 49
-	{ "name": "PurgeAnte",   "pos": Vector2(0, 52),    "size": Vector2(5, 6) },   # z 49 .. 55
-	{ "name": "Incinerator", "pos": Vector2(0, 58.5),  "size": Vector2(7, 7) },   # z 55 .. 62
+	# --- SPINE (facility -> rupture -> organic -> scorched): the critical path to the Purge chamber
+	{ "name": "Entry",       "pos": Vector2(0, 0),     "size": Vector2(6, 6) },    # x -3..3    z -3..3
+	{ "name": "Corridor1",   "pos": Vector2(0, 7),     "size": Vector2(4, 8) },    # x -2..2    z  3..11
+	{ "name": "Junction1",   "pos": Vector2(0, 14),    "size": Vector2(8, 6) },    # x -4..4    z 11..17
+	{ "name": "Atrium",      "pos": Vector2(0, 22),    "size": Vector2(8, 10) },   # x -4..4    z 17..27
+	{ "name": "Junction2",   "pos": Vector2(0, 30),    "size": Vector2(8, 6) },    # x -4..4    z 27..33
+	{ "name": "WardB",       "pos": Vector2(0, 37),    "size": Vector2(8, 8) },    # x -4..4    z 33..41
+	{ "name": "WardC",       "pos": Vector2(0, 45),    "size": Vector2(8, 8) },    # x -4..4    z 41..49
+	{ "name": "PurgeAnte",   "pos": Vector2(0, 52),    "size": Vector2(5, 6) },    # x -2.5..2.5 z 49..55
+	{ "name": "Incinerator", "pos": Vector2(0, 58.5),  "size": Vector2(7, 7) },    # x -3.5..3.5 z 55..62
+	# --- WEST WING: Records/WestHall/Archive loop + the hidden-exit dead-end ---
+	{ "name": "Records",     "pos": Vector2(-7, 14),   "size": Vector2(6, 6) },    # x -10..-4  z 11..17
+	{ "name": "WestHall",    "pos": Vector2(-7, 22),   "size": Vector2(6, 10) },   # x -10..-4  z 17..27
+	{ "name": "ArchiveA",    "pos": Vector2(-7, 30.5), "size": Vector2(6, 7) },    # x -10..-4  z 27..34
+	{ "name": "ArchiveB",    "pos": Vector2(-7, 37.5), "size": Vector2(6, 7) },    # x -10..-4  z 34..41
+	{ "name": "ArchiveC",    "pos": Vector2(-7, 44.5), "size": Vector2(6, 7) },    # x -10..-4  z 41..48
+	{ "name": "ExitVault",   "pos": Vector2(-7, 51.5), "size": Vector2(6, 7) },    # x -10..-4  z 48..55  (DEAD END — the breach exit)
+	# --- EAST WING: WardA + a loop (EastHall) + three dead-ends ---
+	{ "name": "EastLock",    "pos": Vector2(7, 14),    "size": Vector2(6, 6) },    # x 4..10    z 11..17  (dead end)
+	{ "name": "WardA",       "pos": Vector2(7, 25),    "size": Vector2(6, 16) },   # x 4..10    z 17..33
+	{ "name": "EastVault",   "pos": Vector2(13, 24),   "size": Vector2(6, 6) },    # x 10..16   z 21..27  (dead end)
+	{ "name": "EastHall",    "pos": Vector2(7, 40),    "size": Vector2(6, 8) },    # x 4..10    z 36..44
+	{ "name": "EastCell",    "pos": Vector2(13, 39),   "size": Vector2(6, 6) },    # x 10..16   z 36..42  (dead end)
 ]
 
 const DOORS := [
-	{ "pos": Vector2(0, 3),   "width": 1.8, "dir": "z" },   # Entry <-> Corridor1
-	{ "pos": Vector2(0, 11),  "width": 1.8, "dir": "z" },   # Corridor1 <-> Junction1
-	{ "pos": Vector2(-4, 14), "width": 1.8, "dir": "x" },   # Junction1 <-> Records
-	{ "pos": Vector2(0, 17),  "width": 1.8, "dir": "z" },   # Junction1 <-> Atrium
-	{ "pos": Vector2(4, 21),  "width": 1.8, "dir": "x" },   # Atrium <-> WardA
-	{ "pos": Vector2(0, 27),  "width": 1.8, "dir": "z" },   # Atrium <-> Junction2
-	{ "pos": Vector2(4, 30),  "width": 1.8, "dir": "x" },   # WardA <-> Junction2
-	{ "pos": Vector2(-4, 30), "width": 1.6, "dir": "x" },   # Junction2 <-> ArchiveA
-	{ "pos": Vector2(0, 33),  "width": 1.8, "dir": "z" },   # Junction2 <-> WardB
-	{ "pos": Vector2(-7, 34), "width": 1.6, "dir": "z" },   # ArchiveA <-> ArchiveB
-	{ "pos": Vector2(-4, 37), "width": 1.6, "dir": "x" },   # ArchiveB <-> WardB
-	{ "pos": Vector2(0, 41),  "width": 1.8, "dir": "z" },   # WardB <-> WardC
-	{ "pos": Vector2(0, 49),  "width": 1.8, "dir": "z" },   # WardC <-> PurgeAnte
-	{ "pos": Vector2(0, 55),  "width": 2.2, "dir": "z" },   # PurgeAnte <-> Incinerator (PurgeChamber sits here)
+	# spine
+	{ "pos": Vector2(0, 3),    "width": 1.8, "dir": "z" },   # Entry <-> Corridor1
+	{ "pos": Vector2(0, 11),   "width": 1.8, "dir": "z" },   # Corridor1 <-> Junction1
+	{ "pos": Vector2(0, 17),   "width": 1.8, "dir": "z" },   # Junction1 <-> Atrium
+	{ "pos": Vector2(0, 27),   "width": 1.8, "dir": "z" },   # Atrium <-> Junction2
+	{ "pos": Vector2(0, 33),   "width": 1.8, "dir": "z" },   # Junction2 <-> WardB
+	{ "pos": Vector2(0, 41),   "width": 1.8, "dir": "z" },   # WardB <-> WardC
+	{ "pos": Vector2(0, 49),   "width": 1.8, "dir": "z" },   # WardC <-> PurgeAnte
+	{ "pos": Vector2(0, 55),   "width": 2.2, "dir": "z" },   # PurgeAnte <-> Incinerator (PurgeChamber sits here)
+	# west wing
+	{ "pos": Vector2(-4, 14),  "width": 1.6, "dir": "x" },   # Junction1 <-> Records
+	{ "pos": Vector2(-7, 17),  "width": 1.6, "dir": "z" },   # Records <-> WestHall
+	{ "pos": Vector2(-4, 22),  "width": 1.6, "dir": "x" },   # WestHall <-> Atrium (loop)
+	{ "pos": Vector2(-7, 27),  "width": 1.6, "dir": "z" },   # WestHall <-> ArchiveA
+	{ "pos": Vector2(-4, 30),  "width": 1.6, "dir": "x" },   # Junction2 <-> ArchiveA (loop)
+	{ "pos": Vector2(-7, 34),  "width": 1.6, "dir": "z" },   # ArchiveA <-> ArchiveB
+	{ "pos": Vector2(-4, 37),  "width": 1.6, "dir": "x" },   # ArchiveB <-> WardB (loop)
+	{ "pos": Vector2(-7, 41),  "width": 1.6, "dir": "z" },   # ArchiveB <-> ArchiveC
+	{ "pos": Vector2(-4, 44.5),"width": 1.6, "dir": "x" },   # ArchiveC <-> WardC (loop)
+	{ "pos": Vector2(-7, 48),  "width": 2.2, "dir": "z" },   # ArchiveC <-> ExitVault (2.2 for the Purge blast door — this is the SEAL room now)
+	# east wing
+	{ "pos": Vector2(4, 14),   "width": 1.6, "dir": "x" },   # Junction1 <-> EastLock (dead end)
+	{ "pos": Vector2(4, 21),   "width": 1.8, "dir": "x" },   # Atrium <-> WardA
+	{ "pos": Vector2(10, 24),  "width": 1.6, "dir": "x" },   # WardA <-> EastVault (dead end)
+	{ "pos": Vector2(4, 30),   "width": 1.8, "dir": "x" },   # WardA <-> Junction2 (loop)
+	{ "pos": Vector2(4, 38.5), "width": 1.6, "dir": "x" },   # WardB <-> EastHall
+	{ "pos": Vector2(4, 42.5), "width": 1.6, "dir": "x" },   # WardC <-> EastHall (loop)
+	{ "pos": Vector2(10, 39),  "width": 1.6, "dir": "x" },   # EastHall <-> EastCell (dead end)
 ]
 
-# The visual arc IS the story: facility -> structural rupture -> organic decay,
-# extending KONTUR's two-tier skin system to three tiers. Incinerator/PurgeAnte get
-# their own scorched-steel skin.
-const RUPTURED_ROOMS := ["Junction1", "Records", "Atrium", "WardA", "Junction2"]
-const ORGANIC_ROOMS := ["ArchiveA", "ArchiveB", "WardB", "WardC"]
+# The visual arc IS the story: facility -> structural rupture -> organic decay -> scorched steel,
+# extending KONTUR's two-tier skin system to four tiers. Every NEW room is assigned a tier so the
+# arc reads across the enlarged map (Entry/Corridor1 keep the builder-wide facility default).
+const RUPTURED_ROOMS := ["Junction1", "Records", "EastLock", "Atrium", "WestHall", "WardA",
+	"EastVault", "Junction2"]
+const ORGANIC_ROOMS := ["ArchiveA", "ArchiveB", "ArchiveC", "ExitVault", "WardB", "WardC",
+	"EastHall", "EastCell"]
 const SCORCHED_ROOMS := ["PurgeAnte", "Incinerator"]
 
 var _builder: RoomBuilder
@@ -110,6 +162,7 @@ func _ready() -> void:
 	_spawn_signs()
 	_spawn_notes()
 	_spawn_level_doors()
+	_frame_bare_openings()
 	_refresh_exit()
 	_start_ambience()
 	_boost_ambient(0.28)
@@ -186,7 +239,7 @@ func _rooms_with_skins() -> Array:
 
 
 const ENTRY_SPAWN := Vector3(0, 0.1, -2.0)
-const EXIT_SPAWN := Vector3(0, 0.1, 59.5)     # Incinerator, just inside the exit
+const EXIT_SPAWN := Vector3(0, 0.1, 59.5)     # Incinerator, just inside the exit (spine's end)
 
 func _place_player() -> void:
 	var p := _player()
@@ -218,27 +271,37 @@ func _restore_progress() -> void:
 	if is_instance_valid(_creature) and _creature.has_method("lure_into_trap"):
 		_creature.lure_into_trap()
 	_refresh_exit()
-	GameState.set_objective("IT IS SEALED. LEAVE.")
+	GameState.set_objective("IT IS SEALED. THE BREACH AT THE END OF THE CORRIDOR IS OPEN.")
 
 
 # ---------------------------------------------------------------- lighting
 
+# ⚠️ A LOOP OVER `ROOMS`, not 20 hand-typed literals (2026-09-09, the maze rework). Each room gets
+# one lamp at its centre, coloured/dimmed by its skin tier so the facility->rupture->organic->scorched
+# arc still reads: cool and brighter near Entry, warming and dimming through the wings, a clean cool
+# PurgeAnte and a hot scorched Incinerator. Adding a room enlists it automatically.
 func _spawn_lights() -> void:
-	# Cool/clean near Entry, warming and dimming toward the organic wing, a hot
-	# scorched-orange at the Incinerator.
-	_add_lamp("Entry", Vector3(0, 2.6, 0), 0.55, Color(0.85, 0.88, 0.9))
-	_add_lamp("Corridor1", Vector3(0, 2.6, 7), 0.45, Color(0.8, 0.85, 0.88))
-	_add_lamp("Junction1", Vector3(0, 2.6, 14), 0.4, Color(0.75, 0.7, 0.6))
-	_add_lamp("Records", Vector3(-7, 2.6, 14), 0.4, Color(0.75, 0.7, 0.6))
-	_add_lamp("Atrium", Vector3(0, 2.6, 22), 0.42, Color(0.7, 0.62, 0.55))
-	_add_lamp("WardA", Vector3(7, 2.6, 25), 0.35, Color(0.65, 0.55, 0.5))
-	_add_lamp("Junction2", Vector3(0, 2.6, 30), 0.35, Color(0.6, 0.5, 0.45))
-	_add_lamp("ArchiveA", Vector3(-7, 2.4, 30.5), 0.28, Color(0.5, 0.35, 0.3))
-	_add_lamp("ArchiveB", Vector3(-7, 2.4, 37.5), 0.25, Color(0.45, 0.3, 0.28))
-	_add_lamp("WardB", Vector3(0, 2.4, 37), 0.28, Color(0.5, 0.3, 0.28))
-	_add_lamp("WardC", Vector3(0, 2.4, 45), 0.22, Color(0.45, 0.25, 0.25))
-	_add_lamp("PurgeAnte", Vector3(0, 2.6, 52), 0.6, Color(0.85, 0.9, 0.95))
-	_add_lamp("Incinerator", Vector3(0, 2.6, 58.5), 0.7, Color(0.9, 0.75, 0.55))
+	for r in ROOMS:
+		var n: String = r["name"]
+		var c: Vector3 = _builder.room_center(n)
+		var energy := 0.42
+		var color := Color(0.72, 0.66, 0.58)
+		var y := 2.6
+		if n == "Entry":
+			energy = 0.55; color = Color(0.85, 0.88, 0.9)
+		elif n == "Corridor1":
+			energy = 0.45; color = Color(0.8, 0.85, 0.88)
+		elif n == "PurgeAnte":
+			energy = 0.6; color = Color(0.85, 0.9, 0.95)
+		elif n == "Incinerator":
+			energy = 0.7; color = Color(0.9, 0.75, 0.55)
+		elif SCORCHED_ROOMS.has(n):
+			energy = 0.55; color = Color(0.85, 0.55, 0.4)
+		elif ORGANIC_ROOMS.has(n):
+			energy = 0.24; color = Color(0.48, 0.28, 0.27); y = 2.4
+		elif RUPTURED_ROOMS.has(n):
+			energy = 0.36; color = Color(0.68, 0.58, 0.5)
+		_add_lamp(n, c + Vector3(0, y, 0), energy, color)
 
 
 func _add_lamp(lamp_name: String, pos: Vector3, energy: float, color: Color) -> void:
@@ -268,6 +331,11 @@ func _spawn_creature() -> void:
 	for room in PATROL_LOOP:
 		wps.append(_builder.room_center(room))
 	_creature.set_waypoints(wps)
+	# ⚠️ THE SAME GRAPH-AGNOSTIC CONTRACT AS `set_waypoints()` — the creature is handed the shape
+	# of the world and never reads this file. Without it `_move_toward()` beelines through walls;
+	# see the block above `set_portals()`. THE NIGHTMARE deliberately does not call this, so its
+	# Matron keeps the old behaviour until it has been tested there on its own.
+	_creature.set_portals(ROOMS, DOORS)
 	_creature.staggered.connect(_on_creature_staggered)
 	_creature.recovered.connect(_on_creature_recovered)
 
@@ -293,7 +361,13 @@ func _on_creature_recovered() -> void:
 
 
 func _tick_familiarization(delta: float) -> void:
-	if _creature_awake:
+	# ⚠️ A RESTORED, ALREADY-WON LEVEL STILL RAN THIS CLOCK. `_restore_progress()` sets
+	# `_creature_defeated` and kills the creature, but the gate was `_creature_awake` alone — so
+	# walking back in through KONTUR's back door scrawled "IT IS AWAKE." at t=30.2 over a
+	# creature that is already in the incinerator, and called `activate()` on the corpse. It was
+	# inert only because `lure_into_trap()` also calls `set_process(false)`, which is luck rather
+	# than a guard.
+	if _creature_defeated or _creature_awake:
 		return
 	_familiarization_t += delta
 	if _familiarization_t >= _familiarization_time:
@@ -357,13 +431,20 @@ func _has_clear_los(from: Vector3, to: Vector3, player: Node) -> bool:
 
 # ---------------------------------------------------------------- hiding spots
 
+# ⚠️ RE-PINNED FOR THE MAZE (2026-09-09). Eight spots now — a bigger map with a teleporting hunter
+# needs more places to break contact. Every one is on a wall with NO doorway at its centre
+# (wall_point returns the wall CENTRE, which is exactly where a doorway sits — a spot there seals the
+# room), so all are on exterior west/east walls; three sit in the wing dead-ends (EastLock, EastVault,
+# EastCell) where the hunt most often corners you. check_doorways / check_wall_overlap are the net.
 func _spawn_hiding_spots() -> void:
 	_add_hiding_spot("Corridor1", Vector2(1, 0), "locker")
-	_add_hiding_spot("Records", Vector2(0, 1), "cabinet")
-	_add_hiding_spot("Atrium", Vector2(-1, 0), "desk")
-	_add_hiding_spot("ArchiveA", Vector2(0, -1), "locker")
-	_add_hiding_spot("WardB", Vector2(1, 0), "locker")
-	_add_hiding_spot("WardC", Vector2(-1, 0), "cabinet")
+	_add_hiding_spot("EastLock", Vector2(1, 0), "locker")
+	_add_hiding_spot("Records", Vector2(-1, 0), "cabinet")
+	_add_hiding_spot("WestHall", Vector2(-1, 0), "locker")
+	_add_hiding_spot("EastVault", Vector2(1, 0), "cabinet")
+	_add_hiding_spot("ArchiveB", Vector2(-1, 0), "cabinet")
+	_add_hiding_spot("ArchiveC", Vector2(-1, 0), "locker")
+	_add_hiding_spot("EastCell", Vector2(1, 0), "locker")
 
 
 func _add_hiding_spot(room: String, side: Vector2, kind: String) -> void:
@@ -383,11 +464,36 @@ func _add_hiding_spot(room: String, side: Vector2, kind: String) -> void:
 
 # ---------------------------------------------------------------- slam doors
 
+# ⚠️ RE-PINNED FOR THE MAZE (2026-09-09) to spine + loop chokepoints. dir "z" doorways face down
+# the spine (yaw 0); dir "x" doorways across a wing (yaw 90). Widths are read from DOORS by
+# _add_slam_door, so a 1.6 m loop door gets a 1.6 m leaf pair.
 func _spawn_slam_doors() -> void:
 	_add_slam_door("Slam_Corridor1_Junction1", Vector3(0, 0, 11), 0)
-	_add_slam_door("Slam_Atrium_WardA", Vector3(4, 0, 21), 90)
-	_add_slam_door("Slam_ArchiveB_WardB", Vector3(-4, 0, 37), 90)   # closes the loop
+	_add_slam_door("Slam_Junction1_Atrium", Vector3(0, 0, 17), 0)
+	_add_slam_door("Slam_Junction2_WardB", Vector3(0, 0, 33), 0)
 	_add_slam_door("Slam_WardB_WardC", Vector3(0, 0, 41), 0)
+	_add_slam_door("Slam_ArchiveB_WardB", Vector3(-4, 0, 37), 90)   # closes the west loop
+	_add_slam_door("Slam_WardC_EastHall", Vector3(4, 0, 42.5), 90)  # closes the east loop
+
+
+# The width of the doorway nearest `at`, from this level's own `DOORS` table. Nearest rather than
+# exact because a slam door is placed at the THRESHOLD and a doorway is recorded at the wall
+# plane; they agree to within a few cm but not to the bit.
+# ⚠️ Falls back to SlamDoor's own default and WARNS rather than guessing, because a silent
+# fallback is exactly how the 1.6 m doorway got a 1.8 m door in the first place.
+func _doorway_width_at(at: Vector2) -> float:
+	var best := -1.0
+	var best_d := 3.0
+	for d in DOORS:
+		var dd: float = (Vector2(d["pos"]) - at).length()
+		if dd < best_d:
+			best_d = dd
+			best = float(d["width"])
+	if best < 0.0:
+		push_warning("SlamDoor at %s matches no DOORS entry — falling back to the default width"
+			% str(at))
+		return 1.8
+	return best
 
 
 # Named, not anonymous: Godot renames colliding generated siblings using the CLASS
@@ -398,6 +504,18 @@ func _add_slam_door(door_name: String, pos: Vector3, yaw_deg: float) -> void:
 	door.name = door_name
 	door.position = pos
 	door.rotation_degrees.y = yaw_deg
+	# ⚠️⚠️ THE DOORWAY'S OWN WIDTH, READ OUT OF `DOORS` (2026-09-03). This used to pass nothing,
+	# so every door took `SlamDoor`'s 1.8 m default — and **one of the four doorways in this level
+	# is 1.6 m**: `Junction2 <-> ArchiveA` at (-4, 30). `Slam_ArchiveB_WardB` sits at (-4, 37)
+	# but the sizing bug is the same class, and the symptom was unmistakable once the door was
+	# built from its own dimensions: a 1.8 m leaf pair cannot swing anywhere inside a 1.6 m
+	# opening, so `_pick_clear_swings()` walked its whole ladder, found nothing, and fell through
+	# to its last resort — **all four art quads hidden, i.e. a bare untextured slab** standing
+	# where a rusted blast door should be. Found by an audit probe, not by a test.
+	# ⚠️ Looked up rather than typed, so a doorway that is re-sized in `DOORS` cannot silently
+	# leave its door behind. `RoomBuilder.DEFAULT_H` is this level's room height.
+	door.door_width = _doorway_width_at(Vector2(pos.x, pos.z))
+	door.door_height = RoomBuilder.DEFAULT_H
 	add_child(door)
 	door.slammed.connect(_on_slam_door_slammed.bind(door))
 	_slam_doors.append(door)
@@ -408,12 +526,36 @@ func _on_slam_door_slammed(door: SlamDoor) -> void:
 		_creature.notify_noise(door.global_position, SLAM_NOISE_RADIUS)
 
 
+# ⚠️⚠️ THREE GUARDS, ADDED 2026-09-07, AND EACH CLOSES A MEASURED DEFECT.
+#
+# 1. **STAGGERED is excluded as well as PATROL.** `get_current_target()` returns the creature's OWN
+#    position while staggered, so `check_blocks_path(here, here)` is a degenerate zero-length
+#    segment — and `AABB.intersects_segment(p, p)` is true whenever the point is inside the box.
+#    `_enter_stagger()`'s own comment says the creature routinely falls "dead-center in a doorway",
+#    so slamming that door restarted a 10 s block on a creature that was already down, adding 10 s
+#    to a beat whose length the level announces out loud.
+# 2. **A degenerate segment is never fed to the AABB test at all**, whatever the state.
+# 3. **A proximity gate.** `check_blocks_path()` is a pure segment/AABB test with no distance term,
+#    so a door 25 m up the corridor that happens to lie on the line stopped the creature dead in
+#    open floor for 10 s. ⚠️ This gate is also what makes the contact check staying live during a
+#    block FAIR (see `creature_object12.gd:_process`) — with it, "battering" and "on top of you"
+#    are the same place. The two changes ship together or neither does.
+const BATTER_REACH := 4.0
+
+
 func _tick_slam_doors() -> void:
-	if not _creature or _creature.get_state() == CreatureObject12.State.PATROL:
+	if not _creature:
+		return
+	var st: int = _creature.get_state()
+	if st == CreatureObject12.State.PATROL or st == CreatureObject12.State.STAGGERED:
 		return
 	var here := _creature.get_creature_position()
 	var target := _creature.get_current_target()
+	if here.distance_to(target) < 0.05:
+		return
 	for door in _slam_doors:
+		if here.distance_to(door.global_position) > BATTER_REACH:
+			continue
 		if door.check_blocks_path(here, target):
 			door.start_battering(_creature)
 
@@ -422,19 +564,100 @@ func _tick_slam_doors() -> void:
 
 func _spawn_purge_chamber() -> void:
 	_purge_chamber = PurgeChamber.new()
-	_purge_chamber.position = Vector3(0, 0, 55)
-	# World-space AABB of the Incinerator room (pos (0,58.5) size (7,7) -> z 55..62).
-	_purge_chamber.trap_bounds = AABB(Vector3(-3.5, -0.5, 55.0), Vector3(7.0, 4.5, 7.0))
+	# ⚠️ NAMED. It was the only door in the level Godot auto-named ("@StaticBody3D@187"), which
+	# makes it unfindable by anything that looks a prop up by name — Issue 17's shape.
+	_purge_chamber.name = "PurgeChamber"
+	# ⚠️ 2026-09-09 (cap #4): the seal room is now ExitVault (west-wing dead-end). The blast door
+	# sits at its entrance (ArchiveC<->ExitVault doorway, z=48, widened to 2.2 for the leaf), and
+	# trap_bounds is ExitVault's own AABB (pos (-7,51.5) size (6,7) -> x -10..-4, z 48..55).
+	_purge_chamber.position = Vector3(-7, 0, 48)
+	_purge_chamber.trap_bounds = AABB(Vector3(-10.0, -0.5, 48.0), Vector3(6.0, 4.5, 7.0))
 	add_child(_purge_chamber)
 	_purge_chamber.creature_path = _purge_chamber.get_path_to(_creature)
 	_purge_chamber.creature_trapped.connect(_on_creature_trapped)
+	_decorate_seal_room()
 
 
 func _on_creature_trapped() -> void:
 	_creature_defeated = true
 	_refresh_exit()
-	GameState.set_objective("THE SEAL IS LIFTED. LEAVE.")
-	ScreenText.toast(get_tree(), "OBJECT 12 — TERMINATED", Color(0.6, 1.0, 0.6))
+	# The exit is at the spine's end now — name it so the win does not strand the player.
+	GameState.set_objective("SEALED. THE BREACH AT THE END OF THE SPINE IS OPEN. LEAVE.")
+	ScreenText.toast(get_tree(), "OBJECT 12 — CONTAINED. GET OUT.", Color(0.6, 1.0, 0.6))
+
+
+# ⭐ THE SEAL ROOM IS DISTINCTIVE (2026-09-09, cap #4: "make it look different from others — weird
+# objects, shadows, something"). ExitVault is a containment cell now: a restraint slab, a barred
+# cage front, meat-hooks on chains (one slowly SWAYING so the torch throws a moving shadow), and
+# gore. ⚠️ Pure decor — zero panic, no rules, no colliders in the walking lane (the creature must be
+# lured all the way in). x -10..-4, z 48..55; keep clear of the blast door at z=48.
+func _decorate_seal_room() -> void:
+	var steel := StandardMaterial3D.new()
+	steel.albedo_color = Color(0.16, 0.17, 0.16); steel.metallic = 0.3; steel.roughness = 0.6
+	var dark := StandardMaterial3D.new()
+	dark.albedo_color = Color(0.06, 0.05, 0.05); dark.roughness = 0.9
+	var gore := StandardMaterial3D.new()
+	gore.albedo_color = Color(0.18, 0.02, 0.02); gore.roughness = 0.5
+	var sheet := StandardMaterial3D.new()
+	sheet.albedo_color = Color(0.28, 0.26, 0.24); sheet.roughness = 0.95
+
+	# A restraint slab against the west wall, a covered form on it, straps hanging off.
+	var slab := Node3D.new()
+	slab.name = "SealSlab"
+	slab.position = Vector3(-8.6, 0, 51.5)
+	add_child(slab)
+	_seal_box(slab, "SlabTop", Vector3(1.0, 0.08, 2.2), Vector3(0, 0.9, 0), steel)
+	for sx in [-1.0, 1.0]:
+		for sz in [-1.0, 1.0]:
+			_seal_box(slab, "SlabLeg", Vector3(0.08, 0.9, 0.08), Vector3(sx * 0.42, 0.45, sz * 1.0), steel)
+	_seal_box(slab, "Form", Vector3(0.7, 0.22, 1.7), Vector3(0, 1.05, 0), sheet)     # a body under a sheet
+	for sz2 in [-0.6, 0.0, 0.7]:
+		_seal_box(slab, "Strap", Vector3(1.06, 0.05, 0.09), Vector3(0, 0.9, sz2), dark)
+
+	# A barred cage front along the south (back) wall — the containment front.
+	var bars := Node3D.new()
+	bars.name = "SealBars"
+	bars.position = Vector3(-7, 0, 54.3)
+	add_child(bars)
+	for i in range(9):
+		var bx := -3.2 + i * 0.8
+		_seal_box(bars, "Bar", Vector3(0.06, 2.7, 0.06), Vector3(bx, 1.35, 0), steel)
+	_seal_box(bars, "BarTop", Vector3(7.0, 0.1, 0.1), Vector3(0, 2.7, 0), steel)
+
+	# Meat-hooks on chains from the ceiling — one sways, so the torch's shadow of it moves.
+	for spec in [[-6.0, 49.6, false], [-8.0, 50.4, true], [-6.4, 52.6, false]]:
+		var hook := Node3D.new()
+		hook.name = "SealHook"
+		hook.position = Vector3(float(spec[0]), 2.9, float(spec[1]))
+		add_child(hook)
+		_seal_box(hook, "Chain", Vector3(0.04, 1.1, 0.04), Vector3(0, -0.55, 0), dark)
+		_seal_box(hook, "HookV", Vector3(0.05, 0.28, 0.05), Vector3(0, -1.2, 0), steel)
+		_seal_box(hook, "HookC", Vector3(0.05, 0.05, 0.18), Vector3(0, -1.32, 0.08), steel)
+		if bool(spec[2]):
+			var sway := create_tween().set_loops()
+			sway.tween_property(hook, "rotation:z", deg_to_rad(5.0), 2.4).set_trans(Tween.TRANS_SINE)
+			sway.tween_property(hook, "rotation:z", deg_to_rad(-5.0), 2.4).set_trans(Tween.TRANS_SINE)
+
+	# Gore pooled on the floor and dragged toward the bars.
+	for g in [[-7.2, 52.8, 1.4, 1.0], [-6.5, 53.6, 0.8, 0.7], [-8.3, 52.2, 0.6, 0.5]]:
+		var pool := MeshInstance3D.new()
+		var pm := PlaneMesh.new()
+		pm.size = Vector2(float(g[2]), float(g[3]))
+		pool.mesh = pm
+		pool.material_override = gore
+		pool.position = Vector3(float(g[0]), 0.035, float(g[1]))   # >2cm clear of the floor (decal convention)
+		add_child(pool)
+
+
+func _seal_box(parent: Node3D, n: String, size: Vector3, pos: Vector3, mat: Material) -> void:
+	var mi := MeshInstance3D.new()
+	mi.name = n
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.material_override = mat
+	mi.position = pos
+	parent.add_child(mi)
 
 
 # ---------------------------------------------------------------- signage
@@ -498,7 +721,7 @@ func _make_sign(pos: Vector3, y_rot: float, text: String) -> void:
 # making the player infer "lure it into a room and shut a door" from nothing.
 func _spawn_notes() -> void:
 	_make_note(_builder.wall_point("Entry", Vector2(-1, 0), 1.4, 0.22), PI / 2.0,
-		"Subject 47 — if you are reading this, KONTUR held. Something else did not.\n\nObject 12 is loose in this wing. It hunts by sight and sound. It moves faster than you walk. It does not move faster than you run.\n\nSustained light will wound it and drop it — that is not an ending, only a delay. It will rise again.\n\nThe only ending is the old decontamination chamber at the far end of this corridor. Lead it inside. Seal the door behind it.\n\nThere is no other way out.")
+		"Subject 47 — if you are reading this, KONTUR held. Something else did not.\n\nObject 12 is loose in this wing. It hunts by sight and sound. It moves faster than you walk. It does not move faster than you run. When it loses you, it does not give up — it will be somewhere near again before long. Hide, and it forgets you.\n\nSustained light will wound it and drop it — that is not an ending, only a delay.\n\nTwo things get you out. First: lead it into the old containment cell off the archives — the barred room in the west wing — and drop the blast door on it. That ends it. Then leave by the breach it tore at the very end of the corridor. That is the only door out.")
 
 
 func _make_note(pos: Vector3, y_rot: float, text: String) -> void:
@@ -525,47 +748,203 @@ func _make_note(pos: Vector3, y_rot: float, text: String) -> void:
 
 # ---------------------------------------------------------------- level doors
 
+# ⚠️ EXIT / SEAL SWAPPED (2026-09-09 round 2, cap #4, the user's call). The bespoke organic breach
+# door is at the SPINE'S END (Incinerator) — the natural climax — and the PURGE/seal mechanic is in
+# ExitVault, the west-wing dead-end you lure the creature into (see _spawn_purge_chamber +
+# _decorate_seal_room). They stay decoupled: _refresh_exit() keys the door on _creature_defeated, so
+# sealing the creature in the west wing unlocks the breach at the spine's end.
+const EXIT_DOOR_POS := Vector3(0, 1.2, 61.85)   # Incinerator back wall (spine's end)
 func _spawn_level_doors() -> void:
 	var back := _make_door("BackDoor", false, true)
-	back.position = Vector3(0, 1.1, -2.85)
+	back.position = Vector3(0, 1.2, -2.85)
 
-	_exit_door = _make_door("ExitDoor", true, false)
-	_exit_door.position = Vector3(0, 1.1, 61.85)
-	_exit_door.rotation.y = PI
+	# The bespoke organic exit door — its own texture, so the back door keeps the ordinary look.
+	_exit_door = _make_door("ExitDoor", true, false, TEX + "breach_door_exit.png")
+	_exit_door.position = EXIT_DOOR_POS
+	_exit_door.rotation.y = PI          # faces -z, toward the player entering from the north doorway
+	_place_door_casings()
 
 
-func _make_door(door_name: String, advances: bool, back: bool) -> StaticBody3D:
+func _make_door(door_name: String, advances: bool, back: bool, tex_path: String = DOOR_TEX) -> StaticBody3D:
 	var body := StaticBody3D.new()
 	body.name = door_name
 	body.set_script(_DOOR_SCRIPT)
 	body.advances_level = advances
 	body.goes_back = back
 	add_child(body)
-	var mesh := MeshInstance3D.new()
-	mesh.name = "DoorMesh"
-	var bm := BoxMesh.new()
-	bm.size = Vector3(1.0, 2.2, 0.15)
-	mesh.mesh = bm
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.15, 0.01, 0.01)
-	mat.emission_enabled = true
-	mat.emission = Color(0.35, 0.02, 0.02)
-	mat.emission_energy_multiplier = 1.5   # matches CLAUDE.md's door convention (untextured box)
-	mesh.set_surface_override_material(0, mat)
-	body.add_child(mesh)
+	# ⭐ THROUGH `door.gd:build_visual()` SINCE 2026-09-03, and it should always have been.
+	#
+	# ⚠️ WHAT THIS REPLACED. A hand-rolled `BoxMesh(1.0, 2.2, 0.15)` at albedo (0.15,0.01,0.01)
+	# with emission (0.35,0.02,0.02) at multiplier **1.5** — i.e. verbatim the UNTEXTURED branch
+	# of `door_material()`, which `door.gd:26-40` documents as the "red brick" fallback it was
+	# superseded by. This file has `preload`ed `door.gd` since the day it was written (see
+	# `_DOOR_SCRIPT`) and simply never called its builder, so the Breach's two doors were flat
+	# emissive slabs while every other level in the game had real leaves.
+	#
+	# ⚠️ It escaped `check_art_aspect.gd` for the same reason it looked wrong: a prop carrying NO
+	# texture has no aspect to be stretched, so the one guard that sweeps all nine levels for
+	# distorted artwork had nothing to say about it. `level_6_breach/` had no door texture at
+	# all until `tools/make_breach_door.py`.
+	#
+	# ⚠️ 1.6 x 2.4, not 1.0 x 2.2: these are freight doors in a containment wing, and the
+	# doorways around them are 1.8 m. `build_visual()` puts the art on a QuadMesh and the edge on
+	# a box (Issue 24), and `door_material()`'s TEXTURED branch drops the emission multiplier to
+	# 0.08 — at 1.5 a textured leaf renders salmon pink at this level's light levels (Issue 21).
+	const DOOR_SIZE := Vector3(1.6, 2.4, 0.14)
+	# ⚠️ MULTIPLY, matching the slam doors (2026-09-07). `door.gd`'s default is Godot's ADD, which
+	# lays a flat red wash over the whole leaf; the slam doors tint the texture's own shape. Same
+	# PNG, two different pictures. The RED stays — these are the only two doors in the level that
+	# are actually a way out. `tex_path` lets ONE door (the exit) carry the bespoke breach-membrane
+	# art while the back door keeps `breach_door.png`.
+	_DOOR_SCRIPT.build_visual(body, DOOR_SIZE, tex_path, 1.0, true)
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(1.0, 2.2, 0.2)
+	shape.size = Vector3(DOOR_SIZE.x, DOOR_SIZE.y, DOOR_SIZE.z + 0.06)
 	col.shape = shape
 	body.add_child(col)
+	_build_door_casing(body, DOOR_SIZE)
 	return body
+
+
+# ⭐ A CASING, so the leaf reads as a door in a wall rather than a picture ON one.
+#
+# ⚠️ `door.gd:build_visual()` gives you a leaf and nothing else — every level that wants the
+# door to look SEATED builds its own architrave (`corridor.gd:_spawn_door_frame()`,
+# `intro_room.gd:_build_door_casing()`, `slam_door.gd:_build_frame()`). The Breach never did, so
+# even after the leaf became real artwork it rendered as a flat rectangle floating on flat
+# concrete. Two jambs and a head is the whole fix.
+#
+# ⚠️ NO COLLIDERS. A collider on the only doorway wall is how this project seals a room by
+# accident — `intro_room.gd` carries the same warning verbatim, and `check_doorways.gd` sweeps
+# all nine levels for exactly that.
+# ⚠️ SIBLINGS of the leaf, never children: `door.gd` frees or flashes the leaf, and a frame that
+# went with it would leave a hole.
+# Second half of `_build_door_casing()`: now that every door has its final position and yaw,
+# move each casing piece into place. Split in two because `_spawn_level_doors()` sets the
+# transform after `_make_door()` returns.
+func _place_door_casings() -> void:
+	for child in get_children():
+		if not (child is MeshInstance3D) or not child.has_meta("casing_for"):
+			continue
+		var door := get_node_or_null(child.get_meta("casing_for")) as Node3D
+		if door == null:
+			continue
+		child.global_transform = door.global_transform.translated_local(
+			child.get_meta("casing_offset"))
+
+
+# ⭐ ONE ARCHITRAVE FOR THE WHOLE LEVEL (2026-09-07, from *"make sure all the doors look the
+# same"*). The Breach had THREE frame profiles and nine openings with none at all: the exit casing
+# was jamb 0.10 / depth 0.13 / metallic 0.45, `slam_door.gd`'s frame is jamb 0.08 / depth 0.26 /
+# metallic 0.3, and `purge_chamber.gd`'s is jamb 0.10 / depth 0.26 / metallic 0.6.
+#
+# ⚠️ THE BREACH-LOCAL GEOMETRY MOVES TO MATCH THE SLAM DOORS, NEVER THE REVERSE.
+# `slam_door.gd`'s `JAMB_T`, `FRAME_D` and `LEAF_H` are `const` and shared with THE NIGHTMARE's
+# 27 doors / 54 leaves; changing them there would re-dress a level nobody asked about.
+const FRAME_TINT := Color(0.07, 0.07, 0.07)   # slam_door.gd's frame material
+const FRAME_METALLIC := 0.3
+const FRAME_ROUGH := 0.6
+const FRAME_JAMB := 0.08                       # slam_door.gd:JAMB_T
+const FRAME_DEPTH := 0.26                      # slam_door.gd:FRAME_D
+# ⚠️ DEPTH MUST EXCEED `RoomBuilder.T` (0.2) OR THE CASING IS BURIED. A 0.13-deep casing centred
+# on the doorway plane spans -0.065..+0.065 inside a wall that spans -0.1..+0.1 — invisible from
+# both faces. That is the same fault `purge_chamber.gd` records for its own jambs.
+
+
+static func _frame_material() -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = FRAME_TINT
+	m.metallic = FRAME_METALLIC
+	m.roughness = FRAME_ROUGH
+	return m
+
+
+func _build_door_casing(body: Node3D, size: Vector3) -> void:
+	var mat := _frame_material()
+	const T := FRAME_JAMB
+	const D := FRAME_DEPTH
+	var parent := body.get_parent()
+	if parent == null:
+		return
+	for spec in [
+			{"n": "CasingL", "s": Vector3(T, size.y + T * 2.0, D),
+				"p": Vector3(-(size.x * 0.5 + T * 0.5), 0.0, 0.0)},
+			{"n": "CasingR", "s": Vector3(T, size.y + T * 2.0, D),
+				"p": Vector3(size.x * 0.5 + T * 0.5, 0.0, 0.0)},
+			{"n": "CasingHead", "s": Vector3(size.x + T * 2.0, T, D),
+				"p": Vector3(0.0, size.y * 0.5 + T * 0.5, 0.0)}]:
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = spec["s"]
+		mi.mesh = bm
+		mi.name = "%s_%s" % [body.name, spec["n"]]
+		mi.set_surface_override_material(0, mat)
+		parent.add_child(mi)
+		# ⚠️ Positioned in the DOOR's frame and then baked to world, because the caller sets
+		# `body.position` and `body.rotation.y` AFTER `_make_door()` returns — a casing parented
+		# to the level and positioned from `body.global_position` here would sit at the origin.
+		mi.set_meta("casing_offset", spec["p"])
+		mi.set_meta("casing_for", body.get_path())
+
+
+# ⭐ THE NINE BARE OPENINGS GET THE SAME CASING (2026-09-07, the user's call).
+#
+# `RoomBuilder` cuts a doorway as a rectangular hole floor-to-ceiling with no lintel, no jamb and
+# no threshold, showing the wall's own skin on the cut edges. Fourteen of this level's openings
+# carry a door (4 slam + 1 purge) or are a wall prop; the other NINE were raw holes standing
+# beside seven framed doors — arguably the level's biggest visual inconsistency, and the reason
+# "all the doors look the same" could not be answered by touching only the doors.
+#
+# ⚠️ BUILT HERE, NOT IN `RoomBuilder`. That class is shared by the Lab, the House, KONTUR, the
+# Breach and THE NIGHTMARE; framing doorways there would re-dress five levels.
+# ⚠️ NO COLLIDERS. A collider on the only doorway wall is how this project seals a room by
+# accident — `check_doorways.gd` exists because of exactly that.
+func _frame_bare_openings() -> void:
+	var taken := {}
+	for d in _slam_doors:
+		if is_instance_valid(d):
+			taken[Vector2(snappedf((d as Node3D).global_position.x, 0.1),
+				snappedf((d as Node3D).global_position.z, 0.1))] = true
+	if _purge_chamber:
+		taken[Vector2(snappedf(_purge_chamber.global_position.x, 0.1),
+			snappedf(_purge_chamber.global_position.z, 0.1))] = true
+
+	var mat := _frame_material()
+	var h: float = RoomBuilder.DEFAULT_H
+	for entry in DOORS:
+		var p: Vector2 = entry["pos"]
+		if taken.has(Vector2(snappedf(p.x, 0.1), snappedf(p.y, 0.1))):
+			continue
+		var w: float = float(entry["width"])
+		var holder := Node3D.new()
+		holder.name = "Casing_%.0f_%.0f" % [p.x, p.y]
+		holder.position = Vector3(p.x, 0.0, p.y)
+		# "z" means the doorway is cut in a wall perpendicular to z, so its width runs along x.
+		holder.rotation.y = 0.0 if String(entry["dir"]) == "z" else PI / 2.0
+		add_child(holder)
+		for spec in [
+				{"s": Vector3(FRAME_JAMB, h, FRAME_DEPTH),
+					"p": Vector3(-(w * 0.5 + FRAME_JAMB * 0.5), h * 0.5, 0.0)},
+				{"s": Vector3(FRAME_JAMB, h, FRAME_DEPTH),
+					"p": Vector3(w * 0.5 + FRAME_JAMB * 0.5, h * 0.5, 0.0)},
+				# The head sits just under the ceiling — the opening is full height, so there is
+				# no lintel to imitate, only the top edge to finish.
+				{"s": Vector3(w + FRAME_JAMB * 2.0, 0.1, FRAME_DEPTH),
+					"p": Vector3(0.0, h - 0.05, 0.0)}]:
+			var mi := MeshInstance3D.new()
+			var bm := BoxMesh.new()
+			bm.size = spec["s"]
+			mi.mesh = bm
+			mi.position = spec["p"]
+			mi.set_surface_override_material(0, mat)
+			holder.add_child(mi)
 
 
 func _refresh_exit() -> void:
 	if not is_instance_valid(_exit_door):
 		return
 	_exit_door.extra_lock = not _creature_defeated
-	_exit_door.locked_message = "SEAL WILL NOT LIFT — THE SUBJECT IS STILL LOOSE"
+	_exit_door.locked_message = "THE BREACH WILL NOT OPEN — THE SUBJECT IS STILL LOOSE"
 
 
 func _play_at(base_name: String, pos: Vector3, volume_db: float = 0.0) -> void:

@@ -364,6 +364,9 @@ func _at_the_plate() -> bool:
 	_ok("pressing E sets every fragment you are carrying into the frame",
 		int(_plate.call("pieces_set")) == 6, "%d of 6" % int(_plate.call("pieces_set")))
 	_ok("...and your hands are empty afterwards", int(_zone.call("pieces_held")) == 0)
+	var set_kinds: Array = _plate.call("set_kinds")
+	_ok("the six set are the six KINDS, one in each outlined slot (2026-09-10)",
+		set_kinds.size() == 6 and _dedup(set_kinds).size() == 6, str(set_kinds))
 	_advance(7)
 	return false
 
@@ -371,6 +374,12 @@ func _at_the_plate() -> bool:
 # --------------------------------------------------------------------------- stage 7
 
 func _the_exit() -> bool:
+	# The altar shows every piece now — the same meshes the player lifted out of the objects.
+	var shown := 0
+	for c in _plate.get_children():
+		if String(c.name).begins_with("Set") and c is Node3D and (c as Node3D).visible:
+			shown += 1
+	_ok("all six pieces are visible on the altar once set", shown == 6, "%d of 6" % shown)
 	print("\n--- the exit, and it is still found in the dark ---")
 	_ok("assembling the plate arms the real seam", bool(_seam.call("is_armed")))
 	var trig := _seam.get_node_or_null("GlitchTrigger") as Area3D
@@ -608,6 +617,39 @@ func _restore_is_consistent() -> void:
 			still_callable += 1
 	_ok("the three outstanding objects can still knock after a restore",
 		still_callable == 3, "%d of 3" % still_callable)
+
+	# ⭐ KIND ARRAYS (2026-09-10): the snapshot names WHICH pieces are set and held, and a
+	# piece seats into ITS slot, not the next empty one. Restore "skull set, candle in hand",
+	# then set the candle through the plate's own path: the candle slot fills, the book slot
+	# (between them in slot order) does not.
+	var z3 = load("res://scripts/backrooms_zone3.gd").new()
+	z3.name = "RestoreProbeZone3"
+	_scene.add_child(z3)
+	z3.call("build", Vector3(-800, 0, 0), _player)
+	var names3: Array = []
+	for n in _all(z3, []):
+		if n.get_script() == load("res://scripts/sunken_item.gd"):
+			names3.append(n.name)
+	z3.call("restore_searched", names3.slice(0, 3), ["skull"], ["candle"])
+	var plate3 = z3.get_node_or_null("FloodPlate")
+	_ok("a kind-array restore seats the named kind in its own slot",
+		plate3 != null and bool(plate3.call("slot_filled", "skull"))
+			and not bool(plate3.call("slot_filled", "candle"))
+			and int(z3.call("pieces_set")) == 1,
+		"set %s" % str(plate3.call("set_kinds") if plate3 else []))
+	_ok("...and the held kind is in hand", z3.call("held_kinds") == ["candle"],
+		str(z3.call("held_kinds")))
+	z3.call("_on_plate_used")
+	_ok("setting the held candle fills the CANDLE slot and leaves the book slot empty",
+		bool(plate3.call("slot_filled", "candle")) and not bool(plate3.call("slot_filled", "book"))
+			and int(z3.call("pieces_held")) == 0 and int(z3.call("pieces_set")) == 2,
+		"set %s" % str(plate3.call("set_kinds")))
+	# A legacy INT snapshot resolves against the pieces actually lifted, in wing order.
+	_ok("the legacy int restore above seated the FIRST TWO lifted kinds",
+		z2.get_node("FloodPlate").call("set_kinds") == ["candle", "book"]
+			and z2.call("held_kinds") == ["skull"],
+		"set %s held %s" % [str(z2.get_node("FloodPlate").call("set_kinds")),
+			str(z2.call("held_kinds"))])
 	z.queue_free()
 	z2.queue_free()
 
@@ -755,3 +797,11 @@ func _all(n: Node, acc: Array) -> Array:
 		acc.append(c)
 		_all(c, acc)
 	return acc
+
+
+func _dedup(a: Array) -> Array:
+	var out: Array = []
+	for v in a:
+		if not out.has(v):
+			out.append(v)
+	return out

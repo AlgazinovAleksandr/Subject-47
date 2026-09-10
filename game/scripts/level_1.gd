@@ -109,6 +109,7 @@ func _ready() -> void:
 
 	_clear_old_scene()
 	_build_geometry()
+	_spawn_wing_markers()
 	_place_player()
 	_spawn_lights()
 	_spawn_notes()
@@ -121,7 +122,10 @@ func _ready() -> void:
 	_spawn_apparition()
 	_spawn_apparition_director()
 	_start_ambience()
-	_boost_ambient(0.35)
+	_boost_ambient(DARK_AMBIENT)
+	var pl0 := _player()
+	if pl0 and pl0.has_method("set_torch_profile"):
+		pl0.set_torch_profile(TORCH_RANGE, TORCH_ANGLE)
 
 	Vignette.spawn(self, Color(0.88, 0.95, 0.88, 1.0), 0.9)
 	RandomAmbient.register_player(_player())
@@ -357,6 +361,9 @@ func _restore_progress() -> void:
 			_records_breaker.unblock()
 	_apparition_fired = bool(data.get("apparition_fired", false))
 	_nook_scare_done = bool(data.get("nook_scare_done", false))
+	if _nook_scare_done:
+		# The wing stays lit and the torch stays unlocked — see the ⚠️ on `_light_the_wing()`.
+		_light_the_wing(true)
 	# The Records bank: put the page back in the drawer it was in, re-open the ones that were
 	# still hanging open, and take the page away if it was already taken. (A `drawers_searched`
 	# list used to be restored here too; nothing behaves differently for a searched drawer any
@@ -381,8 +388,59 @@ func _restore_progress() -> void:
 
 # ---------------------------------------------------------------- lighting
 
+# ⭐ THE LAB IS PITCH BLACK UNTIL THE POWER IS RESTORED (2026-09-03, the user's call).
+#
+# ⚠️ The lamps are NOT deleted and their energies are NOT zeroed — `_drive_lights()` simply
+# refuses to raise any of them while `_power_on` is false. Two reasons, and the first is a trap:
+# `check_fixtures.gd` asserts a MINIMUM FITTING COUNT per level (Lab >= 8) and every fitting mesh
+# is created by `_add_lamp()`, so making the level dark by removing lamps turns that guard red
+# immediately. The second is that `_on_breaker_flipped()` and `_restore_power()` both key off
+# `entry[1] > 0.0` to tell "spawned dark on purpose" (the Morgue, the ten-room wing) from
+# "currently unlit", and zeroing everything would erase that distinction — Issue 36 is exactly
+# what happens when it is lost.
+# ⭐ 0.0, NOT 0.02 (2026-09-07, the user's *"you need to come closer to the objects with the
+# flashlights to see them"*). At 0.02 the room is a faint grey shape; at 0.0 there is nothing
+# outside the beam at all, which is the point.
+# ⚠️ It is the SMALLER half of that change — see `TORCH_RANGE` below. Ambient decides whether the
+# unlit world is black or nearly black; the BEAM decides how far you can see, and 18 m of it read
+# a whole room from its doorway.
+const DARK_AMBIENT := 0.0
+
+# ⭐ THE LAB'S OWN TORCH. `player.gd` writes the game defaults (18 m / 30 deg) in its `_ready()`,
+# which Godot runs BEFORE this level's, so this narrows it afterwards. Lab and House only; KONTUR,
+# the Corridor and the Breach keep the wide beam, and the Breach's `LIGHT_WEAPON_DOT` with it.
+const TORCH_RANGE := 11.0
+const TORCH_ANGLE := 24.0
+
+# ⭐ EVERYTHING THAT LIGHTS ITSELF IS HALVED (D3 — cross-level X64 and X65, decided by the user
+# 2026-09-07). With ambient at 0.0 a self-lit prop is the only thing visible at distance, and
+# these were measured across the room before the change. Dimmed rather than killed: the
+# Observation maintenance note gates the locker that gates the third breaker, so a note nobody can
+# find is a level nobody can finish.
+# ⚠️ THE NUMBERS ARE THE MEASURED ONES, halved from what a probe read in the dark Lab — notes 0.60,
+# the morgue monitor 0.85, the keycard 0.70, the surgical tray 0.35, the mirror figure 0.50, the
+# doors 0.08. Do not re-derive them from taste; re-measure with `screenshot_torch_reach.gd`.
+# ⚠️ TWO KINDS OF NUMBER HERE, and mixing them up is how one of these silently becomes a no-op.
+# The `_SCALE` constants are MULTIPLIERS passed into a shared script that owns the base value;
+# the others are ABSOLUTE emission energies passed straight to a level-local quad.
+const EM_NOTE_SCALE := 0.42     # note.gd's 0.60 -> 0.25
+const EM_DOOR_SCALE := 0.375    # door.gd's 0.08 -> 0.03
+const EM_MIRROR_SCALE := 0.5    # living_mirror.gd's 0.50 -> 0.25
+const EM_MONITOR := 0.30        # was 0.85 — the brightest surface in the dark Lab
+const EM_KEYCARD := 0.30        # was 0.70
+const EM_TRAY := 0.20           # was 0.35
+const LIT_AMBIENT := 0.35
 const EMERGENCY_ENERGY := 0.45   # dim emergency power before the breakers are thrown
 const RESTORED_ENERGY := 1.0     # full institutional light once power is restored
+# ⭐ THE ONE ROOM LIT BEFORE THE POWER COMES BACK (2026-09-10, the user's call on a replay:
+# *"the room with the cabinet we need to push should have more light (the only room in the lab
+# with light before we press all the light switchers), so that it will be simpler to navigate
+# in the dark"*). Records holds the locker puzzle AND the wing's entrance, so a lamp here is a
+# HOME bearing for the 50 m of black maze off its west wall: its 11 m range spills through the
+# doorway into the DarkCorridor's east end and no further. Keyed by lamp NAME, never by room
+# index, and driven through the same flicker path as everything else in `_drive_lights()`.
+# `check_darkness.gd` asserts that exactly these names burn at spawn and nothing else does.
+const PRE_POWER_LIT := {"Lamp_Records": EMERGENCY_ENERGY}
 
 
 # Rooms that must never get an automatic ceiling lamp from the loop below —
@@ -582,7 +640,7 @@ func _make_note(pos: Vector3, y_rot: float, text: String, trap := false) -> Stat
 	var bm := BoxMesh.new()
 	bm.size = Vector3(0.32, 0.42, 0.01)
 	mesh.mesh = bm
-	mesh.set_surface_override_material(0, _NOTE_SCRIPT.paper_material(trap))
+	mesh.set_surface_override_material(0, _NOTE_SCRIPT.paper_material(trap, EM_NOTE_SCALE))
 	note.add_child(mesh)
 
 	var col := CollisionShape3D.new()
@@ -733,6 +791,14 @@ func _on_breaker_flipped(id: String = "") -> void:
 
 func _restore_power() -> void:
 	_power_on = true
+	# ⚠️ The AMBIENT comes back too, not just the lamps. At DARK_AMBIENT the room lamps light
+	# their own pools and everything between them stays black, which is right for the search and
+	# wrong for the reward — "the power is back" has to feel like the building came back, not
+	# like eight torches were lit.
+	var we: WorldEnvironment = get_node_or_null("Environment/WorldEnvironment")
+	if we and we.environment:
+		var amb := create_tween()
+		amb.tween_property(we.environment, "ambient_light_energy", LIT_AMBIENT, 1.2)
 	for entry in _lights:
 		var lamp: OmniLight3D = entry[0]
 		# ⚠️ Skip the rooms that were spawned dark. _spawn_lights() gives every room in
@@ -910,23 +976,30 @@ func _spawn_morgue_keycard() -> void:
 	# render a crop; see door.gd:build_visual and Issue 24.) The green emissive box
 	# stays underneath as the edge and as the pre-texture fallback.
 	_add_face_quad(key, Vector2(0.16, 0.10), Vector3(0, 0.013, 0),
-		Vector3(-PI / 2.0, 0, 0), TEX + "lab_keycard.png", 0.7)
+		Vector3(-PI / 2.0, 0, 0), TEX + "lab_keycard.png", EM_KEYCARD)
 	var kcol := CollisionShape3D.new()
 	var ks := BoxShape3D.new()
 	ks.size = Vector3(0.3, 0.3, 0.6)
 	kcol.shape = ks
 	key.add_child(kcol)
 
-	# The morgue is a dark zone with a beartrap near the entrance.
-	var zone := DarkZone.new()
-	var zcol := CollisionShape3D.new()
-	var zs := BoxShape3D.new()
-	zs.size = Vector3(7, 3, 6)
-	zcol.shape = zs
-	zone.add_child(zcol)
-	zone.position = Vector3(c.x, 1.5, c.z)
-	add_child(zone)
-
+	# ⚠️ THE MORGUE'S `DarkZone` IS GONE (2026-09-03, D4), and the beartrap below is not.
+	#
+	# The zone charged +3/s whenever the player stood in here with the torch off, and it was fair
+	# while the rest of the Lab was lit at 0.45 ambient: walking into the one black room without
+	# raising your light was a CHOICE. It is not a choice any more. With the level at
+	# DARK_AMBIENT the torch is the only way to see anything anywhere, so the tax stops
+	# distinguishing the morgue from every other room and only ever fires during the moments the
+	# player has no say over — the keycard blackout, a scripted beat, the walk out of the wing
+	# with the torch still locked. That is the Issue 18 shape: a penalty for a posture the level
+	# itself imposed.
+	#
+	# ⚠️ The morgue is UNCHANGED in every other respect. It is still the one room `_restore_power()`
+	# and `_light_the_wing()` both skip (it is in NO_LAMP_ROOMS at energy 0.0), so it is still
+	# pitch black after the power comes back — searched by torchlight, with a beartrap by the door
+	# and two instant-fail triggers in it. What it no longer does is charge you for the torch
+	# being off in a game where it is off by accident.
+	# `check_darkness.gd` asserts the absence, with a control, so this cannot be quietly re-added.
 	var trap := Beartrap.new()
 	trap.position = Vector3(c.x - 1.5, 0, c.z - 1.5)
 	add_child(trap)
@@ -978,7 +1051,7 @@ func _make_trigger(pos: Vector3, size: Vector3, albedo: Color, emission := Color
 			# 0.45 it just read as a dark rectangle. Still under 1.0 so it doesn't
 			# clamp to white (see FIXTURE_EMISSION).
 			_add_face_quad(body, Vector2(size.x, size.y),
-				Vector3(0, 0, -size.z / 2.0 - 0.003), Vector3(0, PI, 0), tex_path, 0.85)
+				Vector3(0, 0, -size.z / 2.0 - 0.003), Vector3(0, PI, 0), tex_path, EM_MONITOR)
 
 
 # Four thin bars around the rim so a tray reads as a tray and not as a flat plate.
@@ -1008,7 +1081,7 @@ func _add_tray_lip(body: Node3D, size: Vector3, albedo: Color) -> void:
 # it stays legible in a room lit at 0.45 energy — these are objects the player is
 # meant to recognise before deciding not to look at them.
 func _add_face_quad(body: Node3D, size: Vector2, offset: Vector3, rot: Vector3,
-		tex_path: String, emission := 0.35) -> void:
+		tex_path: String, emission := EM_TRAY) -> void:
 	if tex_path == "" or not ResourceLoader.exists(tex_path):
 		return
 	var quad := MeshInstance3D.new()
@@ -1069,6 +1142,78 @@ func _make_cursed_panel(pos: Vector3, size: Vector2, y_rot: float, intensity: fl
 # prop keeps its flat-colour look until art for it exists. The colour is retained
 # as an albedo multiplier rather than being discarded, which keeps a textured prop
 # sitting in the same tonal range as its untextured neighbours.
+# ⭐ THE EXAM TABLE IS BUILT FROM PARTS (2026-09-03) — Issue 35, on the prop standing beside the
+# first breaker the player finds.
+#
+# ⚠️ IT WAS ONE `CSGBox3D`: `Vector3(0.9, 0.9, 2.0)` at `Color(0.6, 0.62, 0.64)`, `metallic 0.3`,
+# no texture. A near-white flat box 0.9 m tall — survivable as background at 0.35 ambient and not
+# survivable now. Photographed under the new torch it reads as a **rendering error**: a
+# featureless pale slab against walls and floor that carry real grime, in the one room the player
+# is required to search, right next to the Exam1 breaker.
+#
+# ⚠️ THE SILHOUETTE CARRIES IT, NOT ART. That is Issue 35's actual finding, restated across the
+# House furniture, the beartrap, KONTUR's mailbox and the Records cabinets: what makes a trolley
+# legible is a thin top on a frame with a gap under it and castors on the floor — not a texture on
+# a cube. Flat-tinted and untextured on purpose, like `kontur_mailbox.gd` and
+# `intro_room.gd:_build_wheelchair()`.
+#
+# ⚠️ THE FOOTPRINT AND THE COLLIDER ARE UNCHANGED — one 0.9 x 0.9 x 2.0 body at the same centre,
+# so every clearance figure computed against the old box still holds and nothing about the room's
+# navigable space moves. `check_wall_overlap.gd` and `check_reachable.gd` both sweep this level.
+const TABLE_SIZE := Vector3(0.9, 0.9, 2.0)
+
+func _build_exam_table(c: Vector3) -> void:
+	var steel := StandardMaterial3D.new()
+	steel.albedo_color = Color(0.30, 0.31, 0.33)   # was 0.60 — it was the brightest thing in the room
+	steel.metallic = 0.45
+	steel.roughness = 0.42
+	var pad := StandardMaterial3D.new()
+	pad.albedo_color = Color(0.20, 0.21, 0.20)
+	pad.roughness = 0.9
+	var rubber := StandardMaterial3D.new()
+	rubber.albedo_color = Color(0.07, 0.07, 0.08)
+	rubber.roughness = 1.0
+
+	var root := Node3D.new()
+	root.name = "ExamTable_%.0f_%.0f" % [c.x, c.z]
+	root.position = Vector3(c.x, 0.0, c.z)
+	add_child(root)
+
+	# ⚠️ ONE body carrying the ORIGINAL box, invisible. The parts are visual only, so a trolley
+	# with a gap under it cannot become a thing the player walks through — and the collision
+	# footprint stays exactly what every clearance number in this file was computed against.
+	var body := StaticBody3D.new()
+	root.add_child(body)
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = TABLE_SIZE
+	col.shape = shape
+	col.position.y = 0.45
+	body.add_child(col)
+
+	var parts := [
+		["Top", Vector3(0.78, 0.06, 1.90), Vector3(0, 0.86, 0), steel],
+		["Pad", Vector3(0.70, 0.05, 1.78), Vector3(0, 0.915, 0), pad],
+		["Rail_L", Vector3(0.04, 0.05, 1.86), Vector3(-0.40, 0.90, 0), steel],
+		["Rail_R", Vector3(0.04, 0.05, 1.86), Vector3(0.40, 0.90, 0), steel],
+		["Shelf", Vector3(0.62, 0.04, 1.30), Vector3(0, 0.30, 0), steel],
+	]
+	for i in range(4):
+		var sx: float = -0.32 if i % 2 == 0 else 0.32
+		var sz: float = -0.80 if i < 2 else 0.80
+		parts.append(["Leg%d" % i, Vector3(0.05, 0.80, 0.05), Vector3(sx, 0.44, sz), steel])
+		parts.append(["Castor%d" % i, Vector3(0.09, 0.08, 0.09), Vector3(sx, 0.04, sz), rubber])
+	for spec in parts:
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = spec[1]
+		mi.mesh = bm
+		mi.name = spec[0]
+		mi.position = spec[2]
+		mi.set_surface_override_material(0, spec[3])
+		root.add_child(mi)
+
+
 func _make_prop(pos: Vector3, size: Vector3, color: Color, y_rot := 0.0,
 		tex_path := "") -> CSGBox3D:
 	var b := CSGBox3D.new()
@@ -1089,6 +1234,20 @@ func _make_prop(pos: Vector3, size: Vector3, color: Color, y_rot := 0.0,
 	return b
 
 
+# Small decorative pools on specific props — the Records warning sign, the Observation desk's
+# screen glow, the whiteboard. Not room lighting.
+#
+# ⚠️ THEY GO INTO `_lights` (2026-09-03). They did not before, which meant `_drive_lights()`
+# never touched them and they kept burning through the level's own blackouts — and, once the Lab
+# went dark until the power is restored, they were the ONLY three lights in the building: three
+# little glowing pools in a level whose premise is that nothing works. `check_darkness.gd`
+# caught it as "3 lit of 23, brightest 0.50".
+#
+# ⚠️ Appended with their real energy, so `_on_breaker_flipped()` and `_restore_power()`'s
+# `entry[1] > 0.0` guard treats them as ordinary lit fixtures rather than as deliberately-dark
+# rooms (Issue 36). They come back with the power, like everything else on the same circuit.
+# ⚠️ Two elements, not three: `_add_lamp()` appends `[lamp, energy, fixture_material]`, and these
+# have no fitting mesh. `_drive_lights()` already guards on `entry.size() > 2`.
 func _accent_lamp(pos: Vector3, color: Color, energy: float, lrange := 6.0) -> void:
 	var lamp := OmniLight3D.new()
 	lamp.position = pos
@@ -1096,6 +1255,7 @@ func _accent_lamp(pos: Vector3, color: Color, energy: float, lrange := 6.0) -> v
 	lamp.light_energy = energy
 	lamp.omni_range = lrange
 	add_child(lamp)
+	_lights.append([lamp, energy])
 
 
 # Lateral offset of the printed PA transcript from the whiteboard's own wall_point.
@@ -1144,8 +1304,7 @@ func _place_flood_hint(cab_index: int = -1, slot: int = -1) -> void:
 func _spawn_room_props() -> void:
 	# Exam rooms: a surgical table each.
 	for room in ["Exam1", "Exam2"]:
-		var c: Vector3 = _builder.room_center(room)
-		_make_prop(Vector3(c.x, 0.45, c.z), Vector3(0.9, 0.9, 2.0), Color(0.6, 0.62, 0.64))
+		_build_exam_table(_builder.room_center(room))
 	# Records: a bank of filing cabinets along the back wall + a warning sign.
 	# ⚠️ TWO cabinets, not three, and shifted west. The bank used to span x -11.35..-9.05
 	# at z 9.8..10.4, which is exactly where the RecordsLocker now stands — the third unit
@@ -1218,6 +1377,7 @@ func _spawn_observation_mirror() -> void:
 	# figure could never have been visible here. Asserted by check_wall_overlap.gd.
 	var pos: Vector3 = _builder.wall_point("Observation", Vector2(1, 0), 1.5, 0.22)
 	var mirror := LivingMirror.new()
+	mirror.emission_scale = EM_MIRROR_SCALE
 	mirror.position = pos
 	mirror.rotation.y = -PI / 2.0  # face back into the room (-x)
 	add_child(mirror)
@@ -1245,7 +1405,7 @@ func _make_door(door_name: String, advances: bool, goes_back: bool) -> StaticBod
 	body.goes_back = goes_back
 	add_child(body)
 
-	_DOOR_SCRIPT.build_visual(body, Vector3(1.25, 2.45, 0.15), TEX + "lab_door.png")
+	_DOOR_SCRIPT.build_visual(body, Vector3(1.25, 2.45, 0.15), TEX + "lab_door.png", EM_DOOR_SCALE)
 
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
@@ -1258,11 +1418,74 @@ func _make_door(door_name: String, advances: bool, goes_back: bool) -> StaticBod
 
 # ---------------------------------------------------------------- apparition
 
+# ⭐ THE APPARITION IS ON A CLOCK NOW, NOT A TRIPWIRE (2026-09-03, the user's call).
+#
+# ⚠️ IT USED TO FIRE ABOUT 1.7 SECONDS INTO THE LEVEL. `_spawn_event(Vector3(0, 1.5, 6.0),
+# Vector3(3, 3, 1.5), ...)` put a `CorridorEvent` box whose NEAR FACE was at z = 5.25 — and the
+# player spawns at z = -1.5 facing +z down an unobstructed 3 m corridor (`Reception` z -3..3,
+# `MainHall1` z 3..11). That is 6.75 m in a straight line, or **1.7 s of holding W** at
+# `player.gd:SPEED` 4.0. The game's designed teaching beat for the HOLD rule was therefore the
+# first thing that happened, every single run, before the player had touched anything — which is
+# the definition of predictable.
+#
+# The trigger volume is deleted. It arms on a clock instead, and the window is randomised so two
+# runs do not agree.
+const APPARITION_AT := Vector2(42.0, 50.0)   # armed at randf_range of these
+const APPARITION_POLL := 0.25
+# ⚠️ THE HARD DEADLINE. Past this the fairness gates below are dropped and it fires anyway. The
+# beat teaches a rule the player is killed by later (the House cellar, the Backrooms Flood), so
+# it may be DELAYED but must never be CANCELLED — `apparition_director.gd:OVERDUE_AFTER` makes
+# exactly the same trade for exactly the same reason.
+const APPARITION_DEADLINE := 65.0
+
+var _apparition_due: float = 0.0
+var _apparition_clock: float = 0.0
+var _apparition_poll: float = 0.0
+
 func _spawn_apparition() -> void:
-	# A taught "hold your nerve" apparition, armed when the player first steps into
-	# the main corridor. teach=true: even a panicked sprint only shocks, not kills.
+	# A taught "hold your nerve" apparition. teach=true: even a panicked sprint only shocks,
+	# not kills.
 	_apparition = Apparition.spawn(self, Apparition.Rule.HOLD, Vector3.ZERO, true) as Apparition
-	_spawn_event(Vector3(0, 1.5, 6.0), Vector3(3, 3, 1.5), _trigger_apparition)
+	_apparition_due = randf_range(APPARITION_AT.x, APPARITION_AT.y)
+
+
+# Called every frame from `_process`. Cheap: a float compare until the clock is up.
+func _tick_apparition(delta: float) -> void:
+	if _apparition_fired or _apparition == null:
+		return
+	_apparition_clock += delta
+	if _apparition_clock < _apparition_due:
+		return
+	_apparition_poll -= delta
+	if _apparition_poll > 0.0:
+		return
+	_apparition_poll = APPARITION_POLL
+	if _apparition_clock < APPARITION_DEADLINE and not _apparition_is_fair():
+		return
+	_trigger_apparition()
+
+
+# ⚠️ THE SAME FOUR CONDITIONS `apparition_director.gd:_can_fire()` USES, and for the same
+# reasons: a HOLD apparition KILLS YOU FOR FLEEING, so it must not materialise at a moment when
+# the player cannot demonstrate that they are standing their ground. A tree pause or an open
+# note means they cannot see it; `is_input_frozen()` means they are pinned in a beartrap QTE or
+# the locker push and could not run if they wanted to; and `_in_breaker_nook` is the level's own
+# suppression, because a player who cannot SEE the figure materialise has no fair way to judge
+# "hold still or flee" (the KONTUR Gate 7 / Backrooms Flood mistake, made twice already).
+func _apparition_is_fair() -> bool:
+	if get_tree().paused:
+		return false
+	var nui := get_node_or_null("/root/NoteUI")
+	if nui and bool(nui.get("is_open")):
+		return false
+	if _in_breaker_nook:
+		return false
+	var p := _player()
+	if p == null:
+		return false
+	if p.has_method("is_input_frozen") and p.is_input_frozen():
+		return false
+	return true
 
 
 func _trigger_apparition() -> void:
@@ -1272,18 +1495,19 @@ func _trigger_apparition() -> void:
 	# force_teach: this is the designed teaching beat for the whole game's HOLD rule,
 	# so it stays survivable even in the rare case the director already fired one.
 	ApparitionDirector.arm(_apparition, true)
+	# ⚠️ AND TELL THE DIRECTOR, or it will schedule its own on top of this one. Its `LEVEL_GRACE`
+	# is 45 s and this beat lands at 42-50 s, so without this the two clocks overlap by design —
+	# measured, a 43.2 s gap between consecutive apparitions against `count_apparitions.gd`'s 60 s
+	# floor. The director owns pacing; a level-scripted appearance is still an appearance.
+	if is_instance_valid(_apparition_director) \
+			and _apparition_director.has_method("note_external_fire"):
+		_apparition_director.note_external_fire()
 
 
-func _spawn_event(pos: Vector3, size: Vector3, callback: Callable) -> void:
-	var ev := CorridorEvent.new()
-	var col := CollisionShape3D.new()
-	var shape := BoxShape3D.new()
-	shape.size = size
-	col.shape = shape
-	ev.add_child(col)
-	ev.position = pos
-	ev.fired.connect(callback)
-	add_child(ev)
+# ⚠️ `_spawn_event()` LIVED HERE AND IS DELETED (2026-09-03). It built a `CorridorEvent` trigger
+# volume, and this level had exactly one caller: the apparition tripwire 6.75 m in front of the
+# spawn point. That beat is on a clock now (`_tick_apparition`), so the helper had no callers
+# left. `CorridorEvent` itself is untouched — `corridor.gd` is its real user and has five.
 
 
 # ---------------------------------------------------------------- ambience / ticks
@@ -1326,6 +1550,11 @@ func _process(delta: float) -> void:
 	_tick_nook_breath()
 	_tick_nook_watch(delta)
 	_tick_wing_meter(delta)
+	_tick_wing_markers(delta)
+	_tick_apparition(delta)
+
+
+var _apparition_director: Node = null
 
 
 func _spawn_apparition_director() -> void:
@@ -1339,6 +1568,8 @@ func _spawn_apparition_director() -> void:
 	# unmitigated extra threat on a room whose whole premise is "solve it blind").
 	d.suppress = func() -> bool: return _in_breaker_nook
 	add_child(d)
+	# Kept so the scripted teaching beat can reset its clock — see `_tick_apparition()`.
+	_apparition_director = d
 
 
 func _tick_blackout(delta: float) -> void:
@@ -1516,6 +1747,7 @@ const NOOK_TRIGGER_DIST := 3.0          # the user's own number: "3 metres away 
 const NOOK_WATCH_TIMEOUT := 6.0         # if they never walk away, fire anyway
 const NOOK_MIN_FRAMING := 2.2           # never materialise closer than this to the player
 const NOOK_FIG_CLEAR := 0.85            # half the billboard's width, plus a margin
+const NOOK_SILENCE := 0.6              # the bed ducks as the scream lands — screamer.gd's own value
 const NOOK_FAN_RAYS := 16               # ⚠️ 16, not 8: at 45 degrees every ray flies clean
                                         # through a DOORWAY while the billboard's edges are
                                         # buried in the jambs (apparition.gd's lesson)
@@ -1601,6 +1833,12 @@ func _tick_nook_watch(delta: float) -> void:
 
 
 # BreakerNook's centre line, between the breaker (west wall) and the doorway out (east).
+# Where the nook breaker actually is, derived the same way `_spawn_breakers()` places it, so the
+# two cannot drift apart. `_place_nook_figure()` needs it to know which way "out" is.
+func _nook_breaker_pos() -> Vector3:
+	return _builder.wall_point("BreakerNook", Vector2(-1, 0), 1.1, 0.15)
+
+
 func _nook_anchor() -> Vector3:
 	var c: Vector3 = _builder.room_center("BreakerNook")
 	return Vector3(c.x + NOOK_ANCHOR_FROM_CENTRE, 0.0, c.z)
@@ -1633,6 +1871,11 @@ func _nook_reveal() -> void:
 	p.freeze_input()
 	p.turn_to_face(spot + Vector3(0, 1.35, 0), NOOK_TURN_TIME)
 	# The scream LEADS: the ear gets the bearing before the head arrives.
+	# ⚠️ AND THE WORLD IS TAKEN AWAY UNDER IT. The emitter is already at its `max_db` ceiling at
+	# this range and the file peaks at 0.00 dBFS, so gain is not available — contrast is. This is
+	# `screamer.gd`'s own pre-scare silence applied to a beat that never had one; fire-and-forget,
+	# never awaited, or the scream would arrive after the duck instead of into it.
+	HoldBreath.dip(get_tree(), NOOK_SILENCE)
 	_play_at("nook_scream", spot + Vector3(0, 1.5, 0), -2.0)
 	p.jolt_camera(0.08, 0.4)
 
@@ -1704,17 +1947,76 @@ func _place_nook_figure(p: CharacterBody3D) -> Vector3:
 	# SouthHall; the mark in BreakerNook is then behind a wall and no longer usable, and the
 	# honest substitute is the same idea one room along — standing in the route they just
 	# walked, between them and the dark they came out of.
+	# ⚠️⚠️ `back` FLIPS SIDES WHEN YOU ARE STANDING AT THE BREAKER, AND IT USED TO POINT INTO THE
+	# WALL (fixed 2026-09-07, found by `autoplay_lab_nook.gd`'s stand-still run).
+	#
+	# It was defined as `anchor - player`, i.e. "toward the designed mark", which reads as "the
+	# way they came" only while they are some distance away. The anchor sits 1.25 m EAST of the
+	# breaker, so a player who threw the lever and did not move is within ~1.7 m of it and may be
+	# on EITHER side — and standing east of it makes `back` point WEST, straight at the west wall
+	# the breaker is mounted on. Every player-relative mark then lands outside the room,
+	# `_clamp_into_room()` pulls them all back onto the same clamped x, they all fail
+	# `NOOK_MIN_FRAMING`, and so do both world marks (which are closer still). Measured: the
+	# stand-still branch produced NO FIGURE AT ALL — the sting fired into an empty corridor.
+	#
+	# ⚠️ AND THAT IS THE BRANCH THE DESIGN EXPECTS. The beat is five seconds of breathing behind
+	# your head; standing still and listening is the intended response, and it was the one that
+	# lost the picture.
+	#
+	# Inside the nook, "the way out" is unambiguous and geometric: away from the breaker, which is
+	# bolted to the west wall. Outside it, the old definition is right. `_nook_breaker_pos()` is
+	# derived from the same `wall_point()` call that places the panel, so the two cannot drift.
 	var back := _nook_anchor() - p.global_position
 	back.y = 0.0
-	back = back.normalized() if back.length() > 0.001 else Vector3(-1, 0, 0)
+	if p.global_position.distance_to(_nook_anchor()) < NOOK_MIN_FRAMING:
+		back = p.global_position - _nook_breaker_pos()
+		back.y = 0.0
+	back = back.normalized() if back.length() > 0.001 else Vector3(1, 0, 0)
 
+	# ⭐⭐ NEAR MARKS FIRST — THE LADDER USED TO PUT THE FIGURE AS FAR AWAY AS IT COULD
+	# (reordered 2026-09-07, from the user's *"the creature in the dark corridor appears a bit too
+	# far away - let's make it closer"*).
+	#
+	# ⚠️ THE OLD ORDER TRIED `anchor` FIRST, AND THE TRIGGER GUARANTEES THE ANCHOR IS FAR. The
+	# reveal fires from `_tick_nook_watch()` once the player is `NOOK_TRIGGER_DIST` 3.0 m from the
+	# anchor — so candidate one was, by construction, never closer than 3 m, and usually much
+	# further: `_nook_watch` is armed by a `SceneTreeTimer` 5 s AFTER the flip, and 5 s at the
+	# player's 4.0 m/s walk is up to 20 m. `far_enough` is therefore true on the very first tick
+	# and the figure lands wherever they got to. The 3.0 threshold essentially never binds.
+	#
+	# ⚠️ AND THIS IS THE VOLUME FIX TOO, WHICH IS WHY NO GAIN MOVED. `nook_scream` is positional AT
+	# the figure through `_play_at()` (`unit_size 8.0`, `max_db 6.0`, `volume_db -2.0`), so its
+	# delivered level is a function of the distance this ladder chooses. Measured, decoded and
+	# clamped as the mixer will (`nook_scream` loudest-300 ms -3.71 dBFS):
+	#
+	#     at 20 m   -3.71 + min(-2 + 20*log10(8/20),  6) = -13.67 dBFS
+	#     at  2.6 m -3.71 + min(-2 + 20*log10(8/2.6), 6) =  +2.29 dBFS
+	#
+	# **+16 dB, from placement alone.** There is no gain left to add: the emitter is already
+	# pinned to its `max_db` ceiling inside 4 m and the file peaks at 0.00 dBFS under a Master
+	# limiter at -0.5. Raising `max_db` would only lean harder on that limiter.
+	#
+	# ⚠️ `NOOK_TRIGGER_DIST` IS THE USER'S OWN NUMBER AND IS NOT MOVED, nor is the 5 s of
+	# breathing that precedes it — that delay is the beat. What changed is only where the figure
+	# stands once the beat fires, which is framing, not difficulty.
+	#
+	# ⚠️ The world marks are KEPT as the tail of the ladder, not deleted: a player who threw the
+	# breaker and walked out through a doorway can leave every player-relative mark inside a wall,
+	# and `_figure_fits()` will reject them. Falling back to the designed mark beats no figure.
+	# Screen height for the 2.3 m billboard, for scale: ~70 % at 2.4 m, ~51 % at 3.5 m, ~30 % at 6 m.
 	var candidates: Array[Vector3] = [
-		anchor,                                              # the designed mark
-		Vector3(c.x, 0.0, c.z),                              # mid-room
-		p.global_position + back * 2.6,
+		p.global_position + back * 2.4,
+		p.global_position + back * 2.8,
+		p.global_position + back.rotated(Vector3.UP, deg_to_rad(25.0)) * 2.6,
+		p.global_position + back.rotated(Vector3.UP, deg_to_rad(-25.0)) * 2.6,
 		p.global_position + back * 3.4,
-		p.global_position + back.rotated(Vector3.UP, deg_to_rad(25.0)) * 2.8,
-		p.global_position + back.rotated(Vector3.UP, deg_to_rad(-25.0)) * 2.8,
+		# ⚠️ AND THE OPPOSITE DIRECTION, before giving up on player-relative marks entirely. A
+		# player in a corner can have every mark on one side clipped into masonry, and a figure
+		# 2.6 m the other way is far better than the sting firing at nothing.
+		p.global_position - back * 2.6,
+		p.global_position - back * 3.2,
+		anchor,                                              # the designed mark, now a fallback
+		Vector3(c.x, 0.0, c.z),                              # mid-room, last resort
 	]
 	for raw in candidates:
 		# Pull it off the walls before testing, rather than testing and failing: a 1.5 m
@@ -1855,10 +2157,21 @@ const WING_ROOMS := [
 	"DarkCorridor", "Junction", "WestCorridor", "Plant",
 	"NorthSpur", "NorthVault", "SouthSpur", "SouthHall", "PumpRoom", "BreakerNook",
 ]
-const WING_LIT_ENERGY := 0.5     # dim emergency level — enough to navigate, not to feel safe
+const WING_LIT_ENERGY := 0.5
+# Resolved once from WING_ROOMS so `_drive_lights()` can test membership without a per-frame
+# array scan over ten strings for every lamp in the level.
+var _wing_lit: bool = false
+var _wing_lamp_names := {}     # dim emergency level — enough to navigate, not to feel safe
 const WING_LIGHT_FADE := 1.5
 
-func _light_the_wing() -> void:
+func _light_the_wing(silent: bool = false) -> void:
+	# ⚠️ `silent` IS THE RESTORE PATH, and the wing payoff needs one. `_restore_progress()` brings
+	# `_nook_scare_done` back but rebuilt the wing DARK with the flashlight lock zone respawned —
+	# and the only thing that can ever call this is the nook breaker's `flipped`, which a restored
+	# breaker never emits again. So a player who cleared the nook, walked back a level and returned
+	# was locked into a lightless 50 m maze whose puzzle was already solved and could not be
+	# re-solved. `MovedProp`'s rule: force the STATE, never replay the EVENT — the tweens and the
+	# unlock are state, the toast ("Get out.") is the event, and only the toast is suppressed.
 	# Release the flashlight lock first, and kill the zone so re-entering can't re-lock
 	# it. unlock_flashlight() only clears the flag — the player still presses F.
 	if is_instance_valid(_nook_zone):
@@ -1869,11 +2182,24 @@ func _light_the_wing() -> void:
 	if p and p.has_method("unlock_flashlight"):
 		p.unlock_flashlight()
 
+	# ⚠️ The flag AND the name set, before the tweens. `_drive_lights()` holds every lamp at zero
+	# while `not _power_on`, and it is the last writer every frame — without this the ten tweens
+	# below rise for 1.5 s and are then re-zeroed for ever (measured 0.0000 at t+12 s).
+	_wing_lit = true
 	for entry in _lights:
 		var lamp: OmniLight3D = entry[0]
 		if not WING_ROOMS.has(String(lamp.name).trim_prefix("Lamp_")):
 			continue
-		entry[1] = WING_LIT_ENERGY
+		_wing_lamp_names[lamp.name] = true
+		# ⚠️ `entry[1]` is DELIBERATELY LEFT ALONE. It used to be set to WING_LIT_ENERGY here,
+		# which re-opened Issue 36 from the other end: a later `_restore_power()` tests
+		# `entry[1] > 0.0` to tell "spawned dark on purpose" from "currently unlit", so a wing
+		# lamp that had been promoted to 0.5 would then be floodlit to RESTORED_ENERGY 1.0 —
+		# undoing the navigate-by-ear wing's whole design the moment the third breaker went. The
+		# wing's own level is carried by the tween's own target, `WING_LIT_ENERGY`, which
+		# `_restore_power()` never sees. (An earlier version of this comment named a
+		# `_wing_energy` variable; no such variable exists — the tween target is the only
+		# place the wing's level is written.)
 		lamp.light_color = Color(0.75, 0.82, 0.9)
 		var t := create_tween()
 		t.tween_property(lamp, "light_energy", WING_LIT_ENERGY, WING_LIGHT_FADE)
@@ -1883,8 +2209,10 @@ func _light_the_wing() -> void:
 	# the SAME dead-battery click a flat battery gives (fixed in player.gd this pass). The
 	# 2026-08-16 session pressed F once on the way into the wing and never again: 306 s
 	# afterwards, including the whole DarkZone morgue at +3 panic/s, and a death in it.
-	ScreenText.toast(get_tree(), "The wing's lights come up. Your torch answers again [F]. Get out.",
-		Color(0.7, 0.85, 1.0), 3.6)
+	if not silent:
+		ScreenText.toast(get_tree(),
+			"The wing's lights come up. Your torch answers again [F]. Get out.",
+			Color(0.7, 0.85, 1.0), 3.6)
 
 
 # Flashlight lock/unlock for the DarkCorridor+BreakerNook pair, symmetric on
@@ -1940,6 +2268,38 @@ func _drive_lights(delta: float) -> void:
 	for entry in _lights:
 		var lamp: OmniLight3D = entry[0]
 		var base: float = entry[1]
+		# ⚠️ NOTHING BURNS BEFORE THE THIRD BREAKER. The fitting is driven to zero too, or the
+		# ceiling diffusers hang in the dark as glowing rectangles — emission is most of a
+		# surface's colour in this project (no tonemapping, no glow), so an unlit fitting at
+		# FIXTURE_EMISSION 0.55 would be the brightest thing in a black room.
+		# ⚠️⚠️ `_wing_lit` IS NOT OPTIONAL, and leaving it out made `_light_the_wing()` a NO-OP.
+		# That function tweens the ten wing lamps up over WING_LIGHT_FADE 1.5 s — and this
+		# function runs EVERY FRAME and is the last writer, so the moment the tween finished the
+		# next frame re-zeroed all ten. Measured: 0.1337 at t+0.4 s (tween rising), **0.0000 at
+		# t+12 s**. It fires whenever the nook breaker is not the THIRD one thrown, i.e. the
+		# ordinary case of a player doing the hard one first or second.
+		# ⚠️ Why that is worse than a lighting glitch: the feature exists because a playtester
+		# spent 110 s lost in that wing and asked for lights after the jumpscare, and the toast
+		# still promises "The wing's lights come up… Get out." A 50 m walk back through a
+		# navigate-by-ear maze whose beacons the same breaker throw just killed.
+		var wing_burning: bool = _wing_lit and _wing_lamp_names.has(lamp.name)
+		# ⭐ Records burns before the power (2026-09-10) — the second exemption, keyed by name.
+		var pre_lit: bool = PRE_POWER_LIT.has(lamp.name)
+		if not _power_on and not wing_burning and not pre_lit:
+			lamp.light_energy = 0.0
+			if entry.size() > 2 and entry[2] != null:
+				(entry[2] as StandardMaterial3D).emission_energy_multiplier = 0.0
+			continue
+		# ⚠️ The wing's own level, NOT `entry[1]`. `_light_the_wing()` deliberately leaves
+		# `entry[1]` at 0.0 so `_restore_power()`'s `entry[1] > 0.0` guard keeps treating these
+		# ten as "spawned dark on purpose" (Issue 36) — so the base has to come from somewhere
+		# else, and this is it.
+		if wing_burning and not _power_on:
+			base = WING_LIT_ENERGY
+		# ⚠️ A FIXED level, not `entry[1]`: `_on_breaker_flipped()` raises `entry[1]` by 0.18 per
+		# breaker, and a home beacon that brightens as you solve the level is a progress meter.
+		elif pre_lit and not _power_on:
+			base = float(PRE_POWER_LIT[lamp.name])
 		if _blackout_timer > 0.0:
 			lamp.light_energy = base * (0.04 + maxf(0.0, sin(t * 37.0) * sin(t * 8.1)) * 0.15)
 		else:
@@ -1980,3 +2340,127 @@ func _play_at(base_name: String, pos: Vector3, volume_db: float = 0.0) -> void:
 	pl.position = pos
 	pl.finished.connect(pl.queue_free)
 	pl.play()
+
+
+# ---------------------------------------------------------------- the wing's doorway markers
+#
+# ⭐ PHOTOLUMINESCENT EGRESS STRIPS ON EVERY WING DOORWAY (2026-09-10, the user's call on a replay:
+# *"Currently it is impossible to find it if you do not know the path already. Figure out the way
+# to make it easier but not too easy"*). The diagnosis behind this choice, put to the user and
+# accepted: the wing was hard not because it has three dead ends but because in pitch black a
+# doorway is invisible, so every choice at every junction was made by walking into walls. The
+# strips make the TOPOLOGY readable — you can see where the openings are — and leave the ROOMS
+# black and the answer where it was: in the hum, and in the meter. "Easier but not too easy" is
+# exactly the line between showing the doors and showing the way.
+#
+# ⚠️ EMISSION, DIM, AND FADED BY DISTANCE. Emission is the only thing that renders in a room at
+# ambient 0.0 with the torch locked off — and with no fog it renders at ANY distance, so an
+# always-on strip would let a player read the whole wing from its mouth like a lit map. So each
+# strip's emission is scaled to zero between MARK_NEAR and MARK_FAR of the player: the topology
+# is read locally, junction by junction, never from afar. The ceiling is MARK_EMISSION 0.14, a
+# quarter of a Lab fitting, so a strip is a mark, never a lamp (Issue 21: above 1.0 clamps to
+# white). No collider (a collider on a doorway is how this project seals a room by accident),
+# 0.03 m proud of the wall face (check_wall_overlap's 2 cm floor), inside check_prop_mounting's
+# Lab band, and outside check_fixtures' 0.8 m light radius (the wing lamps sit at room centres).
+# ⚠️ On BOTH faces of the wall, so a doorway is marked from whichever room you approach it —
+# a strip on one side only tells you where you came from.
+const MARK_EMISSION := 0.14
+const MARK_COLOUR := Color(0.35, 0.9, 0.45)     # phosphor green — every egress strip ever made
+const MARK_ALBEDO := Color(0.05, 0.08, 0.05)
+const MARK_SIZE := Vector3(0.035, 1.9, 0.015)
+const MARK_Y := 0.95
+const MARK_GAP := 0.06         # from the opening's edge to the strip
+const MARK_PROUD := 0.03       # from the wall face to the strip's back
+const MARK_NEAR := 6.0         # full emission inside this...
+const MARK_FAR := 12.0         # ...and none beyond this
+const MARK_TICK := 0.1
+
+var _wing_markers: Array = []        # [MeshInstance3D, StandardMaterial3D]
+var _mark_tick: float = 0.0
+
+
+# Every doorway that touches a wing room, from the level's own tables — never a typed list.
+func _wing_doorways() -> Array:
+	var out: Array = []
+	for d in DOORS:
+		var p: Vector2 = d["pos"]
+		var wing := false
+		for r in ROOMS:
+			if not WING_ROOMS.has(String(r["name"])):
+				continue
+			var c: Vector2 = r["pos"]
+			var half: Vector2 = (r["size"] as Vector2) * 0.5
+			# The doorway centre lies ON the room's boundary; a hair of slack finds it.
+			if absf(p.x - c.x) <= half.x + 0.05 and absf(p.y - c.y) <= half.y + 0.05:
+				wing = true
+				break
+		if wing:
+			out.append(d)
+	return out
+
+
+func _spawn_wing_markers() -> void:
+	_wing_markers.clear()
+	var i := 0
+	for d in _wing_doorways():
+		var p: Vector2 = d["pos"]
+		var w: float = float(d["width"])
+		var along_x: bool = String(d["dir"]) == "x"   # you walk THROUGH the doorway along x
+		# The wall's plane is perpendicular to the passage axis; the opening runs along the other.
+		var passage := Vector3(1, 0, 0) if along_x else Vector3(0, 0, 1)
+		var lateral := Vector3(0, 0, 1) if along_x else Vector3(1, 0, 0)
+		var centre := Vector3(p.x, MARK_Y, p.y)
+		var proud: float = RoomBuilder.T / 2.0 + MARK_PROUD + MARK_SIZE.z / 2.0
+		var out_lat: float = w / 2.0 + MARK_GAP + MARK_SIZE.x / 2.0
+		for face in [-1.0, 1.0]:
+			for side in [-1.0, 1.0]:
+				var mi := MeshInstance3D.new()
+				mi.name = "WingMark_%d_%s_%s" % [i, "a" if face < 0 else "b", "l" if side < 0 else "r"]
+				var bm := BoxMesh.new()
+				bm.size = MARK_SIZE
+				mi.mesh = bm
+				var mat := StandardMaterial3D.new()
+				mat.albedo_color = MARK_ALBEDO
+				mat.roughness = 0.9
+				mat.emission_enabled = true
+				mat.emission = MARK_COLOUR
+				mat.emission_energy_multiplier = 0.0    # the tick sets it from the distance
+				mi.material_override = mat
+				mi.position = centre + passage * (face * proud) + lateral * (side * out_lat)
+				# A strip is a thin box whose depth runs along the passage axis; turn it so its
+				# thin dimension (local z) faces down the passage and its width lies along the wall.
+				if along_x:
+					mi.rotation.y = PI / 2.0
+				mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				add_child(mi)
+				_wing_markers.append([mi, mat])
+		i += 1
+
+
+func _tick_wing_markers(delta: float) -> void:
+	if _wing_markers.is_empty():
+		return
+	_mark_tick -= delta
+	if _mark_tick > 0.0:
+		return
+	_mark_tick = MARK_TICK
+	var pl := _player()
+	if not pl:
+		return
+	var here: Vector3 = pl.global_position
+	for m in _wing_markers:
+		var mi: MeshInstance3D = m[0]
+		if not is_instance_valid(mi):
+			continue
+		var d: float = here.distance_to(mi.global_position)
+		var k: float = clampf((MARK_FAR - d) / (MARK_FAR - MARK_NEAR), 0.0, 1.0)
+		(m[1] as StandardMaterial3D).emission_energy_multiplier = MARK_EMISSION * k
+
+
+# Test surface: the strips and their current emission, so a guard can assert the fade.
+func wing_marker_nodes() -> Array:
+	var out: Array = []
+	for m in _wing_markers:
+		if is_instance_valid(m[0]):
+			out.append(m[0])
+	return out

@@ -45,6 +45,17 @@ enum State { PATROL, INVESTIGATE, CHASE, SEARCH, STAGGERED }
 @export var detect_range: float = 10.0
 const FOV_DOT := 0.5           # wide cone (~120 deg) — this creature actively hunts
 const CHEST := 0.9
+
+# ⭐ RELOCATE-WHEN-LOST (2026-09-09, the user's call for the enlarged Breach): "make sure the
+# creature is able to teleport so it will not happen like it's searching for you for eternity — it
+# will be able to teleport somewhere near you, but you will have enough time to hide." When SEARCH
+# gives up (it has walked to your last-known spot and scanned it out), instead of drifting back to a
+# patrol waypoint it jumps to a room 10–14 m from you that you CANNOT currently see and resumes the
+# hunt on foot (SEARCH, at investigate_speed — never straight into CHASE), so you keep the seconds
+# needed to reach a hiding spot. It falls back to the old PATROL give-up when no legal spot exists,
+# which is also what keeps it a NO-OP for THE NIGHTMARE's Matron (no portals -> empty _rooms).
+const RELOCATE_MIN := 10.0
+const RELOCATE_MAX := 14.0
 const SEARCH_TIME := 8.0
 const INVESTIGATE_GIVEUP_TIME := 6.0
 const WAYPOINT_ARRIVE_DIST := 0.6
@@ -90,6 +101,9 @@ var _los_lost_t: float = 0.0
 var _stagger_t: float = 0.0
 var _stagger_len: float = STAGGER_MAX   # rolled per stagger, see STAGGER_MIN/MAX
 var _block_t: float = 0.0   # set by force_block(); pauses movement under any state
+# ⚠️ SEPARATE FROM `_block_t`, AND THAT SEPARATION IS THE FIX (2026-09-07). See the block above
+# `freeze_for_purge()` for the 2-hour-46-minute bug the shared counter caused.
+var _purge_frozen: bool = false
 
 var _shield: float = SHIELD_MAX
 var _shield_idle_t: float = 0.0
@@ -122,50 +136,25 @@ func _ready() -> void:
 	_build_visual()
 
 
-const _GLB_PATH := "res://assets/models/Void_creature.glb"
+# ⭐ THE ANIMATED MODEL (2026-09-03). Was `Void_creature.glb`, which contained **zero animation
+# tracks** — so this creature chased the player across two levels in a rigid T-pose for the whole
+# life of the feature. The `_pose_arms_down()` / `_rotate_bone()` pair that used to live here
+# (and in `creature_stalker.gd` and `containment_cell.gd`, byte-identical) was measured in
+# 2026-08 to move nothing at all, and is deleted rather than ported.
+#
+# ⚠️ The `get_node_or_null("Cube")` strip went with it — that stray cube was an artefact of the
+# old Blender export and does not exist in the merged asset. `tools/merge_creature_glb.py`
+# builds the replacement; `tests/check_creature_model.gd` asserts what it must contain.
+var _anim: CreatureAnim = null
 
 func _build_visual() -> void:
-	if ResourceLoader.exists(_GLB_PATH):
-		_build_visual_glb()
+	_anim = CreatureAnim.build(_body)
+	if _anim:
+		_visual_root = _anim.visual_root()
 	else:
 		_build_visual_procedural()
 	_apply_retint()
-
-
-func _build_visual_glb() -> void:
-	var scene: PackedScene = load(_GLB_PATH)
-	var instance: Node3D = scene.instantiate()
-	_visual_root = instance
-	_body.add_child(instance)
-	# Blender adds a stray base cube to the export — remove it, keep only the character.
-	var cube := instance.get_node_or_null("Cube")
-	if cube:
-		cube.queue_free()
-	_pose_arms_down(instance)
-
-
-# The Mixamo GLB ships in bind T-pose with no animation track (same model
-# creature_stalker.gd uses) — override the upper-arm bone poses so it doesn't read as
-# a broken scarecrow.
-const _ARM_DROP_DEG := 80.0
-const _FOREARM_TUCK_DEG := 12.0
-
-func _pose_arms_down(instance: Node3D) -> void:
-	var skel := instance.find_child("Skeleton3D", true, false) as Skeleton3D
-	if not skel:
-		return
-	_rotate_bone(skel, "mixamorig_LeftArm", deg_to_rad(_ARM_DROP_DEG))
-	_rotate_bone(skel, "mixamorig_RightArm", deg_to_rad(-_ARM_DROP_DEG))
-	_rotate_bone(skel, "mixamorig_LeftForeArm", deg_to_rad(_FOREARM_TUCK_DEG))
-	_rotate_bone(skel, "mixamorig_RightForeArm", deg_to_rad(-_FOREARM_TUCK_DEG))
-
-
-func _rotate_bone(skel: Skeleton3D, bone_name: String, angle_z: float) -> void:
-	var idx := skel.find_bone(bone_name)
-	if idx == -1:
-		return
-	var rest := skel.get_bone_rest(idx)
-	skel.set_bone_pose_rotation(idx, rest.basis.get_rotation_quaternion() * Quaternion(Vector3.FORWARD, angle_z))
+	_refresh_clip()
 
 
 func _build_visual_procedural() -> void:
@@ -205,17 +194,122 @@ func _build_visual_procedural() -> void:
 	_visual_root.add_child(head)
 
 
-# Distinguishes Object 12 from the Void's identical GLB by palette alone (v1 has no
-# new 3D asset). This same material is what apply_light_damage()'s wound flash tweens.
+# Distinguishes Object 12 from the Void's stalkers by palette. This same material is what
+# apply_light_damage()'s wound flash tweens.
+#
+# ⚠️ IT DUPLICATES THE MODEL'S OWN MATERIAL NOW, instead of building a fresh one (2026-09-03).
+# The old version assigned a brand-new `StandardMaterial3D` as `material_override`, which threw
+# the model's textures away wholesale — survivable when the model was an untextured T-pose,
+# wrong now that it carries a real 1024 skin. `albedo_color` MULTIPLIES that texture, so the
+# three palette numbers below are unchanged and only their meaning moved: from "replace the
+# skin with grey-green" to "the skin at 35/40/32 %".
+#
+# ⚠️ `EMISSION_BASE` dropped 0.35 -> 0.12. Two reasons, both measured: the model is no longer a
+# flat untextured blob that needed a vein glow to read at all, and the levels this creature
+# lives in are about to run at ~0.02 ambient — at 0.35 it would be visible from across a dark
+# room without the torch, which is the one thing the darkness pass exists to prevent. The wound
+# flash still climbs to `WOUND_EMISSION` — see `_update_wound_tint()`, which is where that
+# number lives and where the stale copy of THIS one was found.
+const EMISSION_BASE := 0.12
+const ALBEDO_TINT := Color(0.35, 0.4, 0.32)
+const EMISSION_TINT := Color(0.4, 0.05, 0.05)
+
 func _apply_retint() -> void:
-	_material = StandardMaterial3D.new()
-	_material.albedo_color = Color(0.35, 0.4, 0.32)
-	_material.roughness = 0.9
-	_material.emission_enabled = true
-	_material.emission = Color(0.4, 0.05, 0.05)
-	_material.emission_energy_multiplier = 0.35   # stays under 1.0 — Issue 21, no glow/tonemap
+	if _anim:
+		_material = _anim.apply_tint(ALBEDO_TINT, 1.0, 0.2, EMISSION_TINT, EMISSION_BASE)
+		return
+	# Procedural fallback: no imported material to duplicate.
+	_material = CreatureAnim.tinted_material(
+		null, ALBEDO_TINT, 1.0, 0.2, EMISSION_TINT, EMISSION_BASE)
 	for mi in _find_mesh_instances(_visual_root):
 		mi.material_override = _material
+
+
+# ---------------------------------------------------------------- gait
+#
+# ⚠️ DRIVEN OFF `_state` AND `_active` ONLY — never off a private of some caller — so the state
+# machine itself is untouched and `tests/test_creature_object12.gd` (which asserts through
+# signals alone) keeps passing byte-for-byte.
+#
+# ⚠️ THE CHASE CLIP IS CHOSEN BY SPEED, and that is what makes one script serve two creatures.
+# `chase_speed` is 5.0 for the Breach's Object 12 and 3.4 for THE NIGHTMARE's Matron. Played on
+# one clip, the slower of the two lands at a 0.62 speed_scale — visibly slow-motion running.
+# `charge` (measured 2.849 m/s) covers the Matron at 1.19 and `run` (5.487) covers the Breach at
+# 0.91, so both sit near 1.0 and neither looks retimed. See CreatureAnim.CLIP_SPEED for how
+# those reference speeds were measured.
+const CHASE_CLIP_SPLIT := 4.2
+
+# ⭐ DORMANT IS A HELD POSE, NOT A SWAY (2026-09-07, the user's call: *"the creature is moving
+# even when it is not active. It should not be like this. First it stands still, then when it is
+# active it starts walking, and only after it sees you it starts running."*).
+#
+# ⚠️ It used to be `CLIP_SHAMBLE` at `DORMANT_RATE 0.5`, described here as "a barely-moving
+# standing sway". Measured, it is nothing of the kind: `shamble` carries **0.515 m of hip
+# excursion and a 57.9 deg arm swing** over its cycle, ten times `walk`'s 0.061 m drift, and at
+# 0.5x that is an 11 s pendulum. It is the most mobile clip in the asset and it was on the one
+# creature the player is invited to stand and stare at.
+#
+# ⚠️ WHY THIS IS NOT PURELY COSMETIC. `level_6_breach.gd` spawns Object 12 at `(0, 0, 14)` and the
+# player at `(0, 0.1, -2)` facing +Z: 16.0 m, heading 0.0 deg, unobstructed line of sight through
+# two doorways both centred on x = 0, lit by its own lamp, inside the 18 m torch beam, ~9.4 % of
+# screen height, throwing a moving shadow. Whatever the dormant creature does is the first thing
+# the level shows you, for 30 seconds, and a swaying one reads as *awake and ignoring you* — which
+# is exactly the wrong lesson before the thing starts hunting.
+#
+# ⚠️ THE CLIP IS `walk` AND THE TRANSITION IS THE REASON. `activate()` calls `_refresh_clip()`,
+# which asks for `play_locomotion(CLIP_WALK, patrol_speed)`; `CreatureAnim.play()`'s same-clip
+# branch then only retunes the speed, so the statue starts walking **out of the exact pose it was
+# standing in**, with no crossfade and no restart. Any other held clip would pop.
+#
+# ⚠️ `DORMANT_POSE_AT` WAS CHOSEN BY LOOKING, AND THE FIRST GUESS WAS WRONG. The reasoning was
+# "a walk cycle's neutral frame is the passing phase, about a quarter in" — which is true of a
+# textbook cycle and NOT of this clip. Photographed at 4 m by
+# `tests/screenshot_dormant_creature.gd` across six phases of `walk` plus `unsteady` and
+# `shamble`: at **0.26 s the creature is plainly mid-stride**, one leg lifted and the torso
+# twisted, which reads as *walking on the spot*. At **0.00 s the legs are together and the arms
+# hang at the sides** — the most neutral, most statue-like frame in the set. `unsteady` at 1.50 s
+# is a good second, but its arms are held out from the body.
+#
+# ⚠️ AND 0.00 IS ALSO THE RIGHT PLACE TO START WALKING FROM. `activate()` resumes through
+# `CreatureAnim.play()`'s same-clip branch, which only retunes the speed — so the creature steps
+# off from the frame it was standing on, and frame 0 is the natural head of the cycle.
+#
+# ⚠️ If the asset is ever re-merged, RE-TAKE THE SHOT. Do not re-derive this number from theory;
+# that is exactly what produced 0.26.
+const DORMANT_POSE_CLIP := CreatureAnim.CLIP_WALK
+const DORMANT_POSE_AT := 0.0
+
+# Fixed rates for the clips that are not travelling anywhere.
+const SCAN_RATE := 0.35        # searching in place
+const STAGGER_RATE := 0.5      # blinded and reeling
+
+var _search_arrived := false
+
+func _refresh_clip() -> void:
+	if _anim == null or not _anim.is_valid():
+		return
+	if not _active:
+		# Dormant during the familiarization window: STANDING STILL. See DORMANT_POSE_AT above
+		# for why this is a held frame of `walk` rather than a slow idle, and why it must not be
+		# `halt()` (which would drop the skeleton to bind pose — a T-posed statue).
+		_anim.hold_pose(DORMANT_POSE_CLIP, DORMANT_POSE_AT)
+		return
+	match _state:
+		State.PATROL:
+			_anim.play_locomotion(CreatureAnim.CLIP_WALK, patrol_speed)
+		State.INVESTIGATE:
+			_anim.play_locomotion(CreatureAnim.CLIP_WALK, investigate_speed)
+		State.CHASE:
+			var clip := CreatureAnim.CLIP_CHARGE if chase_speed < CHASE_CLIP_SPLIT \
+				else CreatureAnim.CLIP_RUN
+			_anim.play_locomotion(clip, chase_speed)
+		State.SEARCH:
+			if _search_arrived:
+				_anim.play(CreatureAnim.CLIP_UNSTEADY, SCAN_RATE)
+			else:
+				_anim.play_locomotion(CreatureAnim.CLIP_WALK, investigate_speed)
+		State.STAGGERED:
+			_anim.play(CreatureAnim.CLIP_UNSTEADY, STAGGER_RATE)
 
 
 func _find_mesh_instances(node: Node) -> Array:
@@ -242,6 +336,9 @@ func set_waypoints(points: PackedVector3Array) -> void:
 # called the creature stays motionless at its spawn point.
 func activate() -> void:
 	_active = true
+	# Out of the dormant sway and into whatever _state says. Without this the creature would
+	# patrol the level still playing its standing-idle at half speed.
+	_refresh_clip()
 
 
 func get_state() -> int:
@@ -315,6 +412,11 @@ func apply_light_damage(delta: float) -> void:
 # the door timer ends, not get reset to CHASE blindly.
 func force_block(seconds: float) -> void:
 	_block_t = maxf(_block_t, seconds)
+	# ⚠️ Slowed, never stopped. force_block() is what a slammed door does to it: it is
+	# BATTERING the door, not standing still, so the legs keep working at a quarter rate. A
+	# hard freeze here would read as the creature having lost interest.
+	if _anim:
+		_anim.set_speed(0.25)
 
 
 # PurgeChamber calls this the INSTANT the player seals the blast door — before its
@@ -329,23 +431,61 @@ func force_block(seconds: float) -> void:
 # ever registered. Freezing on interact(), not on confirmation, is what actually
 # fixes that: the creature can't hurt you starting the moment you commit to
 # sealing it in, regardless of how long the confirm/purge sequence takes.
-const _PURGE_FREEZE := 9999.0
-
+# ⚠️⚠️ THIS WAS A 9999-SECOND COUNTDOWN AND IT FROZE THE CREATURE FOR 2 h 46 m (fixed 2026-09-07,
+# Issue 173, reported as *"I stopped the creature using the flashlight and it did not start moving
+# again even after several minutes"*).
+#
+# `freeze_for_purge()` set `_block_t = _PURGE_FREEZE` (9999.0) and `unfreeze_for_purge()` cleared
+# it only `if _block_t >= _PURGE_FREEZE` — while `_process()` DECREMENTED `_block_t` every frame.
+# `purge_chamber.gd` freezes the instant the blast door seals and only checks whether the creature
+# is actually inside `CLOSE_TO_CONFIRM_DELAY` 1.2 s later, by which time `_block_t` was ~9997.8 and
+# the guard was false. **The unfreeze silently did nothing.** Measured by
+# `tests/probe_purge_freeze.gd` before the fix:
+#
+#     _block_t 0.00 -> 9999.00 on the press
+#     t+2 s   9996.50   moved 0.00 m
+#     t+10 s  9989.00   moved 0.00 m
+#     t+30 s  9968.98   moved 0.00 m
+#     retry:  9966.36 -> 9999.00     <- and the retry RE-FREEZES it
+#
+# ⚠️ THE LEVEL'S ONLY WIN CONDITION IS LURING THIS CREATURE INTO THAT CHAMBER, so one failed lure
+# made the run unwinnable — while `_reopen_failed()` set `_used = false` and presented the attempt
+# as retryable. Every retry deepened the freeze.
+#
+# ⚠️ THE FIX IS NOT A WIDER COMPARISON. A float sentinel raced against a decrementing counter is
+# the defect; a looser `>=` would just move the failure to a longer confirm delay. The freeze is a
+# FLAG, it decrements nothing, and the unfreeze is unconditional.
+#
+# ⚠️ AND IT IS DELIBERATELY NOT `force_block()`. The two look alike and need opposite behaviour:
+# a door being battered must NOT stop the creature killing you (that was half of the door-slam
+# stunlock), while the purge freeze must — the whole reason it exists is that `CHASE_SPEED` closes
+# a few metres in under a second, so a player who sealed the door was still being killed before
+# the win registered.
 func freeze_for_purge() -> void:
-	_block_t = _PURGE_FREEZE
+	_purge_frozen = true
+	if _anim:
+		_anim.set_speed(0.25)
 
 
 # Called by PurgeChamber if the lure attempt failed (creature wasn't inside) — lets
 # it resume the chase instead of staying inexplicably frozen after the door reopens.
 func unfreeze_for_purge() -> void:
-	if _block_t >= _PURGE_FREEZE:
-		_block_t = 0.0
+	if not _purge_frozen:
+		return
+	_purge_frozen = false
+	_refresh_clip()
 
 
 # Called only by PurgeChamber after its own physics-position confirmation. Permanent.
 func lure_into_trap() -> void:
 	_active = false
 	set_process(false)
+	# ⚠️ HALT BEFORE TILTING. The visual is rotated 90 deg onto its face here, and an
+	# AnimationPlayer left running would keep driving the legs — a corpse walking on its face
+	# through the incinerator floor. `set_process(false)` stops THIS script, not the model's
+	# own AnimationPlayer, which ticks itself.
+	if _anim:
+		_anim.halt()
 	if _visual_root:
 		_visual_root.rotation.x = deg_to_rad(-90.0)
 
@@ -358,8 +498,33 @@ func _process(delta: float) -> void:
 	if not _ensure_player():
 		return
 
+	# ⚠️ THE PURGE FREEZE STOPS EVERYTHING, INCLUDING THE CONTACT CHECK. That is its entire
+	# purpose — see `freeze_for_purge()`. It is a flag and it counts nothing down.
+	if _purge_frozen:
+		return
+
 	if _block_t > 0.0:
 		_block_t = maxf(0.0, _block_t - delta)
+		if _block_t <= 0.0:
+			# The door gave way. Back to the state's own gait and full rate.
+			_refresh_clip()
+		# ⚠️⚠️ TWO THINGS STILL RUN WHILE A DOOR IS BEING BATTERED, and neither used to
+		# (fixed 2026-09-07):
+		#
+		#   * THE CONTACT CHECK. This early return sat above the whole `match`, so a battering
+		#     creature could not kill you at any range — including zero. Combined with a door
+		#     the player can re-slam the instant it breaks, that was a free, indefinite
+		#     stunlock: stand at a slam door, press E every ~10 s, and Object 12 can never
+		#     reach you. ⚠️ It is only fair alongside the proximity gate in
+		#     `level_6_breach.gd:_tick_slam_doors()` — with that gate, "battering" and "on top
+		#     of you" are the same place. Do not ship one without the other.
+		#   * THE STAGGER CLOCK. A staggered creature is not battering anything, and freezing
+		#     its recovery behind a door timer silently added 10 s to a beat whose duration the
+		#     level ANNOUNCES ("IT RECOILS — 6 SECONDS").
+		if _state == State.STAGGERED:
+			_tick_staggered(delta)
+		elif _state == State.CHASE:
+			_check_contact()
 		_regen_shield(delta)
 		return
 
@@ -391,6 +556,10 @@ func _ensure_player() -> bool:
 func _enter(new_state: int) -> void:
 	var old := _state
 	_state = new_state
+	# ⚠️ Reset BEFORE _refresh_clip(): SEARCH has two gaits (walking to the last-known position,
+	# then scanning in place) and entering SEARCH always starts on the travelling half.
+	_search_arrived = false
+	_refresh_clip()
 	state_changed.emit(old, new_state)
 
 
@@ -414,11 +583,33 @@ func _tick_investigate(delta: float) -> void:
 	_move_toward(_investigate_target, investigate_speed, delta)
 
 
-func _tick_chase(delta: float) -> void:
+# Extracted 2026-09-07 so a door-blocked creature can still reach you — see `_process()`.
+# Returns true if contact fired, in which case the caller must stop.
+func _check_contact() -> bool:
 	var here := get_creature_position()
-	var flat := Vector2(here.x - _player.global_position.x, here.z - _player.global_position.z).length()
-	if flat <= contact_dist:
-		_contact()
+	var flat := Vector2(here.x - _player.global_position.x,
+		here.z - _player.global_position.z).length()
+	if flat > contact_dist:
+		return false
+	# ⚠️⚠️ CONTACT NEEDS LINE OF SIGHT, OR IT KILLS THROUGH THE DOOR YOU JUST SLAMMED
+	# (2026-09-07, Issue 180). Contact was a pure horizontal distance test, which was harmless
+	# while `force_block()` suppressed the whole state dispatch — and became a fairness bug the
+	# moment that suppression was lifted to close the door-slam stunlock (Issue 176). Measured
+	# by an adversarial pass: player at z = 41.45 and creature at z = 40.90 with a CLOSED,
+	# battering slam door between them (blocker spanning 40.95–41.05) — separation 0.550 m,
+	# under `contact_dist` 1.0, and it killed. A 0.4 m capsule cannot stand further back than
+	# that, so slamming a door in its face was a death sentence rather than the counter-play.
+	# ⚠️ The two changes are ONE decision and must not be separated: live contact during a block
+	# is what stops the stunlock, and this is what stops live contact reaching through steel.
+	# `_has_los()` masks to layer 1, and a shut `SlamDoor`/`PurgeChamber` blocker is on it.
+	if not _has_los(here + Vector3(0, CHEST, 0), _camera.global_position):
+		return false
+	_contact()
+	return true
+
+
+func _tick_chase(delta: float) -> void:
+	if _check_contact():
 		return
 	_move_toward(_player.global_position, chase_speed, delta)
 	if _detect_player():
@@ -444,11 +635,80 @@ func _tick_search(delta: float) -> void:
 	# Arrived at the last-known position — scan in place for the rest of SEARCH_TIME
 	# before giving up. This is the one Mr.X/Alien:Isolation lesson worth keeping:
 	# losing the player must not read as a free reset.
+	#
+	# ⚠️ The gait switches on the EDGE, not every frame: `_refresh_clip()` is cheap but
+	# `CreatureAnim.play()` deliberately treats a repeat of the current clip as a speed change
+	# rather than a restart, and relying on that here would hide a real bug if it ever changed.
+	if not _search_arrived:
+		_search_arrived = true
+		_refresh_clip()
 	_search_t += delta
 	_body.rotation.y += deg_to_rad(SEARCH_SCAN_SPEED_DEG) * delta
 	if _search_t >= SEARCH_TIME:
+		# Lost for good at this spot — try to reappear near the player (out of sight); otherwise
+		# fall back to drifting to the nearest patrol waypoint.
+		if _relocate_near_player():
+			return
 		_wp_index = _nearest_waypoint_index()
 		_enter(State.PATROL)
+
+
+# Jump to a room 10–14 m from the player that the player cannot currently see, preferring one that
+# is graph-distant (around a corner, not down a long sightline). Returns false — leaving the caller
+# to PATROL — when there are no portals (THE NIGHTMARE's Matron) or nothing legal fits.
+func _relocate_near_player() -> bool:
+	if _portals.is_empty() or _rooms.is_empty() or not is_instance_valid(_player):
+		return false
+	var pp := _player.global_position
+	var eye := pp + Vector3(0, CHEST, 0)
+	var player_room := _room_at(pp)
+	var depth := _room_depths(player_room) if player_room >= 0 else {}
+	var best := -1
+	var best_score := -1.0
+	for i in range(_rooms.size()):
+		if i == player_room:
+			continue
+		var c: Vector3 = _rooms[i]["c"]
+		var flat := Vector2(c.x - pp.x, c.z - pp.z).length()
+		if flat < RELOCATE_MIN or flat > RELOCATE_MAX:
+			continue
+		# Reject anywhere the player currently has a clear line of sight — it must reappear unseen.
+		if _has_los(eye, c + Vector3(0, CHEST, 0)):
+			continue
+		# Prefer graph-distant rooms (BFS depth), then farther ones, so it lands around a corner.
+		var dep := float(depth.get(i, 0))
+		var score := dep * 100.0 + flat
+		if score > best_score:
+			best_score = score
+			best = i
+	if best < 0:
+		return false
+	var target: Vector3 = _rooms[best]["c"]
+	_body.global_position = Vector3(target.x, _body.global_position.y, target.z)
+	var to := pp - _body.global_position
+	_body.rotation.y = atan2(to.x, to.z)
+	# Resume the hunt on FOOT toward the player's last spot — SEARCH, never CHASE, so they get the
+	# seconds to reach cover the user asked for.
+	_last_seen_pos = pp
+	_search_t = 0.0
+	_search_arrived = false
+	_enter(State.SEARCH)
+	return true
+
+
+# BFS room-depth from `start` over the doorway graph.
+func _room_depths(start: int) -> Dictionary:
+	var depth := {start: 0}
+	var queue := [start]
+	while not queue.is_empty():
+		var r: int = queue.pop_front()
+		for pi in _adj[r]:
+			var p: Dictionary = _portals[pi]
+			var nb: int = int(p["b"]) if int(p["a"]) == r else int(p["a"])
+			if not depth.has(nb):
+				depth[nb] = int(depth[r]) + 1
+				queue.append(nb)
+	return depth
 
 
 func _tick_staggered(delta: float) -> void:
@@ -460,9 +720,18 @@ func _tick_staggered(delta: float) -> void:
 			_body_collider.disabled = false
 		if _visual_root:
 			_visual_root.rotation.x = 0.0
-		# Recovers where it collapsed, not straight back onto the player standing
-		# next to it — SEARCH re-detects fairly instead of instantly re-CHASE-ing.
-		_last_seen_pos = get_creature_position()
+		# ⚠️⚠️ A PLACE, NOT ITS OWN FEET (fixed 2026-09-07). This used to be
+		# `_last_seen_pos = get_creature_position()`, which guarantees `_tick_search()` measures
+		# a zero-length vector, declares itself "arrived" on the first frame, and then ROTATES IN
+		# PLACE for the whole of `SEARCH_TIME` 8.0 s before entering PATROL. So the advertised
+		# 5-7 s stagger was really **13-15 s of a creature that does not move** — 23-25 s if a
+		# slam door also blocked it — against a toast that names the number out loud.
+		#
+		# ⚠️ The stated intent is kept: it must NOT come straight back at the player standing
+		# next to it. A patrol waypoint is a place rather than a person, so SEARCH still
+		# re-detects fairly — it just walks somewhere while doing it. **No difficulty constant
+		# moved:** `SEARCH_TIME`, `STAGGER_MIN/MAX` and `chase_speed` are untouched.
+		_last_seen_pos = _recovery_target()
 		_search_t = 0.0
 		_enter(State.SEARCH)
 		recovered.emit()
@@ -503,12 +772,34 @@ func _regen_shield(delta: float) -> void:
 		_update_wound_tint()
 
 
+# ⚠️⚠️ THE FLOOR AND THE TINT ARE THE CONSTANTS, NOT LITERALS (fixed 2026-09-03, found by a
+# play-test probe rather than by any assertion).
+#
+# This function used to read `lerp(0.35, 0.9, wound)` and `Color(0.4, 0.05, 0.05).lerp(...)` —
+# both hand-copied from `_apply_retint()`. When `EMISSION_BASE` dropped 0.35 -> 0.12 for the
+# darkness pass, THIS floor did not move with it, and the result was worse than a stale number:
+# `_update_wound_tint()` is called from three places (draining, stagger recovery, regen), so
+# **the first time the player pointed a torch at Object 12 its resting glow became 0.35 and never
+# came back**. Measured live in the Breach: 0.120 as spawned, 0.350 after one call at full
+# shield. Silent, permanent, and invisible to every test in the suite.
+#
+# ⚠️ `WOUND_EMISSION` is 0.5, NOT the old 0.9, and this is a VISUAL call rather than a difficulty
+# one. Photographed at four shield levels: at 0.12 the creature is a warm figure with its
+# ribcage, crown, claws and muscle striation all reading — the 1024 skin doing its job; at 0.35
+# the legs and lower torso are already a solid red mass; **at 0.90 it is a flat, fully saturated
+# silhouette with essentially no internal detail.** That is the moment of maximum attention, on
+# the asset this whole swap exists to show. 0.12 -> 0.5 is still a **4.2x** swing — a bigger
+# proportional change than the old 0.35 -> 0.9 (2.6x) — so the wound reads MORE clearly, not less.
+# ⚠️ Nothing about the light weapon's timing, drain rate or stagger moved.
+const WOUND_EMISSION := 0.5
+const WOUND_TINT := Color(1.0, 0.25, 0.15)
+
 func _update_wound_tint() -> void:
 	if not _material:
 		return
 	var wound: float = 1.0 - (_shield / SHIELD_MAX)
-	_material.emission = Color(0.4, 0.05, 0.05).lerp(Color(1.0, 0.25, 0.15), wound)
-	_material.emission_energy_multiplier = lerp(0.35, 0.9, wound)
+	_material.emission = EMISSION_TINT.lerp(WOUND_TINT, wound)
+	_material.emission_energy_multiplier = lerp(EMISSION_BASE, WOUND_EMISSION, wound)
 
 
 # ------------------------------------------------------------------ movement / detection
@@ -523,7 +814,11 @@ func _follow_waypoints(delta: float, speed: float) -> void:
 		_wp_index = (_wp_index + 1) % _waypoints.size()
 
 
-func _move_toward(target: Vector3, speed: float, delta: float) -> void:
+func _move_toward(raw_target: Vector3, speed: float, delta: float) -> void:
+	# ⚠️ ROUTED HERE, so every caller gets it: PATROL's waypoints, INVESTIGATE's noise position,
+	# CHASE's player and SEARCH's last-known spot. Arrival is still measured against the CALLER's
+	# own target — routing changes the direction of travel, never the destination.
+	var target := _steer(raw_target)
 	var here := get_creature_position()
 	var dir := Vector3(target.x - here.x, 0, target.z - here.z)
 	if dir.length() < 0.01:
@@ -531,6 +826,179 @@ func _move_toward(target: Vector3, speed: float, delta: float) -> void:
 	dir = dir.normalized()
 	_body.global_position = here + dir * speed * delta
 	_body.rotation.y = atan2(dir.x, dir.z)
+
+
+# Somewhere to walk to after a stagger: the nearest patrol waypoint that is actually far enough
+# away to be walked to. If it collapsed ON a waypoint, take the next one round the loop; with no
+# waypoints at all (the Matron sets none), fall back to the old behaviour.
+func _recovery_target() -> Vector3:
+	if _waypoints.is_empty():
+		return get_creature_position()
+	var here := get_creature_position()
+	var i := _nearest_waypoint_index()
+	if here.distance_to(_waypoints[i]) <= WAYPOINT_ARRIVE_DIST * 2.0:
+		i = (i + 1) % _waypoints.size()
+	return _waypoints[i]
+
+
+# ---------------------------------------------------------------- routing (2026-09-07)
+#
+# ⭐⭐ IT USED TO WALK THROUGH WALLS, and `probe_breach_creature_path.gd` proved it: a chase into
+# WardA crossed the wall at (3.92, 0, 28.75), against **0 crossings in 899 patrol steps**.
+# `_move_toward()` assigns `_body.global_position` directly and `_body` is a `StaticBody3D` —
+# no sweep, no resolution, no navmesh anywhere in this file.
+#
+# ⚠️ WHY IT NEVER SHOWED UP. `level_6_breach.gd:PATROL_LOOP` is five room centres that are ALL on
+# x = 0, and every spine doorway is on x = 0 too, so patrolling is one 30 m straight line down an
+# unobstructed corridor — the mover is never asked a question it could get wrong. That is also the
+# real reason both bypass loops are unpatrolled: not an oversight, a constraint.
+#
+# ⚠️ NOT A NAVMESH AND NOT A*. Thirteen axis-aligned rooms and fourteen known doorways. The level
+# already hands this class geometry through `set_waypoints()`; `set_portals()` is the same
+# graph-agnostic contract — the creature is told the shape of the world and never reads the level.
+#
+# ⚠️⚠️ AND IT FALLS BACK. If either end is outside every room, or no path joins them, `_steer()`
+# returns the raw target and the creature beelines exactly as it always did. That fallback is what
+# makes this safe for the OTHER consumer: `dungeon.gd` runs this same script as the Matron in a
+# GENERATED maze, and it is deliberately NOT given portals in this pass — an unfed router must be
+# a no-op, not a creature orbiting a wall for ever.
+# How far past a doorway to aim. Big enough to carry the body clear of the jamb and flip
+# `_room_at()` to the next room; small enough that the detour is invisible.
+# ⚠️ How close counts as "standing in the doorway". It must clear `_move_toward()`'s 0.01 m
+# bail by a wide margin AND stay inside the opening's half-width (Breach doorways are 1.8 m, so
+# 0.9) — at 0.35 the creature is provably within the opening, which is what makes the segment to
+# the NEXT hop cross the shared plane inside the hole rather than beside it.
+const PORTAL_ARRIVE := 0.35
+# ⚠️ Half a wall thickness (`RoomBuilder.T` is 0.2). Connected rooms ABUT, so a point ON the
+# shared plane belongs to both; anything further than half a wall is genuinely next door. This
+# was 0.6 and that was three times too wide — measured, targets 0.21–0.60 m past the plane were
+# treated as same-room and the creature walked at them through the masonry.
+const SAME_ROOM_PAD := 0.1
+var _rooms: Array = []      # [{c: Vector3, half: Vector2}]
+var _portals: Array = []    # [{pos: Vector3, a: int, b: int}]
+var _adj: Array = []        # room index -> [portal index]
+
+
+func set_portals(rooms: Array, doors: Array) -> void:
+	_rooms.clear()
+	_portals.clear()
+	_adj.clear()
+	for r in rooms:
+		var pos: Vector2 = r["pos"]
+		_rooms.append({"c": Vector3(pos.x, 0.0, pos.y), "half": (r["size"] as Vector2) * 0.5})
+	for i in range(_rooms.size()):
+		_adj.append([])
+	for d in doors:
+		var dp: Vector2 = d["pos"]
+		var wp := Vector3(dp.x, 0.0, dp.y)
+		# A doorway sits ON the shared boundary, so both rooms contain it once padded.
+		var touching: Array = []
+		for i in range(_rooms.size()):
+			if _inside(_rooms[i], wp, 0.35):
+				touching.append(i)
+		if touching.size() < 2:
+			continue
+		# Exactly two, and if a corner produced more, the two nearest centres are the pair.
+		touching.sort_custom(func(x, y):
+			return wp.distance_to(_rooms[x]["c"]) < wp.distance_to(_rooms[y]["c"]))
+		var pi := _portals.size()
+		_portals.append({"pos": wp, "a": int(touching[0]), "b": int(touching[1])})
+		_adj[int(touching[0])].append(pi)
+		_adj[int(touching[1])].append(pi)
+
+
+func _inside(room: Dictionary, p: Vector3, pad: float) -> bool:
+	var c: Vector3 = room["c"]
+	var h: Vector2 = room["half"]
+	return absf(p.x - c.x) <= h.x + pad and absf(p.z - c.z) <= h.y + pad
+
+
+func _room_at(p: Vector3) -> int:
+	for i in range(_rooms.size()):
+		if _inside(_rooms[i], p, 0.0):
+			return i
+	return -1
+
+
+# The point to actually walk at: the next doorway on the way to `target`, or `target` itself when
+# it is in this room — or when anything about the query is unanswerable.
+func _steer(target: Vector3) -> Vector3:
+	if _portals.is_empty():
+		return target
+	var here := get_creature_position()
+	var from := _room_at(here)
+	if from < 0:
+		return target
+	# ⚠️⚠️ IF THE TARGET IS IN MY OWN ROOM, WALK AT IT — and "my own room" is padded, because
+	# connected rooms in this project ABUT (they share an exact wall plane), so a target standing
+	# ON that plane belongs to both and `_room_at()` returns whichever comes first in the table.
+	# Measured consequence of getting this wrong: `walk_level6_breach.gd` puts the player at
+	# exactly z = 55.0 to seal the blast door (its collider is only 0.15 m thick, so a pose off the
+	# plane cannot be hit by the interact ray) — and the creature, already INSIDE the trap,
+	# classified that player as being in the room next door and **walked back out through the
+	# doorway to reach them**, so the lure never confirmed and the level could not be won.
+	#
+	# The pad is HALF a wall thickness — see `SAME_ROOM_PAD`.
+	if _inside(_rooms[from], target, SAME_ROOM_PAD):
+		return target
+	var to := _room_at(target)
+	if to < 0 or from == to:
+		return target
+	# BFS over the doorway graph. Thirteen rooms — an unvisited-set scan is not worth the code.
+	var prev_room := {}
+	var prev_portal := {}
+	var queue: Array = [from]
+	prev_room[from] = -1
+	var found := false
+	while not queue.is_empty():
+		var cur: int = queue.pop_front()
+		if cur == to:
+			found = true
+			break
+		for pi in _adj[cur]:
+			var pd: Dictionary = _portals[pi]
+			var nxt: int = int(pd["b"]) if int(pd["a"]) == cur else int(pd["a"])
+			if prev_room.has(nxt):
+				continue
+			prev_room[nxt] = cur
+			prev_portal[nxt] = pi
+			queue.append(nxt)
+	if not found:
+		return target
+	# Walk the chain back to the room we are standing in; its portal is the next hop.
+	# Walk the chain back into travel order: every doorway between here and the target room.
+	var chain: Array = []
+	var step: int = to
+	while step != from:
+		if not prev_portal.has(step):
+			return target
+		chain.push_front(int(prev_portal[step]))
+		step = int(prev_room[step])
+
+	# ⚠️⚠️ AIM AT THE DOORWAY, AND WHEN YOU ARE IN IT, AIM AT THE NEXT ONE. Two earlier versions
+	# of this each fixed one half and broke the other, so keep both reasons:
+	#
+	#   aiming AT the portal and stopping there DEADLOCKS — `_move_toward()` bails once the
+	#   target is within 0.01 m and `_room_at()` still reports the room it started in, so it
+	#   re-picks the same portal for ever. Measured: `walk_level6_breach.gd` failed with the
+	#   creature parked at z = 54.99995 against a trap boundary at 55.0.
+	#
+	#   aiming 0.8 m PAST the portal un-deadlocks and then walks through the wall BESIDE the
+	#   opening, because the steer point is no longer on the boundary and the travel line crosses
+	#   the plane wherever it likes. Measured by an adversarial sweep: 98 of 391 traversals still
+	#   clipped masonry, worst 2.37 m off the doorway centre.
+	#
+	# Aiming at the portal CENTRE is what makes the crossing point the hole itself: these rooms
+	# are convex axis-aligned boxes, so a segment from any interior point to a point ON the
+	# boundary cannot leave the room, and a segment between two boundary points of one convex
+	# room stays inside it. The deadlock was never about the aim — it was about arriving and
+	# having nowhere else to go. So skip any doorway already reached and aim at the next.
+	for pi in chain:
+		var pos: Vector3 = _portals[int(pi)]["pos"]
+		if Vector2(pos.x - here.x, pos.z - here.z).length() > PORTAL_ARRIVE:
+			return pos
+	# Every doorway on the route is behind us: the target room is this one. Walk at it.
+	return target
 
 
 func _nearest_waypoint_index() -> int:
