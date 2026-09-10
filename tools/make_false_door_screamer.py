@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""`screamer_false_door.png` — the picture the false room 217 throws in your face.
+"""`screamer_false_door.png` — the picture the false room 217 USED TO throw in your face.
+
+⚠️ RETIRED 2026-09-10. The false door no longer fires a fullscreen `flash_scare` at all: an
+in-world figure (`door_lunger.gd`, `false_door_lunger.png`, keyed by `tools/cutout_green.py`)
+lunges out of the doorway instead, on the user's call (capture #9). The v2 picture this tool
+graded is kept at `assets_src/textures/superseded/corridor_false_door_screamer_v2_superseded.png`
+and is referenced by no script. The tool stays for its measurements and its method.
 
     <pack>/.venv/bin/python3 tools/make_false_door_screamer.py
     /Applications/Godot.app/Contents/MacOS/Godot --headless --path game --import

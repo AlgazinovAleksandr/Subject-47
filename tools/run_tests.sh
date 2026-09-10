@@ -70,6 +70,7 @@ TESTS=(
   check_house_guest           # THE GUEST rearranges the House off-screen; the fridge is 10, once
   check_corridor_doors        # ajar doors never block the hall; a non-payoff telegraph is free
   check_corridor_events       # runner's apparent size; the false 217 door; note facing; flash payload
+  check_corridor_clock        # the grandfather clock is a CASE with a swinging pendulum, still cursed at 1.0 (2026-09-10)
   check_prop_mounting         # ALL NINE levels: every flush wall prop is SEATED — the maximum
   check_mirror_frustum        # the glass frames itself: near-plane window == the quad, 1.00x
   check_mirror_wake           # the 14 m appearance cue: one shot, in front of you, no panic
@@ -94,6 +95,7 @@ TESTS=(
   check_maze_gen              # House maze generation, 200 seeds
   check_dungeon_gen           # THE NIGHTMARE's dungeon layout, 200 seeds
   check_maze_chase            # House maze monster: catches you, still beatable
+  check_maze_speed            # House maze icon: one speed, whatever the panic (2026-09-10)
   check_maze_traps            # House maze snares + fragments drawn true-size; the mark is
                               # inert until every fragment is collected; ESC is not a re-roll
   check_music_box             # the wind ducks the bed AND puts it back (Issue 50's shape)
@@ -123,6 +125,7 @@ TESTS=(
   check_note_mounting         # ALL NINE levels: every note/panel is on a wall, not in a doorway
   check_nook_figure           # the nook figure is clear of geometry AND in frame
   check_wing_meter            # the dark-wing meter measures PATH distance, not a beeline
+  check_wing_markers          # Lab dark wing: every wing doorway carries dim, distance-faded strips; none outside (2026-09-10)
   check_open_then_read        # a prop opens BEFORE its note pauses the tree
   check_window                # the House window exists, is visible and faces the room
   check_fixtures              # ALL NINE levels: no fitting is over the 1.0 emission clamp

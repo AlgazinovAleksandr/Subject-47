@@ -27,11 +27,26 @@ signal survived  # emitted when the player held their nerve and it faded
 # ⚠️ Was a single fixed 7.0, then a single fixed 4.0 after the 2026-07-26 playtest
 # ("can we make it appear closer so that it would be more scary"). BACKLOG #10: a fixed
 # distance is the problem — every appearance framed identically, so the second one is
-# never a surprise. Now drawn per appearance. 2.5 m is "on top of you"; 7.0 m is a
-# figure down the hall. FLEE_MARGIN is proportional to whatever is drawn (see below) so
-# a close spawn stays survivable.
-const APPEAR_DIST_MIN := 2.5
-const APPEAR_DIST_MAX := 7.0
+# never a surprise. Now drawn per appearance. FLEE_MARGIN is proportional to whatever is
+# drawn (see below) so a close spawn stays survivable.
+# ⭐⭐ 1.8–3.0 m SINCE 2026-09-10 (was 2.5–7.0), the user's call on a replay of the Lab: *"This
+# creature should appear much closer to me and be accompanied with the shared screamer loud
+# sound."* Applied to EVERY HOLD apparition (Lab, House cellar, the Flood's two, and the
+# director's random ones) on the user's explicit choice — one creature, one signature: what the
+# Lab teaches is what kills later. At 2 m a 2.3 m figure is ~65 % of the screen's height; at
+# the old 5 m typical it was ~26 %. `MIN_DIST` 1.6 stays the floor `_scan()` clamps to.
+const APPEAR_DIST_MIN := 1.8
+const APPEAR_DIST_MAX := 3.0
+# ⭐ THE ARRIVAL IS LOUD, AND THE FIRST 0.7 s FORGIVE A FLINCH (2026-09-10). The shared screamer
+# sting plays at the figure the moment it resolves (`_play_arrival_sting()`, on top of the drone,
+# inside the Ambience dip `_play_drone()` opens). That sting argues for exactly the flight that
+# kills you — so `_process()` does not score `_is_fleeing()` until STARTLE_GRACE has elapsed, and
+# re-bases the flee distance at the boundary. The grace forgives the REFLEX, not the decision: the
+# hold still takes the full HOLD_TIME from arrival, dread charges from arrival, and a sprint at
+# 0.71 s is still a rush. SCARY.md §8.11's shape (never punish a reaction to a scare you could not
+# have seen coming). Chosen over "no grace" and "1.5 s" by the user.
+const STARTLE_GRACE := 0.7
+const ARRIVAL_STING_DEFAULT := "all_levels_screamer"
 const HOLD_TIME := 6.0       # seconds of nerve (no flee) before it fades — long enough to read
 const DREAD_RATE := 3.0      # panic/s while it stands there — the climb to endure
 const FADE_IN := 0.6
@@ -48,12 +63,16 @@ var teach: bool = false
 # Optional per-level audio overrides (ADDITIVE; empty = the shared defaults, so every other level
 # renders byte-for-byte as before). KONTUR sets these to "jumpscare" via its ApparitionDirector
 # (capture #10: "this creature should also come with a jumpscare sound, not the one currently used").
-var appear_audio: String = ""       # the sound on appearance (default apparition_drone)
+var appear_audio: String = ""       # the DRONE on appearance (default apparition_drone)
 var teach_flash_audio: String = ""  # the survivable-rush flash sting (default all_levels_screamer)
+# The one-shot sting layered over the drone as the figure resolves (2026-09-10). "" = none.
+# ⚠️ Not `appear_audio`: that slot is the sustained drone underneath; this is the shock on top.
+var arrival_sting: String = ARRIVAL_STING_DEFAULT
 
 var _player: CharacterBody3D
 var _camera: Camera3D
 var _engaged: bool = false
+var _engaged_t: float = 0.0    # seconds since appear(); gates the startle grace
 var _hold: float = 0.0
 var _done: bool = false
 var _spawn_dist: float = 0.0   # horizontal player↔figure distance at appear()
@@ -253,6 +272,7 @@ func appear() -> void:
 	_spawn_dist = _horiz_dist_to_player()
 	# Reset for re-arm (debug repeat) so a recycled instance fades in cleanly.
 	_hold = 0.0
+	_engaged_t = 0.0
 	_done = false
 	_mat.albedo_color.a = 0.0
 	visible = true
@@ -261,6 +281,7 @@ func appear() -> void:
 	_play_drone()
 
 	if not _turned:
+		_play_arrival_sting(0.0)
 		var t := create_tween()
 		t.tween_property(_mat, "albedo_color:a", 1.0, FADE_IN)
 		return
@@ -281,6 +302,8 @@ func appear() -> void:
 	_player.velocity.z = 0.0
 	_player.freeze_input()
 	_player.turn_to_face(spot + Vector3(0, 1.35, 0), TURN_TIME)
+	# The sting lands as the figure starts to resolve, not as the head starts to move.
+	_play_arrival_sting(TURN_TIME * 0.55)
 	var tt := create_tween()
 	tt.tween_interval(TURN_TIME * 0.55)
 	tt.tween_property(_mat, "albedo_color:a", 1.0, FADE_IN)
@@ -450,7 +473,17 @@ func _process(delta: float) -> void:
 	# The one rule: do not run. Sprinting OR moving away from it (fleeing) makes it
 	# rush. Turning the camera while standing your ground never trips it — fair, and
 	# it matches "stand still until it fades".
-	if _is_fleeing():
+	# ⚠️ STARTLE GRACE (2026-09-10): the arrival sting is a full-scale scream at ~2 m, and the
+	# reflex it produces is a Shift tap or a step back. Neither is scored for the first
+	# STARTLE_GRACE seconds; at the boundary the flee baseline is re-based to wherever the
+	# flinch left the player, so the step is forgiven rather than merely deferred. The hold
+	# and the dread run from arrival regardless — nothing gets easier, only the reflex is free.
+	var was_in_grace: bool = _engaged_t < STARTLE_GRACE
+	_engaged_t += delta
+	if was_in_grace:
+		if _engaged_t >= STARTLE_GRACE:
+			_spawn_dist = maxf(_spawn_dist, _horiz_dist_to_player())
+	elif _is_fleeing():
 		_telegraph_then_rush()
 		return
 	_hold += delta
@@ -585,6 +618,38 @@ func _play_drone() -> void:
 	p.position = Vector3(0, 1.2, 0)
 	p.finished.connect(p.queue_free)
 	p.play()
+
+
+# ⭐ THE SHOCK ON ARRIVAL (2026-09-10, the user's call — *"accompanied with the shared screamer
+# loud sound"*). A one-shot at the figure, layered over the drone, delayed so it lands as the
+# picture resolves rather than as the head starts to turn. `max_db` 6 with `unit_size` 8: at
+# 2 m that is the full +6 dB over a file already at -0.16 dBFS, i.e. straight into the Master
+# hard limiter — denser, not clipped. It fires inside the Ambience dip `_play_drone()` opened,
+# which is where the loudness actually comes from (see the block above that function).
+# Named, so `check_apparition_framing.gd` can find it rather than any player that happens to
+# be playing.
+func _play_arrival_sting(delay: float) -> void:
+	if arrival_sting == "":
+		return
+	var stream := GameState.load_audio(arrival_sting)
+	if not stream:
+		return
+	var p := AudioStreamPlayer3D.new()
+	p.name = "ArrivalSting"
+	p.stream = stream
+	p.volume_db = 0.0
+	p.max_db = 6.0
+	p.unit_size = 8.0
+	add_child(p)
+	p.position = Vector3(0, 1.2, 0)
+	p.finished.connect(p.queue_free)
+	if delay <= 0.0:
+		p.play()
+	else:
+		get_tree().create_timer(delay).timeout.connect(func() -> void:
+			if is_instance_valid(p) and not _done:
+				p.play()
+		)
 
 
 # A short sharp sting the instant it decides to rush — the audio half of the tell.

@@ -43,7 +43,7 @@ signal arrived
 
 const TEX := "res://assets/textures/level_backrooms/sprawl_dweller.png"
 const HEIGHT := 2.15
-const SPEED := 6.5              # m/s — a run, not a stalk. It is fleeing, not hunting.
+const SPEED := 4.0              # m/s — a run down a 10 m recess (2026-09-10; was 6.5 across a 45 m hall): ~7 m in 1.7 s, long enough to be SEEN
 const THROUGH := 2.2            # how far past the wall it keeps going before it is gone
 const FADE_IN := 0.35
 const FADE_OUT := 0.55

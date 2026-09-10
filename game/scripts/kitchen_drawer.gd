@@ -19,13 +19,27 @@ class_name KitchenDrawer
 # ⚠️ The hint gives the RULE (black is the way out, red is not a door), never a position.
 # `choice_door.gd` randomises which side is which per run precisely so the answer is the colour.
 #
-# Opens on E, then shows its note — the same open-then-read beat as `kontur_mailbox.gd`, so the
-# page reads as having come out of the drawer rather than appearing from nowhere.
+# ⭐ TWO PRESSES SINCE 2026-09-10 (the user's replay: *"The note should be physically seen in
+# this cabinet before it will be taken"*). E slides the drawer out and that is ALL it does; a
+# real page lies in the tray, and a second, separate E on the PAGE takes it and reads it —
+# `lab_cabinet_drawer.gd`'s beat, and `kontur_mailbox.gd`'s since 2026-09-09. Which of the two
+# nested bodies answers the ray is decided by STATE (`can_interact()` on each), never by aim.
 #
 # ⚠️ Only the VISUALS slide. The collider stays flush with the counter face for the life of the
-# prop — see the ⚠️ block on `interact()` and Issue 76.
+# prop — see the ⚠️ block on `interact()` and Issue 76. The page rides the slider, so it comes
+# out of the counter with the box; its own grab volume is DISABLED until the slide has finished
+# (Issue 66's rule — a live volume inside a shut prop is what made a Lab drawer un-openable).
 
 signal opened
+signal note_taken
+
+# The page: a folded sheet lying in the tray. Art cropped by UV to the paper alone (the source
+# is a sheet on a black backdrop), lit through MULTIPLY emission at the House's dimmed level so
+# it is findable in a room at ambient 0.0 without being a lantern (Issues 81/21, X65).
+const PAGE_TEX := "res://assets/textures/level_5_kontur/kontur_note_page.png"
+const PAGE_SIZE := Vector2(0.20, 0.27)   # paper aspect ~0.74 — a folded bill, not a placemat
+const PAGE_EMISSION := 0.25
+const PAGE_GRAB := Vector3(0.34, 0.16, 0.30)
 
 const SIZE := Vector3(0.62, 0.16, 0.02)
 # ⚠️ NEGATIVE, i.e. toward −z (found 2026-08-16 while fixing the Issue-58 ordering below).
@@ -49,7 +63,9 @@ He kept saying the same thing over and over, until I wrote it down on the back o
 
 I asked him what was behind the red one. He said nothing was behind it. He said that was the point, and then he went and sat in the cellar until it got dark."""
 
-var _used: bool = false
+var _used: bool = false      # the page has been taken — the drawer is finished
+var _opened: bool = false    # E1 has been pressed — the drawer is out (or sliding out)
+var _page: DrawerPage = null
 var _front: MeshInstance3D = null
 # ⚠️ EVERYTHING VISIBLE HANGS OFF THIS, AND ONLY THIS MOVES (2026-08-16 — see the ⚠️ block on
 # `interact()`). The `CollisionShape3D` is a direct child of the body and never leaves the
@@ -134,6 +150,16 @@ func _build() -> void:
 	handle.position = Vector3(0, 0, -(SIZE.z / 2.0 + 0.016))
 	_slider.add_child(handle)
 
+	# The page, lying on the drawer bottom, a hair above it and tilted so it is not printed onto
+	# the board. A child of the SLIDER: it comes out of the counter with the box.
+	_page = DrawerPage.new()
+	_page.name = "DrawerPage"
+	_page.drawer = self
+	_page.text = NOTE_TEXT
+	_page.position = Vector3(0.0, -SIZE.y / 2.0 + 0.03, mid)
+	_page.rotation.y = deg_to_rad(-7.0)
+	_slider.add_child(_page)
+
 	var col := CollisionShape3D.new()
 	col.name = "DrawerCollision"
 	var shape := BoxShape3D.new()
@@ -142,16 +168,29 @@ func _build() -> void:
 	add_child(col)
 
 
-# Inert once read, so it never advertises "Press E" for something that will not happen again —
-# the opt-out `player.gd:_update_interact_prompt()` consults (see LabLocker, HouseFridge).
+# Inert once opened, so it never advertises "Press E" for something that will not happen again —
+# the opt-out `player.gd:_update_interact_prompt()` consults (see LabLocker, HouseFridge). Once
+# the drawer is out, the PAGE is the thing that answers E, not the drawer.
 func can_interact() -> bool:
-	return not _used
+	return not _opened
+
+
+func is_open() -> bool:
+	return _opened
+
+
+func has_page() -> bool:
+	return is_instance_valid(_page) and not _page.is_taken()
+
+
+func is_used() -> bool:
+	return _used
 
 
 func interact() -> void:
-	if _used:
+	if _opened:
 		return
-	_used = true
+	_opened = true
 
 	var s := GameState.load_audio("creak")
 	if s:
@@ -202,8 +241,98 @@ func slide_offset() -> float:
 	return absf(_slider.position.z) if _slider else 0.0
 
 
+# The slide has finished: the page is there to be SEEN, and only now to be reached for. No
+# note, no journal entry, no caption — the open drawer with a sheet in it is the message.
 func _reveal() -> void:
-	# Archived like any other safe note, so TAB can re-read it at KONTUR's door two levels
-	# later — which is the entire reason the journal exists.
-	GameState.record_note(NOTE_TEXT, 2)
-	NoteUI.show_note(NOTE_TEXT)
+	if is_instance_valid(_page):
+		_page.set_active(true)
+
+
+func _on_page_taken() -> void:
+	_used = true
+	note_taken.emit()
+
+
+# ---------------------------------------------------------------- the page itself
+
+# The second press. A sheet you can see lying in the open drawer, that you have to pick up.
+# Layer 2 / mask 0 like every page in the game: raycast-hittable, never solid.
+class DrawerPage extends StaticBody3D:
+	var text: String = ""
+	var drawer: Node = null
+	var _taken: bool = false
+	var _active: bool = false
+	var _col: CollisionShape3D = null
+
+	# Hittable only once the drawer that holds it has finished sliding out.
+	func set_active(on: bool) -> void:
+		_active = on
+		if _col:
+			_col.disabled = not on
+
+	func is_taken() -> bool:
+		return _taken
+
+	func _ready() -> void:
+		collision_layer = 2
+		collision_mask = 0
+		var sheet := MeshInstance3D.new()
+		# Named uniquely: `check_wall_overlap.gd` waives THIS quad by name, because while the
+		# drawer is shut the page is inside the counter carcass — correctly, it is in a drawer.
+		sheet.name = "DrawerPageSheet"
+		var qm := QuadMesh.new()
+		qm.size = KitchenDrawer.PAGE_SIZE
+		sheet.mesh = qm
+		var mat := StandardMaterial3D.new()
+		mat.roughness = 0.95
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		if ResourceLoader.exists(KitchenDrawer.PAGE_TEX):
+			var tex: Texture2D = load(KitchenDrawer.PAGE_TEX)
+			mat.albedo_texture = tex
+			# The source is a sheet on a black backdrop occupying roughly the middle 58 % of its
+			# width and 88 % of its height; sample that window so the quad carries paper, not
+			# backdrop. Deliberately a fixed window: the art is a fixed file.
+			# ⚠️ The crop's aspect must equal the quad's: 0.652 / 0.88 = 0.741 = 0.20 / 0.27.
+			# It shipped for a day at 0.58 / 0.88 (1.12x stretched) and `check_art_aspect`
+			# caught it on the first full-suite run — the effective aspect is pixel aspect x
+			# uv1_scale, which is exactly what that guard measures.
+			mat.uv1_scale = Vector3(0.652, 0.88, 1.0)
+			mat.uv1_offset = Vector3(0.174, 0.05, 0.0)
+			mat.emission_enabled = true
+			mat.emission_texture = tex
+			mat.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
+			mat.emission = Color(1.0, 0.95, 0.8)
+			mat.emission_energy_multiplier = KitchenDrawer.PAGE_EMISSION
+		else:
+			mat.albedo_color = Color(0.72, 0.68, 0.55)
+		sheet.material_override = mat
+		# Lying flat (a QuadMesh faces +z), tipped a few degrees so it reads as dropped in.
+		sheet.rotation.x = deg_to_rad(-90.0 + 6.0)
+		add_child(sheet)
+
+		var col := CollisionShape3D.new()
+		var shape := BoxShape3D.new()
+		# Generous: the player reaches into a 16 cm-high tray from above at an angle. The
+		# disabled flag is the real guard against a shut drawer being shadowed by its page.
+		shape.size = KitchenDrawer.PAGE_GRAB
+		col.shape = shape
+		col.position = Vector3(0.0, 0.04, 0.0)
+		_col = col
+		add_child(col)
+		set_active(_active)
+
+	func can_interact() -> bool:
+		return not _taken and _active and drawer != null and bool(drawer.call("is_open"))
+
+	func interact() -> void:
+		if not can_interact():
+			return
+		_taken = true
+		# Archived like any other safe note, so TAB can re-read it at KONTUR's door two levels
+		# later — which is the entire reason the journal exists.
+		GameState.record_note(text, 2)
+		NoteUI.show_note(text)
+		if drawer:
+			drawer.call("_on_page_taken")
+		# It is in your hands now, not in the drawer.
+		queue_free()

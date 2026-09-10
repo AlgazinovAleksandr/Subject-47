@@ -149,6 +149,13 @@ func _rearm_child() -> void:
 	_scene.set("_child_postponed", 0.0)
 
 
+# Horizontal (floor) distance from the player to the figure — the number "very close" is about.
+func _flat_dist(child: Node3D) -> float:
+	var a := child.global_position
+	var b := _player.global_position
+	return Vector2(a.x - b.x, a.z - b.z).length()
+
+
 # Is the child both in the player's horizontal view cone AND unoccluded?
 func _child_report(child: Node3D) -> Dictionary:
 	var cam := _player.get_node_or_null("Camera3D") as Camera3D
@@ -361,6 +368,12 @@ func _process(delta: float) -> bool:
 				"Watcher.is_visible_to_player() raycasts the eye->figure segment")
 			_ok("…and standing in the room with floor round it, not in the shell",
 				bool(r["clear"]), "at %s" % str((r["at"] as Vector3).snapped(Vector3.ONE * 0.01)))
+			# 2026-09-10: VERY CLOSE, and the camera is BROUGHT ONTO IT (the user's call).
+			_ok("it is VERY close — inside 2.6 m of floor", _flat_dist(child) <= 2.6,
+				"%.2f m horizontal" % _flat_dist(child))
+			_ok("…and the camera has been turned squarely onto it", float(r["dot"]) >= 0.9,
+				"dot %.2f after the 0.45 s turn" % r["dot"])
+			_ok("…and the player is pinned while it stands there", _player.is_input_frozen())
 			# The two properties that keep it free.
 			_ok("the figure feeds NO gaze panic (no ScaryObject ancestor)",
 				not _has_ancestor_scary(child))
@@ -381,6 +394,7 @@ func _process(delta: float) -> bool:
 		_ok("…and the dark-zone tax is un-suspended",
 			not _flag_on(_player, "_smiler_active"))
 		_ok("…and the figure is gone", _scene.get_node_or_null("GuestChild") == null)
+		_ok("…and the pin is released with the lights", not _player.is_input_frozen())
 		_ok("the whole sequence cost zero panic",
 			_player.get_panic_ratio() < 0.05, "panic %.4f" % _player.get_panic_ratio())
 
@@ -423,6 +437,8 @@ func _process(delta: float) -> bool:
 			_ok("…and unoccluded", bool(r2["seen"]))
 			_ok("…and clear of the shell", bool(r2["clear"]),
 				"at %s" % str((r2["at"] as Vector3).snapped(Vector3.ONE * 0.01)))
+			_ok("…very close, camera on it", _flat_dist(child2) <= 2.6 and float(r2["dot"]) >= 0.9,
+				"%.2f m, dot %.2f" % [_flat_dist(child2), r2["dot"]])
 
 		# --- case (iii): standing nose-to-the-wall ------------------------------------------
 		#
@@ -430,7 +446,12 @@ func _process(delta: float) -> bool:
 		# to congregation.gd — the LOS ray is the ONLY probe that catches "inside a wall"
 		# (Issue 40/59), so the ladder below it was dead code and a player facing a wall got a
 		# figure buried in it. Either it is in front and visible, or there is none. Never both.
+		# ⚠️ Since 2026-09-10 the ladder has BEHIND candidates and the camera is turned, so this
+		# case must now produce a figure at your back and swing you round to it.
 		print("  -- cellar sequence: facing a wall from 0.7 m --")
+		# Case (ii)'s appearance pinned the player; the level would postpone a new appearance
+		# while they are frozen, so end that blackout the way the level does, first.
+		_scene.call("_end_cellar_blackout")
 		_rearm_child()
 		# Cellar south wall inner face is z = -9.40; stand just off it, looking at it.
 		_stand(Vector3(5.0, -1.4, -8.7), Vector3(5.0, -1.4, -12.0))
@@ -441,10 +462,12 @@ func _process(delta: float) -> bool:
 
 	elif _stage == 7 and _t > 1.0:
 		var child3 := _scene.get_node_or_null("GuestChild") as Node3D
-		if child3 == null:
-			_ok("facing a wall: no figure at all, rather than one inside the wall", true,
-				"a skipped Watcher costs nothing; an embedded one is BACKLOG #8")
-		else:
+		# ⚠️ Until 2026-09-10 a null here PASSED ("no figure rather than one inside the wall").
+		# The ladder now has BEHIND candidates and the camera is turned onto whichever wins, so
+		# a player with their nose on the wall gets the figure at their back and is swung round
+		# to it. Null is a failure again — the beat has somewhere legitimate to go.
+		_ok("facing a wall: the figure still appears (behind you)", child3 != null)
+		if child3:
 			var r3 := _child_report(child3)
 			# ⚠️ The strong half of the claim, and the one A5 is really about: whatever it does,
 			# it must never be INSIDE geometry. With require_los=false the three candidates
@@ -453,16 +476,11 @@ func _process(delta: float) -> bool:
 			_ok("facing a wall: the figure is never buried in it", bool(r3["clear"]),
 				"at %s, %.1f m from the player" % [
 					str((r3["at"] as Vector3).snapped(Vector3.ONE * 0.01)), r3["dist"]])
-			# ⚠️ "IN FRONT" IS DELIBERATELY NOT ASSERTED HERE, and the number is printed instead.
-			# Watcher's billboard is 1.6 m wide and `_fits()` wants FIT_RADIUS (0.9 m) of
-			# clearance all round, so standing 0.7 m from a wall there is NO candidate inside the
-			# view cone that fits — measured: all three ladder distances land beyond the wall and
-			# are correctly refused. `_cellar_child_appear()`'s room-centre fallback then places
-			# it on open floor BEHIND the player rather than eating the beat entirely, which is
-			# the pre-existing design ("It must NOT be allowed to fail silently the way the
-			# Hallway version did"). Recorded in backlogs/02-house.md §5 for a later decision.
-			print("      (informational) facing-a-wall fallback: dot %.2f, in view cone = %s"
-				% [r3["dot"], r3["seen"]])
+			_ok("…it is close, on the open floor behind", _flat_dist(child3) <= 3.0,
+				"%.2f m horizontal" % _flat_dist(child3))
+			_ok("…and the camera has been swung round onto it", float(r3["dot"]) >= 0.9,
+				"dot %.2f (the player was facing the wall, away from it)" % r3["dot"])
+			_ok("…and it is unoccluded from the turned camera", bool(r3["seen"]))
 		_scene.call("_end_cellar_blackout")
 		# Out of the cellar for the fridge phase — its DreadZone cancels decay exactly, which
 		# would pin the measured panic at its charged value instead of letting it settle.
@@ -526,15 +544,24 @@ func _process(delta: float) -> bool:
 		_stage = 10
 		_t = 0.0
 
-	elif _stage == 10 and _t > 1.0:     # SLIDE_TIME is 0.45, then the note
+	elif _stage == 10 and _t > 1.0:     # SLIDE_TIME is 0.45, then the PAGE is takeable
 		if _drawer:
 			var gs := root.get_node_or_null("/root/GameState")
-			var archived := false
-			for e in (gs.get("journal") as Array):
-				if String(e["text"]).to_lower().contains("black door"):
-					archived = true
-			_ok("the drawer's KONTUR hint is archived to the journal", archived,
-				"so TAB can re-read it two levels later")
+			var hint_in_journal := func() -> bool:
+				for e in (gs.get("journal") as Array):
+					if String(e["text"]).to_lower().contains("black door"):
+						return true
+				return false
+			# 2026-09-10: two presses. Opening shows the page and archives NOTHING; taking
+			# the page is what reads and archives it (`tests/check_open_then_read.gd` is the
+			# full proof; this is the cross-level-hint half).
+			_ok("opening the drawer alone archives nothing", not hint_in_journal.call())
+			var page: Node = _drawer.find_child("DrawerPage", true, false)
+			_ok("…and a page is lying in the open drawer", page != null)
+			if page:
+				page.call("interact")
+			_ok("the drawer's KONTUR hint is archived to the journal once TAKEN",
+				hint_in_journal.call(), "so TAB can re-read it two levels later")
 			_ok("the drawer goes inert once read",
 				bool(_drawer.call("can_interact")) == false)
 		_finish()

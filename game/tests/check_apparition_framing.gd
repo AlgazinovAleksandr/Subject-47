@@ -49,6 +49,14 @@ var _turned := 0
 var _skipped := 0
 var _turned_by := {}
 var _placed_by := {}
+# 2026-09-10 — the arrival is CLOSE and LOUD (the user's call): every placement's horizontal
+# distance must sit inside the range the script names, and the shared screamer must be playing
+# at the figure by the time it has resolved.
+var _dist_min := INF
+var _dist_max := 0.0
+var _dist_bad := 0
+var _sting_ok := 0
+var _sting_missing := 0
 # ⚠️ `load()` in `_initialize`, never the bare class name and never `preload`. Calling
 # `Apparition.spawn()` from a SceneTree script fails at runtime with "Nonexistent function
 # 'spawn' in base 'GDScript'" — measured — and a `preload` would compile the script before the
@@ -156,6 +164,31 @@ func _process(delta: float) -> bool:
 	var seen: bool = _cam.is_position_in_frustum(_ap.global_position + CHEST)
 	if seen:
 		_in_frame += 1
+	# Distance: the script's own range, plus the widest lateral nudge it is allowed to add.
+	var consts: Dictionary = AP.get_script_constant_map()
+	var d := Vector2(_ap.global_position.x - _player.global_position.x,
+		_ap.global_position.z - _player.global_position.z).length()
+	_dist_min = minf(_dist_min, d)
+	_dist_max = maxf(_dist_max, d)
+	var nudge_max := 0.0
+	for n in (consts.get("LATERAL_NUDGES", []) as Array):
+		nudge_max = maxf(nudge_max, absf(float(n)))
+	var lo := float(consts.get("MIN_DIST", 1.6)) - 0.05
+	var hi := sqrt(pow(float(consts.get("APPEAR_DIST_MAX", 3.0)), 2.0) + nudge_max * nudge_max) + 0.05
+	if d < lo or d > hi:
+		_dist_bad += 1
+		print("     OUT OF RANGE at pose %d: %.2f m (allowed %.2f..%.2f)" % [_i, d, lo, hi])
+	# The sting: named, at the figure, the shared screamer, and actually playing.
+	var sting := _ap.get_node_or_null("ArrivalSting") as AudioStreamPlayer3D
+	var sting_base := ""
+	if sting and sting.stream:
+		sting_base = sting.stream.resource_path.get_file().get_basename()
+	if sting and sting.playing and sting_base == String(consts.get("ARRIVAL_STING_DEFAULT", "")):
+		_sting_ok += 1
+	else:
+		_sting_missing += 1
+		print("     NO ARRIVAL STING at pose %d: node=%s playing=%s stream=%s"
+			% [_i, str(sting != null), str(sting.playing if sting else false), sting_base])
 	var kind := String(_poses[_i]["kind"])
 	_placed_by[kind] = int(_placed_by.get(kind, 0)) + 1
 	if bool(_ap.get("_turned")):
@@ -177,6 +210,12 @@ func _finish() -> bool:
 	_ok("EVERY placed apparition ends up on screen", _in_frame == placed,
 		"%d of %d in frustum; %d of them needed the scripted camera turn"
 			% [_in_frame, placed, _turned])
+	_ok("EVERY placed apparition is CLOSE — inside the 2026-09-10 range the script names",
+		placed > 0 and _dist_bad == 0,
+		"%d out of range; measured %.2f..%.2f m" % [_dist_bad, _dist_min, _dist_max])
+	_ok("...and its arrival sting is the shared screamer, playing at the figure",
+		placed > 0 and _sting_ok == placed,
+		"%d of %d had it (%d missing)" % [_sting_ok, placed, _sting_missing])
 	var e_placed: int = int(_placed_by.get("easy", 0))
 	var e_turned: int = int(_turned_by.get("easy", 0))
 	var h_placed: int = int(_placed_by.get("hostile", 0))

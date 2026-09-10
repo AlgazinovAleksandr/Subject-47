@@ -71,6 +71,8 @@ var suppress: Callable = Callable()
 # defaults). KONTUR sets these to "jumpscare" (capture #10). Additive; every other level unaffected.
 var appear_audio: String = ""
 var teach_flash_audio: String = ""
+# The arrival shock (2026-09-10): "" = the Apparition's own default (the shared screamer).
+var arrival_sting: String = ""
 
 var _elapsed: float = 0.0
 var _next_at: float = 0.0
@@ -148,6 +150,8 @@ func _fire() -> void:
 			a.appear_audio = appear_audio
 		if teach_flash_audio != "":
 			a.teach_flash_audio = teach_flash_audio
+		if arrival_sting != "":
+			a.arrival_sting = arrival_sting
 	var taught := arm(a)
 	var dbg := get_node_or_null("/root/DebugLog")
 	if dbg:

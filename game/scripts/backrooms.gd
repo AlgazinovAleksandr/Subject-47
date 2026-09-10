@@ -182,8 +182,11 @@ func save_progress() -> Dictionary:
 		# many fragments were in the frame would hand a returning player an unwinnable wing:
 		# the objects are silent, and the plate is back to zero. Three numbers, all restored
 		# together — emptied objects, fragments set, fragments still in hand.
-		out["flood_set"] = _zone3.pieces_set()
-		out["flood_held"] = _zone3.pieces_held()
+		# ⭐ KIND ARRAYS since 2026-09-10 (candle/book/skull/bell/key/doll), because the six
+		# pieces are different objects with their own altar slots now. The loader accepts the
+		# old ints too, so a snapshot from before this change still resumes.
+		out["flood_set"] = _zone3.set_kinds()
+		out["flood_held"] = _zone3.held_kinds()
 	return out
 
 
@@ -194,11 +197,12 @@ func _restore_progress() -> void:
 	var zone: int = int(data.get("zone", 1))
 	_counter = int(data.get("counter", 0))
 	var searched: Array = data.get("flood_searched", [])
-	var set_count: int = int(data.get("flood_set", 0))
-	var held: int = int(data.get("flood_held", 0))
-	if (not searched.is_empty() or set_count > 0) and is_instance_valid(_zone3) \
+	var set_v = data.get("flood_set", 0)          # kind array, or a legacy int
+	var held_v = data.get("flood_held", 0)
+	var any_set: bool = (set_v.size() > 0) if set_v is Array else (int(set_v) > 0)
+	if (not searched.is_empty() or any_set) and is_instance_valid(_zone3) \
 			and _zone3.has_method("restore_searched"):
-		_zone3.restore_searched(searched, set_count, held)
+		_zone3.restore_searched(searched, set_v, held_v)
 	if zone > 1:
 		_enter_zone(zone)      # teleports to that zone's spawn and re-announces it
 	elif _counter > 0:
@@ -1385,8 +1389,9 @@ func _process(delta: float) -> void:
 # ⚠️ AND IT HAS A BACKSTOP. `WATCH_MAX` is not a difficulty constant, it is a safety valve of
 # the `CHILD_POSTPONE_MAX` kind: `dweller_arrived` is what releases the camera, and if the
 # runner is ever freed or blocked, an un-released freeze is a player who can neither move nor
-# look for the rest of the level. The crossing is 2.2-6.6 s measured (recess and wall are
-# both randomised), so this is roughly double the worst case.
+# look for the rest of the level. Since 2026-09-10 the run is ~7 m straight down the crate's
+# own recess at 4 m/s (about 2 s; the recess is fixed relative to the crate), so this is
+# several times the worst case.
 const WATCH_REAIM := 0.18       # s between re-targets — a re-aim cadence, not a tween rate
 const WATCH_MAX := 12.0
 # ⚠️ HELD PAST THE ARRIVAL. `SprawlDweller` emits `arrived` at the surface and only THEN

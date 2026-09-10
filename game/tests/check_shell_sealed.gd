@@ -296,13 +296,14 @@ func _all(n: Node, out: Array) -> Array:
 # ray grazing its plane still counts.
 #
 # ⚠️ THIS IS AN EXEMPTION LIST, so it carries the same discipline `check_wall_overlap.gd`
-# puts on `_allow`: the COUNT is asserted. Eight, and they are not interchangeable —
+# puts on `_allow`: the COUNT is asserted. Nine, and they are not interchangeable —
 #   zone 1  THE LOBBY   1  the utility room's exit, a bare MeshInstance3D named "GlitchWall"
-#   zone 2  THE SPRAWL  4  `GlitchWall` instances, one per side, one of them real
+#   zone 2  THE SPRAWL  5  `GlitchWall` instances: four perimeter decoys, all fake, plus the
+#                          EXIT at the end of the crate's recess (2026-09-10; was 4, one real)
 #   zone 3  THE FLOOD   3  `GlitchWall` instances, one real seam + two decoys
-# If a ninth appears, or one stops being visible, this fails rather than quietly widening
+# If a tenth appears, or one stops being visible, this fails rather than quietly widening
 # the set of directions in which the level is allowed to have no wall.
-const EXPECTED_GLITCH := 8
+const EXPECTED_GLITCH := 9
 # ⚠️ ...and three of the eight are ALLOWED to be invisible right now: the Flood's tell is
 # that its real seam shows only with the flashlight OFF and its two decoys only with it ON,
 # so exactly one of those states is hidden at any moment. They still seal the view, because
@@ -342,7 +343,7 @@ func _collect_glitch() -> void:
 		_glitch.append(box.grow(0.35))
 	_ok("every walk-through surface was found", found == EXPECTED_GLITCH,
 		"%d found, expected exactly %d" % [found, EXPECTED_GLITCH])
-	_ok("...and the five that ARE a wall are visible", hidden.is_empty(),
+	_ok("...and the six that ARE a wall are visible", hidden.is_empty(),
 		"hidden: %s" % str(hidden))
 	_ok("...and every one yielded a mesh volume to exempt",
 		_glitch.size() == found, "%d volumes for %d nodes" % [_glitch.size(), found])

@@ -41,12 +41,12 @@ func _process(d: float) -> bool:
 		var origin: Vector3 = z2.get("_origin")
 		pl.global_position = origin + Vector3(0, 1.6, 0)
 		var cam := pl.get_node_or_null("Camera3D") as Camera3D
-		var side := String(z2.get("_real_side"))
-		var dirs := {"N": Vector3(0, 0, 1), "S": Vector3(0, 0, -1),
-			"E": Vector3(1, 0, 0), "W": Vector3(-1, 0, 0)}
-		var dir: Vector3 = dirs.get(side, Vector3(0, 0, 1))
+		# 2026-09-10: the real wall is the end of the crate's recess, not a compass side —
+		# look at the wall NODE, wherever it stands.
+		var wall := z2.call("exit_wall") as Node3D
+		var aim: Vector3 = wall.global_position if wall else origin + Vector3(0, 1.2, 20.0)
 		if cam:
-			cam.look_at(origin + dir * 20.0 + Vector3(0, 1.2, 0), Vector3.UP)
+			cam.look_at(Vector3(aim.x, 1.2, aim.z), Vector3.UP)
 		var hud := pl.get_node_or_null("InteractUI")
 		if hud:
 			hud.visible = false

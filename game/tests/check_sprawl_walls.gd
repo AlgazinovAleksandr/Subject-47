@@ -91,7 +91,8 @@ func _process(delta: float) -> bool:
 				quit(1)
 				return true
 			var walls: Dictionary = _walls()
-			_ok("four glitch walls", walls.size() == 4, "%d" % walls.size())
+			# 2026-09-10: four perimeter decoys plus the exit at the end of the crate's recess.
+			_ok("five glitch walls (four decoys + the recess exit)", walls.size() == 5, "%d" % walls.size())
 
 			# ⚠️ ENTER THE ZONE THROUGH THE LEVEL'S OWN PATH. The ambient dip lives in
 			# `_enter_zone(2)`, not in the zone's `build()`, because all three Backrooms zones
@@ -110,7 +111,7 @@ func _process(delta: float) -> bool:
 					reds += 1
 				elif _is_yellow(v):
 					yellows += 1
-			_ok("ALL FOUR walls are painted wrong before the runner", reds == 4,
+			_ok("ALL FIVE walls are painted wrong before the runner", reds == 5,
 				"%d red, %d untinted — a wall that already looks right gives the answer away"
 					% [reds, yellows])
 
@@ -139,11 +140,17 @@ func _process(delta: float) -> bool:
 					reds2 += 1
 				elif _is_yellow(v):
 					yellow_side = String(s)
-			_ok("after the run, exactly ONE wall turns", reds2 == 3,
+			_ok("after the run, exactly ONE wall turns", reds2 == 4,
 				"%d still red" % reds2)
 			_ok("...and it is the real one", yellow_side == real_side,
 				"yellow on '%s', real is '%s'" % [yellow_side, real_side])
 			_ok("...and it is no longer sealed", not bool(_z2.call("real_wall_is_sealed")))
+			# 2026-09-10: the one that turns is a RECESS-END wall, beyond the perimeter plane.
+			var half: float = float(_z2.get_script().get_script_constant_map().get("HALF", 20.0))
+			var yw := walls2.get(yellow_side) as Node3D
+			var reach: float = (yw.global_position - (_z2 as Node3D).global_position).length() if yw else 0.0
+			_ok("...and it stands at the end of a recess, not on the perimeter", reach > half + 1.0,
+				"%.1f m from the hall centre (perimeter walls sit at %.1f)" % [reach, half - 0.05])
 
 			# ⚠️ The mark is MOTION as well as colour — `set_agitated()` raises the shader's own
 			# tear. The design notes record that BRIGHTNESS was offered as this zone's mark and

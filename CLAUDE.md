@@ -206,6 +206,12 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
       the alternatives are a creak that stops dead with the chair or a hard cut at full amplitude
       0.9 s after it. `check_intro_beats.gd` asserts the STREAM, not just that something plays — a
       working fallback is exactly what hides a missing asset
+  - ⭐ **LOUDER AGAIN (2026-09-10, capture #1: *"Can we make the noise of this wheelchair even
+    louder?"*).** `WHEELCHAIR_SFX_DB` −7.6 → **+1.0**, `max_db` **8.0** (it was the default 3.0,
+    which clamped `volume_db + attenuation` — the gain would have done nothing inside 2.5 m), and a
+    `HoldBreath.dip(0.35)` on `Ambience` as the turn starts, because contrast is the cheaper half
+    of loud. The peaks go into the Master limiter. Still zero panic; `check_intro_beats.gd` reads
+    the constants off the script and asserts `max_db >= 8`.
   - ⚠️ **The breathing is CLOSE, not far.** `FarBreath` sits 1.61 m from where the player wakes,
     inside its own `unit_size`, so it plays at full volume into the ear at the moment of sitting up
     and recedes as they cross the ward. This file described it as "at the far wall" for months; it
@@ -267,6 +273,18 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
   than an object. Torch OFF, every prop in both levels reads **0.0000–0.0004**, i.e. the unlit
   world is genuinely black rather than nearly black. ⚠️ Read the MEAN, not the peak: the crosshair
   is a 0.698-luminance `Label` dead centre and lands inside every prop's bounding box.
+- ⭐⭐ **RECORDS IS LIT BEFORE THE POWER, AND THE WING'S DOORWAYS GLOW (2026-09-10, captures #3/#4,
+  the user's choice: *"Doorway markers + lit Records"*).** `PRE_POWER_LIT := {"Lamp_Records":
+  EMERGENCY_ENERGY}` — `_drive_lights()` substitutes that base for a named lamp while `_power_on`
+  is false, so Records is the ONE lit room before the breakers (its 11 m spill through the wing
+  entrance is the "home bearing"); everything else stays at zero and `check_darkness.gd` asserts
+  that exactly those names burn and nothing else. And every doorway inside the ten-room dark wing
+  wears four **photoluminescent strips** (`_spawn_wing_markers()`, `WingMark_<i>_<room>_<side>`,
+  `MARK_EMISSION` 0.14, green, no collider) that **fade with distance** — full inside `MARK_NEAR`
+  6 m, gone past `MARK_FAR` 12 m — so the topology is read locally rather than as a lit map. They
+  show DOORWAYS, never the answer: the rooms stay black and the beacon + meter still own the
+  bearing (the user's *"easier but not too easy"*). `check_wing_markers.gd` (12 checks) and
+  `screenshot_wing_markers.gd`.
 - ⭐ **PITCH BLACK UNTIL THE POWER IS RESTORED (2026-09-03, the user's call).** `_boost_ambient`
   runs at `DARK_AMBIENT` 0.02 and `_drive_lights()` holds every lamp — and every fitting's
   emission — at ZERO while `_power_on` is false; the third breaker raises the lot and tweens the
@@ -421,6 +439,15 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
   - ⚠️ **`MONSTER_SPEED` 172, raised 88 → 132 → 172** across two playtests on the user's call. The escape rate never moved at any of the three speeds; what changed is how fast a mistake is punished — hunted down 9.4 s after stopping at 132, **5.2 s at 172**. ⚠️ **Do not raise it again without re-running `check_maze_chase.gd`.**
   - ⚠️ **The hunter follows CORRIDORS, not a beeline.** It steers by a BFS distance field from the player's cell, recomputed when they change cell. It used to use a raw Euclidean beeline, which in a randomized-DFS *perfect* maze points into a wall most of the time — the corridor route is routinely 5–15× the straight line — so it jammed and could never close once the player left the start (BACKLOG #14: *"it can basically kill the player only at the beginning"*).
   - ⚠️ **`_place_monster()` avoids the FIRST STEP of the only route to its target.** In a spanning tree that cell is a roadblock the player cannot walk around — harmless while the monster drifted into walls, a measured 12-in-40 instant death once it followed corridors. Since the two-stage objective it guards the first step toward `_tour[0]` (a fragment), not toward the mark, which is inert for the first half-minute.
+  - ⚠️⚠️ **ONE SPEED, WHATEVER THE PANIC (2026-09-10, capture #6: *"the ideal speed is constant"*).**
+    The spring and the speed cap used to degrade with the 3D player's panic (`9→3`, `240→100`),
+    and panic CARRIES ACROSS attempts — so a retry after a catch ran ~35 % slower than the first
+    try, which the player read as the map "slowing down". Both House deaths that session were
+    panic deaths INSIDE the map, not catches. Now `SPRING_K := 7.5` and `PLAYER_SPEED := 210.0`,
+    between the old first- and second-run values; `_drag_step()` takes `panic_ratio` and ignores
+    it. ⚠️ DELIBERATE at the constant. Catch panic, drip, proximity and every monster number
+    untouched. `check_maze_speed.gd` feeds the same cursor at panic 0 and 0.9 and asserts identical
+    travel, with a control on the retired lerp. The two bullets below describe the OLD behaviour.
   - **Drag physics:** the icon eases toward the cursor on an exponential spring rather than snapping, and both the ease rate and the speed cap degrade as panic rises (`SPRING_K_BASE=9.0→SPRING_K_PANIC=3.0`, `PLAYER_MAX_SPEED=240→PLAYER_MIN_SPEED=100`). Releasing the mouse freezes the icon instantly, no glide, so letting go never costs an unwanted catch.
   - **Panic climbs the whole time it is open:** a flat `MAZE_DRIP_RATE=0.9`/s plus a squared proximity term up to `PROXIMITY_MAX_RATE=5.0`/s, via the same "a paused UI's own `_process` still calls `player.add_panic()`" idiom `note_ui.gd` uses for trap notes — which means the UI **must** self-clear if a screamer fires and unpauses the tree out from under it (Issue 9 guard, copied verbatim from `combination_lock.gd`/`note_ui.gd`). Winning calls the unchanged `_build_cellar_key()` at the counter's other end for a real 3D pickup; getting caught (`CATCH_RADIUS=20px`) ejects back to 3D with a jolt + `CATCH_PANIC=18` (bracketed between `beartrap.gd`'s own 15/40 spring-vs-fail values) and the map is retryable. `house_drawer.gd` (the superseded Landing search) was deleted as dead code.
   - ⚠️ **Legibility (playtest 2026-07-25, capture #3)**: the caption was added as a second child of the `CenterContainer`, which overwrites every child's anchors/offsets — so it landed stacked dead-centre ON the parchment in a cream that matched it. It now hangs off `_root` with a black outline (`ScreenText._outline()` convention). The three icons are 1024×1024 PNGs whose ink fills only ~30–40 % of the canvas, in the same sepia as both the parchment and the wall rects, so each rendered as ~28 px of near-invisible scribble; `modulate` cannot fix that (it multiplies — no multiplier turns brown into saturated blue), so `_make_icon()` stacks a dark halo disc + a bright identity disc sized to `ICON_HALF_EXTENT` + the ink on top. See ISSUES_SOLUTIONS Issue 32.
@@ -472,6 +499,15 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
     while the room-tone bed **ducks to `BED_DUCK_DB` rather than stopping**, and both return after
     `PLAY_TIME`. A duck with no restore is Issue 50's shape; `tests/check_music_box.gd` waits past
     the wind-down in real time and asserts the bed is back
+- ⭐⭐ **THE CELLAR CHILD IS IN YOUR FACE AND THE CAMERA IS FORCED TO IT (2026-09-10, capture #7).**
+  `_cellar_child_appear()` now tries a player-relative ladder — `CHILD_NEAR [1.7, 2.0, 2.4]` ahead,
+  ±`CHILD_FAN_DEG` 25° at 2.0, 3.2 ahead, then 2.0/2.6 BEHIND, then the room centre — through
+  `Watcher.spawn(require_los = true)`; on success it zeroes the velocity, `freeze_input()`s,
+  `turn_to_face(child + 1.35 m, CHILD_TURN_TIME 0.45)` and dips the bed (`CHILD_DIP` 0.4), the Lab
+  nook's idiom. `_end_cellar_blackout()` unfreezes. The bullet below still says "~3.2 m in front
+  of wherever the player is facing" — that is the OLD ladder. `check_house_guest.gd` asserts ≤ 2.6
+  m, dot ≥ 0.9 after the turn, pinned then released, and case (iii) (nose to the wall) now
+  REQUIRES a figure behind and the turn. Zero panic as before.
 - **THE CELLAR SEQUENCE** — three scripted beats on reaching the bottom of the ramp, timed to the
   user's spec: every lamp AND the torch die instantly → **5.5 s of nothing** → the child, screaming,
   ~3.2 m in front of wherever the player is facing → **3.0 s later** the lights return and it is gone
@@ -525,6 +561,15 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
     clears it*, and with nothing clearing, 0.62 s reads as a pause in front of an open box
   - ⚠️ The lower wire shelf is `SIZE.y * 0.34`, not 0.40 — at 0.40 it drew straight across the bottom
     7 cm of the face, which is the same capture. The head now RESTS on that shelf, clear of both
+- ⭐ **THE KITCHEN DRAWER IS TWO PRESSES NOW (2026-09-10, capture #5: *"The note should be
+  physically seen in this cabinet before it will be taken"*).** E slides it open and a real page
+  (`DrawerPage`, a nested layer-2 body on `DrawerSlide`, art `kontur_note_page.png` cropped to the
+  quad's aspect, collider `disabled` until the slide finishes) lies in it; a second, separate E
+  takes and reads it, and only then does `record_note()` run. `lab_cabinet_drawer.gd`'s beat, and
+  the Flood's. `can_interact()` on the drawer is `not _opened`; the page's is "open and present".
+  `check_open_then_read.gd`'s House section asserts no note and no journal entry after E1, that the
+  shipping ray finds the PAGE, and that E2 archives exactly once. `check_wall_overlap.gd` waives
+  `DrawerPageSheet` by name (it lies inside the counter while shut).
 - **The kitchen drawer** (`kitchen_drawer.gd`) carries a second, independent hint for **KONTUR Gate 1**
   ("the black door is the way out, the red one is not a door" — the rule, never a position, since the
   colours swap per run). Gate 1's only other hint is in the Lab morgue behind a beartrap and two
@@ -564,6 +609,18 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
 - ~320 m zigzag hallway built **procedurally** in `corridor.gd` from `PATH_2D` (7 segments, 90° turns, 3 m wide). Three zones: A "Hotel" 0–90 m (intact, lit torches every 12 m, paintings, grandfather clock), B "Decay" 90–230 m (blood smears, lights shatter, beartraps in the dark stretch), C "Nightmare" 230–320 m (dead torch panels, the mirror, constant whispers, near-black — geometry/lighting only; the `DreadZone` panic mechanic covers just the last 60 m, see below)
 - **No fetch quest** — exit door (room 217, `door.png`) has `unlock_condition = NONE`; walking the corridor without panicking IS the test
 - Panic pressure: `CorridorEvent` triggers add panic directly (entry door slam +10, clock chime +10, **the running creature crossing 8 m ahead** +20, floor crack +10); `DarkZone`s add +3/s while flashlight is off; `Torch3D` calm zones decay panic ×2.5; cursed gaze panels (paintings 0.8/1.2, clock 1.0, side-wall `mirror.png` 2.0/2.5); 5 beartraps = snap + 15 panic + **escape mechanic** (see Beartrap below)
+- ⭐ **THE GRANDFATHER CLOCK IS A 3D CASE (2026-09-10, capture #8: *"Shall me make that clock
+  3d?"*).** `grandfather_clock.gd` (`GrandfatherClock.build()`), replacing the `clock.png` row in
+  the `cursed` panel table — plinth, trunk with a glass front over a dark cavity, a **pendulum on a
+  looping tween** (±`SWING_DEG` 6°, 2 s period), hood with a `clock_face.png` dial (Pillow,
+  `tools/make_clock_art.py`, stopped at **2:17**), brass bezel and finials, walnut triplanar
+  (`clock_walnut.png`, flux), and a `clock_tick.wav` loop at −14 dB (`tools/make_sfx_clock.py`).
+  At d = 48 on the +X wall, yawed inward. ⚠️⚠️ **`CLOCK_INTENSITY` STAYS 1.0 AND THAT IS
+  ⚠️ DELIBERATE** — the user chose it having been shown the 14 s death it caused (chime +10 at
+  d 45, then 20 panic/s of gaze). The old `clock.png` is in `assets_src/textures/superseded/`.
+  `check_corridor_clock.gd` (22 checks: parts, pendulum sampled over ≥ 6 frames, the gaze chain
+  resolves to it at 1.0, free hall ≥ 2.5 m by rays, no stale `clock.png` quad, the chime still at
+  46) and `screenshot_corridor_clock.gd` — whose third pose captured the tester dying to it.
 - ⭐ **THE RUNNING CREATURE** (`_ev_silhouette`) — a figure sprinting across the hall ahead of you, **rebuilt 2026-08-17** after the playtest (*"it is too far away from me. Can we make it run when I'm much closer so that I can actually see it ... can we make the sounds of this jumpscare much louder?"*). It triggered at d=205 and crossed at d=228.5, i.e. **23.5 m** down a hall whose last torch is at 214, and measured **4.9 % of the screen's height**. Now: trigger `SILHOUETTE_TRIGGER` **219**, crossing `SILHOUETTE_CROSS` **227** — **8 m**, measured **13.2 %** (2.7x linear, 7.3x area, unprojected through the real camera by `check_corridor_events.gd` against a control that rebuilds the old placement). It is **8 parts in a stride** rather than one capsule (bringing a pill closer only makes a bigger pill — Issue 35), it enters and leaves **behind the walls** at ±2.0 m rather than blinking into existence in mid-air at ±1.2, and the scream is a **child of the figure** so it travels with it: `jumpscare` at −3 dB and 8 m instead of −14 dB at 23.5 m, **+19.4 dB**, with `max_db` pinned to 0 because that file already peaks at 0.0 dBFS and a sprinting player can be 4 m away. ⚠️ **`SILHOUETTE_PANIC` 20 is UNCHANGED and asserted** — closer and louder both raise impact on their own and the number was deliberately not compounded. ⚠️ A Node3D's forward is **−Z**, so the yaw is `atan2(side.x, side.z)`; the natural-looking negation is π out and renders a figure sprinting backwards (Issue 102)
 - **Turn mirrors** (`_spawn_turn_mirror` in `corridor.gd`): a real, reflecting mirror (`MirrorSurface`) set flush on the wall you face at a corner — miss the turn and you walk into the thing in the glass head-on. Gaze panel (intensity 1.5 / 2.2) **plus** a one-shot close-up `flash_scare(mirror_with_creature.png, "glass_shatter")` + jolt + 12 panic when you come within 2 m (`_turn_mirrors` proximity-tested in `_process`)
   - ⚠️ **TWO OF THEM, at 90 m and 275 m** (`TURN_MIRRORS`, 2026-08-16 — the user's call: *"the mirror appears too often - can we make it two time, once at the exact place it shows up for the first time, and the second time is when it appears last"*). The middle one at **230 m is gone**, frame, figure and gaze panel with it; that corner is now an ordinary corner. **The level's flash panic is unchanged at 24 per run** — `_pick_silent_mirror()` used to mute exactly one of three, so it was always 2 x 12, and it is still 2 x 12. What is removed is one gaze panel worth 40 panic/s if stared at, which neither logged traversal ever stopped for
@@ -581,6 +638,23 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
   - **What the lie is: not "a red door lied" but "the NUMBER lied".** This level's objective line is `Find room 217 — keep walking, do not run`. ⚠️ **217 appears on no prop anywhere in the level** — the nine ordinary hotel doors all read **307** (`hotel_door_leaf.png`) and the real exit wears `backrooms_tear_door.png`, which carries no number at all. So the first legible 217 in the game is the one on the trap. That is reported rather than fixed; re-dressing the real exit is a design call
   - **The art needed no generation.** `door.png` — the ORIGINAL room-217 exit door, dark panelled wood with a legible brass 217 — has been unused since d=320 was re-dressed. `tools/make_false_door.py` crops it to the leaf (492 × 1136 = 0.4331, rendered 1.000×) and redraws only the number plate, **1.55× larger and crisp**, in Pillow because the text IS the payload, then ages it back with a light gradient and a 0.62 multiply (the clean first draft read as a modern sticker on a hundred-year-old door)
   - **Placement, against the constraints**: head-on down the whole 45 m of segment 4; not a mirror corner (90/275 are spoken for, 230 was emptied in round 2 and is 8 m from the running creature, 140 is inside the Manager's telegraph window); **135 m from the real exit**, so it cannot read as a near-miss. And the argument: 185 is the FIRST corner after the lights-out event and the four beartraps in the 145–172 m dark stretch — **the promise is what pulls the player through the traps**
+  - ⭐⭐ **IN-WORLD LUNGE, NO FULLSCREEN FLASH (2026-09-10, capture #9, the user's choice).** The
+    `flash_scare` is GONE. `_on_false_door_opened()`: `HoldBreath.dip(FALSE_DOOR_SILENCE 1.0)`,
+    a `DoorLunger` (`door_lunger.gd` — an unshaded RGBA billboard, `false_door_lunger.png`, 2.0 m,
+    alpha 0) at the doorway plane, the player pinned; at `FALSE_DOOR_LUNGE_AT` 0.30 it fades in and
+    **lunges to 0.6 m from the eye** over 0.22 s with `all_levels_screamer` AND a new sub-bass
+    `impact_thud` (`tools/make_sfx_impact.py`) as CHILDREN of the figure at `max_db` 6, a jolt and
+    the unchanged `FALSE_DOOR_PANIC` 15; a 0.28 s shuddering hold, then it **flees** 10 m down the
+    path at 6 m/s fading over the last 2.5 m, the camera re-aimed at it every 0.18 s until
+    `FALSE_DOOR_WATCH` 1.6 s; the scrawl at 1.6 s. Louder came from the pre-silence + the emitter
+    at arm's length into the limiter, not from a gain. ⚠️ The cutout was green-screened and keyed
+    by `tools/cutout_green.py` (a dark-background flood fill left a blue halo — superseded raw in
+    `assets_src/`); grade AFTER masking, never before. ⚠️ Known limitation: it is one billboard, so
+    it retreats facing the camera; a back-view swap in `flee_to()` would fix it. The three bullets
+    below describe the OLD flash beat; `screamer_false_door.png` is retired to
+    `assets_src/textures/superseded/`. `check_corridor_events.gd` §3/§D: `_black_panel.visible`
+    never true across the beat, nearest ≤ 1.1 m then farthest ≥ 6 m, freed by stage 4, the panic
+    jump == 15 measured frame to frame, the cutout's alpha coverage/luminance, the impact stream.
   - The beat: **E → `flash_scare` immediately** (`screamer_false_door.png` + `FALSE_DOOR_SCREAM`) + jolt + panic; the 0.34 s swing happens **behind the covering image** so the picture drops onto a door standing open on blank wallpaper; 0.45 s later `ScreenText.scrawl` in BLOOD: **IT WAS AN ILLUSION**. ⚠️ That order is `house_fridge.gd`'s documented mistake inverted — there a fullscreen image landed on top of the reveal it was announcing
   - ⚠️ **THE STING IS THE SHARED SCREAMER, `all_levels_screamer` (2026-08-18, the user's call:** *"Use the sounds for shared screamers and make it louder"***).** It was `false_door_scream`, purpose-made because every other candidate was already something else's voice. ⚠️ **The choice of file IS the volume control** — `flash_scare` plays the stream at 0 dB on `Screamer`'s own player and takes no gain argument, and `screamer.gd` is a shared file. Measured, decoded and clamped to ±1.0 as the mixer will: `false_door_scream.wav` peak −1.01 / loudest-300 ms **−3.79 dBFS** → `all_levels_screamer.mp3` peak +0.00 / loudest-300 ms **−0.16 dBFS**, i.e. **+3.63 dB and essentially all the headroom that exists**. Nothing was added on top, because there is nothing to add without shipping distortion; what the switch really buys is density (1.85 s of near-brickwalled scream against 1.6 s) and **recognition** — it is the sting `_apply_level_av()` pairs with the shared `screamers/` pool. ⚠️ It is deliberately **not** this level's FATAL sting: the Corridor dies to `screamer_corridor`, so a survivable trap borrowing the shared scream does not teach that the death sound is free (the objection `INTRO.md` raises). `check_corridor_events.gd` asserts both halves. `false_door_scream.wav` is **deleted** and `tools/make_sfx_false_door.py` carries the verdict in its header — an orphan asset is the `sprawl_wall_hum` trap
   - ⚠️ **AND THE PICTURE IS DARK NOW** (2026-08-18, the same capture: *"Make the image more dark and aggressive"*). v1 measured **mean luminance 57.97 of 255 with 1.97 % of its pixels above 0.90 sRGB** — against this level's own FATAL screamer at 15.04, the Manager at 10.82 and the shared pool at 8.48, i.e. **4× brighter than anything else the level can show and the only screamer in the game with blown-out pixels in it.** Fullscreen, in a renderer with no tonemapping, that is a flashbang with a face in it, which is why *dark* and *aggressive* arrived in one sentence: it had no shadow to be aggressive in. v2 is a new flux generation — a lunge out of a doorway with the frame either side, so it cannot be mistaken for `screamer_hotel.png`'s static head-on portrait — graded by `tools/make_false_door_screamer.py` (vignette + 0.78 exposure + 1.16 gamma + a rust cast) to **mean 11.35, 0.00 % hot, p99 114.4**. ⚠️ **"Dark" must not become "a black rectangle"**: the picture is on screen for 0.9 s, so the guard asserts a p99 FLOOR as well as a mean ceiling, and the ceiling is `screamer_hotel.png`'s own mean rather than a typed number
@@ -743,6 +817,24 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
     0.3 → 0.55 and the strips 1.0 → `STRIP_ENERGY` 0.6. ⚠️ **The strips also FLICKER now** — they
     were appended to a `_lights` array that was never read again, so the Sprawl's 25-strip grid was
     dead-steady for its whole life while the Lobby next door flickered.
+    ⭐⭐⭐ **THE REAL WALL IS THE END OF THE CRATE'S OWN RECESS (2026-09-10, captures #10/#11:
+    *"it runs very far away through one of the yellow blocks, I cannot see it well"*).** All eight
+    recesses are **`ALCOVE_D` 10 m deep** now; the four red perimeter walls are DECOYS FOREVER
+    (`is_real = false`, keyed N/E/S/W); the fifth `GlitchWall` — the only real one — stands at the
+    END of the recess the crate is in (`_real_side` = `"%s%d" % [side, k]`, e.g. `"S1"`,
+    `exit_wall()` / `exit_axis()`), where the seven other recesses have an `AlcBack`. The crate
+    stands `CRATE_IN` 2 m inside the mouth, the runner spawns `DWELLER_OUT` 1 m BEHIND it, and the
+    run is ~7 m straight away from the player at `SPEED` 4 m/s: **1.74 s in frustum measured**
+    (`screenshot_sprawl_run.gd`, FAIL under 1.6). ⚠️ **NO RE-ROLL**: `_randomise_real_wall()`,
+    `_move_voice_to()` and `_voice` are deleted; a fake touch goes solid and adds a figure, the
+    mark never moves. The `SilencePocket` and the `water`/`whisper` tells sit in the deep half of
+    the crate's recess. Each non-crate recess gets a dim flickering strip (`RECESS_STRIP_*`);
+    `FAR_DB` 6 → 7.5 for the deeper far corners. Nine glitch walls scene-wide
+    (`check_shell_sealed.EXPECTED_GLITCH`). The paragraphs below that say "four identical walls,
+    one real, randomised", "the mark follows a re-roll" and "runs across the hall" are the OLD
+    zone. Guards: `check_sprawl_crate` (runner in view ≥ 1.6 s, crate 1.5–3 m in, exit keyed by
+    recess, perimeter never real, `_mark_stays_put`), `check_sprawl_alcoves`, `check_sprawl_walls`
+    (5 walls, 5 red → 4 red, the yellow one > HALF+1 from centre), `walk_backrooms`.
     ⭐⭐ **THE BOX IN THE DARK IS THE GATE** (`sprawl_crate.gd` + `sprawl_dweller.gd`, the user's own
     design, backlog 04 §16.4 and §18.3). A two-layer whisper (`sprawl_call_far`/`_near`, on
     **Master**) leads to a slatted crate standing in ONE recess chosen per run; E on it fires a
@@ -966,6 +1058,27 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
       `DryPlatform` `CalmZone` nets about **−2.7/s** standing in it. `check_flood_drowned.gd`
       asserts the absence, because a deliberate omission with no test gets re-added by the next
       person who reads a doc
+    - ⭐⭐ **THE SIX PIECES ARE OBJECTS NOW, AND THE PLATE IS AN ALTAR (2026-09-10, capture #12:
+      *"same pattern - like candle, old book, a skull"*, the user's choice: only the pieces, the
+      containers stay).** `ritual_piece.gd` (`RitualPiece.build(kind)`) builds **candle · old book
+      · skull · bell · iron key · doll** from parts with flux textures graded by
+      `tools/grade_ritual_textures.py` (triplanar, per-kind scale; the book's cover art on a quad
+      cropped to its aspect; the skull a MESH — cranium, jaw, sockets, nasal wedge — because the
+      altar is seen from above). `DROWNED` gained a `piece` column (footlocker→candle,
+      gurney→book, drawers→skull, suitcase→bell, toolchest→key, wheelchair→doll);
+      `SunkenPiece` builds the piece where the shard's underside was. `flood_plate.gd` draws a
+      pale **outline** per slot (rings for candle/skull/bell, bar frames for book/key/doll —
+      `RitualPiece.OUTLINE`) with the SAME builder's copy hidden in it; `SLOT_KINDS` fixes the
+      order and `seat_kinds()` fills a kind's OWN slot, so the altar shows which piece is missing.
+      The zone holds `_held_kinds` (an array; `pieces_held()` still returns the count),
+      `save_progress()` writes `flood_set`/`flood_held` as KIND ARRAYS and `restore_searched()`
+      accepts the old ints (resolved against the restored objects' pieces in wing order). ⚠️ No
+      emission anywhere, no collider on the piece itself, no rules — `check_flood_drowned.gd`
+      asserts six distinct kinds, parts + textures, the six outlines and hidden copies, and still
+      "nothing down here is self-lit"; `check_flood_puzzle.gd` asserts the six set are six kinds,
+      a kind-array restore fills the named slot, and setting the candle fills the CANDLE slot.
+      `screenshot_flood_pieces.gd` (⚠️ pose one frame, shoot the next — a pose set in the frame of
+      the capture is not what the capture shows).
     - ⭐ **THE DROWNED (2026-08-17)** — the zone's searchable content, added after J-capture #5
       (*"the flood sublevel even though looks very cool feels very empty"*). **Six half-submerged
       objects** (`sunken_item.gd`), one per room, each a different silhouette built from parts —
@@ -1361,6 +1474,18 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
   - A positional field hum (`object12_cell`, `HUM_DB` −18 derived from the file's measured −10.87 dBFS
     RMS, `unit_size` 7) gives it a bearing before it is seen. The glass is dark and **not emissive** —
     a lit pane hides what is behind it, which is the prop
+- ⭐ **THE ARCHIVE IS TEXTURED (2026-09-10, capture #13, the user's scope: *"Archive lots and racks
+  only"*).** `_mb_mat()` gained an optional triplanar `tex` (negative V, the albedo as tint;
+  every old caller byte-identical). Racks on `archive_rack_steel.png` (tinted ~0.5 so they are not
+  the brightest thing in the room again), linen / tin / bakelite / music-box walnut on the lots,
+  the **217 plate is Pillow-engraved art** (`tools/make_archive_plate.py` over a flux brass blank,
+  on a quad sized from its aspect; the `Label3D` is gone), and the hidden keycard is a **facility
+  pass** (`tools/make_archive_keycard.py`: Cyrillic header, mugshot silhouette, № 47, barcode;
+  front and back as two art quads sampling the top/bottom halves, MULTIPLY emission 0.30 on the
+  art only — the green box is gone). Textures graded dark for the Soviet half
+  (`tools/grade_ritual_textures.py`, shared with the Flood). The "flat-tinted and untextured"
+  sentence below is history. `check_kontur.gd` (every lot textured, the plate art, no "217"
+  label) + `check_kontur_archive.gd` (two art faces, no green emissive) + `screenshot_kontur_archive.gd`.
 - ⭐ **THE RECOVERY ARCHIVE** (`_spawn_recovery_archive`, 2026-08-18). The Archive's own objective line
   is *"RECOVERY ARCHIVE — DO NOT DISTURB THE INVENTORY"* and its wall sign says *"ITEMS RECOVERED FROM
   AN OBJECT ARE: ▮"*, and it was a 9 × 9 m room containing one black box. Two aisle racks and **six
@@ -1792,6 +1917,17 @@ node for one of three rules:
   **OR** backing away — the horizontal distance growing past `_spawn_dist + FLEE_MARGIN` (0.7 m).
   Turning the camera while holding your ground never trips it (fair; matches "stand still until it
   fades"). Enforces "Walk. Do not run." — the Lab briefing note states the rule.
+  ⭐⭐ **CLOSE, LOUD, WITH A STARTLE GRACE (2026-09-10, capture #2, the user's choice: ALL HOLD
+  apparitions).** `APPEAR_DIST_MIN 1.8` / `MAX 3.0` (was 2.5 / 7.0); every arrival plays
+  `arrival_sting` (default `all_levels_screamer`, an `AudioStreamPlayer3D` "ArrivalSting" at 0 dB /
+  `max_db` 6 / unit 8, fired at t = 0 or at `TURN_TIME * 0.55` when the camera is being turned)
+  inside the drone's 0.6 s pre-dip; KONTUR's gate 7 no longer overrides `appear_audio`. And
+  **`STARTLE_GRACE` 0.7 s**: `_is_fleeing()` is not evaluated for the first 0.7 s after arrival and
+  `_spawn_dist` is re-based at the boundary, so the flinch away from a scream at 2 m is forgiven
+  and the DECISION to run is still a death (SCARY §8.11's shape). `test_apparition.gd` (sprint in
+  the grace → survived; at 1.0 s → rushed) and `check_apparition_framing.gd` (distance in
+  `[MIN_DIST − 0.05, √(MAX² + nudge²) + 0.05]`, the sting playing). The next paragraph's 2.5 / 7.0
+  are the old numbers.
   ⚠️ **Distance is RANDOMISED per appearance** (BACKLOG #10): `APPEAR_DIST_MIN 2.5` ..
     `APPEAR_DIST_MAX 7.0`, replacing a single fixed value (7.0, then 4.0). A fixed distance
     frames every appearance identically, so the second one is never a surprise.
@@ -2034,6 +2170,9 @@ for. ⚠️ `RefCounted`, deliberately not a Node — every one of these creatur
 | `flood_plate.gd` | `class_name FloodPlate` (2026-08-17) — the Flood's assembly point: a trestle table with a six-recess frame in the Basin, where the six fragments become the exit. `set_carried()` / `seat()` / `restore()`; `signal set_requested` + `completed`, and the ZONE owns the consequence. ⚠️ It must **announce itself** — the lit room, a written instruction on a pale board, and a two-layer tell armed by the first fragment — or "the middle of the level" is a second thing to hunt for. ⚠️ **`max_db` is the near-field ceiling and `unit_size` is the gradient** (Issue 112). ⚠️ Zero panic, no fail state, no timer, and it is genuinely INERT while you carry nothing |
 | `sprawl_crate.gd` | `class_name SprawlCrate` (2026-08-17) — the Sprawl's box in the dark, replacing one featureless `AlcProp` cube (Issue 35; the player photographed the cube). Slats, corner posts, banding and a lid, flat-tinted and **never emissive**: it is found by EAR. Carries the two-layer `sprawl_call_far`/`_near` whisper on **Master** until it is opened, then hands both emitters to `SprawlDweller`. ⚠️⚠️ **Since 2026-08-18 that whisper is a COMPLETABILITY GUARANTEE** — the crate is the gate, so the loop has no timer, no one-shot, no distance gate and no stop path, and its six gain constants were re-derived against the level's own bed after they measured **3.2 dB UNDER the score with the player's nose against the box** (Issue 131). ⚠️ Zero panic in the file — the level fires a survivable `flash_scare` and adds nothing |
 | `sprawl_dweller.gd` | `class_name SprawlDweller` (2026-08-17) — the one-shot runner: it comes out of the crate, crosses the hall and goes **through the real glitch wall**, which is how the player learns which of the four is real. ⚠️ **NOT a `Watcher` and never a Congregation figure** — those are ruleless by construction and that is what keeps the Congregation legal beside a Smiler. ⚠️ No collider, no `ScaryObject`, no kill radius, no `Screamer.trigger()`; it cannot touch you. ⚠️ Unshaded billboard sized from `sprawl_dweller.png`'s own aspect, and that file must stay a real RGBA cutout. ⚠️ **The run starts one `flash_scare` hold AFTER the crate opens** and announces itself (`BackroomsZone2.dweller_running`), because `backrooms.gd` pins the player's camera to it with `turn_to_face()` and a run started under a fullscreen image is one nobody sees |
+| `ritual_piece.gd` | `class_name RitualPiece` (2026-09-10) — the Flood's six ritual pieces (candle / book / skull / bell / key / doll) from parts + textures, one builder for the drowned object and the altar. No emission, no collider, no rules. `OUTLINE` says what the altar draws for each |
+| `door_lunger.gd` | `class_name DoorLunger` (2026-09-10) — the Corridor false door's in-world figure: an unshaded RGBA billboard, `lunge_to()` / `flee_to()`, signals `lunged` / `gone`. Zero panic of its own; the level adds the sting, the jolt and `FALSE_DOOR_PANIC`. One billboard, so it retreats facing you (known limitation) |
+| `grandfather_clock.gd` | `class_name GrandfatherClock` (2026-09-10) — the Corridor's 3D clock case from parts with a looping pendulum tween, a Pillow dial stopped at 2:17, walnut triplanar and a tick loop; `ScaryObject → StaticBody3D → parts` at `CLOCK_INTENSITY` 1.0, ⚠️ DELIBERATE |
 | `unseen_wader.gd` | `class_name UnseenWader` (SCARY.md P10) — the Flood's threat that is **never instantiated**: no mesh, no collider, no `ScaryObject`, no kill radius. A `wade_distant` loop on a `Tween`, always ≥12 m away, patrolling the room graph's centres. ⚠️ **When the player stops wading it stops too — after two more, decelerating strides.** The zone drives `set_player_wading()`; it never samples the player itself, so the two cannot disagree about when the player halted |
 | `house_fridge.gd` | `class_name HouseFridge` (2026-07-28) — the House kitchen's fridge and the **only new panic term** in the atmosphere pass (10, voluntary, one-shot). Hums to earn the approach; on `interact()` the scream fires first, the door swings `DOOR_DELAY` later, the head is revealed as it clears. `can_interact()` returns false once used, so it never advertises a prompt that does nothing. ⚠️ Carcass is an open-fronted **shell of five slabs** — a solid `BoxMesh` hides everything inside it (Issue 46). ⚠️ No `flash_scare`: a fullscreen image fired over the reveal it was announcing |
 | `kitchen_drawer.gd` | `class_name KitchenDrawer` (2026-07-28) — a searchable counter drawer holding a **second, independent hint for KONTUR Gate 1**. Slides open on E, then shows its note and archives it via `GameState.record_note()` so TAB can re-read it two levels later. ⚠️ States the RULE (black is the way out), never a position — `choice_door.gd` randomises the colours per run. ⚠️ **Only the `DrawerSlide` child moves; the `CollisionShape3D` stays flush with the counter** (Issue 76 — tweening `self` put a solid 34 cm into the Kitchen and closed the only lane past the counter). Built from a front, two sides, a bottom, a back and a handle, or a 34 cm slide out of a flat counter reads as a plank in mid-air |

@@ -135,6 +135,34 @@ func _key(_d: float) -> void:
 	if card == null:
 		_phase = "done"
 		return
+	# ⭐ THE CARD IS A FACILITY PASS (2026-09-10): two art quads (front +Y, back -Y) carrying
+	# `archive_keycard.png`, and no flat green emissive box anywhere on it.
+	var faces_up := 0
+	var faces_down := 0
+	var green_glow := 0
+	for n in _all_under(card, []):
+		if not (n is MeshInstance3D):
+			continue
+		var mi := n as MeshInstance3D
+		var m := mi.material_override as StandardMaterial3D
+		if m == null:
+			continue
+		if mi.mesh is QuadMesh and m.albedo_texture \
+				and m.albedo_texture.resource_path.ends_with("archive_keycard.png"):
+			# The core leans 74° about z, so "up" is the CORE's own +Y, not world up.
+			var core_up: Vector3 = (mi.get_parent() as Node3D).global_transform.basis.y.normalized()
+			var d: float = mi.global_transform.basis.z.normalized().dot(core_up)
+			if absf(d - 1.0) < 0.05:
+				faces_up += 1
+			elif absf(d + 1.0) < 0.05:
+				faces_down += 1
+		if m.emission_enabled and m.albedo_texture == null and m.emission.g > m.emission.r:
+			green_glow += 1
+	# The lean is on the CardMesh; measure the faces in the card's OWN frame.
+	_ok("the keycard carries its art on a front face and a back face",
+		faces_up + faces_down == 2, "%d up, %d down" % [faces_up, faces_down])
+	_ok("...one facing each way", faces_up == 1 and faces_down == 1)
+	_ok("...and no flat green emissive box remains", green_glow == 0)
 	var cp: Vector3 = (card as Node3D).global_position
 	_stand_in_aisle_for(cp.x, cp.z, cp)
 	_ok("the interact ray finds the keycard, not the inert lot",
@@ -164,3 +192,10 @@ func _gate_phase(_d: float) -> void:
 		return
 	_ok("the transit gate opened with the keycard in hand", not bool(_gate.call("can_interact")))
 	_phase = "done"
+
+
+func _all_under(n: Node, out: Array) -> Array:
+	out.append(n)
+	for c in n.get_children():
+		_all_under(c, out)
+	return out

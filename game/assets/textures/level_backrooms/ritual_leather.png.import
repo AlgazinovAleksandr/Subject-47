@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://bsngwwo8bqwh8"
-path="res://.godot/imported/clock.png-7e7a61cd0998f4269469f02d31cfbb44.ctex"
+uid="uid://py4f1p638r33"
+path="res://.godot/imported/ritual_leather.png-ed8da3ead31270a174893a18ff6ef83a.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/textures/level_3_corridor/clock.png"
-dest_files=["res://.godot/imported/clock.png-7e7a61cd0998f4269469f02d31cfbb44.ctex"]
+source_file="res://assets/textures/level_backrooms/ritual_leather.png"
+dest_files=["res://.godot/imported/ritual_leather.png-ed8da3ead31270a174893a18ff6ef83a.ctex"]
 
 [params]
 

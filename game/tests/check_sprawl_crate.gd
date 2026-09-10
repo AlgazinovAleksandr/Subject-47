@@ -30,8 +30,14 @@ extends SceneTree
 #     metre of the hall AND the eight recesses, and the worst point must still clear it.
 #     It must also never stop — asserted over real seconds, not frames.
 #
-# ⚠️ AND THE MARK MUST NOT LIE. Touching a fake re-randomises which wall is real, so the run
-# below outs a wall AFTER the dweller has run and requires the mark AND the gate to move.
+# ⚠️ AND THE MARK MUST NOT LIE. Since 2026-09-10 the exit is FIXED — the end wall of the
+# crate's own recess, keyed "%s%d" % [side, k] in `_walls` — and nothing re-rolls, so the run
+# below outs a decoy AFTER the dweller has run and requires the mark and the gate to STAY.
+#
+# ⚠️ AND THE RUN IS SEEN. The user's replay: *"it runs very far away through one of the
+# yellow blocks, I cannot see it well."* The runner now goes ~7 m straight down the recess,
+# away from the player at its mouth; this test accumulates the seconds the runner is inside
+# the camera's frustum while running and requires >= 1.6 s of it.
 #
 # ⚠️ IT IS NOT A `Watcher`, AND THAT IS ASSERTED. `congregation.gd`'s figures are ruleless by
 # construction and that is why the Congregation is legal at all beside a Smiler that kills
@@ -72,6 +78,7 @@ var _walk_from := Vector3.ZERO
 var _yaw_at_run := 0.0
 var _turned := 0.0
 var _frozen_seen := false
+var _run_seen_t := 0.0     # seconds the runner was in frustum while running (2026-09-10)
 
 var _checks := 0
 var _fails: Array[String] = []
@@ -144,6 +151,12 @@ func _process(delta: float) -> bool:
 			_frozen_seen = true
 		_turned = maxf(_turned,
 			absf(rad_to_deg(angle_difference(_yaw_at_run, _player.rotation.y))))
+		# The run, as SEEN: runner alive, actually running, inside the camera's frustum.
+		var runner := _zone.get_node_or_null("SprawlDweller") if is_instance_valid(_zone) else null
+		var cam := _player.get_node_or_null("Camera3D") as Camera3D
+		if runner != null and cam != null and bool(runner.get("_running")) \
+				and cam.is_position_in_frustum((runner as Node3D).global_position + Vector3(0, 1.1, 0)):
+			_run_seen_t += delta
 
 	match _stage:
 		0:
@@ -175,12 +188,10 @@ func _process(delta: float) -> bool:
 		6:
 			return _open_the_crate()
 		7:
-			# ⚠️ 12 s, FROM THE WORST CASE RATHER THAN FROM A TYPICAL ONE. The recess and
-			# the real wall are both randomised per run, so the crossing is anywhere from
-			# ~14 m (same side) to 42.9 m (opposite corners) — 6.6 s at SPEED 6.5, plus the
-			# 0.9 s the run is deferred by the scare image and the 1.1 s the camera is held
-			# past the arrival.
-			if _t - _stage_at < 12.0:
+			# The run is ~7 m down the recess at SPEED 4.0 (1.7 s), plus the 0.9 s the run is
+			# deferred by the scare image and the 1.1 s the camera is held past the arrival.
+			# 8 s leaves room for the fade-through and the free.
+			if _t - _stage_at < 8.0:
 				return false
 			return _the_mark()
 		8:
@@ -253,12 +264,36 @@ func _setup() -> bool:
 func _structure() -> void:
 	print("\n--- the box in the dark ---")
 	# ⚠️ It must be IN a recess, not merely near one: "hidden in the dark" is the premise.
+	# Since 2026-09-10 the recess is 10 m deep and the box stands near its MOUTH, so the
+	# question is "inside the footprint, and between 1.5 and 3.0 m in from the opening".
 	var side: String = String(_zone.get("_crate_side"))
 	var k: int = int(_zone.get("_crate_k"))
 	var centre: Vector3 = _zone.call("_alc_centre", side, k)
-	var d := (_crate as Node3D).global_position.distance_to(centre)
-	_ok("the crate stands in one of the eight recesses", d < 1.2,
-		"%.2f m from the %s%+d recess centre" % [d, side, k])
+	var kmap: Dictionary = (_zone.get_script() as GDScript).get_script_constant_map()
+	var axis: Vector3 = (kmap["SIDE_AXIS"] as Dictionary)[side]
+	var lat := Vector3(axis.z, 0, axis.x)
+	var depth: float = float(kmap["ALCOVE_D"])
+	var mouth: Vector3 = centre - axis * (depth / 2.0)
+	var rel: Vector3 = (_crate as Node3D).global_position - mouth
+	var in_from_mouth: float = rel.dot(axis)
+	var off_axis: float = absf(((_crate as Node3D).global_position - centre).dot(lat))
+	_ok("the crate stands inside its recess, 1.5-3.0 m in from the mouth",
+		in_from_mouth >= 1.5 and in_from_mouth <= 3.0 and off_axis <= float(kmap["ALCOVE_W"]) / 2.0,
+		"%.2f m in from the %s%+d mouth, %.2f m off its axis" % [in_from_mouth, side, k, off_axis])
+	# The exit IS that recess's end wall, and the four perimeter walls are all decoys.
+	var real_key: String = String(_zone.call("real_side"))
+	_ok("the exit wall is keyed by the crate's recess", real_key == "%s%d" % [side, k],
+		"real_side %s vs crate %s%d" % [real_key, side, k])
+	var fakes_real := 0
+	for s in ["N", "S", "E", "W"]:
+		var pw: GlitchWall = (_zone.get("_walls") as Dictionary).get(s)
+		if is_instance_valid(pw) and pw.is_real:
+			fakes_real += 1
+	_ok("...and none of the four perimeter walls is real", fakes_real == 0, "%d flagged real" % fakes_real)
+	var exit_w: GlitchWall = (_zone.get("_walls") as Dictionary).get(real_key)
+	_ok("...and the exit wall stands at the END of the recess, not on the perimeter",
+		is_instance_valid(exit_w) and (exit_w.global_position - _zone.global_position).length() > float(kmap["HALF"]) + 1.0,
+		"%.1f m from the hall centre" % ((exit_w.global_position - _zone.global_position).length() if is_instance_valid(exit_w) else -1.0))
 
 	# ...and the ceiling over that corner is dark by construction, not by a 30 % coin flip.
 	var lit_near := 0
@@ -333,17 +368,19 @@ func _the_gate_holds() -> bool:
 	var real: String = String(_zone.call("real_side"))
 	var wall: GlitchWall = _zone.get("_walls")[real]
 	_ok("the real wall is sealed before the crate is opened", wall.is_sealed())
-	_ok("...and the three fakes are NOT — a wrong wall is still a wrong answer",
+	_ok("...and the four decoys are NOT — a wrong wall is still a wrong answer",
 		not _any_fake_sealed(), "sealed fakes: %s" % ", ".join(_sealed_fakes()))
-	_ok("...it still looks like the other three: visible, tearing, not solid",
+	_ok("...it still looks like the other four: visible, tearing, not solid",
 		wall.visible and not wall.is_solid() and not wall.is_agitated())
 
 	# ⚠️ SEALED IS A COLLIDER, NOT A HIDDEN NODE, and the reason is a hole in the world:
-	# `_side_runs()` cuts a 7 m gap in the perimeter for each glitch wall, so this wall IS
-	# the shell. Prove it physically — a ray from inside the hall must be stopped.
+	# the exit stands where the recess's back masonry would be, so this wall IS the shell.
+	# Prove it physically — a ray from inside the recess must be stopped.
+	# ⚠️ "Inward" is the wall's OWN front (-Z), not the direction of the hall centre: for a
+	# recess-end wall the hall centre is diagonal and a ray toward it drifts into a side wall.
 	var space: PhysicsDirectSpaceState3D = _scene.get_world_3d().direct_space_state
 	var wpos: Vector3 = wall.global_position
-	var inward: Vector3 = (_zone.global_position - wpos).normalized()
+	var inward: Vector3 = _front_of(wall)
 	var q := PhysicsRayQueryParameters3D.create(wpos + inward * 3.0 + Vector3(0, -0.6, 0),
 		wpos - inward * 2.0 + Vector3(0, -0.6, 0))
 	var hit: Dictionary = space.intersect_ray(q)
@@ -507,12 +544,19 @@ func _open_the_crate() -> bool:
 				bad.append(String(n.name))
 		_ok("the runner has no collider, no gaze term and no kill radius", bad.is_empty(),
 			"found: %s" % ", ".join(bad))
-		# It must start OUTSIDE the recess it came from rather than inside the geometry.
+		# It must start clear of the crate AND on the run line — a step deeper into the recess
+		# (2026-09-10), never in the hall between the box and the player.
 		var d := (dweller as Node3D).global_position.distance_to(
 			(_crate as Node3D).global_position)
-		_ok("it spawns clear of the crate, out in the hall", d > 0.8 and d < 4.0,
-			"%.2f m from the crate" % d)
+		var kmap2: Dictionary = (_zone.get_script() as GDScript).get_script_constant_map()
+		var ax: Vector3 = (kmap2["SIDE_AXIS"] as Dictionary)[String(_zone.get("_crate_side"))]
+		var behind: float = ((dweller as Node3D).global_position - (_crate as Node3D).global_position).dot(ax)
+		_ok("it spawns a step behind the crate, deeper into the recess", d > 0.8 and d < 2.0 and behind > 0.5,
+			"%.2f m from the crate, %.2f m deeper in" % [d, behind])
 	# Deliberately aim the player AWAY from the run, so the camera pin has something to do.
+	# ⚠️ The run is now along the player's own line of sight from the mouth, so without this
+	# the swing measured below is a few degrees and the pin assertion becomes a coin flip.
+	_player.call("ai_look_at", _zone.global_position + Vector3(0, 1.6, 0))
 	_yaw_at_run = _player.rotation.y
 	_advance(7)
 	return false
@@ -534,13 +578,16 @@ func _the_mark() -> bool:
 		"the view swung %.1f° from where it was pointing when the box opened" % _turned)
 	_ok("...and control came back afterwards",
 		not bool(_player.call("is_input_frozen")))
+	# THE RUN WAS SEEN (2026-09-10): ~7 m straight down the recess, in frustum, >= 1.6 s.
+	_ok("the run was ON SCREEN for at least 1.6 s", _run_seen_t >= 1.6,
+		"%.2f s in frustum while running" % _run_seen_t)
 
 	# THE MARK. Motion, not brightness: the shader's own vertex-jitter amplitude.
 	var marked: Array[String] = []
-	for s in ["N", "S", "E", "W"]:
+	for s in (_zone.get("_walls") as Dictionary).keys():
 		var w: GlitchWall = _zone.get("_walls")[s]
 		if is_instance_valid(w) and w.is_agitated():
-			marked.append(s)
+			marked.append(String(s))
 	_ok("exactly one wall is marked", marked.size() == 1,
 		"marked: %s" % ", ".join(marked))
 	_ok("...and it is the REAL one", marked.size() == 1 and marked[0] == real,
@@ -583,8 +630,8 @@ func _the_mark() -> bool:
 	_ok("the silence pocket is still there, at the real wall", pocket != null
 		and (pocket as Node3D).global_position.distance_to(wall.global_position) < 6.0)
 
-	# NOW walk into it. Real Area3D, no emit.
-	var inward: Vector3 = (_zone.global_position - wall.global_position).normalized()
+	# NOW walk into it. Real Area3D, no emit. Along the wall's own front, not the hall centre.
+	var inward: Vector3 = _front_of(wall)
 	_player.global_position = wall.global_position + inward * 0.6
 	_player.call("force_update_transform")
 	_advance(8)
@@ -604,40 +651,51 @@ func _walk_through_it() -> bool:
 	return false
 
 
+var _fake_touched := ""
+
+
 func _touch_a_fake() -> bool:
-	print("\n--- the mark may not lie: out a fake and the answer moves ---")
+	print("\n--- the mark may not lie: out a decoy and the answer STAYS ---")
 	_real_before = String(_zone.call("real_side"))
-	# Touch a fake through its own trigger, the way a player does.
-	var fake := ""
-	for s in ["N", "S", "E", "W"]:
-		if s != _real_before:
-			fake = s
-			break
-	var w: Node3D = _zone.get("_walls")[fake]
-	_player.global_position = w.global_position \
-		+ (_zone.global_position - w.global_position).normalized() * 0.6
+	# Touch a decoy through its own trigger, the way a player does. Every perimeter wall
+	# is a decoy now; take the first.
+	_fake_touched = "N"
+	var w: Node3D = _zone.get("_walls")[_fake_touched]
+	_player.global_position = w.global_position + _front_of(w) * 0.6
 	_player.call("force_update_transform")
 	_advance(10)
 	return false
 
 
 func _mark_follows_a_reroll() -> bool:
+	# Kept under its historical name so the stage table reads; the property is now the
+	# OPPOSITE of the one it was written for (2026-09-10): nothing moves.
 	var before: String = _real_before
 	var after: String = String(_zone.call("real_side"))
-	_ok("touching a fake was registered as a mistake", _mistakes >= 1,
+	_ok("touching a decoy was registered as a mistake", _mistakes >= 1,
 		"%d mistake(s)" % _mistakes)
+	_ok("...and the answer did NOT move — the exit is fixed by construction", after == before,
+		"real %s -> %s" % [before, after])
 	var marked: Array[String] = []
-	for s in ["N", "S", "E", "W"]:
+	for s in (_zone.get("_walls") as Dictionary).keys():
 		var g: GlitchWall = _zone.get("_walls")[s]
 		if is_instance_valid(g) and g.is_agitated():
-			marked.append(s)
-	_ok("the mark moved with the answer rather than lying about the old one",
+			marked.append(String(s))
+	_ok("the mark stayed on the wall the runner went through",
 		marked.size() == 1 and marked[0] == after,
-		"real %s -> %s, marked %s" % [before, after, ", ".join(marked)])
-	# ⚠️ AND THE GATE STAYS OPEN. The runner has been through; a re-roll must not put the
-	# seal back on the new answer, or a single wrong wall would strand the player for good.
-	_ok("the promoted wall is NOT re-sealed once the runner has been through",
+		"marked %s, real %s" % [", ".join(marked), after])
+	var fake: GlitchWall = _zone.get("_walls")[_fake_touched]
+	_ok("the decoy went solid, with its trigger gone", is_instance_valid(fake) and fake.is_solid()
+		and fake.get_node_or_null("GlitchTrigger") == null)
+	# ⚠️ AND THE GATE STAYS OPEN. The runner has been through; a mistake must not put the
+	# seal back on the answer, or a single wrong wall would strand the player for good.
+	_ok("the exit is NOT re-sealed once the runner has been through",
 		not bool(_zone.call("real_wall_is_sealed")))
+	var exit_w: GlitchWall = _zone.get("_walls")[after]
+	var tint = _tint_of(exit_w)
+	_ok("...and it is still painted right (yellow), not red", tint is Vector3
+		and (tint as Vector3).x > 0.9 and (tint as Vector3).y > 0.9 and (tint as Vector3).z > 0.9,
+		"wall_tint %s" % str(tint))
 
 	_ok("nothing in the whole sequence added panic", _panic_step < 0.02,
 		"largest single-frame panic step %.4f of the bar" % _panic_step)
@@ -670,13 +728,38 @@ func _standable_points() -> Array[Vector3]:
 		x += 1.0
 	for s in ["N", "S", "E", "W"]:
 		var axis: Vector3 = axes[s]
+		var lat := Vector3(axis.z, 0, axis.x)
 		for k in [-1.0, 1.0]:
-			var c: Vector3 = o + axis * (half + d / 2.0) \
-				+ Vector3(axis.z, 0, axis.x) * (k * at)
+			var c: Vector3 = o + axis * (half + d / 2.0) + lat * (k * at)
+			# ⚠️ Along the recess's OWN axes (2026-09-10): the old `(a*w/3, b*d/3)` put x on
+			# every recess's width and z on its depth, which for the E/W recesses sampled
+			# 3.3 m outside the walls once the depth became 10 m.
 			for a in [-1.0, 0.0, 1.0]:
 				for b in [-1.0, 0.0, 1.0]:
-					out.append(c + Vector3(a * wdt / 3.0, 1.6, b * d / 3.0))
+					out.append(c + lat * (a * wdt / 3.0) + axis * (b * d / 3.0) + Vector3(0, 1.6, 0))
 	return out
+
+
+# The wall's own approach direction: the mesh's front is local -Z (see glitch_wall.gd).
+func _front_of(w: Node3D) -> Vector3:
+	var f: Vector3 = -w.global_transform.basis.z
+	f.y = 0.0
+	return f.normalized() if f.length() > 0.001 else Vector3(0, 0, -1)
+
+
+func _tint_of(w: Node):
+	var mi := w.get_node_or_null("Seam") as MeshInstance3D
+	if mi == null:
+		for c in w.get_children():
+			if c is MeshInstance3D:
+				mi = c
+				break
+	if mi == null:
+		return null
+	var mat := mi.material_override as ShaderMaterial
+	if mat == null:
+		return null
+	return mat.get_shader_parameter("wall_tint")
 
 
 # Godot's inverse-distance attenuation, in dB, capped at the emitter's own max_db.
@@ -728,10 +811,10 @@ func _rms_dbfs(res_path: String) -> float:
 
 func _sealed_walls() -> Array[String]:
 	var out: Array[String] = []
-	for s in ["N", "S", "E", "W"]:
+	for s in (_zone.get("_walls") as Dictionary).keys():
 		var w: GlitchWall = _zone.get("_walls").get(s)
 		if is_instance_valid(w) and w.is_sealed():
-			out.append(s)
+			out.append(String(s))
 	return out
 
 

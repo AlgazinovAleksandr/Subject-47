@@ -108,7 +108,14 @@ const WHEELCHAIR_TURN_DOT := 0.55   # …and actually looking at it
 const WHEELCHAIR_TURN_DEG := 34.0
 const WHEELCHAIR_TURN_TIME := 1.1   # slow enough to read as turning, not as snapping
 # Mix, not difficulty: see the measurements in _tick_wheelchair().
-const WHEELCHAIR_SFX_DB := -7.6         # wheelchair.wav is 9.6 dB hotter than gurney_creak
+# ⚠️ +1.0 SINCE 2026-09-10 (was -7.6), the user's call on a replay: *"Can we make the noise of this
+# wheelchair even louder?"* The old value matched the creak fallback's loudness; the file itself is
+# -2.3 dBFS RMS, so at +1.0 with a raised `max_db` the caster lands at ~+2 dBFS RMS at the 2.7 m the
+# beat fires from — the Master hard limiter (-0.5 dBFS) takes the peaks. There is no headroom past
+# this: the next lever is CONTRAST, which is why the turn now opens with a HoldBreath dip.
+const WHEELCHAIR_SFX_DB := 1.0
+const WHEELCHAIR_SFX_MAX_DB := 8.0      # Godot's default ceiling is 3.0 and would eat the gain
+const WHEELCHAIR_SFX_DIP := 0.35        # seconds of Ambience silence under the caster
 const WHEELCHAIR_SFX_FADE_START := 1.1  # == WHEELCHAIR_TURN_TIME: full level for the whole turn
 const WHEELCHAIR_SFX_FADE_TIME := 0.5   # then a settle tail, instead of the file's hard cut at 2.0 s
 
@@ -999,8 +1006,12 @@ func _tick_wheelchair() -> void:
 	#
 	# ⚠️ GAIN IS SET FROM THE FILE'S MEASURED LEVEL, not from a plausible number. The old
 	# `gurney_creak` fallback is -11.9 dBFS RMS and was played here at +2.0 dB; wheelchair.wav
-	# is -2.3 dBFS RMS, i.e. 9.6 dB hotter, so 2.0 - 9.6 = -7.6 lands at the same loudness.
+	# is -2.3 dBFS RMS, i.e. 9.6 dB hotter, so 2.0 - 9.6 = -7.6 landed at the same loudness.
 	# Same rule as the Flood's water bed (CLAUDE.md, Level 4 zone 3).
+	# ⚠️ 2026-09-10: the user asked for louder still, so the gain is now +1.0 with `max_db` 8.0
+	# (see the constants) and the world is taken away for WHEELCHAIR_SFX_DIP first — the same
+	# pre-silence `screamer.gd:flash_scare()` uses. Ambience only; the caster is on Master.
+	HoldBreath.dip(get_tree(), WHEELCHAIR_SFX_DIP)
 	var s := GameState.load_audio("wheelchair")
 	if not s:
 		# Degrade rather than error, matching the rest of this file: the intro's own
@@ -1011,6 +1022,7 @@ func _tick_wheelchair() -> void:
 		p.name = "WheelchairTurnSfx"
 		p.stream = s
 		p.volume_db = WHEELCHAIR_SFX_DB
+		p.max_db = WHEELCHAIR_SFX_MAX_DB
 		p.unit_size = 4.0
 		p.position = wc.position
 		add_child(p)

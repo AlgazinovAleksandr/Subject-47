@@ -49,6 +49,7 @@ var _fails: Array[String] = []
 var _checks := 0
 var _mouths_checked := 0
 var _floor_samples := 0
+var _exit_sealed_seen := false   # the crate recess's back ray hit the sealed exit (2026-09-10)
 var _control_wall: StaticBody3D = null
 var _phone_answered := false
 
@@ -222,6 +223,8 @@ func _geometry() -> void:
 			# 4. SHELL CLOSED — from the middle of the recess, the back and both sides are
 			# solid, and so is the perimeter immediately BESIDE the mouth.
 			var eye := centre + Vector3(0, 1.5, 0)
+			var is_exit: bool = String(s) == String(_z2.get("_crate_side")) \
+				and int(k) == int(_z2.get("_crate_k"))
 			for probe in [
 					["back", axis, d],
 					["left", lat, w],
@@ -229,8 +232,27 @@ func _geometry() -> void:
 				]:
 				var dir: Vector3 = probe[1]
 				var reach: float = float(probe[2])
-				if _clear(eye, eye + dir * reach).is_empty():
+				var shell_hit := _clear(eye, eye + dir * reach)
+				if shell_hit.is_empty():
 					shell_bad.append("Alc%s%+d open to the %s" % [s, k, probe[0]])
+				elif String(probe[0]) == "back":
+					# ⭐ 2026-09-10: the crate recess's end is the SEALED exit GlitchWall —
+					# its SealBody must be what stops the ray (the shipped, pre-run state);
+					# every other recess still ends in masonry. Both are "closed", and this
+					# is what tells the gate apart from a hole.
+					# ⚠️ A non-exit recess may legitimately be stopped by the PROP standing at
+					# its back (the N-1 mirror, the E/W mirage doors) before the ray reaches the
+					# masonry; what it must never be stopped by is a GlitchWall.
+					var blocker := shell_hit["collider"] as Node
+					var nm := String(blocker.name)
+					var by_glitch: bool = blocker.get_parent() is GlitchWall or blocker is GlitchWall
+					var by_seal: bool = nm == "SealBody" and blocker.get_parent() is GlitchWall
+					if is_exit and not by_seal:
+						shell_bad.append("Alc%s%+d (the exit) back is %s, not the sealed GlitchWall" % [s, k, nm])
+					elif not is_exit and by_glitch:
+						shell_bad.append("Alc%s%+d back is a GlitchWall, but this is not the crate recess" % [s, k])
+					elif is_exit:
+						_exit_sealed_seen = true
 			# ...and 1.2 m to either side of the mouth, along the perimeter plane, must
 			# still be wall: a mouth cut wider than the recess opens the hall to the void.
 			for sgn in [1.0, -1.0]:
@@ -245,6 +267,8 @@ func _geometry() -> void:
 			% [floor_bad.size(), _floor_samples, ", ".join(floor_bad.slice(0, 6))])
 	_ok("the shell is still closed around every mouth", shell_bad.is_empty(),
 		"%s" % ", ".join(shell_bad.slice(0, 8)))
+	_ok("...and the crate recess's end is the SEALED exit wall, not masonry and not a hole",
+		_exit_sealed_seen)
 	# ⚠️ Sample size is part of the assertion: 8 mouths, 8 x 63 floor points.
 	_ok("the sweep measured a meaningful sample", _mouths_checked == 8
 		and _floor_samples >= 500, "%d mouths, %d floor samples"
@@ -338,9 +362,17 @@ func _page() -> void:
 		return
 	# It must be IN an alcove, not floating in the hall — derived from the geometry, so it
 	# follows if the alcove ever moves.
+	# Inside the recess's FOOTPRINT (2026-09-10: the recess is 10 m deep and the note hangs on
+	# its far wall, ~5 m from the centre — a radius test would call that "not in the recess").
 	var target := _alcove_centre("S", -1)
-	_ok("SprawlNote is in the S-1 recess", note.global_position.distance_to(target) < 2.0,
-		"%.2f m from the recess centre" % note.global_position.distance_to(target))
+	var s_axis: Vector3 = (_c["SIDE_AXIS"] as Dictionary)["S"]
+	var s_lat := Vector3(s_axis.z, 0, s_axis.x)
+	var rel: Vector3 = note.global_position - target
+	var along: float = absf(rel.dot(s_axis))
+	var across: float = absf(rel.dot(s_lat))
+	_ok("SprawlNote is in the S-1 recess", along <= float(_c["ALCOVE_D"]) / 2.0
+		and across <= float(_c["ALCOVE_W"]) / 2.0,
+		"%.2f m along, %.2f m across the recess centre" % [along, across])
 	for off in [0.0, OBLIQUE_DEG, -OBLIQUE_DEG]:
 		var hit := _reads(note, READ_DIST, off)
 		_ok("SprawlNote answers E from %.1f m, %d° off-axis" % [READ_DIST, int(off)],

@@ -5657,3 +5657,42 @@ and reads a comfortable **0.00 on the broken build too**. They now seed panic to
 **decay differential**: untaxed 22.75, taxed 15.28, threshold between. *When two rates fight, assert
 the difference, never the absolute.*
 
+
+
+## Issue 183 — A difficulty coupling nobody had typed: the map slowed down with the player's panic
+
+`maze_chase_ui.gd` lerped both the drag spring (9 → 3) and the icon's speed cap (240 → 100) on the
+3D player's `get_panic_ratio()`. On its own that is a documented degradation. What nobody had
+written down is that **panic carries across attempts**: `CATCH_PANIC` 18 plus the drip is still on
+the bar when the map is reopened, so the SECOND try of the same puzzle ran ~35 % slower than the
+first, and the 2026-09-10 playtest read that as *"the map slows down"* and died twice INSIDE the
+map to panic rather than to a catch. The user's ruling: *"the ideal speed is constant."* One
+`SPRING_K` 7.5 and one `PLAYER_SPEED` 210, between the two measured regimes; `_drag_step()` still
+receives `panic_ratio` and ignores it, ⚠️ DELIBERATE at the constant. `check_maze_chase.gd`'s bot
+could never have seen this — it moves the icon at its own `ESCAPE_SPEED` and never reads the
+spring — which is why `check_maze_speed.gd` exists and carries a control that reinstates the lerp.
+
+⚠️ The general lesson: **a per-frame modifier read from state that OUTLIVES the thing it modifies
+is a hidden difficulty ramp.** Ask what the input's lifetime is before lerping on it.
+
+## Issue 184 — "Open" and "read" were one press again, one level after the fix
+
+`kitchen_drawer.gd` opened on E and showed its note from the slide tween's `finished` — the
+correct ORDER (Issue 58) and still the wrong BEAT: the Lab cabinet (Issue 66/67) and the Flood
+(B-R2) had both already moved to *open, see the page, then take it* on the user's request, and
+the House drawer was left on auto-read. Capture #5, 2026-09-10: *"The note should be physically
+seen in this cabinet before it will be taken."* Now a nested `DrawerPage` body (layer 2, collider
+disabled until the slide finishes) on `DrawerSlide`, a second E to take it, `record_note()` only
+then. `check_open_then_read.gd`'s House half asserts the journal does NOT grow on E1.
+
+⚠️ When a beat is redesigned in one prop, `grep` for its siblings — three drawers in this game
+open on E and they had drifted into three different contracts.
+
+## Issue 185 — ⚠️ DELIBERATE: the grandfather clock kills at 14 s, and the user kept it
+
+Corridor death #3 in the 2026-09-10 playtest: the chime (+10 at d 45–47) then exactly 20 panic/s
+of gaze at the clock — the level's only 1.0-intensity panel, 2 × 3 m floor to ceiling — and the
+bar filled 14 s into the level. The clock is now a 3D case (`grandfather_clock.gd`) and its
+`CLOCK_INTENSITY` is **1.0, unchanged, on the user's explicit call** after being shown that log:
+*"3D clock, keep 1.0"*. Recorded here so the next session that sees an early Corridor death does
+not "fix" it. `check_corridor_clock.gd` asserts the value with the note.

@@ -177,12 +177,19 @@ var fragment_count: int = 1
 var min_detour_override: int = -1
 
 # ---------------------------------------------------------------- drag physics
-# Both the ease rate AND the speed cap degrade together as panic rises — that
-# combination is what sells "harder to steer under pressure," not just "slower."
-const SPRING_K_BASE := 9.0
-const SPRING_K_PANIC := 3.0
-const PLAYER_MAX_SPEED := 240.0
-const PLAYER_MIN_SPEED := 100.0
+# ⚠️⚠️ DELIBERATE — ONE CONSTANT, NO PANIC COUPLING (2026-09-10, the user's call). The ease rate
+# and the speed cap used to degrade together as panic rose (`lerpf(9.0 → 3.0)` and
+# `lerpf(240 → 100)` by the 3D player's panic ratio) to sell "harder to steer under pressure".
+# Panic carries across attempts, and a catch costs `HouseMap.CATCH_PANIC` 18 (36 % of the bar),
+# so the SECOND attempt at the map was always slower than the first — which the player read as
+# a fault, not as pressure: *"if you failed the first attempt the next time you get slower. It
+# should not be that way. I think the ideal speed is constant, and something in between the
+# current first run and the second run."* A first run ran ~240→212 as the drip climbed; a retry
+# after a catch ran ~190→156. 210 / 7.5 sit between. `_drag_step()` is the pure function that
+# now owns the arithmetic, so `tests/check_maze_speed.gd` can prove it ignores panic.
+# ⚠️ Nothing else moved: catch panic, the drip, the proximity term, both monsters, the snares.
+const SPRING_K := 7.5
+const PLAYER_SPEED := 210.0
 
 # ---------------------------------------------------------------- monster
 # Still under the player's worst-case (panic-1.0) speed floor of 100, so a player who
@@ -230,7 +237,7 @@ const PLAYER_MIN_SPEED := 100.0
 #     MONSTER_SPEED · PATROL_SPEED · PATROL_AGGRO · PATROL_CALM
 #     SNARE_COUNT · SNARE_RADIUS · SNARE_HOLD · SNARE_PANIC · HouseMap.CATCH_PANIC
 #     MAZE_DRIP_RATE · PROXIMITY_RANGE · PROXIMITY_MAX_RATE
-#     SPRING_K_BASE/PANIC · PLAYER_MAX/MIN_SPEED · BRAID_FRACTION
+#     SPRING_K · PLAYER_SPEED (one constant each since 2026-09-10) · BRAID_FRACTION
 # The difficulty came from STRUCTURE — a two-stage objective and a patroller that no longer
 # starts on your artery. If a future session finds itself reaching for one of these dials,
 # that is the user's call and it needs a measurement first, not a nudge.
@@ -393,12 +400,7 @@ func _process(delta: float) -> void:
 		_focus_lost_clear = false  # a genuine release clears the focus-loss override
 	if mouse_down:
 		var cursor_local: Vector2 = get_viewport().get_mouse_position() - _playfield.global_position
-		var k: float = lerpf(SPRING_K_BASE, SPRING_K_PANIC, panic_ratio)
-		var ease_t: float = 1.0 - exp(-k * delta)
-		var step: Vector2 = (cursor_local - _player_pos) * ease_t
-		var max_step: float = lerpf(PLAYER_MAX_SPEED, PLAYER_MIN_SPEED, panic_ratio) * delta
-		if step.length() > max_step and step.length() > 0.0:
-			step = step.normalized() * max_step
+		var step: Vector2 = _drag_step(cursor_local, _player_pos, panic_ratio, delta)
 		_player_pos = _resolve_wall_slide(_player_pos, _player_pos + step, ICON_HALF_EXTENT)
 
 	# A snare holds you where you are. Movement above still ran, so the position is
@@ -856,6 +858,21 @@ func _open_neighbours(cell: Vector2i) -> Array[Vector2i]:
 
 
 # ---------------------------------------------------------------- collision
+
+# The icon's step toward the cursor for one frame. PURE — no node state, no Input — so it can
+# be measured headlessly. ⚠️ `panic_ratio` is accepted and IGNORED on purpose (2026-09-10): the
+# parameter stays in the signature so the regression test can feed 0.0 and 0.9 through the
+# same call and assert byte-identical travel. A future "make it harder under pressure" must
+# be the user's call and must show up here as a measured difference, not as a quiet lerp.
+func _drag_step(cursor_local: Vector2, from: Vector2, panic_ratio: float, delta: float) -> Vector2:
+	var _unused := panic_ratio
+	var ease_t: float = 1.0 - exp(-SPRING_K * delta)
+	var step: Vector2 = (cursor_local - from) * ease_t
+	var max_step: float = PLAYER_SPEED * delta
+	if step.length() > max_step and step.length() > 0.0:
+		step = step.normalized() * max_step
+	return step
+
 
 func _resolve_wall_slide(from: Vector2, to: Vector2, half_extent: float) -> Vector2:
 	var pos := from

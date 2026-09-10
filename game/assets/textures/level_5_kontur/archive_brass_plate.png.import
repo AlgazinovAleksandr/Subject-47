@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dqviya6g4vjbo"
-path="res://.godot/imported/screamer_false_door.png-a74328607b8150242d2b8aed5b490f0a.ctex"
+uid="uid://d2voppnfhwdqx"
+path="res://.godot/imported/archive_brass_plate.png-3f31b772b9b074c975669b4bfc7f79e6.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/textures/level_3_corridor/screamer_false_door.png"
-dest_files=["res://.godot/imported/screamer_false_door.png-a74328607b8150242d2b8aed5b490f0a.ctex"]
+source_file="res://assets/textures/level_5_kontur/archive_brass_plate.png"
+dest_files=["res://.godot/imported/archive_brass_plate.png-3f31b772b9b074c975669b4bfc7f79e6.ctex"]
 
 [params]
 

@@ -176,8 +176,38 @@ func _process(delta: float) -> bool:
 			_ok("KONTUR: the clinical wing IS still lit", burning >= 5,
 				"%d lit lamps past z 51 — Gate 7 and the escort beat both need them" % burning)
 		else:
-			_ok("%s: no lamp is burning at spawn" % label, burning == 0,
-				"%d lit of %d, brightest %.2f" % [burning, lamps, brightest])
+			# ⭐ 2026-09-10: a level may name lamps that burn BEFORE the power, and the Lab names
+			# one — `Lamp_Records`, the home bearing for the dark wing (`PRE_POWER_LIT`). Read
+			# off the script; exactly those burn, at their named level (±the 6 % flicker), and
+			# nothing else does. A level without the table is held to "nothing burns".
+			var allowed: Dictionary = {}
+			var sc := current_scene.get_script() as GDScript
+			if sc:
+				allowed = sc.get_script_constant_map().get("PRE_POWER_LIT", {})
+			var stray := 0
+			var named_ok := 0
+			for x in nodes:
+				if not (x is OmniLight3D) or (x as OmniLight3D).light_energy <= 0.001:
+					continue
+				var nm := String(x.name)
+				if allowed.has(nm):
+					var want := float(allowed[nm])
+					var got := (x as OmniLight3D).light_energy
+					if got >= want * 0.85 and got <= want * 1.15:
+						named_ok += 1
+					else:
+						print("     %s burns at %.3f, wanted %.3f" % [nm, got, want])
+				else:
+					stray += 1
+					print("     stray lamp burning: %s at %.3f" % [nm, (x as OmniLight3D).light_energy])
+			_ok("%s: no lamp burns at spawn except the ones the level names" % label,
+				stray == 0, "%d stray of %d lit (%d allowed by name)" % [stray, burning, allowed.size()])
+			_ok("%s: every named pre-power lamp IS burning at its named level" % label,
+				named_ok == allowed.size(),
+				"%d of %d — %s" % [named_ok, allowed.size(), str(allowed.keys())])
+			if label == "Lab":
+				_ok("Lab: Records is the named pre-power lamp (the wing's home bearing)",
+					allowed.has("Lamp_Records") and allowed.size() == 1, str(allowed.keys()))
 
 		# ------------------------------------------------------------------ no DarkZone
 		var dz := _count_dark_zones()

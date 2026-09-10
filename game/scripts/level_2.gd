@@ -84,7 +84,14 @@ const CHILD_VOLUME_DB := 18.0        # "the scream should be much louder" (2026-
 # The cellar sequence, timed exactly as specified on the 2026-07-29 playtest.
 const CHILD_APPEAR_DELAY := 5.5      # dark first, then the child
 const CHILD_HOLD := 3.0              # …and the lights come back this long after
-const CHILD_DIST := 3.2              # how far in front of the player it materialises
+const CHILD_DIST := 3.2              # the FAR end of the ladder now (was the first try)
+# ⭐ 2026-09-10 — near-first (the user: *"the doll should appear very close to you"*). At 1.7 m a
+# 1.95 m figure is ~75 % of the screen's height; the camera is turned onto it whichever
+# candidate wins, so a placement BEHIND the player is now on the ladder too.
+const CHILD_NEAR := [1.7, 2.0, 2.4]  # ahead, tried in this order; then a fan at CHILD_NEAR[1]
+const CHILD_FAN_DEG := 25.0
+const CHILD_TURN_TIME := 0.45        # NOOK_TURN_TIME, the Lab's proven number
+const CHILD_DIP := 0.4               # Ambience silence under the scream
 # ⚠️ 1.25 -> 1.95 m ("the child should be way bigger"). Taller than a real child on purpose:
 # this is a jumpscare at three metres in a pitch-black cellar, not a figure seen across a
 # room, and at child height it read as small and far away rather than as on top of you.
@@ -1833,6 +1840,7 @@ const CHILD_RETRY := 0.25
 const CHILD_POSTPONE_MAX := 45.0
 
 var _child_postponed: float = 0.0
+var _child_frozen: bool = false      # WE pinned the player for the appearance (2026-09-10)
 
 
 func _can_show_child() -> bool:
@@ -1873,23 +1881,40 @@ func _cellar_child_appear() -> void:
 		fwd = Vector3.FORWARD
 	fwd = fwd.normalized()
 
-	# Straight ahead if it fits, otherwise closer, otherwise the middle of the room. It must
-	# NOT be allowed to fail silently the way the Hallway version did.
+	# ⭐⭐ CLOSE, AND THE CAMERA IS BROUGHT TO IT (2026-09-10, the user's replay: *"the doll
+	# should appear the same way as the creature in the lab — your camera needs to be forced in
+	# that direction, and the doll should appear very close to you"*). The ladder is
+	# player-relative and NEAR-FIRST — `level_1.gd:_place_nook_figure()`'s shape, which solved
+	# the same "I never saw it" report there — then a fan either side, then a step further,
+	# then BEHIND (the camera turn makes a figure behind you a legitimate placement rather than
+	# a wasted one), then the room centre as the last resort. Every candidate goes through
+	# `Watcher.spawn()`, whose ray-only `_fits()` + line-of-sight probe is the validation.
 	#
-	# ⚠️ `require_los` IS NOW TRUE (2026-08-16). It was passed FALSE, which `watcher.gd:98-109`
+	# ⚠️ `require_los` IS TRUE (2026-08-16). It was passed FALSE, which `watcher.gd:98-109`
 	# and CLAUDE.md both restrict to `congregation.gd` — because the line-of-sight ray is also
 	# the ONLY probe that catches "this point is inside a wall". `_fits()`'s other three tests
 	# (head room, top-down column, 16-ray fan) all ORIGINATE inside the slab for an embedded
 	# candidate and, against a concave CSG trimesh, cross no faces and report clear (Issue 40 /
-	# Issue 59). So the first candidate at CHILD_DIST essentially always passed, the
-	# [3.2, 2.4, 1.8] ladder and the room-centre fallback below were dead code, and a player
-	# facing a wall from a metre got a figure buried in it with the scream still playing.
-	# With the check live, the ladder does its job and a spot that will not work is refused.
+	# Issue 59). With the check live, the ladder does its job and a spot that will not work
+	# is refused rather than buried in a wall with the scream still playing.
 	var here := pl.global_position
-	for d in [CHILD_DIST, 2.4, 1.8]:
-		var cand := Vector3(here.x + fwd.x * d, CELLAR_Y, here.z + fwd.z * d)
+	var side := fwd.rotated(Vector3.UP, deg_to_rad(CHILD_FAN_DEG))
+	var side2 := fwd.rotated(Vector3.UP, deg_to_rad(-CHILD_FAN_DEG))
+	var candidates: Array = []
+	for d in CHILD_NEAR:
+		candidates.append([fwd * d, "ahead %.1f" % d])
+	candidates.append([side * CHILD_NEAR[1], "fan +%.0f" % CHILD_FAN_DEG])
+	candidates.append([side2 * CHILD_NEAR[1], "fan -%.0f" % CHILD_FAN_DEG])
+	candidates.append([fwd * CHILD_DIST, "ahead %.1f" % CHILD_DIST])
+	candidates.append([-fwd * CHILD_NEAR[1], "behind %.1f" % CHILD_NEAR[1]])
+	candidates.append([-fwd * (CHILD_NEAR[2] + 0.2), "behind %.1f" % (CHILD_NEAR[2] + 0.2)])
+	var taken := "room centre"
+	for c in candidates:
+		var off: Vector3 = c[0]
+		var cand := Vector3(here.x + off.x, CELLAR_Y, here.z + off.z)
 		_child_node = Watcher.spawn(self, cand, TEX + "house_child.png", 0.0, true, CHILD_HEIGHT)
 		if _child_node:
+			taken = String(c[1])
 			break
 	if not _child_node:
 		_child_node = Watcher.spawn(self,
@@ -1901,7 +1926,21 @@ func _cellar_child_appear() -> void:
 		# Named so it is distinguishable from the cellar's OTHER Watcher (the one in the far
 		# corner). Two anonymous "Watcher" nodes in one room made the test's count ambiguous.
 		_child_node.name = "GuestChild"
+		# ⚠️ THE PIN AND THE TURN — `level_1.gd:_nook_reveal()` verbatim. The velocity must be
+		# zeroed by hand: `_apply_movement()` only RETURNS on `_input_frozen`, and
+		# `_physics_process` still calls `move_and_slide()`, so a frozen walker coasts (Issue
+		# 49). `turn_to_face()`, never `ai_look_at()` (it writes `_pitch` as well as yaw).
+		# Released by `_end_cellar_blackout()` with the lights, CHILD_HOLD later. Zero panic.
+		pl.velocity.x = 0.0
+		pl.velocity.z = 0.0
+		pl.freeze_input()
+		_child_frozen = true
+		pl.turn_to_face(_child_node.global_position + Vector3(0, 1.35, 0), CHILD_TURN_TIME)
+		HoldBreath.dip(get_tree(), CHILD_DIP)
 	_spawn_guest_child()
+	var _dbgt := get_node_or_null("/root/DebugLog")
+	if _dbgt:
+		_dbgt.note("CELLAR child placement: %s" % taken)
 	# Instrumentation only — logs WHERE the figure went and where the player was standing, so
 	# "I heard it but never saw it" can be diagnosed instead of guessed at.
 	var _dbgc := get_node_or_null("/root/DebugLog")
@@ -1922,6 +1961,11 @@ func _end_cellar_blackout() -> void:
 	if pl:
 		pl.restore_flashlight()
 		pl.set_smiler_active(false)
+		# The pin the appearance put on (2026-09-10). Only if WE froze them: the ABANDONED path
+		# never did, and a QTE or a locker push owns its own freeze.
+		if _child_frozen:
+			_child_frozen = false
+			pl.unfreeze_input()
 	if is_instance_valid(_child_node):
 		_child_node.queue_free()
 		_child_node = null

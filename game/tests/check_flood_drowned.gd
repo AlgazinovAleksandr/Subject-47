@@ -252,6 +252,7 @@ func _setup() -> bool:
 		return _report()
 
 	_structure()
+	_pieces()
 	_placement()
 	_mix()
 	_no_dark_zone()
@@ -299,6 +300,67 @@ func _structure() -> void:
 	_ok("nothing down here is self-lit", emissive.is_empty(), ", ".join(emissive))
 	# A ScaryObject ancestor would make these gaze-panic props, i.e. a new panic term.
 	_ok("no object feeds gaze panic", scary.is_empty(), ", ".join(scary))
+
+
+# ⭐ THE SIX RITUAL PIECES (2026-09-10). Each object holds a DIFFERENT one of candle / book /
+# skull / bell / key / doll, built from parts by `ritual_piece.gd`; the altar in the Basin has
+# one outlined slot per kind. Asserted here because six identical grey shards was the thing
+# the user photographed and this is the guard that would let them come back.
+func _pieces() -> void:
+	var kinds: Array = []
+	var built := 0
+	var textured := 0
+	for it in _items:
+		var k := String(it.call("piece_kind"))
+		kinds.append(k)
+		var frag: Node = it.get_node_or_null("Fragment")
+		var piece: Node = frag.get_node_or_null("Piece") if frag != null else null
+		if piece != null and _meshes(piece).size() >= 3:
+			built += 1
+		if piece != null:
+			for m in _meshes(piece):
+				var mat := (m as MeshInstance3D).material_override as StandardMaterial3D
+				if mat != null and mat.albedo_texture != null:
+					textured += 1
+					break
+	var valid := 0
+	for k in kinds:
+		if RitualPiece.KINDS.has(k):
+			valid += 1
+	_ok("every object holds one of the six ritual kinds", valid == _items.size(), str(kinds))
+	_ok("...and the six kinds are all different — it is a SET, not six copies",
+		_dedup(kinds).size() == 6, str(kinds))
+	_ok("each piece is built from parts (3+ meshes), not one box or a card",
+		built == _items.size(), "%d of %d" % [built, _items.size()])
+	_ok("each piece carries at least one generated texture", textured == _items.size(),
+		"%d of %d" % [textured, _items.size()])
+	# The altar: one outline per slot, one hidden piece per slot, in the plate's own order.
+	var plate := _named("FloodPlate")
+	_ok("the plate table exists", plate != null)
+	if plate == null:
+		return
+	var slot_kinds: Array = plate.get("SLOT_KINDS")
+	var outlines := 0
+	var hidden := 0
+	for i in range(slot_kinds.size()):
+		var has_outline := false
+		var set_piece: Node = null
+		for c in plate.get_children():
+			if String(c.name).begins_with("Outline%d" % i):
+				has_outline = true
+			if String(c.name) == "Set%d_%s" % [i, slot_kinds[i]]:
+				set_piece = c
+		if has_outline:
+			outlines += 1
+		if set_piece != null and not (set_piece as Node3D).visible \
+				and _meshes(set_piece).size() >= 3:
+			hidden += 1
+	_ok("the altar outlines all six slots", outlines == 6, "%d of 6" % outlines)
+	_ok("...and holds a hidden copy of each piece, built by the same builder",
+		hidden == 6, "%d of 6" % hidden)
+	_ok("the altar's slot kinds are the six drowned kinds, one each",
+		_dedup(slot_kinds).size() == 6 and _dedup(slot_kinds + kinds).size() == 6,
+		"slots %s vs objects %s" % [str(slot_kinds), str(kinds)])
 
 
 func _placement() -> void:

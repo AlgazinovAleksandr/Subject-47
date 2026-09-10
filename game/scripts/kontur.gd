@@ -2066,8 +2066,11 @@ func _spawn_apparition_director() -> void:
 		return
 	var d := ApparitionDirector.new()
 	d.name = "ApparitionDirector"
-	# capture #10: the apparition should hit with a jumpscare sting, not the low drone/flash.
-	d.appear_audio = "jumpscare"
+	# capture #10 (2026-09-09): the apparition should hit with a jumpscare sting, not the low
+	# drone/flash. ⚠️ 2026-09-10: `appear_audio = "jumpscare"` is GONE — the arrival shock is now
+	# `apparition.gd`'s own `arrival_sting` (the shared screamer) on EVERY HOLD apparition in the
+	# game, layered over the drone, by the user's call; overriding the drone slot as well would
+	# stack two stings on one arrival. The teach flash keeps its level-specific voice.
 	d.teach_flash_audio = "jumpscare"
 	add_child(d)
 
@@ -2574,6 +2577,7 @@ const ARCH_RACK_H := 2.00
 const ARCH_RACK_Z0 := 37.0
 const ARCH_RACK_Z1 := 42.0
 const ARCH_SHELF_Y := [0.42, 1.02, 1.62]
+const ARCHIVE_TEX_DIR := "res://assets/textures/level_5_kontur/"
 
 func _spawn_recovery_archive() -> void:
 	# ⚠️ DARK, and barely metallic. The first build used 0.19/0.26 albedo at metallic 0.4
@@ -2581,8 +2585,12 @@ func _spawn_recovery_archive() -> void:
 	# cage in front of the two things this room is actually about (the lots and the
 	# pedestal). With no reflection probes anywhere in this project a metallic surface
 	# just takes the flat ambient, so metallic buys nothing here and costs contrast.
-	var steel := _mb_mat(Color(0.115, 0.120, 0.112), 0.10, 0.75)
-	var board := _mb_mat(Color(0.150, 0.140, 0.120), 0.05, 0.90)
+	# ⭐ TEXTURED SINCE 2026-09-10 (capture #13): chipped painted steel on the racks, but
+	# TINTED DOWN to the same dark band the flat tints sat in — the texture is grain, the
+	# tint is the level. `ARCHIVE_TEX_DIR` textures are flux close-ups graded by
+	# `tools/grade_ritual_textures.py`; the 217 plate and the keycard are Pillow.
+	var steel := _mb_mat(Color(0.50, 0.52, 0.50), 0.10, 0.75, ARCHIVE_TEX_DIR + "archive_rack_steel.png", 2.5)
+	var board := _mb_mat(Color(0.42, 0.42, 0.40), 0.05, 0.90, ARCHIVE_TEX_DIR + "archive_rack_steel.png", 2.5)
 	for side in [-1.0, 1.0]:
 		_build_rack(side, steel, board)
 
@@ -2703,11 +2711,12 @@ func _build_lot(side: float, shelf: int, z: float, kind: String, card: String) -
 	lot_col.global_position = Vector3(x - side * 0.30, y + 0.16, z)
 	_archive_lots.append(root)
 
-	var cloth := _mb_mat(Color(0.44, 0.43, 0.40), 0.0, 0.95)
-	var dark := _mb_mat(Color(0.13, 0.13, 0.14), 0.25, 0.55)
-	var wood := _mb_mat(Color(0.27, 0.19, 0.12), 0.0, 0.8)
+	# Textured (2026-09-10), each tinted so it lands near the flat tint it replaces.
+	var cloth := _mb_mat(Color(0.80, 0.78, 0.74), 0.0, 0.95, ARCHIVE_TEX_DIR + "archive_linen.png", 5.0)
+	var dark := _mb_mat(Color(0.75, 0.75, 0.78), 0.25, 0.55, ARCHIVE_TEX_DIR + "archive_bakelite.png", 6.0)
+	var wood := _mb_mat(Color(0.95, 0.85, 0.75), 0.0, 0.8, ARCHIVE_TEX_DIR + "archive_musicbox_wood.png", 5.0)
 	var brass2 := _mb_mat(Color(0.36, 0.30, 0.16), 0.6, 0.5)
-	var tin := _mb_mat(Color(0.30, 0.31, 0.29), 0.55, 0.6)
+	var tin := _mb_mat(Color(0.62, 0.64, 0.62), 0.55, 0.6, ARCHIVE_TEX_DIR + "archive_tin.png", 6.0)
 
 	match kind:
 		"sheet":
@@ -2742,19 +2751,35 @@ func _build_lot(side: float, shelf: int, z: float, kind: String, card: String) -
 			root.add_child(crank)
 			_mb_box(root, "CrankArm", Vector3(0.012, 0.05, 0.012), Vector3(0.19, 0.052, 0), brass2)
 		"plate":
-			_mb_box(root, "Backing", Vector3(0.26, 0.14, 0.02), Vector3(0, 0.10, 0), brass2)
+			# ⭐ THE 217 IS ENGRAVED ART NOW (2026-09-10): `archive_plate_217.png`
+			# (`tools/make_archive_plate.py`) on a QuadMesh 1 mm proud of a thin dark
+			# backing, sized from the artwork's own aspect. It replaced a brass-tinted box
+			# with a `Label3D` in front of it. Art on a quad, never a box face (Issue 24);
+			# NO emission — nothing in the dark half self-lights except the gate-3 pedestal.
+			var plate_w := 0.26
+			var plate_h := plate_w * 551.0 / 1024.0
+			_mb_box(root, "Backing", Vector3(plate_w, plate_h, 0.012), Vector3(0, 0.10, 0),
+				_mb_mat(Color(0.08, 0.07, 0.05), 0.3, 0.7))
 			_mb_box(root, "Stand", Vector3(0.05, 0.03, 0.09), Vector3(0, 0.015, 0.03), tin)
+			var art := MeshInstance3D.new()
+			art.name = "PlateArt"
+			var q := QuadMesh.new()
+			q.size = Vector2(plate_w, plate_h)
+			art.mesh = q
+			var am := StandardMaterial3D.new()
+			am.roughness = 0.45
+			am.metallic = 0.3
+			var art_path := ARCHIVE_TEX_DIR + "archive_plate_217.png"
+			if ResourceLoader.exists(art_path):
+				am.albedo_texture = load(art_path)
+			else:
+				am.albedo_color = Color(0.36, 0.30, 0.16)
+			art.material_override = am
+			art.position = Vector3(0, 0.10, 0.007)
+			root.add_child(art)
 			for sx4 in [-1.0, 1.0]:
 				_mb_box(root, "PlateScrew", Vector3(0.016, 0.016, 0.008),
-					Vector3(sx4 * 0.105, 0.10, 0.014), tin)
-			var num := Label3D.new()
-			num.shaded = true
-			num.text = "217"
-			num.font_size = 64
-			num.pixel_size = 0.0011
-			num.modulate = Color(0.09, 0.08, 0.07)
-			num.position = Vector3(0, 0.10, 0.013)
-			root.add_child(num)
+					Vector3(sx4 * 0.105, 0.10, 0.010), tin)
 		"handset":
 			_mb_box(root, "Body", Vector3(0.30, 0.05, 0.06), Vector3(0, 0.03, 0), dark)
 			for sx in [-1.0, 1.0]:
@@ -2863,20 +2888,48 @@ func _reveal_archive_keycard(lot) -> void:
 	key.position = (lot as Node3D).global_position + Vector3(-side * 0.34, 0.10, 0)
 	key.picked_up.connect(_on_archive_keycard_taken)
 	add_child(key)
-	# The card itself: a small emissive plate so it reads in the dark once uncovered.
+	# The card itself: ⭐ a FACILITY PASS since 2026-09-10 (`archive_keycard.png`,
+	# `tools/make_archive_keycard.py` — front face in the top half of the image, back face in
+	# the bottom half) on two art quads over a thin dark core. It was a flat green emissive
+	# box. The ART carries a MULTIPLY emission at 0.30 — the value the box had — so it still
+	# reads in the dark once uncovered; the core does not glow.
 	var plate := MeshInstance3D.new()
 	plate.name = "CardMesh"
 	var bm := BoxMesh.new()
 	bm.size = Vector3(0.11, 0.005, 0.07)
 	plate.mesh = bm
 	plate.rotation.z = deg_to_rad(74.0)     # stood on edge, leaning, so it catches the eye
-	var cm := StandardMaterial3D.new()
-	cm.albedo_color = Color(0.15, 0.35, 0.22)
-	cm.emission_enabled = true
-	cm.emission = Color(0.20, 0.55, 0.32)
-	cm.emission_energy_multiplier = 0.30    # dimmed like every other self-lit prop in the dark half
-	plate.material_override = cm
+	plate.material_override = _mb_mat(Color(0.06, 0.06, 0.06), 0.1, 0.8)
 	key.add_child(plate)
+	var card_tex: Texture2D = null
+	var card_path := ARCHIVE_TEX_DIR + "archive_keycard.png"
+	if ResourceLoader.exists(card_path):
+		card_tex = load(card_path)
+	for face in [1.0, -1.0]:
+		var art := MeshInstance3D.new()
+		art.name = "CardFront" if face > 0.0 else "CardBack"
+		var q := QuadMesh.new()
+		q.size = Vector2(0.11, 0.07)
+		art.mesh = q
+		var am := StandardMaterial3D.new()
+		am.roughness = 0.6
+		if card_tex:
+			am.albedo_texture = card_tex
+			# Top half = front, bottom half = back (each 1100x700, the quad's own aspect).
+			am.uv1_scale = Vector3(1.0, 0.5, 1.0)
+			am.uv1_offset = Vector3(0.0, 0.0 if face > 0.0 else 0.5, 0.0)
+			am.emission_enabled = true
+			am.emission_texture = card_tex
+			am.emission = Color(1, 1, 1)
+			am.emission_operator = BaseMaterial3D.EMISSION_OP_MULTIPLY
+			am.emission_energy_multiplier = 0.30
+		else:
+			am.albedo_color = Color(0.15, 0.35, 0.22)
+		art.material_override = am
+		# A quad faces +Z; turn it to face +Y (front) or -Y (back), 0.5 mm proud of the core.
+		art.rotation.x = -PI / 2.0 if face > 0.0 else PI / 2.0
+		art.position = Vector3(0, face * 0.003, 0)
+		plate.add_child(art)
 	# A generous grab volume (layer 2), so the reveal is easy to pick up.
 	var kcol := CollisionShape3D.new()
 	var ksh := BoxShape3D.new()
@@ -2908,11 +2961,20 @@ func _on_archive_gate_used() -> void:
 			_archive_gate.refuse()
 
 
-func _mb_mat(albedo: Color, metallic: float, rough: float) -> StandardMaterial3D:
+# `tex` (2026-09-10, additive): a triplanar albedo texture at world scale `uv_scale`, with
+# `albedo` acting as a TINT — keep it under ~0.6 grey in the dark half or the racks become the
+# brightest thing in the room again (the ⚠️ at `_spawn_recovery_archive`). Negative V is the
+# project's convention (Issue 19). Every caller without `tex` is byte-identical.
+func _mb_mat(albedo: Color, metallic: float, rough: float, tex: String = "",
+		uv_scale: float = 4.0) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = albedo
 	m.metallic = metallic
 	m.roughness = rough
+	if tex != "" and ResourceLoader.exists(tex):
+		m.albedo_texture = load(tex)
+		m.uv1_triplanar = true
+		m.uv1_scale = Vector3(uv_scale, -uv_scale, uv_scale)
 	return m
 
 

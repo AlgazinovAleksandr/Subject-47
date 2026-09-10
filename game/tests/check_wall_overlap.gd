@@ -136,7 +136,19 @@ const CONFIG := {
 		"min_quad_ignored": 2,
 	},
 	"SCENE_LEVEL_1": {"min_boxes": 150, "min_quads": 10, "min_solids": 140},
-	"SCENE_LEVEL_2": {"min_boxes": 110, "min_quads": 14, "min_solids": 40},
+	"SCENE_LEVEL_2": {
+		"min_boxes": 110, "min_quads": 14, "min_solids": 40,
+		# ⚠️ 2026-09-10: the kitchen drawer carries a real PAGE now (two presses: open, then
+		# take), and while the drawer is shut that page lies inside the counter's CSG box —
+		# which is exactly where a page in a shut drawer is. The drawer's own sides and bottom
+		# are BoxMesh solids and were always forgiven by face plane; the page is a QuadMesh and
+		# the centre-point test cannot tell "in a drawer" from "buried". Waived by name, size
+		# asserted, and `check_open_then_read.gd` proves it comes OUT with the box.
+		"quad_ignore": {
+			"DrawerPageSheet": "the kitchen drawer's page, inside the counter while the drawer is shut",
+		},
+		"min_quad_ignored": 1,
+	},
 	"SCENE_CORRIDOR": {
 		# ⚠️ WAIVED 2026-08-16. `corridor.gd:_build_geometry()` extends each segment's floor
 		# and ceiling half a corridor-width past every interior corner (`lo = -W/2`,
@@ -443,7 +455,7 @@ func _check_wall_props(boxes: Array, quiet: bool = false) -> int:
 # returns exactly [centre], which is what this file did before the mode existed.
 #
 # ⚠️ THE OUTERMOST 5 % OF EACH AXIS IS NOT SAMPLED, and it has to be. A full-height wall
-# surface legitimately reaches the floor and the ceiling — the Backrooms' five glitch walls
+# surface legitimately reaches the floor and the ceiling — the Backrooms' six glitch walls
 # span 0 to H exactly — so a sample at the literal edge is inside the floor slab's
 # MIN_CLEAR skin by construction and every one of them would report. That is a prop TOUCHING
 # a surface at its own boundary, which is not the bug this file exists for; the bug is two

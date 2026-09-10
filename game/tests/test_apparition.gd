@@ -32,6 +32,10 @@ var _survived := false
 var _rushed := false
 var _pass_still := false
 var _pass_flee := false
+# 2026-09-10 — the startle grace: a Shift tap inside STARTLE_GRACE is forgiven, one after it is not.
+var _pass_grace := false
+var _pass_late := false
+var _grace := 0.7
 
 
 var _setup_done := false
@@ -41,6 +45,7 @@ func _initialize() -> void:
 	# isn't ready, so nodes aren't yet "inside the tree" (global_position errors).
 	_appar_script = load("res://scripts/apparition.gd")
 	_hold_time = _appar_script.HOLD_TIME
+	_grace = float(_appar_script.get_script_constant_map().get("STARTLE_GRACE", 0.7))
 
 
 func _setup() -> void:
@@ -88,6 +93,22 @@ func _process(delta: float) -> bool:
 			_player.global_position += Vector3(0, 0, 2.0) * delta  # move away from it
 			if _rushed:
 				_pass_flee = true
+				_phase = 2
+				_arm_case()
+			elif _survived or _t > 4.0:
+				return _finish()
+		2:  # GRACE: a reflexive Shift tap inside the startle window, then stillness -> survives
+			_player.sprint = _t < _grace * 0.7
+			if _survived and not _rushed:
+				_pass_grace = true
+				_phase = 3
+				_arm_case()
+			elif _rushed or _t > _hold_time + 3.0:
+				return _finish()
+		3:  # LATE: the same tap after the window -> rushes (the rule is untouched past it)
+			_player.sprint = _t >= _grace + 0.3
+			if _rushed:
+				_pass_late = true
 				return _finish()
 			elif _survived or _t > 4.0:
 				return _finish()
@@ -98,7 +119,9 @@ func _finish() -> bool:
 	print("--------------------------------------------------")
 	print("STILL  -> survives (hold your nerve): ", "PASS" if _pass_still else "FAIL")
 	print("FLEE   -> rushes (moving away kills): ", "PASS" if _pass_flee else "FAIL")
-	var ok := _pass_still and _pass_flee
+	print("GRACE  -> a sprint tap inside %.2f s is forgiven: " % _grace, "PASS" if _pass_grace else "FAIL")
+	print("LATE   -> a sprint after the window still rushes: ", "PASS" if _pass_late else "FAIL")
+	var ok := _pass_still and _pass_flee and _pass_grace and _pass_late
 	print("RESULT: ", "ALL PASS" if ok else "FAILURE")
 	print("--------------------------------------------------")
 	quit(0 if ok else 1)

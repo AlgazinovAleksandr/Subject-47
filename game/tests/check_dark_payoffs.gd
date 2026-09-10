@@ -57,12 +57,20 @@ func _all(n: Node, out: Array) -> void:
 		_all(c, out)
 
 
+# Lit lamps, EXCLUDING the ones the level names as burning before the power (2026-09-10:
+# `level_1.gd:PRE_POWER_LIT`, Records — the dark wing's home bearing). `check_darkness.gd`
+# asserts that set exactly; this file asks whether the PAYOFF lights the rest.
 func _lit_count() -> int:
 	var nodes: Array = []
 	_all(current_scene, nodes)
+	var allowed: Dictionary = {}
+	var sc := current_scene.get_script() as GDScript
+	if sc:
+		allowed = sc.get_script_constant_map().get("PRE_POWER_LIT", {})
 	var n := 0
 	for x in nodes:
-		if x is OmniLight3D and (x as OmniLight3D).light_energy > 0.001:
+		if x is OmniLight3D and (x as OmniLight3D).light_energy > 0.001 \
+				and not allowed.has(String(x.name)):
 			n += 1
 	return n
 

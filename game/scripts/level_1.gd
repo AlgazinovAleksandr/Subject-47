@@ -109,6 +109,7 @@ func _ready() -> void:
 
 	_clear_old_scene()
 	_build_geometry()
+	_spawn_wing_markers()
 	_place_player()
 	_spawn_lights()
 	_spawn_notes()
@@ -431,6 +432,15 @@ const EM_TRAY := 0.20           # was 0.35
 const LIT_AMBIENT := 0.35
 const EMERGENCY_ENERGY := 0.45   # dim emergency power before the breakers are thrown
 const RESTORED_ENERGY := 1.0     # full institutional light once power is restored
+# ⭐ THE ONE ROOM LIT BEFORE THE POWER COMES BACK (2026-09-10, the user's call on a replay:
+# *"the room with the cabinet we need to push should have more light (the only room in the lab
+# with light before we press all the light switchers), so that it will be simpler to navigate
+# in the dark"*). Records holds the locker puzzle AND the wing's entrance, so a lamp here is a
+# HOME bearing for the 50 m of black maze off its west wall: its 11 m range spills through the
+# doorway into the DarkCorridor's east end and no further. Keyed by lamp NAME, never by room
+# index, and driven through the same flicker path as everything else in `_drive_lights()`.
+# `check_darkness.gd` asserts that exactly these names burn at spawn and nothing else does.
+const PRE_POWER_LIT := {"Lamp_Records": EMERGENCY_ENERGY}
 
 
 # Rooms that must never get an automatic ceiling lamp from the loop below —
@@ -1540,6 +1550,7 @@ func _process(delta: float) -> void:
 	_tick_nook_breath()
 	_tick_nook_watch(delta)
 	_tick_wing_meter(delta)
+	_tick_wing_markers(delta)
 	_tick_apparition(delta)
 
 
@@ -2272,7 +2283,9 @@ func _drive_lights(delta: float) -> void:
 		# still promises "The wing's lights come up… Get out." A 50 m walk back through a
 		# navigate-by-ear maze whose beacons the same breaker throw just killed.
 		var wing_burning: bool = _wing_lit and _wing_lamp_names.has(lamp.name)
-		if not _power_on and not wing_burning:
+		# ⭐ Records burns before the power (2026-09-10) — the second exemption, keyed by name.
+		var pre_lit: bool = PRE_POWER_LIT.has(lamp.name)
+		if not _power_on and not wing_burning and not pre_lit:
 			lamp.light_energy = 0.0
 			if entry.size() > 2 and entry[2] != null:
 				(entry[2] as StandardMaterial3D).emission_energy_multiplier = 0.0
@@ -2283,6 +2296,10 @@ func _drive_lights(delta: float) -> void:
 		# else, and this is it.
 		if wing_burning and not _power_on:
 			base = WING_LIT_ENERGY
+		# ⚠️ A FIXED level, not `entry[1]`: `_on_breaker_flipped()` raises `entry[1]` by 0.18 per
+		# breaker, and a home beacon that brightens as you solve the level is a progress meter.
+		elif pre_lit and not _power_on:
+			base = float(PRE_POWER_LIT[lamp.name])
 		if _blackout_timer > 0.0:
 			lamp.light_energy = base * (0.04 + maxf(0.0, sin(t * 37.0) * sin(t * 8.1)) * 0.15)
 		else:
@@ -2323,3 +2340,127 @@ func _play_at(base_name: String, pos: Vector3, volume_db: float = 0.0) -> void:
 	pl.position = pos
 	pl.finished.connect(pl.queue_free)
 	pl.play()
+
+
+# ---------------------------------------------------------------- the wing's doorway markers
+#
+# ⭐ PHOTOLUMINESCENT EGRESS STRIPS ON EVERY WING DOORWAY (2026-09-10, the user's call on a replay:
+# *"Currently it is impossible to find it if you do not know the path already. Figure out the way
+# to make it easier but not too easy"*). The diagnosis behind this choice, put to the user and
+# accepted: the wing was hard not because it has three dead ends but because in pitch black a
+# doorway is invisible, so every choice at every junction was made by walking into walls. The
+# strips make the TOPOLOGY readable — you can see where the openings are — and leave the ROOMS
+# black and the answer where it was: in the hum, and in the meter. "Easier but not too easy" is
+# exactly the line between showing the doors and showing the way.
+#
+# ⚠️ EMISSION, DIM, AND FADED BY DISTANCE. Emission is the only thing that renders in a room at
+# ambient 0.0 with the torch locked off — and with no fog it renders at ANY distance, so an
+# always-on strip would let a player read the whole wing from its mouth like a lit map. So each
+# strip's emission is scaled to zero between MARK_NEAR and MARK_FAR of the player: the topology
+# is read locally, junction by junction, never from afar. The ceiling is MARK_EMISSION 0.14, a
+# quarter of a Lab fitting, so a strip is a mark, never a lamp (Issue 21: above 1.0 clamps to
+# white). No collider (a collider on a doorway is how this project seals a room by accident),
+# 0.03 m proud of the wall face (check_wall_overlap's 2 cm floor), inside check_prop_mounting's
+# Lab band, and outside check_fixtures' 0.8 m light radius (the wing lamps sit at room centres).
+# ⚠️ On BOTH faces of the wall, so a doorway is marked from whichever room you approach it —
+# a strip on one side only tells you where you came from.
+const MARK_EMISSION := 0.14
+const MARK_COLOUR := Color(0.35, 0.9, 0.45)     # phosphor green — every egress strip ever made
+const MARK_ALBEDO := Color(0.05, 0.08, 0.05)
+const MARK_SIZE := Vector3(0.035, 1.9, 0.015)
+const MARK_Y := 0.95
+const MARK_GAP := 0.06         # from the opening's edge to the strip
+const MARK_PROUD := 0.03       # from the wall face to the strip's back
+const MARK_NEAR := 6.0         # full emission inside this...
+const MARK_FAR := 12.0         # ...and none beyond this
+const MARK_TICK := 0.1
+
+var _wing_markers: Array = []        # [MeshInstance3D, StandardMaterial3D]
+var _mark_tick: float = 0.0
+
+
+# Every doorway that touches a wing room, from the level's own tables — never a typed list.
+func _wing_doorways() -> Array:
+	var out: Array = []
+	for d in DOORS:
+		var p: Vector2 = d["pos"]
+		var wing := false
+		for r in ROOMS:
+			if not WING_ROOMS.has(String(r["name"])):
+				continue
+			var c: Vector2 = r["pos"]
+			var half: Vector2 = (r["size"] as Vector2) * 0.5
+			# The doorway centre lies ON the room's boundary; a hair of slack finds it.
+			if absf(p.x - c.x) <= half.x + 0.05 and absf(p.y - c.y) <= half.y + 0.05:
+				wing = true
+				break
+		if wing:
+			out.append(d)
+	return out
+
+
+func _spawn_wing_markers() -> void:
+	_wing_markers.clear()
+	var i := 0
+	for d in _wing_doorways():
+		var p: Vector2 = d["pos"]
+		var w: float = float(d["width"])
+		var along_x: bool = String(d["dir"]) == "x"   # you walk THROUGH the doorway along x
+		# The wall's plane is perpendicular to the passage axis; the opening runs along the other.
+		var passage := Vector3(1, 0, 0) if along_x else Vector3(0, 0, 1)
+		var lateral := Vector3(0, 0, 1) if along_x else Vector3(1, 0, 0)
+		var centre := Vector3(p.x, MARK_Y, p.y)
+		var proud: float = RoomBuilder.T / 2.0 + MARK_PROUD + MARK_SIZE.z / 2.0
+		var out_lat: float = w / 2.0 + MARK_GAP + MARK_SIZE.x / 2.0
+		for face in [-1.0, 1.0]:
+			for side in [-1.0, 1.0]:
+				var mi := MeshInstance3D.new()
+				mi.name = "WingMark_%d_%s_%s" % [i, "a" if face < 0 else "b", "l" if side < 0 else "r"]
+				var bm := BoxMesh.new()
+				bm.size = MARK_SIZE
+				mi.mesh = bm
+				var mat := StandardMaterial3D.new()
+				mat.albedo_color = MARK_ALBEDO
+				mat.roughness = 0.9
+				mat.emission_enabled = true
+				mat.emission = MARK_COLOUR
+				mat.emission_energy_multiplier = 0.0    # the tick sets it from the distance
+				mi.material_override = mat
+				mi.position = centre + passage * (face * proud) + lateral * (side * out_lat)
+				# A strip is a thin box whose depth runs along the passage axis; turn it so its
+				# thin dimension (local z) faces down the passage and its width lies along the wall.
+				if along_x:
+					mi.rotation.y = PI / 2.0
+				mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				add_child(mi)
+				_wing_markers.append([mi, mat])
+		i += 1
+
+
+func _tick_wing_markers(delta: float) -> void:
+	if _wing_markers.is_empty():
+		return
+	_mark_tick -= delta
+	if _mark_tick > 0.0:
+		return
+	_mark_tick = MARK_TICK
+	var pl := _player()
+	if not pl:
+		return
+	var here: Vector3 = pl.global_position
+	for m in _wing_markers:
+		var mi: MeshInstance3D = m[0]
+		if not is_instance_valid(mi):
+			continue
+		var d: float = here.distance_to(mi.global_position)
+		var k: float = clampf((MARK_FAR - d) / (MARK_FAR - MARK_NEAR), 0.0, 1.0)
+		(m[1] as StandardMaterial3D).emission_energy_multiplier = MARK_EMISSION * k
+
+
+# Test surface: the strips and their current emission, so a guard can assert the fade.
+func wing_marker_nodes() -> Array:
+	var out: Array = []
+	for m in _wing_markers:
+		if is_instance_valid(m[0]):
+			out.append(m[0])
+	return out
