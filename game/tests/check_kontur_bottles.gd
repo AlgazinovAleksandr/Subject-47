@@ -90,14 +90,13 @@ func _process(_delta: float) -> bool:
 	_ok("the vinegar went back on its ledge", _bottle("vinegar") != null,
 		"<- the softlock: it used to be gone forever")
 
-	print("--- spraying a wrong bottle (poison) strikes but restocks ---")
-	var strikes_before: int = _kontur.get("_strikes")
+	print("--- spraying a wrong bottle (poison) condemns but restocks ---")
+	var condemned_before: bool = bool(_kontur.get("_condemned"))
 	var barrier := _kontur.get_node_or_null("FungalBarrier")
 	_ok("FungalBarrier present", barrier != null)
 	if barrier:
 		barrier.call("interact")
-		_ok("a wrong bottle still strikes", _kontur.get("_strikes") == strikes_before + 1,
-			"%d -> %d" % [strikes_before, _kontur.get("_strikes")])
+		_ok("a wrong bottle CONDEMNS (K2)", not condemned_before and bool(_kontur.get("_condemned")))
 		_ok("hands are empty after spraying", _kontur.get("_held_bottle") == "")
 		_ok("the spent poison restocked", _bottle("poison") != null)
 		_ok("gate 2 is still unpassed", _kontur.get("_gates")["shelf"] == false)

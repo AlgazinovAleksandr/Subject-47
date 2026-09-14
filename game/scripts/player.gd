@@ -66,6 +66,7 @@ const HIDE_TORCH_DIM := 0.32
 @onready var camera: Camera3D = $Camera3D
 @onready var flashlight: SpotLight3D = $Camera3D/Flashlight
 @onready var interact_label: Label = $InteractUI/Label
+var _default_prompt := ""   # the scene's own label text ("Press E"); a prop's prompt_text() overrides it
 @onready var footstep_player: AudioStreamPlayer3D = $FootstepPlayer
 
 var _pitch: float = 0.0
@@ -131,6 +132,7 @@ func _ready() -> void:
 	# the bit on its reflection camera; this is the other half of that contract.
 	camera.cull_mask &= ~(1 << (MIRROR_ONLY_LAYER - 1))
 	interact_label.visible = false
+	_default_prompt = interact_label.text
 	# ⭐ THE TORCH IS CONFIGURED HERE, NOT IN TEN SCENES (2026-09-03).
 	#
 	# ⚠️ The `Flashlight` SpotLight3D is duplicated VERBATIM in all ten level `.tscn` files, and
@@ -557,7 +559,11 @@ func _find_scary_object(node: Node) -> Node:
 
 func _update_panic(delta: float, target: Node) -> void:
 	var scary := _find_scary_object(target) if target else null
-	if scary:
+	# ⚠️ A ScaryObject at intensity 0 is NOT a gaze source (2026-09-12, Issue 196). Without the
+	# `> 0.0` a harmless-tier or burnt-out Weeping Frame took this branch and skipped the decay
+	# below, so a player looking at a painting had their panic FROZEN — measured: 38 % held for
+	# 30 s with no entity present, then a death at 90 % in THE NIGHTMARE's four-seed bot run.
+	if scary and scary.scare_intensity > 0.0:
 		var intensity: float = scary.scare_intensity
 		_panic += delta * intensity * PANIC_BASE_RATE
 	elif _is_sprinting:
@@ -1080,6 +1086,12 @@ func _update_interact_prompt() -> void:
 	if not _is_interactable(_interact_target):
 		_interact_target = null
 	interact_label.visible = _interact_target != null
+	# K4 (2026-09-13): a prop may name its own verbs (KONTUR's phones: "E — answer · SPACE — smash").
+	var want: String = _default_prompt
+	if _interact_target != null and _interact_target.has_method("prompt_text"):
+		want = String(_interact_target.prompt_text())
+	if interact_label.text != want:
+		interact_label.text = want
 
 
 # A prop is interactable if it has interact() — and, optionally, if it says so.

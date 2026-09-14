@@ -7,8 +7,10 @@ extends Node3D
 #
 #   0-2 sconces  Harmless. They hang there. They make no sound. Purely decorative.
 #   3-4 sconces  Within 4 m they weep, and staring feeds panic. Still not fatal.
-#   5+  sconces  Three seconds of continuous gaze is fatal, and the frame visibly
-#                ignites as the wind-up.
+#   5+  sconces  Three seconds of continuous gaze IGNITES the frame — it burns out and is
+#                inert afterwards. ⚠️ It used to be FATAL at this tier (DN's rule) and stopped
+#                being so on 2026-09-12: THE NIGHTMARE is "hard to lose" by the user's call, and
+#                the panic bar is its only death. `lethal` keeps the old branch reachable.
 #
 # This is the best teaching structure in the source material, and it is a BETTER
 # implementation of "a rule's first encounter must be survivable" than the usual
@@ -27,6 +29,10 @@ const IGNITE_EMISSION_MAX := 0.9
 
 @export var art_path: String = ""
 @export var open_eyes_path: String = ""
+# ⚠️ false by default since 2026-09-12: the fatal tier burns the painting out instead of the
+# player. Gaze panic (GAZE_INTENSITY 0.9 = 18/s inside the player's 3 m gaze range) is the
+# whole cost, and no extra term is charged at the burn — the user's decision, not a tuning.
+@export var lethal: bool = false
 
 var audible: bool = false
 var fatal: bool = false
@@ -115,9 +121,18 @@ func set_audible(on: bool) -> void:
 	_scary.scare_intensity = GAZE_INTENSITY if on else 0.0
 
 
-# Tier 3 (5 sconces): staring for three seconds is now fatal.
-func set_fatal(on: bool) -> void:
+# Tier 3 (5 sconces): staring for three seconds ignites the frame (fatal only if `lethal`).
+func set_ignites(on: bool) -> void:
 	fatal = on
+
+
+# Kept as an alias for the old name; the tier it names is the same one.
+func set_fatal(on: bool) -> void:
+	set_ignites(on)
+
+
+func is_burnt() -> bool:
+	return _fired and not lethal
 
 
 func _process(delta: float) -> void:
@@ -155,11 +170,51 @@ func _process(delta: float) -> void:
 			_begin_ignite()
 		if _gaze_t >= FATAL_GAZE_TIME:
 			_fired = true
-			Screamer.trigger()
+			if lethal:
+				Screamer.trigger()
+			else:
+				_burn_out()
 	else:
 		if _igniting:
 			_abort_ignite()
 		_gaze_t = 0.0
+
+
+# ⭐ The Gallery archetype's scare (2026-09-12): the painting drops off its wall behind the
+# player — a crash in the dark, a frame face-down on the flags, and the wall bare. Inert
+# afterwards (no gaze panic, no weeping, no ignition). Zero panic of its own.
+func fall() -> void:
+	if _fired:
+		return
+	_fired = true
+	if _scary:
+		_scary.scare_intensity = 0.0
+	if _weep and _weep.playing:
+		_weep.stop()
+	var s := GameState.load_audio("painting_fall")
+	if s:
+		var pl := AudioStreamPlayer3D.new()
+		pl.stream = s
+		pl.unit_size = 10.0
+		pl.max_db = 6.0
+		pl.volume_db = 4.0
+		_body.add_child(pl)
+		pl.play()
+		pl.finished.connect(pl.queue_free)
+	# Pitch forward off the hook and drop; the landing slides ~0.5 m out along the frame's own
+	# forward (`basis.z`, the House painting's lesson — never a hard-coded axis).
+	var out: Vector3 = _body.global_transform.basis.z.normalized() * 0.5
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(_body, "rotation:x", deg_to_rad(-84.0), 0.55) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_property(_body, "global_position",
+		Vector3(_body.global_position.x + out.x, 0.07, _body.global_position.z + out.z), 0.55) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+
+
+func has_fallen() -> bool:
+	return _fired
 
 
 func _begin_ignite() -> void:
@@ -180,6 +235,23 @@ func _begin_ignite() -> void:
 	var tw := create_tween()
 	tw.tween_property(_mat, "emission_energy_multiplier", IGNITE_EMISSION_MAX,
 		FATAL_GAZE_TIME - 0.6)
+
+
+# The non-lethal end of the wind-up: the canvas blackens, the weeping stops, and the frame is
+# inert for the rest of the night. No panic term here — the three seconds of gaze already cost
+# 18/s if the player was inside gaze range, and a burn that also charged would be a second fee
+# for one act.
+func _burn_out() -> void:
+	_fired = true
+	_igniting = false
+	if _weep and _weep.playing:
+		_weep.stop()
+	if _scary:
+		_scary.scare_intensity = 0.0
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(_mat, "emission_energy_multiplier", 0.0, 1.5)
+	tw.tween_property(_mat, "albedo_color", Color(0.12, 0.1, 0.09), 1.5)
 
 
 func _abort_ignite() -> void:

@@ -75,9 +75,6 @@ const GLASS_T := 0.035
 # look at Object 12 was invisible from the direction it was staged for. The leaf is now
 # four slabs around a glazed port, which is also what breaks up the torch hotspot that made
 # a dark door photograph as a luminous white panel.
-const PORT_W := 1.32              # leaf is 1.74 wide -> 0.21 m stiles
-const PORT_Y0 := 1.30
-const PORT_Y1 := 2.25
 
 # Backlit interior liners (see the header). Dark albedo, because emission is most of a
 # surface's colour here and a pale albedo under them would blow out (Issue 21).
@@ -200,80 +197,68 @@ func _build_shell() -> void:
 	# ...and the one-sided backlit panel standing just inside it. See BACKLIT_ENERGY.
 	_capture_liner(_backlit_panel("LinerNorth", Vector2(pane_w, pane_h),
 		Vector3(0, pane_y, BACKLIT_INSET), PI))
-	# West: the clear viewing window, on the side the walking line runs down.
-	_box("PaneWest", Vector3(GLASS_T, pane_h, pane_z),
-		Vector3(-(hx - GLASS_T), pane_y, 0), glass)
+	# ⭐ K1b (2026-09-14, captures #014/#015: "you still did the prison cell on the wrong side —
+	# this is the first view"). The west face is the WALKING LINE'S face — it dominates 5.85 m of
+	# the approach against the south bars' 1.15 m, and which antechamber you arrive through is a
+	# coin flip — so it is BARS as well: a plain grille, no gate furniture (the furniture blinded
+	# headings on the south face), and no bar on the occupant's own line (local z 0.12).
+	var wbar_h: float = HEIGHT - 0.22
+	var wbar_y: float = 0.16 + wbar_h / 2.0
+	# ⚠️ Seven bars at -0.58 … 0.62, NOT eight at -0.68 … 0.72: the first pitch put a bar at
+	# z -0.68 exactly where the south-west diagonal (sightline sweep heading 224° at 3.2 m)
+	# crosses the west face, with the gate bar at x -0.7 on the same line — 0 of 12 body
+	# points visible. A 0.1 m shift clears it and keeps the grille symmetric between the posts.
+	for i4 in range(7):
+		var bz: float = -0.58 + i4 * 0.2
+		if absf(bz - 0.12) < 0.08:
+			continue
+		_box("WestBar", Vector3(0.03, wbar_h, 0.03), Vector3(-(hx - 0.03), wbar_y, bz), steel)
+	for ry2 in [0.55, 2.30]:
+		_box("WestRail", Vector3(0.03, 0.05, pane_z), Vector3(-(hx - 0.03) + 0.035, ry2, 0), trim)
 	# ⚠️ EAST IS AN OPAQUE BACKLIT LINER, NOT GLASS. The booth's east face stands 0.15 m
 	# from the Passage wall — nobody can get behind it, so it is worth more as the lit
 	# surface the occupant is a shadow against from the west than as a fourth window.
 	_capture_liner(_box("LinerEast", Vector3(GLASS_T, pane_h, pane_z),
 		Vector3(hx - GLASS_T, pane_y, 0), liner))
 
-	# The door: an opaque steel leaf with an observation port, a wheel, a rail and a
-	# hazard placard. It is geometry only — no hinge, no `interact()`, nothing to press.
+	# ⭐ K2 (2026-09-13, capture #011, the user: "still doesn't look like a prison cell from the
+	# front"; their choice: OPEN BARRED FRONT, NO STEEL DOOR). The -z face is nine Ø40 mm bars
+	# at 0.2 m pitch, full height, over an open void, with two cross rails and a barred GATE
+	# section carrying a lock plate — a jail cell, and Object 12 is seen through it. The old
+	# leaf, its port, wheel, rail and chevrons are gone. The one-sided south liner stays: it is
+	# culled for anyone in front of the bars and is the backdrop from the north end.
+	# `check_kontur_entities.gd`'s sightline sweep (23 headings) is re-measured against this.
 	var dz: float = -hz + 0.03
 	var leaf_w: float = SIZE.x - 2.0 * POST - 0.02
-	var leaf_y0: float = 0.16
-	var leaf_y1: float = 0.16 + HEIGHT - 0.24
-	_port_panels("Door", leaf_w, leaf_y0, leaf_y1, dz, 0.07, steel)
-	# ⚠️ THE SOUTH BACKDROP IS THE SAME ONE-SIDED TRICK, MIRRORED, AND THE OBVIOUS BUILD
-	# FAILED FOR A REASON WORTH KEEPING. The first version lined the door with a four-slab
-	# inner skin carrying the SAME port opening, so that the port still saw through it.
-	# Measured, that left the north headings at a contrast of 0.13-0.20 — because the
-	# occupant stands at chest height, which is exactly where the hole is: the liner
-	# backed the figure everywhere except behind the figure. A single full-height panel
-	# facing +z solves both halves at once. It is drawn for anyone at the north end of the
-	# Passage and culled for anyone at the port, who therefore still looks straight
-	# through the opening at the occupant.
-	_capture_liner(_backlit_panel("LinerSouth", Vector2(pane_w, pane_h), Vector3(0, pane_y, dz + 0.10), 0.0))
+	var pane_w2: float = pane_w
+	_capture_liner(_backlit_panel("LinerSouth", Vector2(pane_w2, pane_h), Vector3(0, pane_y, dz + 0.10), 0.0))
 
-	# The port itself: recessed glass, a proud bead frame, and two bars.
-	var port_h: float = PORT_Y1 - PORT_Y0
-	var port_y: float = (PORT_Y0 + PORT_Y1) / 2.0
-	_box("PortGlass", Vector3(PORT_W, port_h, GLASS_T), Vector3(0, port_y, dz), glass)
-	var bead_z: float = dz - 0.055
-	_box("PortBeadTop", Vector3(PORT_W + 0.12, 0.06, 0.02),
-		Vector3(0, PORT_Y1 + 0.03, bead_z), trim)
-	_box("PortBeadBottom", Vector3(PORT_W + 0.12, 0.06, 0.02),
-		Vector3(0, PORT_Y0 - 0.03, bead_z), trim)
-	for sxb in [-1.0, 1.0]:
-		_box("PortBeadSide", Vector3(0.06, port_h + 0.12, 0.02),
-			Vector3(sxb * (PORT_W / 2.0 + 0.03), port_y, bead_z), trim)
-	# ⚠️ TWO bars, not a grid. Every bar is silhouette taken away from the one thing this
-	# prop exists to show; two at 22 mm cost 3.3 % of the opening.
-	for sxg in [-1.0, 1.0]:
-		_box("PortBar", Vector3(0.022, port_h, 0.022),
-			Vector3(sxg * 0.30, port_y, bead_z), trim)
+	var bar_h: float = HEIGHT - 0.22
+	var bar_y: float = 0.16 + bar_h / 2.0
+	# ⚠️ Every bar is silhouette taken from the occupant — Ø30 mm at 0.2 m pitch is 13.5 % of
+	# the frontage, and the gate's two stiles REPLACE the bars at ±0.4 rather than standing
+	# beside them (a first build with Ø40 bars, 0.06 stiles and a 0.16 m lock box blinded the
+	# 180°/210° headings in check_kontur_entities.gd's sightline sweep).
+	# ⚠️ No bar on the centre line: the occupant stands at x = 0 and the sightline sweep's
+	# dead-on heading (180° at 3.2 m) went blind behind a bar at x 0.0. Eight bars, ±0.1 … ±0.7.
+	for i3 in range(8):
+		var bx: float = -0.7 + i3 * 0.2
+		if absf(absf(bx) - 0.5) < 0.01:
+			continue   # the gate stiles stand here
+		_box("GateBar", Vector3(0.03, bar_h, 0.03), Vector3(bx, bar_y, dz), steel)
+	for ry in [0.55, 2.30]:
+		_box("GateRail", Vector3(leaf_w, 0.05, 0.03), Vector3(0, ry, dz - 0.035), trim)
+	# The gate: a framed section between x -0.4 and 0.4 with a lock box on its right stile and
+	# hinge knuckles on its left — the part of the front that OPENS, and never does.
+	for sx in [-0.5, 0.5]:
+		_box("GateStile", Vector3(0.05, bar_h - 0.1, 0.05), Vector3(sx, bar_y, dz - 0.04), trim)
+	_box("GateHead", Vector3(1.05, 0.05, 0.05), Vector3(0, 0.16 + bar_h - 0.08, dz - 0.04), trim)
+	_box("GateSill", Vector3(1.05, 0.05, 0.05), Vector3(0, 0.22, dz - 0.04), trim)
+	_box("GateLock", Vector3(0.11, 0.16, 0.06), Vector3(0.60, 0.95, dz - 0.055), trim)
+	_box("GateKeyhole", Vector3(0.02, 0.04, 0.01), Vector3(0.60, 0.95, dz - 0.09), hazard)
+	for hy in [0.45, 1.75]:
+		_box("GateHinge", Vector3(0.06, 0.09, 0.06), Vector3(-0.5, hy, dz - 0.045), steel)
 
-	# ⚠️ THE WHEEL, THE RAIL, THE CHEVRONS AND THE PLACARD ALL MOVED WITH THE PORT. Every
-	# one of them used to sit inside what is now the opening — the wheel at y 1.16, the
-	# rail straight across at 1.34, the chevron band at 2.16 and the placard at 1.80.
-	var wheel := MeshInstance3D.new()
-	wheel.name = "DoorWheel"
-	var tor := TorusMesh.new()
-	tor.inner_radius = 0.11
-	tor.outer_radius = 0.16
-	wheel.mesh = tor
-	wheel.material_override = trim
-	wheel.rotation.x = PI / 2.0
-	wheel.position = Vector3(0.42, 0.62, dz - 0.09)
-	add_child(wheel)
-	# ⚠️ Two CROSSED bars in the door's own plane, not four rotated about the wrong axis.
-	# The first pass rotated each spoke by (PI/2, 0, a) — Godot composes YXZ, so all four
-	# ended up in very nearly the same place and the wheel rendered as a "Ø".
-	for a in [0.0, PI / 2.0]:
-		_box("WheelSpoke", Vector3(0.30, 0.026, 0.030),
-			Vector3(0.42, 0.62, dz - 0.09), trim, Vector3(0, 0, a))
-	_box("DoorRail", Vector3(leaf_w, 0.06, 0.10), Vector3(0, 1.14, dz - 0.02), trim)
-
-	# A hazard chevron band and a bilingual placard. Cheap, and it is what says "sealed
-	# Soviet facility" rather than "a grey box with a window".
-	# ⚠️ The band stands PROUD OF THE BEAD (z -0.085 against -0.055): on the head panel it
-	# shares a height band with the port's top bead, and two 12 mm slabs in one plane is
-	# this project's most common bug class.
-	for i2 in range(7):
-		_box("Chevron", Vector3(0.16, 0.10, 0.012),
-			Vector3(-0.66 + i2 * 0.22, 2.40, dz - 0.085), hazard, Vector3(0, 0, 0.5))
 	var plate := Label3D.new()
 	plate.name = "CellPlacard"
 	plate.text = "ОБЪЕКТ 12\nOBJECT 12 — CONTAINED\nНЕ ОТКРЫВАТЬ"
@@ -282,7 +267,9 @@ func _build_shell() -> void:
 	plate.modulate = Color(0.74, 0.72, 0.66)
 	plate.outline_size = 0
 	plate.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	plate.position = Vector3(-0.30, 0.90, dz - 0.06)
+	# On the cap's front face, above the bars (the leaf it used to hang on is gone).
+	plate.font_size = 30
+	plate.position = Vector3(0, HEIGHT + 0.07, -(hz + 0.07) - 0.006)
 	plate.rotation.y = PI
 	add_child(plate)
 	_placard = plate
@@ -489,23 +476,6 @@ func _mat(albedo: Color, metallic: float, rough: float) -> StandardMaterial3D:
 # even though their faces are coincident, and it is worth knowing why: `_faces_fight()`
 # only considers a pair that overlaps by more than 0.35 m in BOTH other axes, and a door
 # leaf is 0.07 m thick. Give this leaf real depth and the abutment becomes a finding.
-func _port_panels(prefix: String, w: float, y0: float, y1: float,
-		z: float, thick: float, mat: Material) -> void:
-	var hw: float = w / 2.0
-	var phw: float = PORT_W / 2.0
-	for sx in [-1.0, 1.0]:
-		var stile_w: float = hw - phw
-		_box(prefix + "Stile", Vector3(stile_w, y1 - y0, thick),
-			Vector3(sx * (phw + stile_w / 2.0), (y0 + y1) / 2.0, z), mat)
-	_box(prefix + "Sill", Vector3(PORT_W, PORT_Y0 - y0, thick),
-		Vector3(0, (y0 + PORT_Y0) / 2.0, z), mat)
-	_box(prefix + "Head", Vector3(PORT_W, y1 - PORT_Y1, thick),
-		Vector3(0, (PORT_Y1 + y1) / 2.0, z), mat)
-
-
-# The lit surface the occupant is a shadow against. ⚠️ Emission, not albedo: a pale albedo
-# would need a light in the booth, and a light in the booth lights the occupant too, which
-# is the one thing that must not happen.
 func _liner_mat() -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = LINER_ALBEDO

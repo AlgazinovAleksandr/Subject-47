@@ -56,6 +56,23 @@ func _ready() -> void:
 	# `bus = "Body"` logs an error and silently falls back to Master — which would put the
 	# heartbeat back on the duckable path and break every silence effect. See audio_buses.gd.
 	AudioBuses.ensure_core()
+	_fit_render_to_display()
+
+
+## ⚠️ 2026-09-13: macOS killed the game for low memory on an 8 GB machine while it rendered
+## 3D at the display's NATIVE 5120×2880 (a 2× Retina panel showing 2560×1440). The UI is laid
+## out under `canvas_items` stretch and stays sharp; only the 3D image is halved on HiDPI, to
+## the logical size, which is what a 1080p-era horror game expects. Measured with
+## `tests/probe_memory.gd`: renderer memory in the dungeon 577 → 494 MB at scale 0.5 on the
+## 3024×1898 built-in panel (bigger saving on the 5K panel). Non-Retina displays keep 1.0.
+const HIDPI_3D_SCALE := 0.5
+
+
+func _fit_render_to_display() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	if DisplayServer.screen_get_scale() > 1.0:
+		get_viewport().scaling_3d_scale = HIDPI_3D_SCALE
 
 
 func reset_level_state() -> void:

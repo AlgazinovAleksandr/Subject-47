@@ -16,6 +16,10 @@ state of chase-led design. Do not add a third pursuer.
 
 ## Commands
 
+⚠️ **Memory (2026-09-13, Issue 203):** every texture imports VRAM-compressed and 3D renders at half
+scale on HiDPI (`GameState.HIDPI_3D_SCALE`). A test that reads texture pixels must `decompress()`.
+`tests/probe_memory.gd` prints the renderer's memory for a scene at both scales.
+
 Godot lives at `/Applications/Godot.app/Contents/MacOS/Godot`; every test/tool honours a `GODOT`
 env override. The Godot project root is `game/` — all commands take `--path game`. There is no
 build, lint or package step: the game runs from source, and `--import` is the only "build".
@@ -248,6 +252,37 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
   × `uv1_scale`, because the note deliberately UV-crops a square, black-backed source)
 
 **Level 1 — The Lab (institutional wing)** — rebuilt procedurally (Session 10)
+- ⭐⭐ **2026-09-13 (evening playtest, `BACKLOG_Sep_13b.md` L1/L2):** **nothing fullscreen before
+  the keycard** — the nook payoff keeps its turned-camera figure, scream and +20 but the
+  `lab_nook_face.png` flash is GONE (the figure holds `NOOK_FIGURE_HOLD` 0.6 s instead), and the
+  `ApparitionDirector` is suppressed until `GameState.has_keycard` (`on_keycard_taken()` pushes its
+  clock so the scripted HOLD goes first; `count_apparitions` asserts zero before the keycard). The
+  wing is **28 rooms with two LOOPS** (Plant→PlantDrop→Cistern; NorthVault→VaultRun→VaultNeck→
+  Gallery→Riser) and every dead end two rooms deep (PumpPit, SumpWell, VentShaft, BoilerPit); the
+  PANEL HUM meter is **near-only** (`LabWingMeter.NEAR_HOPS` 3, doorway hops) and the laugh window
+  is 30–70 s. Issue 205 (two doorways closer than 2.6 m z-fight their bridges).
+- ⭐⭐ **2026-09-14 (`BACKLOG_Sep_14.md` L1–L3, the user's second run):** the HOLD apparition
+  **retries on an abort and latches only on an appearance** (`Apparition.appear() -> bool`,
+  `ApparitionDirector.arm()` returns it, deadline on the wall clock — Issue 207; the second run
+  never saw it); the **wing screamer is unmissable**: the `DoorLunger` glows (`set_glow` 1.6 +
+  `add_light`, Issue 208), the player is pinned and turned to it, it holds `WING_SCREAM_HOLD` 1.4 s
+  and flees (centre luminance 0.0006 → 0.109, `screenshot_wing_screamer.gd`); and the **PANEL HUM
+  meter is live everywhere in the wing again** (the near-only gating is reverted, the user's call).
+- ⭐⭐ **THE WING IS TWENTY-ONE ROOMS SINCE 2026-09-13 (`BACKLOG_Sep_13.md` L1, the user's
+  design).** `SouthHall` now runs on into a second tier — Cistern (the old nook) → LowerRun →
+  Crossing → FarHall → Turn → Shaft → **BreakerNook at (−57, 16.5), breaker on its WEST wall**
+  (`BREAKER_POS` (−59.85, 1.1, 16.5)) — with Sump, Vent, Gallery and Boiler as new dead ends:
+  6 decisions, 7 dead ends, ~62 m of path. The markers are **dark red** (`MARK_COLOUR`), the
+  breaker beat waits **`NOOK_SCARE_DELAY` 20 s** of breathing, and the wing carries three beats
+  (`_tick_wing_beats`): **the presence** (`lab_wing_hunter.gd`, follows your footstep trail at
+  1.6 m/s while you walk, stops when you stop, never inside 2.5 m, a contact is +12 and it drops
+  back 6 m; wakes at Junction, sleeps when the wing lights), **the laugh** (`wing_laugh.ogg`,
+  once, 60–110 s in, from a room you have not visited) and **the mid-search screamer**
+  (`wing_monster.png` as a `DoorLunger`, once, ≥ 8 m from the breaker, +15, no fullscreen
+  image). The HOLD apparition arms from the KEYCARD now (`APPARITION_AT` 8–16 s after it,
+  deadline 30) and never fires in the wing (`_in_wing()`). Guards: `walk_lab_wing`,
+  `check_wing_meter`, `check_wing_markers` (21 doorways), `check_wing_beats`,
+  `check_lab_apparition_timing`. Issue 200 was found on the way.
 - ⭐⭐ **DARKER STILL SINCE 2026-09-07 — THE BEAM, NOT THE AMBIENT.** The user: *"you need to come
   closer to the objects with the flashlights to see them."* Ambient was already 0.02 and every lamp
   already held at zero, so the only lever left was the torch: `level_1.gd` calls
@@ -372,6 +407,22 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
 - Win: restore power → take keycard from the morgue → exit door (`KEYCARD`). Fail: trigger object, apparition rush (if you sprint), or panic bar fills
 
 **Level 2 — The House (abandoned domestic interior)** — rebuilt procedurally (Session 10)
+- ⭐⭐ **2026-09-13 (H1b):** the map's glass is a **ROOM**: `_place_glass()` glazes every open edge of
+  the key's cell (`_pane_rects`, solid to the icon and the monsters until `_break_glass()`); the mark
+  is `house_map_key_icon.png` and the hammer icon was redrawn upright (`tools/make_map_icons.py`).
+  `_is_won()` = fragments empty AND `_glass_broken` AND on the key; the hammer meets a pane through
+  `_check_fragments()` → `_check_glass()`, so the bot harnesses hit it. 28/40 unchanged.
+- ⭐⭐ **2026-09-13 (`BACKLOG_Sep_13.md` H1–H4):** the map game's stages are a **hammer** and a
+  **glass case with the key in it** (`tools/make_map_icons.py`; the seal is a glass pane, a
+  `glass_shatter` + cracked case for `WIN_HOLD` 0.4 s on the win; no mechanic moved). The
+  **second digit is on the forehead of the head in the fridge** (`house_fridge_thing_digit.png`,
+  read by gaze → `SafeNote_Head`), the fridge wears a **chain + padlock** (`chained`,
+  `chain_tried` → the level cuts it if the **bolt cutters** are held), and the cutters lie
+  half under the Bedroom bed, `visible` only with the torch aimed ≤ −30° from within 3.2 m
+  (`bolt_cutters.gd`, `_tick_cutters`). `SafeNote_Bedroom` is gone; `SAFE_NOTES_TOTAL` stays 3.
+  The cellar child's scream is re-mastered to −3 dBFS and lands 0.3 s into the dip. The
+  correct code makes the lock FALL (`lock_drop.wav`) and the door asks **ARE YOU SURE YOU WANT
+  TO GO IN THERE?** Guards: `check_house_fridge_chain`, `check_house_lock`, `check_maze_traps`.
 - ⭐⭐ **AND DARKER STILL SINCE 2026-09-07** — the same change as the Lab, for the same reason:
   `set_torch_profile(11.0, 24.0)` and `DARK_AMBIENT` 0.02 → **0.0**, with every self-lit prop
   halved (the forest window 0.90 → 0.40, the TV static panel 0.70 → 0.30, notes 0.60 → 0.25, the
@@ -606,6 +657,45 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
 - **Lock penalty**: each wrong combination = harsh buzz (`lock_buzz.wav`) + 10 panic — brute-forcing the lock is itself a fail path
 
 **Level 3 — The Corridor (haunted hotel hallway)** — inspired by *The Corridor* (2012)
+- ⭐⭐ **2026-09-13 (C1/C2):** the three spurs are **three different shut-ins** with a Space-mash
+  escape (`spur_escape.gd`, three bars, `SlamDoor.force_open()`, fallback `SPUR_SHUT_TIME` 20 s):
+  "note" (a page on the end wall, a light strip under the shut door and a shadow crossing it at bar
+  2), "plea" (the voice rises per bar, stops mid-word at the third, a hand-print appears on the end
+  wall), "mirror" (a real `MirrorSurface` on the end wall with a mirror-only figure behind you).
+  And **two FORKS** (`FORKS` at 118 and 380, side +1): a wrong branch that loops out 8 m, across
+  9 m and back through a `SlamDoor` that opens when you reach the far corner; a dead torch and a
+  bare floor are the tells; a `fork_note.png` page and a vanishing figure inside. Zero panic in all
+  of it. `walk_corridor` mashes two spurs, waits the third's fallback and walks both loops.
+- ⭐⭐ **2026-09-14 (`BACKLOG_Sep_14.md` C1–C6, the user's design — "every spur must present
+  something different"):** `SIDE_PASSAGES` carry a **kind**: 105 keeps the note + Space-mash
+  (`spur_escape.gd`); 245 is **BELL-AND-WAIT** (`spur_bell.gd`: a reception desk, E rings, footsteps
+  approach 22 m over 9 s and stop behind you; turn round and the door opens; hold facing the desk
+  and a card page `BellCard` is on the desk); 330 is the **PASS-BY CUPBOARD** (`spur_cupboard.gd`: a
+  slatted cupboard seals, the Manager `DoorLunger` walks past at 0.9 m/s; still + torch off 8 s →
+  `latch_release`; move or torch → it stops and growls, no death; fallback 45 s; the spur mirror is
+  inside the cupboard). **`CORNER_BRANCHES`** at 320 (loop-back to the previous corner, slam,
+  re-armed trap) and 365 (**blind navigation**: `blind_room.gd` — torch locked, the room's map
+  flashes 0.4 s behind you, per-wall knock SFX, a two-layer hum on the lever, fallback 60 s) continue
+  straight past the corner, with a **wet-footprint trail** (`_spawn_footprint_trail`) leading INTO the
+  wrong branch — ⚠️ the mouth is cut on the OUTGOING leg at `corner + 0.001` because a corner
+  distance matches two segments (Issue 209). A **seventh ajar door at 124** has a `Watcher` in its
+  gap and is shut once you are past. Spur and fork doors show **no "Press E"** (`SlamDoor.
+  player_operable` / `can_interact()`). SFX: `tools/make_sfx_corridor_spurs.py`; art:
+  `tools/make_spur_art.py`, `tools/make_footprints.py`. Guards: `walk_corridor` (every spur, both
+  branches, 24 checks), `check_corridor_events` (C1–C5 sections), `screenshot_spurs/branches/forks`.
+  ⚠️ Fixing the 365 mouth exposed **Issue 211**: every bend's outer T×T corner column was covered
+  by neither leg's walls (a pinhole at all nine corners); the outer wall now starts at `lo − T`.
+- ⭐⭐ **455 m, TEN SEGMENTS, THREE SIDE PASSAGES SINCE 2026-09-13 (`BACKLOG_Sep_13.md` C1).**
+  `PATH_2D` has three more legs (corners 50 90 140 185 230 275 320 365 410); `SIDE_PASSAGES`
+  at 105 (−), 245 (+, the **whispering room**: `corridor_plea.wav` behind its end wall) and
+  330 (−) are blind 3 m spurs — walk to the end and a `SlamDoor` shuts the mouth and is
+  battered for `SPUR_SHUT_TIME` 10 s (`dead_end_trap.gd`, zero panic), the spur's torch dies.
+  The beats are spread: false door 185, **the Manager is a `DoorLunger` in the world**
+  (`manager_figure.png`; telegraphs at 240/277, lunge + `screamer_manager`, flees back,
+  `MANAGER_PANIC` 25 unchanged, no flash), running creature 340/348, mirrors 90 and **410**,
+  dread zone 395–455, hush 431. Every paragraph below that says 320 m, 275 or 219 is history.
+  Guards: `walk_corridor` (the real player walks it all, every spur), `check_corridor_events`
+  (pairwise ≥ 50 m, the shut-in, the Manager), `check_noclip_fall` (455), the sweeps.
 - ~320 m zigzag hallway built **procedurally** in `corridor.gd` from `PATH_2D` (7 segments, 90° turns, 3 m wide). Three zones: A "Hotel" 0–90 m (intact, lit torches every 12 m, paintings, grandfather clock), B "Decay" 90–230 m (blood smears, lights shatter, beartraps in the dark stretch), C "Nightmare" 230–320 m (dead torch panels, the mirror, constant whispers, near-black — geometry/lighting only; the `DreadZone` panic mechanic covers just the last 60 m, see below)
 - **No fetch quest** — exit door (room 217, `door.png`) has `unlock_condition = NONE`; walking the corridor without panicking IS the test
 - Panic pressure: `CorridorEvent` triggers add panic directly (entry door slam +10, clock chime +10, **the running creature crossing 8 m ahead** +20, floor crack +10); `DarkZone`s add +3/s while flashlight is off; `Torch3D` calm zones decay panic ×2.5; cursed gaze panels (paintings 0.8/1.2, clock 1.0, side-wall `mirror.png` 2.0/2.5); 5 beartraps = snap + 15 panic + **escape mechanic** (see Beartrap below)
@@ -673,6 +763,21 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
 - Prop textures (`clock/mirror/torch/carpet.png`) share the same baked wallpaper+wainscot background as `wall.png` and are applied as full-height wall panels. ⚠️ Five of them are still stretched 1.20–1.67× and that is a **deferred art pass**, listed by name with its reason in `check_art_aspect.gd`'s Corridor row — which asserts its own size, so a new stretch cannot hide behind an entry written for a different one
 
 **Level 4 — The Backrooms (liminal mono-yellow maze)** — `backrooms.gd` + `backrooms.tscn`
+- ⭐ **2026-09-13 (B1/F1):** the crate sting plays **as the lunge starts** (`_start_the_lunge`), not
+  on `lunged`; the Flood board reads **SIX RELICS OF THE WARD. / RETURN THEM TO ME.** and the
+  pre-completion objective is *Someone down here kept relics of the ward.*
+- ⭐ **2026-09-14 (`BACKLOG_Sep_14.md` B1–B2):** the entry note is **the verb only** ("There is no
+  door. Walk into the wall."); the arrow and Smiler rules arrive as `RoundNote` in the hub from
+  round 2, and the CORRECT arm's seam scrawl reads `NO DOOR. / WALK INTO IT.` each `_assign_round`.
+  The crate's `crate_jumpscare.ogg` had 0.786 s of leading silence — trimmed by
+  `tools/make_crate_jumpscare.py` (ffmpeg `atrim` from the raw in `assets_src/`).
+- ⭐ **2026-09-13 (`BACKLOG_Sep_13.md` B1–B4):** the mirage doors are **old-house yellowed
+  panel doors** (`backrooms_door_yellow.png`, 6 in the Lobby, 4 in the Sprawl; the red stays on
+  the real back door); the cap scrawl reads **EASY TO GET IN. / IMPOSSIBLE TO GET OUT.** and
+  comes down after the first loop-back, the glitch wall reads **YOU ARE HERE FOR A REASON.**;
+  the Sprawl's crate is a **gift box** and the dweller **lunges to arm's length with the
+  user's `crate_jumpscare.ogg`** before its run — **no fullscreen flash**; **SHOULD I FOLLOW
+  IT?** scrawls when it goes through the wall.
 - **Entry = the noclip** (`_spawn_noclip()` in `corridor.gd`): the player never reaches room 217 — which now wears `backrooms_tear_door.png`, a black-wood door torn open on a red-lit void, sized from the artwork's own aspect. **Fifteen** metres out every torch dies and `player.kill_flashlight()` force-kills the light (F now only plays a dead-battery click), and the floor gives way **5 m short of the door** (user's call, 2026-08-15 — you see it, you never touch it). ⚠️ **It is a REAL fall (2026-08-15)**: `_ev_noclip_fall()` zeroes the player's `collision_mask`, so gravity takes them straight through the floor (measured 6.96 m in 1.2 s); input is frozen, the screen fades at −3 m and the Backrooms takes over at −9 m. It used to fade to black and wait 2 s with the player standing still, which is not a fall. No hole is cut: the corridor floor is one CSGBox3D per 45 m segment, and the blackout killed every light 10 m earlier so nobody could see one. ⚠️ **Three constants move together** — `NOCLIP_FALL_BEFORE_DOOR`, `NOCLIP_ONSET_BEFORE_END` and `RETURN_MARGIN` (14 → **18**). Re-entry from the Backrooms must land clear of BOTH trigger boxes or arriving re-fires the blackout, or the fall bounces the player straight back. `tests/check_noclip_fall.gd` asserts the relationships rather than the numbers, so any one of them can be retuned but not alone
 - **Cyclic maze, no seamless portals** (design Q1): a 4-way intersection hub with three choice arms (N/E/W) built from `CSGBox3D`, triplanar `backrooms_wallpaper_albedo` walls + `backrooms_carpet_albedo` floor, recessed flickering fluorescents. The E/W arms dead-end in a `LoopBack` trigger that teleports you to an identical re-randomised hub — so it reads as an endless series of intersections without any continuous-portal seams
 - **Win — three down-turns** (`_assign_round`, `_on_arm_entered`): an arrow decal on the hub columns marks exactly one arm with a DOWN arrow each round. Take it to advance the loop counter; the E/W arms loop back, and on the 3rd correct turn the win arm (N) is forced and opens into the exit utility room. The **glitch wall** there runs a screen-space vertex-jitter shader (`glitch_wall.gdshader`); walking into its `ExitTrigger` Area3D → `advance_level()` → The Void
@@ -1058,6 +1163,15 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
       `DryPlatform` `CalmZone` nets about **−2.7/s** standing in it. `check_flood_drowned.gd`
       asserts the absence, because a deliberate omission with no test gets re-added by the next
       person who reads a doc
+    - ⭐⭐ **THE ALTAR IS A RUSTED STEEL AUTOPSY TABLE WITH A STAINED SHEET (2026-09-14, F1, the
+      user's pick).** `flood_plate.gd:_build_table()`: base plate, central pedestal, drain pipe, a
+      rimmed steel top (`flood_steel_rust.png`, triplanar) with a gutter and a drain clear of the
+      sheet, a linen sheet box with `flood_sheet.png` on a `QuadMesh` (1024×561 = the 1.35×0.74 m
+      quad, `check_art_aspect` 1.001×) and a near-edge drape. **The owner's line is CHALKED ON THE
+      SHEET** by `tools/make_flood_altar_art.py` (Chalkduster, the art rotated 180° because a flat
+      quad's image top lands at world −Z) — the backboard and its `Label3D` are GONE, and
+      `check_flood_puzzle` asserts the generator letters `SCRAWL` verbatim instead. The six outlines
+      are pale 3D chalk on the sheet (still `Outline%d`, so they cannot drift from the slots).
     - ⭐⭐ **THE SIX PIECES ARE OBJECTS NOW, AND THE PLATE IS AN ALTAR (2026-09-10, capture #12:
       *"same pattern - like candle, old book, a skull"*, the user's choice: only the pieces, the
       containers stay).** `ritual_piece.gd` (`RitualPiece.build(kind)`) builds **candle · old book
@@ -1126,6 +1240,39 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
   read-to-end phone call → panic bar fills
 
 **Level 5 — KONTUR ("Object 12")** — `kontur.gd` + `kontur.tscn`
+- ⭐⭐ **2026-09-13 (K1–K4):** the hammer is **parts lying on the bench** (`kontur_hammer.png`
+  retired); the cell's front is an **open barred face** (eight Ø30 mm bars off the centre line,
+  rails, a gate section with a lock; no leaf, no port — the sightline sweep still sees all 23
+  headings); the **condemn sentence is staged** (`_tick_condemn_beats`: whisper + roll → edge
+  `Watcher`s that vanish when looked at + `kontur_condemn_bed` → black/red cuts quickening → a figure
+  at arm's length → the bar kills; `condemn_beats()` is the test surface); the Blackout figure is
+  **placed where the camera points** (`_place_blackout_figure`, frustum-first fan, `turn_to_face`
+  fallback; `check_kontur_figure_frame`).
+- ⭐⭐ **IN-WORLD DEATHS SINCE 2026-09-14 (`BACKLOG_Sep_14.md` K1–K2, the user's design).**
+  `Screamer.trigger_with_lunge(tex, ahead, reach, time)`: the player is pinned and turned, a glowing
+  `DoorLunger` (`kontur_figure.png`, keyed by `tools/cutout_black.py`) stands `ahead` metres away
+  (rays at eye AND waist height, short of any wall), lunges to `reach` with the level's own sting AT
+  it, then `trigger()` runs unchanged with the 2D sting suppressed — the funnel and every test on
+  `_is_triggering` are untouched. The **yellow phone** (`ahead` 1.0 — the desk has no collider,
+  Issue 209) and the **Perëkozhnik** (`death_figure` export, KONTUR only) use it; the **condemn
+  finale** at `CONDEMN_FINAL_AT` 18 s kills every lamp and the torch, holds `CONDEMN_DARK_HOLD` 2 s,
+  brings them back with the figure `CONDEMN_FINAL_AHEAD` 1.5 m ahead and lunges to black, the bar
+  held at `CONDEMN_HOLD_RATIO` so the lunge is the death (Issue 210). The cell wears **bars on the
+  WEST face too** (K1: seven Ø30 mm bars at −0.58…0.62, none on the occupant's line, a 0.1 m shift
+  off the south-west sightline diagonal); `_port_panels`/`PORT_*` dead code is gone. Guards:
+  `check_kontur_condemn`, `check_kontur_phones` (yellow → lunge → funnel), `check_kontur_entities`,
+  `screenshot_kontur_lunge.gd`.
+- ⭐⭐ **A WRONG ACTION IS FATAL SINCE 2026-09-13 (`BACKLOG_Sep_13.md` K2, the user's design).**
+  `_strike()` → `_condemn()`: the red sentence **YOU'VE DONE SOMETHING WRONG. YOU WILL PAY FOR
+  IT.**, decay pinned, panic on an ease-in curve to `PANIC_MAX` at `CONDEMN_TIME` 20 s (the bar's
+  own screamer kills), lamps red, a rising drone (`kontur_condemn.wav`). The 2D flash,
+  `STRIKE_PANIC`, `_strikes` and the Archive's "N OF 3 LOGGED" are GONE — every "three strikes"
+  sentence below is history. ⚠️ Gate 8's MISTIMED catch is one of the callers and is therefore
+  fatal too (reported to the user). Also: the containment cell has a **barred gate** on its
+  front (K1; no grid behind the glass — each attempt blinded a sightline heading), the Blackout
+  figure stands 2.6 m past the doorway at a pale tint (K3), the phones' prompt names both keys
+  (K4, `prompt_text()`), and the real seam is plugged with wall under the torch (K5, Issue 198).
+  `check_kontur_condemn.gd`.
 - ⭐⭐ **FIRST HAND PLAYTEST + REWORK (2026-09-09), the user's verdict "not scary, not packed."** Full
   evidence and decisions in `backlogs/05-kontur.md` §3a/§3b. The scary half: opening the black door
   **blows every light but the torch** (`_begin_cell_blackout`, restored at the Kitchen) and **Object 12
@@ -1556,6 +1703,15 @@ KONTUR was built around, is now loose in a deeper containment wing. Built the sa
 Junction2/WardB — so route-planning and breaking line-of-sight actually mean something). Visual arc
 extends KONTUR's two-tier skin system to three: facility → structural rupture → organic decay,
 ending at a scorched-steel Incinerator.
+- ⭐⭐ **THE GRAB THROUGH THE DOOR (2026-09-14, `BACKLOG_Sep_14.md` X1, the user's pick).** When
+  Object 12's contact lands while the player is within `GRAB_DOOR_DIST` 1.5 m of a `SlamDoor`, the
+  death is staged: `CreatureObject12.death_override` → `_on_contact_death()` → `_grab_death()` — a
+  dark clawed arm from parts (`GrabArm`, albedo 0.06, red vein emission) comes through the gap to
+  `GRAB_HAND_STOP` 0.35 m from the lens, reparents to the camera, the player is hauled to
+  `GRAB_PULL_TO` 0.3 m from the leaf, `SlamDoor.slam_shut()`, `door_slam`, then `Screamer.trigger()`
+  — every path ends in the funnel. Contact away from a door is the unchanged `trigger()`.
+  `check_level6_breach.gd` is phased now and drives both (control: the room centre furthest from
+  every door); `screenshot_breach_grab.gd` renders it.
 - ⭐⭐ **DORMANT MEANS STILL SINCE 2026-09-07.** Object 12 played `shamble` at 0.5x while inactive —
   **0.515 m of hip excursion and a 57.9° arm swing** per cycle, the most mobile clip in the asset —
   while standing **16.0 m dead ahead of the player spawn, heading 0.0°, with unobstructed line of
@@ -1761,142 +1917,128 @@ ending at a scorched-steel Incinerator.
   `tools/make_sfx_level6.py` into `game/assets/audio/level_6_breach/`
 - Win: lure Object 12 into the Purge Chamber and seal it. Fail: creature contact, panic bar fills
 
-**Level 7 — THE NIGHTMARE (the dungeon)** — `dungeon.gd` + `dungeon_gen.gd` + `dungeon.tscn`
-A Dungeon-Nightmares tribute, and the only level whose thesis is the INVERSE of a
-chase level: **standing still and listening is the winning move.** Full design in
-`DUNGEON_NIGHTMARES.md`; that file is authoritative and this is the shipped summary.
-- ⚠️ **Unnumbered file names on purpose.** The doc specs this as "level 9" in the
-  eventual 12-level order; three of the levels ahead of it are unbuilt, so it is
-  level **7** today and the Void moved 7→8, the ending 8→9. Naming the script and
-  scene `dungeon` rather than `level_9_dungeon` means the future renumber renames
-  nothing. The ASSET folders stay `level_9_dungeon/` — renaming those breaks every
-  `.import` UID, and folder numbers already track identity not index
-- **Structure**: a small hand-built **Antechamber** (always identical — cot, brazier,
-  `CalmZone`, candle rack, the PROTOCOL 7 note, the "YOU CANNOT HEAR IT OVER
-  YOURSELF" scrawl, both level doors) → `interact()` the cot to be put under → a
-  **procedurally generated dungeon** → light **7 sconces** → the bed is revealed →
-  wake → the exit door unlocks
-- **`dungeon_gen.gd` is pure data** — no scene, no nodes, seeded, deterministic
-  (verified). An 18×18 lattice of 3 m cells, 12 chambers placed by rejection
-  sampling with a 1-cell gap, MST + `ceil(0.25K)` extra edges, L/Z corridors, then
-  maximal straight runs coalesced into rooms. That separation is why 200 seeds can
-  be asserted without loading a scene — the `check_maze_gen.gd` lesson
-  - ⚠️ **The extra edges are NOT optional.** A spanning tree is a perfect maze, and
-    in one a corridor-following pursuer is unbeatable. `maze_chase_ui.gd` already
-    cost this project 12 instant deaths in 40 to learn that
-  - ⚠️ **MIN_CHAMBERS = 9 is a hard floor, not a preference.** Seven sconces must fit
-    in seven distinct non-bed chambers; a dungeon with fewer is UNWINNABLE, because
-    7/7 is what reveals the exit. Pure rejection sampling produced 7 chambers on 2
-    seeds in 200 — roughly one unwinnable dungeon per hundred restarts — so there is
-    a bounded top-up pass. `check_dungeon_gen.gd` asserts **exactly 7 sconces, every
-    seed, no tolerance**
-  - ⚠️ **Every room is ONE height.** §B6 asks for 3.2 m chambers and 2.6 m corridors;
-    `RoomBuilder`'s wall dedup is keyed on `(axis, plane, HEIGHT)`, so mixed heights
-    make both rooms emit a slab on their shared plane (Issue 41, measured in
-    `tests/probe_mixed_height.gd`). Corridors get a separate drop-ceiling instead
-  - ⚠️ Sconces and Weeping Frames go on a wall with **no doorway** — `wall_point()`
-    returns the wall CENTRE, which is exactly where a doorway sits, and a collider
-    there silently seals the chamber (the Records warning sign did this in the Lab)
-- **The candle replaces the flashlight** (`candle.gd`): `player.kill_flashlight()` at
-  entry, so F only clicks. 60 s per candle, carry 4, `OmniLight3D` range 4.5.
-  **F** lights / blows out — blowing **BANKS** the remaining seconds (§B11 cuts DN's
-  waste-it rule as an unteachable gotcha), and the autoplay measured that banking is
-  what makes the wax sufficient: burning continuously runs dry at ~8 minutes.
-  **C** (new `spark` action) is free and unlimited, followed by a 1.2 s ambient dip
-  BELOW baseline — the thing that makes a free action feel expensive
-  - ⚠️ Energy/attenuation are **2.2 / 1.4**, not §B5's literal 1.0 / 2.4. At the spec
-    values, with ambient 0.02, a chamber renders as pure black with a lit patch of
-    floor — not "you cannot see the far wall" but "you cannot see the room". The
-    RANGE (4.5 m) is what enforces §B7, and it is untouched
-- **Darkness without fog** (§B7): black background, ambient 0.045, dark albedo, and a
-  4.5 m light. ⚠️ **Do not add a depth-fade shader** — that is fog by another name,
-  outside the rendering contract, and it fights `PanicHUD`. `Vignette.spawn()` at 2.2
-  is the legitimate framing device
-- **The escalation clock is the sconce count**, and the level gets physically SAFER
-  (each sconce is a permanent `CalmZone` island) while the roster escalates:
-  0–2 Still Ones only · 3 Weeping Frames become audible · 4 the Matron begins her
-  spawn/hunt/despawn cycle · 5 the Frames become fatal at 3 s of gaze · 6 the Hollow
-  One and the Kneeling Man arrive · 7 the bed is revealed
-- **Entities**
-  - **Still Ones** — `creature_stalker.gd` with three **additive `@export`s that
-    default to OFF** so the Void's four creatures are untouched: a `bone_scrape` loop
-    gated on advancing (a fairness upgrade worth back-porting), ~35 % **duds** that
-    topple and are inert forever, and the spark reaction (a spark advances every one
-    by a step; within 2 m of an active one it is fatal). Its `../Player` lookup gained
-    a `"player"` group fallback — it lives under a builder graph here
-  - **The Matron** — `creature_object12.gd` RETUNED, not forked: five of its
-    constants became `@export` with **every default unchanged**. `chase_speed` **3.4
-    — BELOW the player's 4.0 walk**, which is the whole resolution of the level's
-    central problem (walking away always works; sprinting is never the answer). She
-    cycles spawn → hunt → despawn rather than being permanent
-  - **The Hollow One** (`creature_hollow.gd`) — the flagship. Permanently invisible,
-    the candle does nothing, slow (2.2), and **the only way to see it is to SPARK**
-    (0.30 s of alpha). Arrives at 6 sconces after a scripted zero-risk demonstration
-    through a sealed alcove's grate. ⚠️ Never simultaneous with the Matron, never in
-    a chamber with a Still One — sparking is mandatory for one and lethal near the other
-  - **The Child** (`dn_child.gd`) — harmless, always, no exceptions. +6 panic. Only
-    while the candle is out AND no primary is present
-  - **The Kneeling Man** (`kneeling_man.gd`) — cannot harm you at all; gaze panic and
-    the whisper bank. Says *"Look behind you"* — the exact lie KONTUR's escort gate
-    tells, which retroactively makes that one read as the same voice
-  - **The Weeping Frames** (`weeping_frame.gd`) — harmless → audible → fatal, tiered
-    by sconce count. The teaching encounter is the IDENTICAL object, not a softened one
-- ⭐ **The silence is the flagship tell.** On the Matron's spawn the runtime
-  `"Dungeon"` bus ducks to −24 dB and `player.set_no_decay(true)` fires: panic HOLDS,
-  it does not climb. Net panic change from her mere presence is **zero** — all the
-  pressure is in what you choose to do about it. The heartbeat and footsteps are on
-  `AudioBuses.BODY`, which is never ducked, so your own pulse is what is left
-- ⭐ **Sprinting deafens you** — the creature emitters duck while `is_sprinting()`.
-  Running makes you blind to the thing that would have made panic unnecessary
-- ⚠️ **§B10's bans are hard, and `check_dungeon_entities.gd` asserts every one**: no
-  `DarkZone` (the darkness is the medium, not the penalty — Issue 18), no
-  `DreadZone`, no `enable_standstill_panic()` (the Hollow One's solution REQUIRES
-  standing still), **no `RandomAmbient`** (its blind 4 m pops are indistinguishable
-  from this level's real positional tells, which is the one skill being tested —
-  opting out is a no-op omission), no `ApparitionDirector`, no time limit
-- **Cross-level hints** (the KONTUR pattern): the **Lab morgue** holds a Trial 7 log
-  about the light waking the still ones; the **House cellar** has a candle stub and
-  "SIXTY SECONDS. COUNT THEM."; the **Corridor** at d=250 m has the Hotel Vesper
-  plate — *"WE STOPPED PLAYING MUSIC ON THE LOWER FLOORS. THE SUBJECTS COMPLAINED
-  THEY COULDN'T HEAR IT STOP."* That last one is the most important hint in the game:
-  the silence is a mechanic made of an ABSENCE, and an absence cannot teach itself
-- `save_progress()`: `layout_seed`, `content_seed`, `sconces_lit`, `candles_held`,
-  `teach_beats_done`, `in_dungeon`. ⚠️ **The seeds are RESTORED, never re-rolled** —
-  restoring "5 sconces lit" against a re-rolled layout would mark progress on a
-  dungeon that no longer exists (KONTUR's `_dark_x` warning)
-- ⭐ **Waking is a video since 2026-08-17** (`dungeon_wake.ogv`, played by `_after_blackout()`): a
-  slow crane up out of darkness into the Antechamber's firelight and heavy studded door — the
-  reward for seven sconces. ⚠️ **The two directions are no longer symmetric and that is accepted,
-  not unfinished.** `dungeon_sleep` was never generated, so going under keeps its 1.6 s fade; going
-  under is a choice the player makes and should not be taken off them for ten seconds, while waking
-  is the payoff and is worth the screen. The `into_dungeon` branch of `_after_blackout()` is
-  byte-for-byte the old behaviour and is where a sleep clip would go
-  - ⚠️ `_finish_transition()` gained an `unfreeze := true` parameter and the wake path passes
-    **false** — it hands control back on its last line, which would leave the player walking around
-    behind ten seconds of video. The teleport still happens under full black, before anything shows
-  - ⚠️ **The clip opens AND closes on black, and BOTH fades are added in post** — the raw clip opens
-    lit and ends lit (`assets_src/README.md`). The in-fade is what lets it cut from the level's
-    fade-to-black. The **out-fade is the one that was not predicted, and a hard cut was built and
-    measured wrong first**: the reasoning was "the clip's last frame IS the Antechamber, so there is
-    nothing to hide", and `tests/screenshot_wake_cutscene.gd` photographed both sides of the join
-    and returned **0.171 mean luminance against the live room's 0.008 — a 21× snap**. A generator
-    lights a stone interior like a film set; this level runs at ambient 0.045 with no flashlight and
-    an unlit candle, so the Antechamber at that moment is a black room with a red door in it.
-    Handing over ON BLACK, onto the level's own black `ColorRect`, then lifting it, is what works
-  - ⚠️ **The lesson generalises to every remaining clip in `VIDEO_PROMPTS.md`:** match the join's
-    LUMINANCE, and measure it — a cutscene's last frame and the live frame behind it are lit by two
-    completely different systems, and the discontinuity is invisible while reasoning about it
-- Win: light all seven sconces, sleep in the bed, leave by the Antechamber door.
-  Fail: creature contact, a fatal Weeping Frame, or the panic bar filling
+**Level 7 — THE NIGHTMARE (the dungeon)** — `dungeon.gd` + `dungeon_gen.gd` + `dungeon_rooms.gd` + `dungeon_map_ui.gd` + `dungeon.tscn`
+- ⭐ **2026-09-13 (D1/D2):** candles **carry 6, 8 caches, a lit sconce refunds one**
+  (`_on_sconce_interact`); the hunter's yaw is **eased at `TURN_RATE_DEG`** while the body keeps the
+  routed line, rooms have hysteresis across shared planes (`_steer_room`), and doorway arrival is
+  along the doorway's normal AND inside its opening (Issue 204). Router sweep 0 clipped; bot 3/3.
+⭐⭐ **REDESIGNED 2026-09-12 ON THE USER'S VERDICT *"very simple to get killed"* — it is now HARD TO
+LOSE and easy to get scared.** The decisions (D1–D8) are locked in `DUNGEON_NIGHTMARES.md`'s
+"Deviations" section; that file's Part B is otherwise still the design, and this is the shipped
+summary. **Not yet hand-played after the redesign.**
+- ⚠️ **NOTHING IN THIS LEVEL KILLS. The panic bar is the only death** (D1). `check_dungeon_hunter.gd`
+  greps `dungeon.gd` and `dungeon_rooms.gd` for `Screamer.trigger(` and drives every former death path
+  live. Before this the level had six independent instant deaths and a six-seed bot run won 0
+  (Issue 188). Do not add a fatal entity back without the user.
+- **The hunter** (node `TheHunter`, `creature_object12.gd` with additive exports — `model =
+  "parasite"`, `lethal_contact = false`, `relocate_when_lost = false`; the Breach's Object 12 is
+  byte-identical in effect): the supplied **Parasite** model (`parasite.glb`, `CreatureAnim.MODELS`),
+  chase **3.4 < the 4.0 walk**, patrol 1.5, hunts BY EAR (`_tick_noise`: sprint r 14, spark 12, door
+  slam 16, sconce 18), screams every 10–20 s while hunting (`matron_shriek` / `parasite_growl`), the
+  chase cue (`parasite_chase`, a 21 s loop) rises ONLY with CHASE + line of sight and fades ≤ 1.6 s
+  after it is lost, waves ~60 s on / 30 s off, **wakes at sconce 3**, routed doorway to doorway via
+  `set_portals(_gen.rooms, _gen.doorways)`. ⚠️ The cue and the voice live on the runtime
+  **`"DungeonChase"`** bus under `Ambience` — the `"Dungeon"` bus is ducked −24 dB for the whole wave
+  and would have silenced them (Issue 190).
+  - **The catch** (`_on_hunter_caught`, D2): velocity zeroed → `freeze_input()` → `turn_to_face` →
+    `HoldBreath.dip` → the body placed 0.6 m from the camera → `parasite_jumpscare` on Master +
+    `jolt_camera` + **`CATCH_PANIC` 20** → it lets go, the wave ends, control returns. In-world, no
+    fullscreen flash.
+- **Still Ones** (`creature_stalker.gd`, `lethal = false`, `leash`, `watch_only`): a catch is a face
+  flash (`dn_stillone_face.png` + `stillone_shriek`) + **12** and the statue topples for good.
+  **Weeping Frames** ignite for GAZE PANIC ONLY and burn out inert (`set_ignites`, `_burn_out`).
+  **The Hollow One is CUT** (`creature_hollow.gd` stays on disk, unused). **Beartraps are gone.**
+  The spark (C) stays: a free light burst that wakes statues.
+- **Room archetypes carry the scares** (D6, `dungeon_rooms.gd` — `build()` places props from parts on
+  the doorway-free wall, `fire()` is one-shot and refused under a note/pause/freeze): gallery (a
+  painting drops), scriptorium (a scrawl bleeds in — THERE IS NO WAY OUT / I FEEL I AM LOSING MY
+  MIND …), cells (a leashed statue behind bars), well (the Child peeks over the rim), chapel (the
+  Kneeling Man at the altar), crypt (a lid slides and the resident statue is standing in it), cistern
+  (dark water, `UnseenWader`), **larder = the hunter's lair** (it appears 3 m behind you with LOS,
+  `force_chase`, a 40 s wave even before sconce 3). The sconce count keeps TWO gates: hunter at 3,
+  finale at 7.
+  - ⚠️ **Floor props need a PROP-SAFE wall** (`DungeonGen.prop_sides()`: doorway-free, and no
+    doorway in a perpendicular wall within `PROP_LANE` 3 m, because that doorway's line runs
+    along the props). A chamber with none is re-dealt: entry chambers and the spawn → `cistern`,
+    sconce chambers → a bench-less `gallery`, the bed chamber → a crypt with no sarcophagi
+    (Issue 193; ~2.6 chambers per dungeon, counted by `check_dungeon_gen.gd`). Props sit within
+    2.4 m of their wall and `SIDE_CLEAR` 1.25 m from the side walls, because the walkers aim door
+    to door.
+- **Generator** (`dungeon_gen.gd`, pure data): **24×24 lattice, 16 chambers**, `MAX_STRAIGHT` 7,
+  sconces **≥ 3 rooms apart** (`SCONCE_MIN_GAP`, relaxed to 2 and counted in `sconce_relaxed`: 9 of
+  200 seeds), `room_kinds` / `kind_of()` / `room_at(pos)` / `lair_room`, still exactly 7 sconces
+  every seed. Measured over 200 seeds: 32–54 rooms, mean 39.9.
+- **The found map** (D8, `dungeon_map_ui.gd`, **M** = `map` action): a folded plan on the
+  Antechamber's candle rack (`MapPickup`); before it M toasts. Non-pausing `CanvasLayer` 48, drawn from
+  the generator's room rects for `rooms_seen` only, lit sconces as amber discs, **never the player**
+  (`check_dungeon_map.gd` greps the script for position reads). Closes under a screamer/pause.
+- **The candle replaces the flashlight** (`candle.gd`): `kill_flashlight()` at entry; 60 s per candle,
+  carry 4, `OmniLight3D` range 4.5, energy/attenuation 2.2/1.4 (the spec's 1.0/2.4 rendered black).
+  **F** lights / blows out (blowing BANKS the remainder); **C** sparks free with a 1.2 s after-dip.
+- **Darkness without fog** (§B7): black background, ambient 0.045, a 4.5 m light. Do not add a
+  depth-fade shader.
+- ⭐ The silence is still the tell: the hunter's spawn ducks the `"Dungeon"` bus and
+  `set_no_decay(true)` — panic HOLDS, all the pressure is in what you do. Sprinting still deafens you.
+- ⚠️ §B10's bans stand where they still apply and `check_dungeon_entities.gd` asserts them with a
+  live `DarkZone` control: no `DarkZone`, no `DreadZone`, no `enable_standstill_panic()`, no
+  `RandomAmbient`, no `ApparitionDirector`, no time limit — and now also no `CreatureHollow`, no
+  beartraps, `TheHunter` non-lethal with `chase_speed < 4`, every statue and frame non-lethal.
+- **Cross-level hints** unchanged (Lab morgue Trial 7 log, House cellar candle stub, the Hotel Vesper
+  plate at d = 250). The PROTOCOL note's spark paragraph now hints at the map and the statues.
+- `save_progress()`: `layout_seed`, `content_seed`, `sconces_lit`, `candles_held`, `in_dungeon`,
+  **`map_found`, `rooms_seen`, `scares_fired`**. Seeds are RESTORED, never re-rolled; restored sconces
+  are lit without firing their scares.
+- ⭐ Waking is a video (`dungeon_wake.ogv`, `_after_blackout()`); going under keeps its 1.6 s fade.
+  Both fades on the clip are added in post; the join is matched by LUMINANCE, measured — see
+  `tests/screenshot_wake_cutscene.gd`.
+- **Tests**: `check_dungeon_gen` (200 seeds) · `check_dungeon_entities` · `walk_dungeon` (8 seeds'
+  ray passes at eye AND knee height, 2 seeds walked door to door — commit points along the doorway's
+  NORMAL, Issue 194) · `check_dungeon_hunter` · `check_dungeon_rooms` · `check_dungeon_map` ·
+  `screenshot_dungeon` / `screenshot_dungeon_rooms` (no `--headless`) · `autoplay/autoplay_dungeon.gd
+  -- --seeds a,b,c` (asserts wins ≥ half the seeds and NO deaths; catches are counted, not evaded).
+  ⚠️ Every walker budgets PHYSICS TICKS, never render frames (Issue 192).
+- Win: light all seven sconces, sleep in the bed, leave by the Antechamber door. Fail: the panic bar
+  filling. That is the whole list.
 
-**Level 8 — The Void (surreal broken geometry)**
-- Corridors loop, geometry distorted, floating tiles, floor text
-- 8 notes total (5 safe, 3 trap). One safe note is the **twist note** (`is_twist_note = true`)
-- **Stalking creatures** (`creature_stalker.gd`, 4 of them, Weeping-Angel logic): each is the shared animated figure (`hollow_crown.glb`), tinted dark via `CreatureAnim.apply_tint()`. ⚠️ **They had NO retint at all before 2026-09-03** and rendered the raw pale Mixamo skin — bright, and the opposite of the dark occluding shape the design calls for. They now also have a real gait: `CLIP_SHAMBLE` at 0.35 while dormant, `CLIP_UNSTEADY` while advancing, and — the important one — `CreatureAnim.freeze()` while WATCHED, which holds the exact frame they were on. ⚠️ That freeze is the whole level: a Weeping Angel whose legs keep cycling while you stare at it contradicts the one rule the Void teaches, and while the model was a T-pose the rule was literally invisible. It freezes while in your FOV + line-of-sight (`ENGAGE_DIST=8m`, `FOV_DOT=0.55`), advances at 1.25 m/s the moment you look away, and lunges → `Screamer.trigger()` on contact. Staring also feeds gaze panic (`GAZE_INTENSITY=0.6`, ~12/s at full) — you can't just watch one forever. `START_GRACE=5s` keeps the opening safe; `CreatureA` stands dead ahead of spawn as a teaching beat. **Stare-off mechanic**: watch any creature continuously for `STARE_OFF_TIME=4s` and it backs off 3m, resets to dormant — costs ~48 panic; demands nerve. Falls back to procedural capsule silhouette if GLB missing. **⚠️ THE OLD GLB REQUIREMENTS ARE DEAD (2026-09-03) and are recorded here only so they are not restored.** They read: *"the GLB must have no embedded textures and no animations (or disable the AnimationPlayer)"*. Both were workarounds for `Void_creature.glb`, which had zero animation tracks and whose embedded skin fought a `material_override` that replaced it wholesale. The replacement is the opposite on both counts — it KEEPS its texture (`CreatureAnim.tinted_material()` duplicates the imported material so `albedo_color` multiplies the skin instead of discarding it) and its six clips are the point. See `tools/merge_creature_glb.py` and `tests/check_creature_model.gd`.
-- **Void-fall = fatal**: Room C's floor is broken open around a 1.6 m hole (`_break_room_c_floor()`); `player.global_position.y < -4` → `Screamer.trigger()` (`_check_void_fall`)
-- **Ambient pressure** (`_spawn_void_zones()`): Rooms C+D are a `DreadZone` (decay weakened to 2/s + constant +2/s pressure); far rooms are `DarkZone`s. Room A has two warm candles + `CalmZone`s — the only recovery anchor in the level (decay ×2.5 here)
-- Win: read the twist note → exit door unlocks → walk through
-- Fail: a creature reaches you, you fall into the void, or the panic bar fills
+**Level 8 — The Void (surreal broken geometry)** — `level_3.gd` + `void_fragments.gd` + `level_3.tscn`
+⭐⭐ **REBUILT 2026-09-12 ON `RoomBuilder`** on the user's verdict *"too simple... too small, not
+packed with actions at all"* — textures, music, vignette and the crowned stalkers kept, everything
+else restructured (D9/D10). **Not yet hand-played after the rebuild.**
+- **15 abutting rooms on an integer grid, 14 doorways** (`ROOMS`/`DOORS` class consts, `# x a..b
+  z a..b` on every row): Threshold (spawn, BackDoor, two candles + one `CalmZone`, `CreatureA` dead
+  ahead as the teaching beat) → Hall1 (PocketA trap) → Ward (the intro's gurneys) → Archive (dead
+  end) / LoopIn → **LoopStraight 3 × 30 m** → LoopOut → Hall2 → **TileHall 12 × 10** → Morgue (the
+  Lab's exam table and dead monitor) → Hall3 (PocketB trap) → ChildRoom (the House's bed, drawing,
+  music box) → Sanctum (twist note, ExitDoor). Standable area **77 → 452 m²**.
+  ⚠️ Rooms must ABUT: the Morgue was authored a metre short, the doorway cut the hall's wall and
+  not the Morgue's, and the whole far wing measured unreachable (Issue 191).
+- **The loop corridor** (`_build_loop` / `_on_loop_seam`): an `Area3D` at 60 % of the run sends a +z
+  walker back exactly `LOOP_PERIOD` 15 m **keeping heading and velocity** (the Backrooms teleport
+  zeroes velocity; seamlessness needs it kept); walking back out is allowed. Each lap `CreatureC`
+  creeps 2 m closer and a torn page drops; lap 2 scrawls `AGAIN.`; the corridor's note breaks it.
+- **The floating tiles** (`_build_tile_hall`): the room's `TileHall_Floor` is freed and a causeway of
+  1.6 m tiles on 1 m beams (spine → a north and a south branch → an island) crosses a walled black
+  pit (floor at `ABYSS_Y` −8, fall at `FALL_Y` −4 → `Screamer.trigger()`); the doorway bridges are the
+  landing pads. `CreatureD` is **`watch_only`** while the player is inside `_tile_rect` — it watches,
+  it never steps — and stalks the moment they are off (`check_void.gd` proves it with a control).
+- **Fragment rooms** (`void_fragments.gd`, static builders from PARTS in void skin, no emission):
+  gurney, exam_table, monitor, child_bed, crayon_drawing, music_box; art quads sized from their
+  texture's aspect (the level's `check_art_aspect` samples).
+- **Six `CreatureStalker`s** A–F, all `scrape_tell = true`, all **still lethal** (D10): Threshold,
+  Ward, the loop's far end, the Morgue (D, seen through the doorway from the causeway), the child's
+  bed, guarding the twist note. `START_GRACE` 5 s, the stare-off mechanic and the gaze cost unchanged.
+- **Nine notes via `wall_point()` at 1.3 m**: safe = Threshold, Ward, LoopStraight (the loop
+  breaker), Morgue (WEST wall — the south centre is the doorway), Archive; trap = PocketA, ChildRoom,
+  PocketB (read-to-die kept); the twist in the Sanctum. `DarkZone`s on TileHall/Morgue/ChildRoom,
+  a `DreadZone` over Hall3 + Sanctum, candle flames at emission ≤ 1.0.
+- `save_progress()` → `{notes_read, loop_broken, loop_laps}`; `entered_from_ahead` spawns at the
+  ExitDoor facing in. Test surface: `get_stalkers()`, `loop_laps()`, `loop_broken()`, `tile_rect()`.
+- **Tests**: `walk_void.gd` (spawn → every note through the shipping ray → the loop sends you back
+  ≥ 1 then never again → across the tiles → twist → ExitDoor found and unlocked) · `check_void.gd` ·
+  a Void row in `autoplay_exit_reachable.gd` · Void poses in `screenshot_scene.gd`; every
+  scene-parameterised guard's Void row is an assertion now (V-T4..T7 are moot).
+- Win: read the twist note → exit door unlocks → walk through. Fail: a creature reaches you, you
+  fall into the pit, a trap note read to the end, or the panic bar fills.
 
 **Twist Ending**
 Final door loads back to the intro room — **corrupted** (`_corrupt_room()` in `intro_room.gd`, fires when `GameState.is_ending`): candle dead, slow blood-red throb light, exit door replaced by planks (no way forward), harsh cold spotlight pinning the new note to the table, extra cobwebs, low whisper loop. Closing the note → **1 s in the corrupted room → `ending_scene.ogv` → `Screamer.trigger_to_menu()`**.
@@ -2196,15 +2338,18 @@ for. ⚠️ `RefCounted`, deliberately not a Node — every one of these creatur
 | `creature_object12.gd` | `class_name CreatureObject12` (Session — Nemesis pursuit level) — Object 12's 5-state machine (`PATROL/INVESTIGATE/CHASE/SEARCH/STAGGERED`). ⭐ **DORMANT IS A HELD POSE SINCE 2026-09-07** (the user: *"the creature is moving even when it is not active... First it stands still, then when it is active it starts walking, and only after it sees you it starts running"*). It played `CLIP_SHAMBLE` at 0.5 — **0.515 m of hip excursion and a 57.9° arm swing** per cycle, the most mobile clip in the asset — while standing **16.0 m dead ahead of the player spawn on heading 0.0° with unobstructed line of sight**, under its own lamp, inside the torch beam, at ~9.4 % of screen height. It now holds a frame of `walk` (`DORMANT_POSE_AT`, chosen from a screenshot, so `activate()`'s `play_locomotion(CLIP_WALK, …)` resumes out of the exact pose with no pop). PATROL and CHASE were already correct. ⚠️ `check_creature_anim.gd` **asserted the sway was correct** and had to be rewritten: it now reads the SKELETON — a bone's global pose identical after 2 s of dormancy, changed within 1 s of waking, and not the bind pose. ⭐⭐ **AND IT ROUTES SINCE 2026-09-07** — `_move_toward()` assigns `_body.global_position` on a `StaticBody3D` and cannot resolve collision, so it beelined through masonry (measured: a chase into WardA crossed the wall at (3.92, 0, 28.75) against 0 crossings in 899 patrol steps). `set_portals(rooms, doors)` + a BFS over the doorway graph now steers it doorway to doorway; **0 crossings in 95 chase steps** after. ⚠️ It **falls back to the beeline** on any unresolvable room or path, which is what makes it safe for the Matron — `dungeon.gd` deliberately does NOT call `set_portals()` yet. ⚠️ `freeze_for_purge()` is a FLAG now, never a 9999-second countdown (Issue 173), and `force_block()` no longer suppresses the contact check or the stagger clock (Issue 176). Uses `hollow_crown.glb` via `CreatureAnim`, which also picks its gait per state — and picks `charge` over `run` below `CHASE_CLIP_SPLIT` 4.2 m/s, which is what lets ONE script serve both the Breach's 5.0 and the Matron's 3.4 without either looking retimed. CHASE closes distance unconditionally (does NOT reuse `creature_stalker.gd`'s freeze-while-watched behavior); `SEARCH` walks to the last-seen position and scans before giving up; `apply_light_damage()`/`force_block()`/`notify_noise()`/`lure_into_trap()` are the level's hooks into it. FOV check is horizontal-only (see Level 6 write-up for why) |
 | `hiding_spot.gd` | `class_name HidingSpot` — Level 6 locker/cabinet/desk; `interact()` toggles `player.enter_hiding()/exit_hiding()`. ⚠️⚠️ **THE TORCH USED TO STAY OFF AFTER YOU CLIMBED OUT** (fixed 2026-09-07, Issue 174): `enter_hiding()` used `lock_flashlight()`/`unlock_flashlight()`, the pair `player.gd` documents six lines above as *"not enough for a temporary blackout"* — git dates it a **stale caller**, written 2026-07-24, six days before `force_flashlight_off()`/`restore_flashlight()` existed. It silently disarmed the player too, since `_tick_light_weapon()` returns early on `not is_flashlight_on()`. ⚠️ **And the peek cone pointed into the wall**: `_hide_yaw_center` was the yaw at the E-press, i.e. aimed at the prop you had to look at to press E, so the ±50° cone missed the creature's approach by ~105°. It now faces out of the spot. ⚠️ A property worth knowing: the interact volume is the carcass grown 0.6 m forward on **layer 1**, so a player at `hide_anchor()` is inside it and the three 2.0 m lockers occlude a chest-to-camera ray from the room — you are partly hidden by geometry whether or not `is_hidden()` is true. `check_hiding_spots.gd`. Self-building mesh, same convention as `beartrap.gd`/`key_item.gd` |
 | `slam_door.gd` | `class_name SlamDoor` — Level 6 / THE NIGHTMARE interior chase door, deliberately not built on `door.gd`. ⭐ **`RESLAM_COOLDOWN` 8 s since 2026-09-07** — E could re-close a door the frame `_break_open()` reopened it, which with the block bug gave a free indefinite stunlock (Issue 176). ⚠️ **`check_blocks_path()` subtracts only the collider's `y` offset ON PURPOSE** — the "obvious fix" of also subtracting `z` slides the tested box off the doorway plane into the room, and `check_level6_breach.gd` goes red on three doors. The comment there says so, because the next reader will reach for it. ⭐ **IT ACTUALLY CLOSES SINCE 2026-09-03, AND IT NEVER DID BEFORE.** The panel and blocker were a hard-coded 1.1 m wide against Breach doorways of **1.8 m** and Dungeon doorways of **2.2 m**, cut FULL HEIGHT with no lintel by `room_builder.gd` against 3.0/3.2 m rooms — so a "closed" door left 0.35 m (Breach) or 0.55 m (Dungeon) of gap EACH SIDE plus 0.8-1.0 m of open air above, and `check_blocks_path()` has always assumed a seal the geometry did not provide. Now `@export door_width`/`door_height` (Breach defaults; `dungeon.gd` passes `DungeonGen.DOOR_WIDTH`/`ROOM_H`), a static **transom** capping the opening, and **TWO LEAVES** hinged on opposite jambs. ⚠️ The double leaf is not decoration: one leaf that wide sweeps 1.77 m of a 3 m corridor and parks its art 1.06 m off-axis, which is how `check_interact_reach.gd` caught it. ⚠️ `OPEN_DEG` is **−85**, not −100 — past 90° a leaf tilts BACK toward its own wall and ends up lying against it. ⚠️ `_pick_clear_swings()` fires POINT queries at where each leaf's art quads would actually be (never a ray from the hinge — the hinge is INSIDE the jamb and CSG backfaces do not collide, Issue 59) and flips or folds a leaf that would end up in masonry; generated dungeons produce corners that tight. ⚠️⚠️ **AND `OPEN_DEG` IS NEVER ACHIEVED — measured, 62 of 62 leaves in both levels refuse ±85° and always did.** A leaf hinged on the jamb at 85° puts its far tip ~0.10 m from the wall plane against a 0.2 m wall, so it is inside the masonry in *every* doorway that exists; the ladder was falling a full 25° in one step and every open door stood a quarter of its own width further into the opening than intended. Intermediate rungs (78/72/66) were added 2026-09-03 and the Dungeon's 54 leaves now take **66°**; the Breach's genuinely cannot exceed 60°. ⚠️ **It is a LEGIBILITY fix, not a walkability one, and the first write-up wrongly claimed a "19 % wider lane"** — the leaves are on `INTERACTABLE_LAYER` and the only solid part is `_block_body`, whose collider is `disabled` unless the door is shut, so an OPEN Dungeon door already measured 2.22 m of a 2.20 m opening. What the extra 6° buys is a leaf that reads as an open door instead of a panel a quarter of the way across the frame, plus interact-ray reach. `OPEN_DEG` is deliberately left at −85 as the intent and still tried first. Issue 166 / cross-level **X66** — *a fallback ladder whose first rung is impossible looks exactly like a working search*, and only `probe_door_swing.gd` can tell the difference. `check_slam_door_seals.gd` sweeps both widths with a permanent control. |
-| `dungeon_gen.gd` | `class_name DungeonGen` — THE NIGHTMARE's layout. **Pure data, no scene, seeded, deterministic**: an 18x18 lattice of 3 m cells, 12 rejection-sampled chambers with a 1-cell gap, MST + `ceil(0.25K)` extra edges (**cycles are mandatory** — a perfect maze makes a corridor-following pursuer unbeatable), L/Z corridors, maximal straight runs coalesced into rooms, then content placed on doorway-free walls. `MIN_CHAMBERS = 9` is a hard floor: fewer and the seven sconces do not fit and the level is unwinnable. ⚠️ Every room is ONE height — see Issue 41 |
-| `dungeon.gd` | Level 7 — THE NIGHTMARE. Builds the Antechamber + the generated dungeon, owns the candle/spark input, the sconce escalation clock, the Matron's spawn/hunt/despawn cycle and its bus duck + `set_no_decay`, the sprint-deafness duck, the Hollow One's teaching beat, and the sleep/wake transitions. `get_gen()` / `get_sconces()` / `sconces_lit()` are its test surface; `--dungeon-seed N` pins the layout |
+| `dungeon_gen.gd` | `class_name DungeonGen` — THE NIGHTMARE's layout. **Pure data, no scene, seeded, deterministic**: a **24×24** lattice of 3 m cells, **16** rejection-sampled chambers with a 1-cell gap, MST + `ceil(0.25K)` extra edges (**cycles are mandatory**), L/Z corridors, straight runs coalesced into rooms (`MAX_STRAIGHT` 7), then content on doorway-free walls; sconces ≥ `SCONCE_MIN_GAP` 3 rooms apart (relaxations counted); `_deal_kinds()` gives every chamber one of `ROOM_KINDS` (a four-door chamber is always `cistern`, Issue 193). `MIN_CHAMBERS = 9` is a hard floor. ⚠️ Every room is ONE height — see Issue 41 |
+| `dungeon.gd` | Level 7 — THE NIGHTMARE. Builds the Antechamber + the generated dungeon, spawns the archetypes (`_spawn_rooms` → `DungeonRooms.build`), owns the candle/spark input, the two sconce gates, the hunter's waves / ears / voice / chase cue / catch (`_spawn_matron`, `_on_hunter_caught`, `lair_beat`), the statue and frame beats, the map pickup + `_map_refresh`, and the sleep/wake transitions. `get_gen()` / `get_sconces()` / `sconces_lit()` and the map/hunter getters are its test surface; `--dungeon-seed N` pins the layout |
 | `candle.gd` | `class_name Candle` — the light that replaces the flashlight. 60 s, carry 4, F lights/blows (blowing **banks** the remainder), C sparks free with a 1.2 s after-dip below baseline. ⚠️ Energy 2.2 / attenuation 1.4, retuned from the spec's 1.0 / 2.4 which rendered as a black screen; the 4.5 m RANGE is untouched and is what enforces "you cannot see the far wall" |
 | `wall_sconce.gd` | `class_name WallSconce` — one of the seven. Needs a LIT candle (the level owns that check); lighting it adds a permanent `CalmZone` island. ⚠️ Built from GEOMETRY, not from `dn_sconce.png` — the art has its own background baked in and rendered as a framed picture on the wall (Issue 35) |
-| `creature_hollow.gd` | `class_name CreatureHollow` — the Hollow One. Permanently invisible, unaffected by the candle, slow, contact-fatal; the ONLY way to see it is a spark (0.30 s of alpha). `begin_teaching(path, reveal_anchor)` runs the scripted zero-risk demonstration; `set_masked()` is the sprint-deafness hook |
+| `creature_hollow.gd` | `class_name CreatureHollow` — **CUT from the dungeon on 2026-09-12 (D3)**; the file stays on disk, unused, header noting it. It was the one entity that could only be seen by sparking, beside statues that a spark could wake to a kill (Issue 189) |
 | `dn_child.gd` | `class_name DnChild` — harmless, always, no exceptions. +6 panic, candle-suppressed, and never while a primary entity is present. Parked below the world between appearances so it cannot read as a buried wall prop |
 | `kneeling_man.gd` | `class_name KneelingMan` — `creature_shapechanger.gd`'s pattern with `KILL_DIST` REMOVED. Cannot harm you; gaze panic and the whisper bank, including the "Look behind you" line that KONTUR's escort gate already tells |
-| `weeping_frame.gd` | `class_name WeepingFrame` — harmless → audible → fatal, tiered by the sconce count. The fatal tier runs its own gaze clock so the ignition wind-up can ABORT when you look away. ⚠️ Ignition emission capped at 0.9 (Issue 21) |
+| `weeping_frame.gd` | `class_name WeepingFrame` — harmless → audible → **ignites** (`set_ignites`, was `set_fatal`), tiered by the sconce count. The ignition costs GAZE PANIC ONLY: at the gaze time the frame burns 1.5 s, blackens and goes inert (`_burn_out`, one-shot). `fall()` drops the painting for the gallery scare. `lethal` export defaults false |
 | `dungeon_cot.gd` | `class_name DungeonCot` — the Antechamber cot and the bed at the far end, one script. `interact()`, never a trigger volume: the player CHOOSES to go under |
+| `dungeon_rooms.gd` | `class_name DungeonRooms` (2026-09-12) — the eight room archetypes: `build(kind, level, builder, gen, room, rng)` places props from PARTS under one collider on the doorway-free wall (≤ 2.4 m from it, `SIDE_CLEAR` 1.25 m from the side walls) and returns handles; `fire(kind, handles, level, player)` is the room's one scare, one-shot, refused under a note/pause/freeze. Keeps `dungeon_gen.gd` pure and `dungeon.gd` under control |
+| `dungeon_map_ui.gd` | `class_name DungeonMapUI` (2026-09-12) — the found map on **M**. `setup(gen)`, `set_found`, `refresh(rooms_seen, lit_positions)`, `toggle/close/can_toggle`; non-pausing, layer 48, Issue-9 self-drop; draws only rooms walked and lit sconces, **never the player** |
+| `void_fragments.gd` | `class_name VoidFragments` (2026-09-12) — static part-builders for the Void's fragment rooms: gurney, exam_table, monitor, child_bed, crayon_drawing, music_box. Void skin, no emission, art quads sized from their textures |
 | `purge_chamber.gd` | `class_name PurgeChamber` — Level 6's one-shot permanent win trigger. ⚠️⚠️ **ITS DOOR WAS THE ONLY UNTEXTURED ONE IN THE GAME** until 2026-09-07 (Issue 175) — a flat-tinted `BoxMesh(2.2, 3.0, 0.15)` at metallic 0.7, on the biggest door in the level, invisible to `check_art_aspect.gd` because that guard returns early on a null texture. Now `breach_door.png` on `QuadMesh`es both faces (Issue 24 — never a `BoxMesh` face), MULTIPLY emission at the slam doors' neutral tint, never the red. ⚠️ Its `interact()` calls `freeze_for_purge()` **before** confirming; see Issue 173 for the 2 h 46 m that cost. `interact()` slams a heavy blast door, then confirms the creature's actual position against a `trap_bounds` AABB before purging (physics-driven, never a flag). ⚠️⚠️ **`_finish_purge()` VENTS the door after `REOPEN_AFTER_PURGE` 2.0 s, and until 2026-09-07 it did not** — the exit is INSIDE the room this door seals, so winning from the PurgeAnte side (which is what the level's note describes) walled the player out of the level permanently. Issue 181, `check_purge_softlock.gd`. ⚠️ And `_reopen_failed()`'s 1.0 s timer is guarded on `_used`: it outlived its own attempt and opened the blast door in the middle of the NEXT one |
 
 ### Level scenes
@@ -2306,7 +2451,7 @@ Visual feedback is provided by `hud_canvas.tscn` (at `game/assets/elements/hud_c
 
 To make a prop raise panic: the `ScaryObject` must be an **ancestor** of the `StaticBody3D` whose collider the gaze ray hits — `player.gd:_find_scary_object()` walks UP from the hit body. Build it as `ScaryObject (Node) → StaticBody3D → CollisionShape3D (+ mesh)`. Because `ScaryObject extends Node` (no transform) it **breaks the Node3D spatial chain**, so put the world transform on the `StaticBody3D` itself — its non-Node3D parent makes the body's local transform == its global transform. For a *moving* gaze prop (the void creatures), move that inner body, not the outer node. Set `scare_intensity` (default 1.0). ⚠️ Nesting `ScaryObject` *under* the body (the old pattern) silently registers **zero** panic — this was the bug behind the dead corridor/house cursed props and the non-reactive void creatures (fixed 2026-06).
 
-Panic source priority per frame (`_update_panic`): gaze at ScaryObject > sprinting (+6/s) > dark-zone creep (+3/s, flashlight off) > decay. Dread-zone pressure (`DREAD_PANIC_RATE` **2.0**/s) is added **on top** regardless of branch, and inside a dread zone decay drops to `DREAD_DECAY_RATE` 2.0/s — the two cancel exactly, which is what makes KONTUR a no-decay level.
+Panic source priority per frame (`_update_panic`): gaze at a ScaryObject **with `scare_intensity > 0`** (2026-09-12, Issue 196 — an intensity-0 object such as a harmless or burnt Weeping Frame no longer blocks decay while looked at) > sprinting (+6/s) > dark-zone creep (+3/s, flashlight off) > decay. Dread-zone pressure (`DREAD_PANIC_RATE` **2.0**/s) is added **on top** regardless of branch, and inside a dread zone decay drops to `DREAD_DECAY_RATE` 2.0/s — the two cancel exactly, which is what makes KONTUR a no-decay level.
 
 ### Zone & movement modifiers
 - `add_panic(amount)` — instant spike from scripted events/traps; fires the screamer at max like gaze panic

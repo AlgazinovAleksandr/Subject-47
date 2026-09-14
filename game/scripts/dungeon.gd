@@ -10,23 +10,41 @@ extends Node3D
 # do. You will never have to run from it, and if you do run you will not hear the
 # next one coming.
 #
-# ── The five rules that make the chase survivable without removing it (§B1) ─────
-# 1. The pursuer's chase speed is 3.4 m/s — BELOW the player's 4.0 walk. Walking
+# ⭐⭐ "HARD TO LOSE, EASY TO BE SCARED" (2026-09-12, the user's verdict on the first hand
+# playtest: *"it is very simple to get killed in this level. I think it should not be that way"*).
+# The six-seed completion bot agreed: 0 wins, 2 deaths, 4 budgets burned wandering — six
+# independent death paths (the Matron's touch, a statue's lunge, a spark near a statue, the
+# invisible Hollow One, a painting at 5 sconces, the beartraps) in a level whose thesis is
+# keeping your nerve. Every one of them is gone. THE PANIC BAR IS THE ONLY DEATH:
+#   - the HUNTER (the Parasite, a new model) catches you: an in-world lunge into the camera, a
+#     sting, +CATCH_PANIC, and it lets go — the wave is over
+#   - a Still One reaches you: a survivable face flash, +STARTLE_PANIC, and it topples for good
+#   - a Weeping Frame stared at past 5 sconces burns out (gaze panic was the whole price)
+#   - the Hollow One and the beartraps are cut; the spark is a free burst of light that still
+#     wakes the statues
+# and the scares moved from a COUNT LADDER to the ROOMS: every chamber is dealt an archetype
+# (dungeon_gen.gd:_deal_kinds, dungeon_rooms.gd) with its own props and its one scare. The
+# sconce count keeps two gates: the hunter wakes at 3, the finale at 7. The lattice grew to
+# 24x24 and there is a found MAP (dungeon_map_ui.gd) that draws only what you have walked.
+#
+# ── The rules that make the chase survivable without removing it (§B1, kept) ──────
+# 1. The hunter's chase speed is 3.4 m/s — BELOW the player's 4.0 walk. Walking
 #    away always works. Sprinting is a shortcut you may buy with panic.
-# 2. The tell arrives 8-12 s before contact is possible and is free to act on.
-# 3. ⭐ SPRINTING DEAFENS YOU. Your own footsteps mask the Matron's steps and the
-#    Hollow One's knock. Running makes you blind to the thing that would have made
-#    panic unnecessary.
+# 2. The tell arrives before contact is possible and is free to act on: it SCREAMS
+#    every 10-20 s while it hunts, and the chase cue plays only once it has seen you.
+# 3. ⭐ SPRINTING DEAFENS YOU. Your own footsteps mask the hunter's steps and calls.
 # 4. The silence does not damage you — it stops you HEALING. set_no_decay(true),
 #    zero additive pressure. Net panic change from a monster's mere presence is 0.
-# 5. The flagship entity's correct answer is to STOP AND LISTEN.
+# 5. It hunts by EAR: sprinting, a spark, a slammed door and a sconce catching all
+#    call it. Walking quietly is the technique; running is the emergency brake.
 #
 # ⚠️ §B10's bans are HARD and every one of them is a double-jeopardy audit item.
 # NO DarkZone (the darkness is the medium, not the penalty — Issue 18), NO
-# DreadZone, NO enable_standstill_panic() (the Hollow One's solution REQUIRES
-# standing still), NO RandomAmbient (its 4 m blind pops are indistinguishable from
-# this level's real positional tells — see _start_ambience), NO ApparitionDirector,
-# NO time limit. check_dungeon_entities.gd asserts all of them.
+# DreadZone, NO enable_standstill_panic(), NO RandomAmbient (its 4 m blind pops are
+# indistinguishable from this level's real positional tells — see _start_ambience),
+# NO ApparitionDirector, NO time limit, and since 2026-09-12 NO `Screamer.trigger()`
+# anywhere in this file or dungeon_rooms.gd. check_dungeon_entities.gd and
+# check_dungeon_hunter.gd assert all of them.
 
 const PRESERVE := ["Environment", "AmbientPlayer", "HUDCanvas", "Player"]
 const TEX := "res://assets/textures/level_9_dungeon/"
@@ -46,14 +64,15 @@ const _NOTE_SCRIPT := preload("res://scripts/note.gd")
 const _SCONCE_SCRIPT := preload("res://scripts/wall_sconce.gd")
 const _CANDLE_SCRIPT := preload("res://scripts/candle.gd")
 const _GEN_SCRIPT := preload("res://scripts/dungeon_gen.gd")
-const _HOLLOW_SCRIPT := preload("res://scripts/creature_hollow.gd")
 const _CHILD_SCRIPT := preload("res://scripts/dn_child.gd")
 const _STALKER_SCRIPT := preload("res://scripts/creature_stalker.gd")
 const _MATRON_SCRIPT := preload("res://scripts/creature_object12.gd")
 const _SLAM_SCRIPT := preload("res://scripts/slam_door.gd")
 const _HIDE_SCRIPT := preload("res://scripts/hiding_spot.gd")
-const _TRAP_SCRIPT := preload("res://scripts/beartrap.gd")
 const _CALM_SCRIPT := preload("res://scripts/calm_zone.gd")
+const _ROOMS_SCRIPT := preload("res://scripts/dungeon_rooms.gd")
+const _MAP_SCRIPT := preload("res://scripts/dungeon_map_ui.gd")
+const _KEY_SCRIPT := preload("res://scripts/key_item.gd")
 
 # The Antechamber is hand-built and always identical — the one fixed place in a
 # level that otherwise rearranges itself. It sits well clear of the lattice.
@@ -74,31 +93,52 @@ const AUDIO_BUS := "Dungeon"
 const BED_DB := -9.0
 const MUSIC_DB := -7.0
 const DUCKED_DB := -24.0
+# ⚠️ THE CHASE CUE AND THE HUNTER'S VOICE ARE NOT ON THE DUNGEON BUS. That bus is ducked to
+# DUCKED_DB for the whole of every wave — a cue routed through it would play 24 dB down at the
+# one moment it exists for. They get their own runtime bus under Ambience (so HoldBreath's dip
+# before the sting still reaches them), and never the Body bus.
+const CHASE_BUS := "DungeonChase"
 
 const SCONCE_TOTAL := 7
 const BURNOUT_PANIC := 5.0        # only in the open, no primary present (§B8)
 const BATTER_PANIC := 4.0
 const SPRINT_DEAF_DB := -18.0
 
-# The Matron's cycle (§B4.2). She is NOT always there, and that uncertainty is the
-# whole feeling.
-const MATRON_FIRST_SCONCE := 4
-const MATRON_HUNT := 50.0
-const MATRON_GAP := 35.0
+# ⭐ The two panic terms of the no-death roster (2026-09-12, both the user's numbers):
+const CATCH_PANIC := 20.0         # the hunter's catch — 3 catches without recovering = the bar
+const STARTLE_PANIC := 12.0       # a Still One reaching you (it then topples for good)
+
+# The hunter's cycle (§B4.2's shape, retuned 2026-09-12: wakes at 3, ~60 s on / ~30 s off). It
+# is NOT always there, and that uncertainty is the whole feeling.
+const MATRON_FIRST_SCONCE := 3
+const MATRON_HUNT := 60.0
+const MATRON_GAP := 30.0
 const MATRON_HUNT_LATE := 65.0
 const MATRON_GAP_LATE := 25.0
 const MATRON_MIN_SPAWN_DIST := 12.0
 const MATRON_CHASE_SPEED := 3.4   # ⚠️ below the player's 4.0 walk — §B1 rule 1
 const MATRON_DETECT_DARK := 5.0
 const MATRON_DETECT_LIT := 9.0    # a lit candle is seen from further
+const HUNTER_CALL_MIN := 10.0     # seconds between its calls while it hunts
+const HUNTER_CALL_MAX := 20.0
+const HUNTER_VOICE_DB := -2.0
+const LAIR_WAVE := 40.0           # the Larder beat's hunt, whatever the clock says
+const LAIR_RISE := 1.6            # ...and how long it stands there before it comes
+const LUNGE_DIST := 0.6           # the catch: its face this far from the camera
+const CUE_ON_DB := 0.0
+const CUE_OFF_DB := -60.0
+const CUE_IN_TIME := 0.25
+const CUE_OUT_TIME := 1.5
+const NOISE_SPRINT_R := 14.0      # how far each noise carries to the hunter's ears
+const NOISE_SPARK_R := 12.0
+const NOISE_DOOR_R := 16.0
+const NOISE_SCONCE_R := 18.0
 
 # ⚠️ Leave this false. See the block in _darken_ambient() for what was measured.
 const FOG_EXPERIMENT := false
 
-const HOLLOW_SCONCE := 6
 const FRAME_AUDIBLE_SCONCE := 3
-const FRAME_FATAL_SCONCE := 5
-const KNEELER_SCONCE := 6
+const FRAME_IGNITE_SCONCE := 5    # they IGNITE and burn out now; they used to kill
 
 var _gen = null
 var _builder: RoomBuilder = null
@@ -108,10 +148,24 @@ var _sconces_lit: int = 0
 var _frames: Array = []
 var _still_ones: Array = []
 var _matron = null
-var _hollow = null
-var _teach_hollow = null
 var _child = null
 var _kneeler: Node3D = null
+# The room archetypes (dungeon_rooms.gd) and their one-shot scares.
+var _room_handles: Dictionary = {}       # room name -> handles from DungeonRooms.build()
+var _scares_fired: Array = []            # room names whose scare has fired
+var _rooms_seen: Array = []              # every room the player has stood in (the map)
+var _current_room: String = ""
+var _in_cistern := false
+# The hunter's audio and its catch.
+var _chase_cue: AudioStreamPlayer = null
+var _hunter_voice: AudioStreamPlayer3D = null
+var _voice_t: float = 0.0
+var _voice_alt := false
+var _catching := false
+var _sprint_noise_t := 0.0
+# The found map.
+var _map = null
+var _map_found := false
 var _slam_doors: Array = []
 var _exit_door: StaticBody3D = null
 var _bed: StaticBody3D = null
@@ -135,7 +189,6 @@ var _music: AudioStreamPlayer = null
 var _matron_theme: AudioStreamPlayer3D = null
 var _matron_steps: AudioStreamPlayer3D = null
 var _teach_beats: Dictionary = {}
-var _grate_pos: Vector3 = Vector3.INF
 
 
 func _ready() -> void:
@@ -152,8 +205,10 @@ func _ready() -> void:
 	_spawn_sconces()
 	_spawn_frames()
 	_spawn_props()
+	_spawn_rooms()
 	_spawn_entities()
 	_spawn_level_doors()
+	_spawn_map()
 	_place_player()
 	_darken_ambient()
 	_start_ambience()
@@ -462,9 +517,10 @@ func _build_protocol_note(pos: Vector3, y_rot: float) -> void:
 		+ "and it has been there since before we found you. You will be given a " \
 		+ "candle because we cannot give you anything that runs on our power " \
 		+ "down there.\n\n" \
-		+ "Trial 7c: the subject reports a fourth presence. The subject reports " \
-		+ "the candle does not help. We have instructed the subject to strike a " \
-		+ "spark and stand still. Compliance rate: 1 in 9.\n\n" \
+		+ "Trial 7c: the subject reports the rooms are not the same rooms. The subject " \
+		+ "reports the statues are closer. We have left the subject a plan of the lower " \
+		+ "floor; it shows only what the subject has walked. Nothing down there can end " \
+		+ "the subject. The subject can end the subject.\n\n" \
 		+ "The trial will be repeated until the data is consistent.\n" \
 		+ "Do not be alarmed by the repetition.\n" \
 		+ "YOU WILL NOT REMEMBER IT AS REPETITION."
@@ -588,15 +644,10 @@ func _do_spark() -> void:
 	if p == null:
 		return
 	_play_at("spark_flint", p.global_position, -6.0)
+	_hunter_noise(p.global_position, NOISE_SPARK_R)
 
-	# ⭐ The only way to see the Hollow One.
-	if _hollow and _hollow.active:
-		_hollow.reveal()
-	if _teach_hollow and _teach_hollow.active:
-		_teach_hollow.reveal()
-
-	# ...and the reason light is dangerous. A spark advances every Still One one
-	# step; within 2 m of an ACTIVE one it is instantly fatal. DN's exact rule.
+	# A spark advances every Still One one step (DN's rule). ⚠️ It no longer KILLS within 2 m
+	# of an awake one — that branch is the non-lethal startle now (`lethal = false`).
 	for s in _still_ones:
 		if is_instance_valid(s):
 			s.on_spark(p.global_position)
@@ -650,12 +701,24 @@ func _on_sconce_interact(sconce) -> void:
 	sconce.light_it()
 	_sconces_lit += 1
 	_play_at("sconce_light", sconce.global_position, 0.0)
+	# D1 (2026-09-13): a lit sconce gives a candle back — the seven are worth seven more, so the
+	# night's light budget covers its 12–15 minutes (4 + 4 caches = 480 s did not).
+	if _candle and _candle.add_candle():
+		ScreenText.toast(get_tree(), "A CANDLE FROM THE SCONCE  (%d/%d)" % [_candle.candles, Candle.CARRY_CAP],
+			Color(0.85, 0.75, 0.55), 1.8)
+	_hunter_noise(sconce.global_position, NOISE_SCONCE_R)
 	_on_sconce_count_changed()
+	# ⭐ The room's own scare, if this room has one (dungeon_rooms.gd).
+	var nm: String = String(sconce.name).trim_prefix("Sconce_")
+	_fire_room_scare(nm)
+	_map_refresh()
 
 
 # The escalation clock (§B3). The level physically gets SAFER as you progress —
 # more light, more calm islands — while the roster escalates to compensate. That is
 # DN's "same objects, different rules" teaching structure compressed into one night.
+# ⭐ Two count gates and the finale — that is all the count does now. The scares live in the
+# rooms (dungeon_rooms.gd), dealt per dungeon, fired by that room's sconce or first entry.
 func _on_sconce_count_changed() -> void:
 	GameState.set_objective("SCONCES LIT: %d / %d" % [_sconces_lit, SCONCE_TOTAL])
 
@@ -663,19 +726,28 @@ func _on_sconce_count_changed() -> void:
 		for f in _frames:
 			if is_instance_valid(f):
 				f.set_audible(true)
-	if _sconces_lit >= FRAME_FATAL_SCONCE:
+	if _sconces_lit >= FRAME_IGNITE_SCONCE:
 		for f in _frames:
 			if is_instance_valid(f):
-				f.set_fatal(true)
+				f.set_ignites(true)
 	if _sconces_lit >= MATRON_FIRST_SCONCE and not _matron_active_window:
 		_matron_active_window = true
 		_matron_t = 6.0
-	if _sconces_lit >= KNEELER_SCONCE:
-		_spawn_kneeler()
-	if _sconces_lit >= HOLLOW_SCONCE and not _teach_beats.get("hollow_taught", false):
-		_run_hollow_teach()
 	if _sconces_lit >= SCONCE_TOTAL:
-		_reveal_bed()
+		_finale()
+
+
+# 7/7: the bed is uncovered, every statue is awake whether or not you have seen it, and the
+# hunter is loose for the walk back — the level's one moment where everything is on at once.
+func _finale() -> void:
+	_reveal_bed()
+	for st in _still_ones:
+		if is_instance_valid(st) and not st.has_fallen():
+			st.wake()
+	if _matron != null:
+		_matron_active_window = true
+		if not _matron_present:
+			_matron_t = minf(_matron_t, 4.0)
 
 
 # ── Weeping Frames ──────────────────────────────────────────────────────────────
@@ -686,8 +758,11 @@ func _spawn_frames() -> void:
 		var nm: String = spot["room"]
 		var side: Vector2 = spot["side"]
 		var pos: Vector3 = _builder.wall_point(nm, side, 1.8, 0.16)
+		# Along the wall, so two paintings share it (dungeon_gen.gd's `offset`).
+		var along := Vector3(-side.y, 0.0, side.x)
+		pos += along * float(spot.get("offset", 0.0))
 		var frame := preload("res://scripts/weeping_frame.gd").new()
-		frame.name = "Frame_" + nm
+		frame.name = "Frame_%s_%d" % [nm, i]
 		frame.position = pos
 		frame.rotation.y = atan2(-side.x, -side.y)
 		frame.art_path = art[i % art.size()]
@@ -742,13 +817,8 @@ func _spawn_props() -> void:
 		spot.rotation.y = atan2(-side.x, -side.y)
 		add_child(spot)
 
-	# Beartraps — the generator has already excluded corridors adjacent to a Matron
-	# spawn chamber, because a limp during a chase is the double-jeopardy shape.
-	for nm in _gen.beartrap_rooms:
-		var trap := _TRAP_SCRIPT.new()
-		trap.name = "Trap_" + nm
-		trap.position = _gen.room_center_world(nm)
-		add_child(trap)
+	# ⚠️ No beartraps since 2026-09-12: 15 + 40 panic on a failed escape was a death in a level
+	# whose only death is now the panic bar, and a limp during a chase is the double-jeopardy shape.
 
 	# SlamDoors on chamber<->corridor thresholds. Mary's door-pounding, already
 	# written and already tested — and the battering thud is ALSO a locator, so it
@@ -770,7 +840,6 @@ func _spawn_props() -> void:
 		_slam_doors.append(door)
 		door.slammed.connect(_on_door_slammed)
 
-	_build_grate()
 	_build_bed()
 
 
@@ -784,48 +853,6 @@ func _on_door_slammed() -> void:
 	var p := _player()
 	if p:
 		p.add_panic(BATTER_PANIC)
-
-
-# The grate into the Hollow One's sealed alcove: you can see through it, and you
-# cannot pass. That is what makes the demonstration zero-risk.
-func _build_grate() -> void:
-	if _gen.teach_room == "" or _gen.teach_corridor == "":
-		return
-	var a: Vector3 = _gen.room_center_world(_gen.teach_room)
-	var c: Vector3 = _gen.room_center_world(_gen.teach_corridor)
-	var to: Vector3 = (a - c)
-	var side := Vector2(signf(to.x), signf(to.z))
-	if absf(to.x) > absf(to.z):
-		side = Vector2(signf(to.x), 0)
-	else:
-		side = Vector2(0, signf(to.z))
-	var pos: Vector3 = _builder.wall_point(_gen.teach_corridor, side, 1.5, 0.16)
-	var grate := MeshInstance3D.new()
-	grate.name = "AlcoveGrate"
-	var qm := QuadMesh.new()
-	qm.size = Vector2(1.1, 1.1)
-	grate.mesh = qm
-	var m := StandardMaterial3D.new()
-	var gp := TEX + "dungeon_grate.png"
-	if ResourceLoader.exists(gp):
-		var t: Texture2D = load(gp)
-		if t != null:
-			m.albedo_texture = t
-	else:
-		m.albedo_color = Color(0.2, 0.18, 0.16)
-	# ⚠️ NO alpha, deliberately. The generation pipeline cannot produce a real alpha
-	# channel at all (see ISSUES_SOLUTIONS Issue 42: the Gemini endpoint returns
-	# JPEG bytes whatever the filename says, and JPEG has no alpha), so the "grate
-	# you can see through" is an opaque panel set into the wall. It does not matter:
-	# the alcove behind it is solid CSG, so there was never anything to see through
-	# to — the silhouette is drawn AT this quad during the teaching beat instead.
-	m.roughness = 0.95
-	m.cull_mode = BaseMaterial3D.CULL_DISABLED
-	grate.set_surface_override_material(0, m)
-	grate.position = pos
-	grate.rotation.y = atan2(-side.x, -side.y)
-	add_child(grate)
-	_grate_pos = pos
 
 
 # The bed — the exit. Hidden until 7/7 burn.
@@ -858,7 +885,6 @@ func _reveal_bed() -> void:
 func _spawn_entities() -> void:
 	_spawn_still_ones()
 	_spawn_matron()
-	_spawn_hollow()
 	_child = _CHILD_SCRIPT.new()
 	_child.name = "TheChild"
 	add_child(_child)
@@ -873,25 +899,58 @@ func _spawn_still_ones() -> void:
 	for nm in _gen.still_one_rooms:
 		var s = _STALKER_SCRIPT.new()
 		s.name = "StillOne_" + nm
-		s.position = _gen.room_center_world(nm) + Vector3(0.6, 0, -0.6)
+		var h: Dictionary = _room_handles.get(nm, {})
+		# In a Cells room it stands in the barred niche, leashed to it; in a Crypt it stands in
+		# the first sarcophagus. Anywhere else, off the room centre as before.
+		if h.has("statue_pos"):
+			s.position = h["statue_pos"]
+		else:
+			s.position = _gen.room_center_world(nm) + Vector3(0.6, 0, -0.6)
+		if h.has("leash"):
+			s.leash = h["leash"]
 		s.scrape_tell = true
 		s.spark_reactive = true
+		# ⭐ NON-LETHAL (2026-09-12). Reaching you is a survivable face flash + STARTLE_PANIC and
+		# it topples for good — see _on_still_one_caught. The spark-kill branch takes the same path.
+		s.lethal = false
 		# The FIRST one is always a dud, and the generator puts a Still One in a
 		# chamber near the spawn: §B9's teaching beat. Walk up, it falls over, and
 		# you have now learned the silhouette AND that they can be inert. The
 		# second one in the level is real.
 		s.is_dud = (i == 0) or (randf() < 0.35)
 		add_child(s)
+		s.caught.connect(_on_still_one_caught.bind(s))
 		_still_ones.append(s)
 		i += 1
 
 
+# A statue reached you. A survivable flash of its face, the panic term, and (in the stalker
+# itself) the topple. Never a death — the user's call, 2026-09-12.
+func _on_still_one_caught(_s: Node) -> void:
+	var p := _player()
+	if p == null:
+		return
+	Screamer.flash_scare(TEX + "dn_stillone_face.png", "stillone_shriek", 0.6)
+	p.jolt_camera(0.15, 0.4)
+	p.add_panic(STARTLE_PANIC)
+
+
 func _spawn_matron() -> void:
 	_matron = _MATRON_SCRIPT.new()
-	_matron.name = "TheMatron"
+	_matron.name = "TheHunter"
 	# ⚠️ position BEFORE add_child: _ready() seeds the inner body's transform from
 	# global_transform the moment it enters the tree (Issue 10).
 	_matron.position = _gen.room_center_world(_gen.bed_room)
+	# ⭐ THE PARASITE (2026-09-12): a second model, a non-lethal catch, no teleporting when it
+	# loses you (the waves are what make it come and go), and the dungeon's doorway graph so it
+	# walks doorway to doorway instead of through the masonry.
+	_matron.model = "parasite"
+	# Its own palette: pale, cold, and NOT self-lit — at 0.045 ambient an emissive creature is
+	# the brightest thing in the level, and this one is meant to be found by its voice.
+	_matron.albedo_tint = Color(0.62, 0.6, 0.58)
+	_matron.emission_base = 0.0
+	_matron.lethal_contact = false
+	_matron.relocate_when_lost = false
 	_matron.chase_speed = MATRON_CHASE_SPEED
 	_matron.patrol_speed = 1.5
 	_matron.investigate_speed = 2.2
@@ -901,7 +960,9 @@ func _spawn_matron() -> void:
 	for nm in _gen.matron_spawn_rooms:
 		wps.append(_gen.room_center_world(nm))
 	_matron.set_waypoints(wps)
-	# Dormant until the 4-sconce mark; _tick_matron owns the spawn/hunt/despawn cycle.
+	_matron.set_portals(_gen.rooms, _gen.doorways)
+	_matron.caught.connect(_on_hunter_caught)
+	# Dormant until the count gate or the Larder; _tick_matron owns the spawn/hunt/despawn cycle.
 	_matron.visible = false
 
 	_matron_theme = AudioStreamPlayer3D.new()
@@ -925,83 +986,40 @@ func _spawn_matron() -> void:
 	_matron_steps.bus = AUDIO_BUS
 	_matron.add_child(_matron_steps)
 
+	# ⭐ Its voice: a positional call every HUNTER_CALL_MIN..MAX s while it hunts, on the
+	# un-ducked chase bus, so you hear it coming across the dungeon. Sprinting deafens it.
+	_hunter_voice = AudioStreamPlayer3D.new()
+	_hunter_voice.name = "HunterVoice"
+	_hunter_voice.unit_size = 14.0
+	_hunter_voice.max_db = 6.0
+	_hunter_voice.volume_db = HUNTER_VOICE_DB
+	_hunter_voice.bus = CHASE_BUS
+	_matron.add_child(_hunter_voice)
 
-func _spawn_hollow() -> void:
-	_hollow = _HOLLOW_SCRIPT.new()
-	_hollow.name = "TheHollowOne"
-	_hollow.position = _gen.room_center_world(_gen.bed_room)
-	add_child(_hollow)
+	# ⭐ The chase cue: the user's supplied cue, looped by tools/make_loop.py, non-positional,
+	# faded in only while it is IN CHASE AND CAN SEE YOU, faded out when it loses you.
+	_chase_cue = AudioStreamPlayer.new()
+	_chase_cue.name = "ChaseCue"
+	var cue := GameState.load_audio("parasite_chase")
+	if cue:
+		_chase_cue.stream = cue
+		_chase_cue.finished.connect(_chase_cue.play)
+	_chase_cue.volume_db = CUE_OFF_DB
+	_chase_cue.bus = CHASE_BUS
+	add_child(_chase_cue)
 
 
-func _spawn_kneeler() -> void:
+# The Chapel's scare: the Kneeling Man appears kneeling at the altar. A large crawling shadow
+# that CANNOT HARM YOU AT ALL — within 2.5 m he simply dissolves and relocates. Pure gaze panic,
+# and the whisperer: "Look behind you" is the exact lie KONTUR's escort gate already tells.
+func spawn_kneeler_at(pos: Vector3) -> void:
 	if _kneeler != null:
 		return
-	# A large crawling shadow that CANNOT HARM YOU AT ALL — within 2.5 m he simply
-	# dissolves and relocates, and a candle dispels him. Pure gaze panic. His job is
-	# to make the real threats ambiguous, and he is the whisperer: "Look behind you"
-	# is the exact lie KONTUR's escort gate already tells, which retroactively makes
-	# that one read as the same voice.
 	_kneeler = preload("res://scripts/kneeling_man.gd").new()
 	_kneeler.name = "TheKneelingMan"
-	var rooms: Array = _gen.corridor_names
-	if rooms.is_empty():
-		return
-	_kneeler.position = _gen.room_center_world(rooms[randi() % rooms.size()])
+	_kneeler.position = pos
 	add_child(_kneeler)
 	_kneeler.register_player(_player())
-
-
-# ── The Hollow One's teaching beat (§B4.3, §B9) ─────────────────────────────────
-# Scripted, loud, and at ZERO risk. The knock passes across a SEALED side-chamber
-# the player cannot enter, a caption prompts a spark, the silhouette shows through
-# the grate, and it walks away. apparition.gd's teach=true contract, applied to a
-# new entity — because the first encounter with a rule must never be the one that
-# can kill you.
-func _run_hollow_teach() -> void:
-	_teach_beats["hollow_taught"] = true
-	if _gen.teach_room == "":
-		_arm_hollow()
-		return
-	var c: Vector3 = _gen.room_center_world(_gen.teach_room)
-	_teach_hollow = _HOLLOW_SCRIPT.new()
-	_teach_hollow.name = "HollowTeach"
-	add_child(_teach_hollow)
-	var path := PackedVector3Array([
-		c + Vector3(-1.2, 0, 0), c + Vector3(1.2, 0, 0)])
-	_teach_hollow.begin_teaching(path, _grate_pos)
-	ScreenText.caption(get_tree(), "SOMETHING IS IN THERE.  PRESS C TO STRIKE A SPARK.", 6.0)
-	# Arm the real one only after the demonstration has had time to land.
-	var t := get_tree().create_timer(14.0)
-	t.timeout.connect(_arm_hollow)
-
-
-func _arm_hollow() -> void:
-	if _hollow == null or _hollow.active:
-		return
-	# ⚠️ Never simultaneous with the Matron (§B10). If she is out, wait.
-	if _matron_present:
-		var t := get_tree().create_timer(5.0)
-		t.timeout.connect(_arm_hollow)
-		return
-	var p := _player()
-	if p == null:
-		return
-	_hollow.global_position = _far_room_from(p.global_position, 14.0)
-	_hollow.activate(p)
-
-
-func _far_room_from(pos: Vector3, min_dist: float) -> Vector3:
-	var best: Vector3 = pos
-	var best_d: float = -1.0
-	for nm in _gen.chamber_names:
-		var c: Vector3 = _gen.room_center_world(nm)
-		var d: float = c.distance_to(pos)
-		if d > best_d:
-			best_d = d
-			best = c
-		if d >= min_dist and randf() < 0.4:
-			return c
-	return best
 
 
 # ── The Matron's cycle ──────────────────────────────────────────────────────────
@@ -1026,23 +1044,24 @@ func _spawn_matron_now() -> void:
 	var p := _player()
 	if p == null:
 		return
-	# ⚠️ Never while the Hollow One is out — two unseeable threats at once is a coin
-	# flip, and it is DN's own rule.
-	if _hollow != null and _hollow.active:
-		_matron_t = 8.0
-		return
 	var spot := _matron_spawn_spot(p.global_position)
 	if spot == Vector3.INF:
 		_matron_t = 6.0
 		return
-	_matron.global_position = spot
-	if _matron.has_method("get_body_rid"):
-		# Move the inner body too: the outer node's position is only the seed.
-		_matron.set("position", spot)
+	_spawn_matron_at(spot, MATRON_HUNT_LATE if _sconces_lit >= 6 else MATRON_HUNT)
+
+
+# Put the hunter at `spot`, awake, for `hunt_time` seconds. Shared by the clock and the Larder.
+func _spawn_matron_at(spot: Vector3, hunt_time: float) -> void:
+	var p := _player()
+	if p == null or _matron == null:
+		return
+	_matron.place_body(spot, p.global_position)
 	_matron.visible = true
 	_matron.activate()
 	_matron_present = true
-	_matron_t = MATRON_HUNT_LATE if _sconces_lit >= 6 else MATRON_HUNT
+	_matron_t = hunt_time
+	_voice_t = randf_range(2.0, 5.0)   # the first call comes soon after it appears
 
 	# ⭐ THE SILENCE. Duck the whole diegetic bus and stop panic healing. The
 	# heartbeat is NOT on this bus, so what is left is your own pulse — DN's
@@ -1062,8 +1081,6 @@ func _spawn_matron_now() -> void:
 func _despawn_matron() -> void:
 	_matron_present = false
 	_matron.visible = false
-	if _matron.has_method("lure_into_trap"):
-		pass   # not a kill — just stop processing until the next spawn
 	_matron.set("_active", false)
 	_matron_t = MATRON_GAP_LATE if _sconces_lit >= 6 else MATRON_GAP
 	_duck_bus(false)
@@ -1072,6 +1089,212 @@ func _despawn_matron() -> void:
 		p.set_no_decay(false)
 	if _matron_theme and _matron_theme.playing:
 		_matron_theme.stop()
+	if _hunter_voice and _hunter_voice.playing:
+		_hunter_voice.stop()
+	if _chase_cue:
+		_chase_cue.volume_db = CUE_OFF_DB
+		if _chase_cue.playing:
+			_chase_cue.stop()
+
+
+# ⭐ THE CATCH (2026-09-12, the user's choice: "jumpscare, panic spike, it lets go"). The
+# creature emits `caught` at contact_dist with line of sight; this stages it: pin the player,
+# turn them to it, bring its face LUNGE_DIST from the camera, the sting on Master with a breath
+# of silence before it, the jolt, CATCH_PANIC — then it lets go and the wave is over. Nothing here
+# touches the Screamer; the panic bar is the only thing that can end the run.
+func _on_hunter_caught() -> void:
+	if _catching or _matron == null:
+		return
+	var p := _player()
+	if p == null:
+		return
+	_catching = true
+	p.velocity.x = 0.0
+	p.velocity.z = 0.0
+	p.freeze_input()
+	var cam: Camera3D = p.get_node_or_null("Camera3D") as Camera3D
+	var head: Vector3 = _matron.get_creature_position() + Vector3(0, 1.6, 0)
+	if p.has_method("turn_to_face"):
+		p.turn_to_face(head, 0.18)
+	HoldBreath.dip(get_tree(), 0.5)
+	if cam:
+		var fwd: Vector3 = -cam.global_transform.basis.z
+		fwd.y = 0.0
+		if fwd.length() < 0.05:
+			fwd = Vector3(0, 0, -1)
+		var at: Vector3 = cam.global_position + fwd.normalized() * LUNGE_DIST
+		_matron.place_body(Vector3(at.x, 0.0, at.z), p.global_position)
+	await get_tree().create_timer(0.35).timeout
+	if not is_instance_valid(p):
+		_catching = false
+		return
+	_play_master("parasite_jumpscare", 0.0)
+	p.jolt_camera(0.12, 0.5)
+	p.add_panic(CATCH_PANIC)
+	await get_tree().create_timer(0.9).timeout
+	if not is_instance_valid(p) or not is_instance_valid(_matron):
+		_catching = false
+		return
+	# It lets go: three metres back, then gone. The wave is over.
+	var away: Vector3 = _matron.get_creature_position() - p.global_position
+	away.y = 0.0
+	if away.length() < 0.05:
+		away = Vector3(0, 0, 1)
+	_matron.place_body(_matron.get_creature_position() + away.normalized() * 3.0, p.global_position)
+	_despawn_matron()
+	p.unfreeze_input()
+	_catching = false
+
+
+# ⭐ THE LARDER (dungeon_rooms.gd): lighting the lair's sconce puts the hunter three metres
+# behind you, facing you, already chasing — "it is beside you, run". A wave regardless of the
+# clock, and it wakes the hunter even before the third sconce.
+func lair_beat(_room: String, fallback: Vector3) -> void:
+	var room_name: String = _room
+	var p := _player()
+	if p == null or _matron == null:
+		return
+	if _matron_present:
+		_despawn_matron()
+	_matron_active_window = true
+	# A ladder of marks around the player — behind first, then over each shoulder, then in
+	# front — each validated by rays and by being fully inside a room (Issue 40: never a shape
+	# query against CSG). Measured 2026-09-12: the single "3 m behind" mark landed ON the wall of a
+	# 6 m chamber and the fallback was 1.2 m from the player, i.e. an instant catch.
+	var back: Vector3 = p.global_transform.basis.z
+	back.y = 0.0
+	back = back.normalized()
+	var spot := Vector3.INF
+	var cands: Array = [back * 3.0, back * 2.4, back.rotated(Vector3.UP, 0.7) * 2.6,
+		back.rotated(Vector3.UP, -0.7) * 2.6, -back * 3.0, back * 2.0]
+	# ...then a ring at 2.4-3.2 m all round: a 6 m larder with two hanging shapes and a block
+	# refused every fixed mark on seed 202 (measured).
+	for k in range(12):
+		var ang: float = TAU * float(k) / 12.0
+		cands.append(back.rotated(Vector3.UP, ang) * (2.4 if k % 2 == 0 else 3.2))
+	for cand in cands:
+		var m: Vector3 = p.global_position + cand
+		if _spot_clear(p, m):
+			spot = m
+			break
+	if spot == Vector3.INF:
+		# Nothing fits around the player: take the handle's mark or the room centre, whichever is
+		# further from them, but never inside 2 m.
+		var c: Vector3 = _gen.room_center_world(room_name)
+		spot = fallback if fallback.distance_to(p.global_position) >= c.distance_to(p.global_position) else c
+		if spot.distance_to(p.global_position) < 2.0:
+			var away: Vector3 = spot - p.global_position
+			away.y = 0.0
+			if away.length() < 0.05:
+				away = back
+			spot = p.global_position + away.normalized() * 2.4
+	_spawn_matron_at(spot, LAIR_WAVE)
+	_matron.force_chase()
+	# ⚠️ It STANDS UP first. Measured on the first render: 3 m at 3.4 m/s is 0.9 s, which is
+	# exactly the turn plus the freeze below — the catch fired as control came back, and a beat
+	# whose only answer is "run" gave nobody the chance to. force_block() holds the walk (the
+	# gait runs at a quarter rate, a slow rise) and the catch still needs 1.0 m of contact.
+	_matron.force_block(LAIR_RISE)
+	p.velocity.x = 0.0
+	p.velocity.z = 0.0
+	p.freeze_input()
+	if p.has_method("turn_to_face"):
+		p.turn_to_face(_matron.get_creature_position() + Vector3(0, 1.5, 0), 0.35)
+	var t := get_tree().create_timer(0.55)
+	t.timeout.connect(func() -> void:
+		if is_instance_valid(p):
+			p.unfreeze_input())
+
+
+# Is `spot` on the floor, inside a room, with a clear line from the player's eye to a chest
+# there? Rays only (Issue 40): a shape query inside CSG reports nothing.
+func _spot_clear(p: CharacterBody3D, spot: Vector3) -> bool:
+	var room: String = _gen.room_at(spot)
+	if room == "":
+		return false
+	# The body is ~0.5 m wide: every point of that footprint must be in the SAME room, or the
+	# mark is on a wall.
+	for off in [Vector3(0.5, 0, 0), Vector3(-0.5, 0, 0), Vector3(0, 0, 0.5), Vector3(0, 0, -0.5)]:
+		if _gen.room_at(spot + off) != room:
+			return false
+	var space := get_world_3d().direct_space_state
+	var cam: Camera3D = p.get_node_or_null("Camera3D") as Camera3D
+	var eye: Vector3 = cam.global_position if cam else p.global_position + Vector3(0, 1.6, 0)
+	# Layer 1 only: a candle cache's layer-2 interact volume is not a wall (Issue 40's cousin —
+	# the first version masked everything and a pickup on the floor vetoed a clear mark).
+	var q := PhysicsRayQueryParameters3D.create(eye, spot + Vector3(0, 0.9, 0))
+	q.exclude = [p.get_rid()]
+	q.collision_mask = 1
+	if not space.intersect_ray(q).is_empty():
+		return false
+	# And the reverse ray, chest to eye — the creature's own line-of-sight test — so a mark that
+	# ends just inside a prop cannot pass one way and fail the other.
+	var q2 := PhysicsRayQueryParameters3D.create(spot + Vector3(0, 0.9, 0), eye)
+	q2.exclude = [p.get_rid()]
+	q2.collision_mask = 1
+	return space.intersect_ray(q2).is_empty()
+
+
+func _hunter_noise(pos: Vector3, radius: float) -> void:
+	if _matron_present and _matron != null:
+		_matron.notify_noise(pos, radius)
+
+
+func _tick_noise(delta: float, p: CharacterBody3D) -> void:
+	if not p.is_sprinting():
+		_sprint_noise_t = 0.0
+		return
+	_sprint_noise_t += delta
+	if _sprint_noise_t >= 0.5:
+		_sprint_noise_t = 0.0
+		_hunter_noise(p.global_position, NOISE_SPRINT_R)
+
+
+func _tick_hunter_voice(delta: float) -> void:
+	if not _matron_present or _matron == null or _hunter_voice == null:
+		return
+	var st: int = _matron.get_state()
+	if st != 1 and st != 2 and st != 3:   # INVESTIGATE / CHASE / SEARCH
+		return
+	_voice_t -= delta
+	if _voice_t > 0.0:
+		return
+	_voice_t = randf_range(HUNTER_CALL_MIN, HUNTER_CALL_MAX)
+	var s := GameState.load_audio("parasite_growl" if _voice_alt else "matron_shriek")
+	_voice_alt = not _voice_alt
+	if s == null:
+		s = GameState.load_audio("matron_shriek")
+	if s:
+		_hunter_voice.stream = s
+		_hunter_voice.pitch_scale = randf_range(0.9, 1.05)
+		_hunter_voice.play()
+
+
+func _tick_chase_cue(delta: float) -> void:
+	if _chase_cue == null or _chase_cue.stream == null:
+		return
+	var want: bool = _matron_present and _matron != null and _matron.get_state() == 2 \
+		and _matron.has_line_of_sight()
+	if want and not _chase_cue.playing:
+		_chase_cue.play()
+	var target: float = CUE_ON_DB if want else CUE_OFF_DB
+	var rate: float = (CUE_ON_DB - CUE_OFF_DB) / (CUE_IN_TIME if want else CUE_OUT_TIME)
+	_chase_cue.volume_db = move_toward(_chase_cue.volume_db, target, rate * delta)
+	if not want and _chase_cue.playing and _chase_cue.volume_db <= CUE_OFF_DB + 0.5:
+		_chase_cue.stop()
+
+
+func _play_master(base_name: String, volume_db: float) -> void:
+	var s := GameState.load_audio(base_name)
+	if s == null:
+		return
+	var pl := AudioStreamPlayer.new()
+	pl.stream = s
+	pl.volume_db = volume_db
+	pl.bus = "Master"
+	add_child(pl)
+	pl.play()
+	pl.finished.connect(pl.queue_free)
 
 
 func _matron_spawn_spot(from: Vector3) -> Vector3:
@@ -1115,6 +1338,7 @@ func _ensure_bus() -> void:
 	# Delegates to AudioBuses rather than re-rolling backrooms.gd's _ensure_bus():
 	# one place that knows how a runtime bus is made.
 	AudioBuses.ensure(AUDIO_BUS)
+	AudioBuses.ensure(CHASE_BUS)
 
 
 func _duck_bus(ducked: bool) -> void:
@@ -1389,11 +1613,17 @@ func _process(delta: float) -> void:
 	_tick_sprint_deafness(p)
 	_tick_ambient_dip()
 	_tick_slam_doors()
+	_tick_noise(delta, p)
+	_tick_hunter_voice(delta)
+	_tick_chase_cue(delta)
+	_tick_room_tracking(p)
+	if _in_cistern:
+		p.apply_slow(0.6)   # re-applied per frame while wading, the Flood's idiom
 
 	# The Child: harmless, always. Only while the candle is OUT (its suppression is
 	# the candle's one clean upside), and ⚠️ only when no primary entity is present
 	# — DN2's rule that the game never stacks a fake scare onto a real threat.
-	var primary_out: bool = _matron_present or (_hollow != null and _hollow.active)
+	var primary_out: bool = _matron_present
 	var candle_out: bool = _candle == null or not _candle.burning
 	if _child:
 		_child.tick(delta, candle_out and not primary_out)
@@ -1405,8 +1635,8 @@ func _process(delta: float) -> void:
 # WOULD HAVE MADE PANIC UNNECESSARY.
 func _tick_sprint_deafness(p: CharacterBody3D) -> void:
 	var sprinting: bool = p.is_sprinting()
-	if _hollow:
-		_hollow.set_masked(sprinting)
+	if _hunter_voice:
+		_hunter_voice.volume_db = HUNTER_VOICE_DB + (SPRINT_DEAF_DB if sprinting else 0.0)
 	if _matron_steps:
 		_matron_steps.volume_db = -4.0 + (SPRINT_DEAF_DB if sprinting else 0.0)
 	if _matron_theme and _matron_present:
@@ -1459,6 +1689,9 @@ func save_progress() -> Dictionary:
 		"candles_held": _candle.candles if _candle else Candle.CARRY_CAP,
 		"teach_beats_done": _teach_beats.duplicate(),
 		"in_dungeon": _in_dungeon,
+		"map_found": _map_found,
+		"rooms_seen": _rooms_seen.duplicate(),
+		"scares_fired": _scares_fired.duplicate(),
 	}
 
 
@@ -1469,18 +1702,186 @@ func _restore_progress() -> void:
 	_teach_beats = (data.get("teach_beats_done", {}) as Dictionary).duplicate()
 	if _candle:
 		_candle.candles = int(data.get("candles_held", Candle.CARRY_CAP))
+	# The scares are restored as SPENT before the sconces are relit, so a relit sconce fires
+	# nothing (its room is already in the list); the map comes back with what it had drawn.
+	_scares_fired = (data.get("scares_fired", []) as Array).duplicate()
+	_rooms_seen = (data.get("rooms_seen", []) as Array).duplicate()
+	_map_found = bool(data.get("map_found", false))
+	if _map:
+		_map.set_found(_map_found)
+	if _map_found and is_instance_valid(get_node_or_null("MapPickup")):
+		get_node("MapPickup").queue_free()
 	var want: int = int(data.get("sconces_lit", 0))
 	for i in range(mini(want, _sconces.size())):
 		_sconces[i].light_it()
 		_sconces_lit += 1
+		var nm: String = String(_sconces[i].name).trim_prefix("Sconce_")
+		if not _scares_fired.has(nm):
+			_scares_fired.append(nm)
 	if _sconces_lit > 0:
 		_on_sconce_count_changed()
+	_map_refresh()
 	if bool(data.get("in_dungeon", false)):
 		_in_dungeon = true
 		var p := _player()
 		if p:
 			p.global_position = _gen.room_center_world(_gen.spawn_room) + Vector3(0, 0.1, 0)
 	_refresh_exit()
+
+
+# ── Room archetypes (dungeon_rooms.gd) ──────────────────────────────────────────
+func _spawn_rooms() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _content_seed * 7 + 3
+	for nm in _gen.chamber_names:
+		var kind: String = _gen.kind_of(nm)
+		if kind == "":
+			continue
+		_room_handles[nm] = _ROOMS_SCRIPT.build(kind, self, _builder, _gen, nm, rng)
+
+
+# The one scare a room owns, once. Refused (and retried in 0.25 s) while a note is open, the
+# tree is paused or the player is frozen — the cellar child's rule: a scare fired at a player
+# who cannot react is a scare nobody gets.
+func _fire_room_scare(nm: String) -> void:
+	if _scares_fired.has(nm) or not _room_handles.has(nm):
+		return
+	var p := _player()
+	if p == null:
+		return
+	if NoteUI.is_open or get_tree().paused or p.is_input_frozen():
+		var t := get_tree().create_timer(0.25)
+		t.timeout.connect(_fire_room_scare.bind(nm))
+		return
+	_scares_fired.append(nm)
+	_ROOMS_SCRIPT.fire(_gen.kind_of(nm), _room_handles[nm], self, p)
+
+
+func _room_has_sconce(nm: String) -> bool:
+	for sp in _gen.sconce_spots:
+		if sp["room"] == nm:
+			return true
+	return false
+
+
+# Which room the player is in, for the map and for the entry-triggered scares (rooms with no
+# sconce fire on first entry; rooms with one fire when it is lit).
+func _tick_room_tracking(p: CharacterBody3D) -> void:
+	var nm: String = _gen.room_at(p.global_position)
+	if nm == "" or nm == _current_room:
+		return
+	_current_room = nm
+	if not _rooms_seen.has(nm):
+		_rooms_seen.append(nm)
+		_map_refresh()
+	if _room_handles.has(nm) and not _room_has_sconce(nm):
+		_fire_room_scare(nm)
+
+
+# ── callbacks the archetypes fire (dungeon_rooms.gd) ────────────────────────────
+func frames_in_room(nm: String) -> Array:
+	var out: Array = []
+	for f in _frames:
+		if is_instance_valid(f) and String(f.name).begins_with("Frame_" + nm + "_"):
+			out.append(f)
+	return out
+
+
+# The Gallery: the painting furthest from where the player is looking drops off its wall.
+func gallery_drop(nm: String) -> void:
+	var p := _player()
+	var best = null
+	var best_score := -INF
+	for f in frames_in_room(nm):
+		if f.has_fallen():
+			continue
+		var score := 0.0
+		if p:
+			var cam: Camera3D = p.get_node_or_null("Camera3D") as Camera3D
+			var to: Vector3 = (f as Node3D).global_position - p.global_position
+			var fwd: Vector3 = -cam.global_transform.basis.z if cam else Vector3.FORWARD
+			score = -fwd.dot(to.normalized())   # behind the player scores highest
+		if score > best_score:
+			best_score = score
+			best = f
+	if best == null:
+		return
+	best.fall()
+	if p:
+		p.jolt_camera(0.08, 0.3)
+
+
+# The Well: the Child peeks over the rim. Deferred once if the hunter is out (DN2: never a fake
+# scare on top of a real threat).
+func child_peek_at(pos: Vector3) -> void:
+	if _child == null:
+		return
+	if _matron_present:
+		var t := get_tree().create_timer(8.0)
+		t.timeout.connect(func() -> void:
+			if _child and not _matron_present:
+				_child.fire_now(0, pos))
+		return
+	_child.fire_now(0, pos)
+
+
+# The Crypt: the statue in the sarcophagus is awake without ever having been looked at.
+func wake_statue_in(nm: String) -> void:
+	for st in _still_ones:
+		if is_instance_valid(st) and String(st.name) == "StillOne_" + nm and not st.has_fallen():
+			st.wake()
+
+
+# The Cistern: wading. Re-applied per frame in _process while inside.
+func cistern_set(_nm: String, inside: bool) -> void:
+	_in_cistern = inside
+
+
+# ── The map (dungeon_map_ui.gd) ─────────────────────────────────────────────────
+func _spawn_map() -> void:
+	_map = _MAP_SCRIPT.new()
+	_map.name = "DungeonMap"
+	add_child(_map)
+	_map.setup(_gen)
+	# The folded plan: on the Antechamber's candle rack, next to the four candles the protocol
+	# note says you are given. A KeyItem so the shipping interact ray and prompt find it.
+	var pickup := _KEY_SCRIPT.new()
+	pickup.name = "MapPickup"
+	pickup.label_text = "The plan of the lower floor"
+	pickup.position = ANTE_ORIGIN + Vector3(2.6, 0.93, -2.4) + Vector3(0.55, 0, 0.1)
+	pickup.collision_layer = 2
+	pickup.collision_mask = 0
+	add_child(pickup)
+	var sheet := MeshInstance3D.new()
+	sheet.name = "FoldedPlan"
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.22, 0.02, 0.16)
+	sheet.mesh = bm
+	sheet.set_surface_override_material(0, _NOTE_SCRIPT.paper_material(false))
+	pickup.add_child(sheet)
+	var col := CollisionShape3D.new()
+	var sh := BoxShape3D.new()
+	sh.size = Vector3(0.4, 0.3, 0.35)
+	col.shape = sh
+	pickup.add_child(col)
+	pickup.picked_up.connect(_on_map_picked)
+
+
+func _on_map_picked() -> void:
+	_map_found = true
+	if _map:
+		_map.set_found(true)
+	ScreenText.caption(get_tree(), "M — THE PLAN. IT DRAWS ONLY WHAT YOU HAVE WALKED.", 5.0)
+
+
+func _map_refresh() -> void:
+	if _map == null:
+		return
+	var lit: Array = []
+	for sc in _sconces:
+		if is_instance_valid(sc) and sc.is_lit:
+			lit.append(sc.global_position)
+	_map.refresh(_rooms_seen, lit)
 
 
 # ── Test surface ────────────────────────────────────────────────────────────────
@@ -1496,3 +1897,27 @@ func get_sconces() -> Array:
 
 func sconces_lit() -> int:
 	return _sconces_lit
+
+
+func get_hunter():
+	return _matron
+
+
+func hunter_present() -> bool:
+	return _matron_present
+
+
+func get_map():
+	return _map
+
+
+func rooms_seen() -> Array:
+	return _rooms_seen
+
+
+func scares_fired() -> Array:
+	return _scares_fired
+
+
+func room_handles() -> Dictionary:
+	return _room_handles

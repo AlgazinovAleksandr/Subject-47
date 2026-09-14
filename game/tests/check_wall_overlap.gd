@@ -166,7 +166,7 @@ const CONFIG := {
 		# its own box — is geometry surgery on the level's load-bearing builder, for a defect
 		# nobody can see. If a corner ever DOES shimmer, that is the fix; delete an entry here
 		# first and watch it go red.
-		"allow": "@corridor_corners", "min_allow": 12,
+		"allow": "@corridor_corners", "min_allow": 18,   # C1: nine interior corners x floor+ceiling
 		"min_boxes": 28, "min_quads": 38, "min_solids": 120,
 	},
 	"SCENE_BACKROOMS": {
@@ -223,7 +223,9 @@ const CONFIG := {
 		# all, so the whole `_check_wall_props()` pass measures nothing here — its notes are
 		# `BoxMesh` pages on tables. Recorded as a coverage gap in backlogs/08-void.md rather
 		# than papered over; the solid pass and the CSG pass both have real samples.
-		"min_boxes": 40, "min_quads": 0, "min_solids": 8,
+		# Rebuilt 2026-09-12: 141 boxes (rooms, tiles, beams, the pit), 12 flat props (notes,
+		# the torn pages, the drawing, the pads), 64 solid props (fragments, candles, doors).
+		"min_boxes": 120, "min_quads": 8, "min_solids": 40,
 	},
 }
 
@@ -288,7 +290,9 @@ func _load_row() -> void:
 
 func _corridor_corners() -> Array:
 	var out: Array = []
-	for i in range(6):
+	# C1 (2026-09-13): nine interior corners on a 10-segment path (was 6 of 7). `min_allow` 18
+	# still asserts the count, so a path that grows or shrinks moves this and fails loudly.
+	for i in range(9):
 		out.append(["Seg%dFloor" % i, "Seg%dFloor" % (i + 1), CORRIDOR_CORNER])
 		out.append(["Seg%dCeiling" % i, "Seg%dCeiling" % (i + 1), CORRIDOR_CORNER])
 	return out

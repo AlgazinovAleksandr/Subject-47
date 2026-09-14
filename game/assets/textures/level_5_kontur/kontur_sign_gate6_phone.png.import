@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://da4kgm5c5lbdn"
-path="res://.godot/imported/kontur_sign_gate6_phone.png-e4c7c99714c062d799cc06266c1db7ef.ctex"
+path.s3tc="res://.godot/imported/kontur_sign_gate6_phone.png-e4c7c99714c062d799cc06266c1db7ef.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_5_kontur/kontur_sign_gate6_phone.png"
-dest_files=["res://.godot/imported/kontur_sign_gate6_phone.png-e4c7c99714c062d799cc06266c1db7ef.ctex"]
+dest_files=["res://.godot/imported/kontur_sign_gate6_phone.png-e4c7c99714c062d799cc06266c1db7ef.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

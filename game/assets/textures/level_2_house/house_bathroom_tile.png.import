@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://cm4licr1ep7h5"
-path="res://.godot/imported/house_bathroom_tile.png-8eb9827b789f0c8c8a0adeb34204f744.ctex"
+path.s3tc="res://.godot/imported/house_bathroom_tile.png-8eb9827b789f0c8c8a0adeb34204f744.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_2_house/house_bathroom_tile.png"
-dest_files=["res://.godot/imported/house_bathroom_tile.png-8eb9827b789f0c8c8a0adeb34204f744.ctex"]
+dest_files=["res://.godot/imported/house_bathroom_tile.png-8eb9827b789f0c8c8a0adeb34204f744.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

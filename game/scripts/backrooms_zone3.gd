@@ -358,7 +358,7 @@ func _on_plate_complete() -> void:
 func objective_text() -> String:
 	if _plate_done:
 		return "The way out does not show itself in the light"
-	return "Something in this wing is unfinished"
+	return "Someone down here kept relics of the ward."
 
 
 func _refresh_objective() -> void:

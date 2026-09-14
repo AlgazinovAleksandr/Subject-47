@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://d3tv8dxolgkfg"
-path="res://.godot/imported/hiding_locker_front.png-a49fa0dd50f51c1f0070d2786f9ec9cd.ctex"
+path.s3tc="res://.godot/imported/hiding_locker_front.png-a49fa0dd50f51c1f0070d2786f9ec9cd.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_6_breach/hiding_locker_front.png"
-dest_files=["res://.godot/imported/hiding_locker_front.png-a49fa0dd50f51c1f0070d2786f9ec9cd.ctex"]
+dest_files=["res://.godot/imported/hiding_locker_front.png-a49fa0dd50f51c1f0070d2786f9ec9cd.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

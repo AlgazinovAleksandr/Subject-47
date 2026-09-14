@@ -38,7 +38,7 @@ const SPOTS := [
 	["Junction",      Vector3(-21, 0.1, 12.5),   Vector2(4, 4)],
 	["Plant",         Vector3(-32.5, 0.1, 12.5), Vector2(5, 4)],
 	["SouthSpur",     Vector3(-21, 0.1, 8.5),    Vector2(2.4, 4)],
-	["BreakerNook",   Vector3(-34, 0.1, 7.7),    Vector2(6, 4)],
+	["BreakerNook",   Vector3(-57, 0.1, 16.5),   Vector2(6, 4)],
 ]
 
 # A room can hold an apparition only if, from its centre, there is somewhere at least

@@ -223,7 +223,43 @@ const ROOMS := [
 	{ "name": "SouthSpur", "pos": Vector2(-21.0, 8.5), "size": Vector2(2.4, 4) },
 	{ "name": "SouthHall", "pos": Vector2(-26.6, 7.7), "size": Vector2(8.8, 2.4) },
 	{ "name": "PumpRoom", "pos": Vector2(-25.0, 5.35), "size": Vector2(4, 2.3) },
-	{ "name": "BreakerNook", "pos": Vector2(-34.0, 7.7), "size": Vector2(6, 4) },
+	# ⭐⭐ L1.2 (2026-09-13, the user: "make this dark location bigger … twice as big"). The old
+	# BreakerNook is now the CISTERN, a decision room, and the wing runs on west for a second
+	# tier: 21 rooms, 6 decisions, 7 dead ends, ~62 m of walking to the breaker (was 10 / 3 / 3 /
+	# ~28 m). Same three z-bands (south <= 10.5, middle, north >= 14.5); every limb abuts its
+	# neighbour and nothing overlaps (check_wall_overlap.gd asserts it).
+	#
+	#   SouthHall -> Cistern (dec 4: Sump S dead / LowerRun W)
+	#             -> LowerRun (dec 5: Vent N dead / Crossing W)
+	#             -> Crossing (dec 6: Riser N -> Gallery dead / FarHall W)
+	#             -> FarHall -> Turn (dec 7: Boiler S dead / Shaft N)
+	#             -> Shaft -> BreakerNook (the terminus, breaker on its WEST wall)
+	{ "name": "Cistern", "pos": Vector2(-34.0, 7.7), "size": Vector2(6, 4) },
+	{ "name": "Sump", "pos": Vector2(-34.0, 4.55), "size": Vector2(4, 2.3) },          # dead
+	{ "name": "LowerRun", "pos": Vector2(-40.5, 7.7), "size": Vector2(7, 2.4) },
+	{ "name": "Vent", "pos": Vector2(-40.5, 10.7), "size": Vector2(2.4, 3.6) },        # dead
+	{ "name": "Crossing", "pos": Vector2(-46.0, 7.7), "size": Vector2(4, 4) },
+	{ "name": "Riser", "pos": Vector2(-46.0, 12.1), "size": Vector2(2.4, 4.8) },
+	{ "name": "Gallery", "pos": Vector2(-46.0, 17.0), "size": Vector2(9, 5) },         # dead
+	{ "name": "FarHall", "pos": Vector2(-51.5, 7.7), "size": Vector2(7, 2.4) },
+	{ "name": "Turn", "pos": Vector2(-57.0, 7.7), "size": Vector2(4, 4) },
+	{ "name": "Boiler", "pos": Vector2(-57.0, 4.55), "size": Vector2(4, 2.3) },        # dead
+	{ "name": "Shaft", "pos": Vector2(-57.0, 12.1), "size": Vector2(2.4, 4.8) },
+	{ "name": "BreakerNook", "pos": Vector2(-57.0, 16.5), "size": Vector2(6, 4) },
+	# ⭐⭐ 2026-09-13 (the user: "the geometry and the path to the breaker are too simple").
+	# TWO LOOPS make the wing a maze rather than a tree, and every dead end is now TWO rooms
+	# deep, so a wrong branch costs a real walk. 28 rooms.
+	#   loop 1: Plant -> PlantDrop -> Cistern   (the west limb rejoins the route)
+	#   loop 2: NorthVault -> VaultRun -> VaultNeck -> Gallery -> Riser -> Crossing
+	#           (the north limb is a 40 m detour that lands on the route two decisions later)
+	#   deeper: PumpRoom -> PumpPit · Sump -> SumpWell · Vent -> VentShaft · Boiler -> BoilerPit
+	{ "name": "PlantDrop", "pos": Vector2(-36.2, 12.1), "size": Vector2(2.4, 4.8) },   # loop 1: west of Plant, down onto Cistern (x -37.4..-35, z 9.7..14.5)
+	{ "name": "VaultRun", "pos": Vector2(-36.6, 22.7), "size": Vector2(15.2, 2.4) },   # loop 2 (z 21.5..23.9)
+	{ "name": "VaultNeck", "pos": Vector2(-44.2, 20.5), "size": Vector2(4.8, 2.0) },   # loop 2 (x -46.6..-41.8, z 19.5..21.5; its two doorways are offset in x so their floor bridges (BRIDGE_PAD 1.3) cannot coincide)
+	{ "name": "PumpPit", "pos": Vector2(-25.0, 2.5), "size": Vector2(4, 3.4) },        # dead (2nd room)
+	{ "name": "SumpWell", "pos": Vector2(-34.0, 2.1), "size": Vector2(4, 2.6) },       # dead (2nd room)
+	{ "name": "VentShaft", "pos": Vector2(-39.8, 14.0), "size": Vector2(2.4, 3.0) },   # dead (2nd room)
+	{ "name": "BoilerPit", "pos": Vector2(-57.0, 2.1), "size": Vector2(4, 2.6) },      # dead (2nd room)
 ]
 
 const DOORS := [
@@ -246,7 +282,29 @@ const DOORS := [
 	{ "pos": Vector2(-21, 10.5), "width": 1.6, "dir": "z" },     # Junction <-> SouthSpur
 	{ "pos": Vector2(-22.2, 7.7), "width": 1.6, "dir": "x" },    # SouthSpur <-> SouthHall
 	{ "pos": Vector2(-25, 6.5), "width": 1.6, "dir": "z" },      # SouthHall <-> PumpRoom (dead)
-	{ "pos": Vector2(-31, 7.7), "width": 1.6, "dir": "x" },      # SouthHall <-> BreakerNook
+	{ "pos": Vector2(-31, 7.7), "width": 1.6, "dir": "x" },      # SouthHall <-> Cistern (was the nook)
+	# L1.2 — the second tier.
+	{ "pos": Vector2(-34, 5.7), "width": 1.6, "dir": "z" },      # Cistern <-> Sump (dead)
+	{ "pos": Vector2(-37, 7.7), "width": 1.6, "dir": "x" },      # Cistern <-> LowerRun
+	{ "pos": Vector2(-40.5, 8.9), "width": 1.6, "dir": "z" },    # LowerRun <-> Vent (dead)
+	{ "pos": Vector2(-44, 7.7), "width": 1.6, "dir": "x" },      # LowerRun <-> Crossing
+	{ "pos": Vector2(-46, 9.7), "width": 1.6, "dir": "z" },      # Crossing <-> Riser
+	{ "pos": Vector2(-46, 14.5), "width": 1.6, "dir": "z" },     # Riser <-> Gallery (dead)
+	{ "pos": Vector2(-48, 7.7), "width": 1.6, "dir": "x" },      # Crossing <-> FarHall
+	{ "pos": Vector2(-55, 7.7), "width": 1.6, "dir": "x" },      # FarHall <-> Turn
+	{ "pos": Vector2(-57, 5.7), "width": 1.6, "dir": "z" },      # Turn <-> Boiler (dead)
+	{ "pos": Vector2(-57, 9.7), "width": 1.6, "dir": "z" },      # Turn <-> Shaft
+	{ "pos": Vector2(-57, 14.5), "width": 1.6, "dir": "z" },     # Shaft <-> BreakerNook (THE terminus)
+	# 2026-09-13 — the loops and the deeper dead ends.
+	{ "pos": Vector2(-35, 12.5), "width": 1.6, "dir": "x" },     # Plant <-> PlantDrop (loop 1)
+	{ "pos": Vector2(-36.2, 9.7), "width": 1.6, "dir": "z" },    # PlantDrop <-> Cistern (loop 1)
+	{ "pos": Vector2(-29, 22.7), "width": 1.6, "dir": "x" },     # NorthVault <-> VaultRun (loop 2)
+	{ "pos": Vector2(-42.7, 21.5), "width": 1.6, "dir": "z" },   # VaultRun <-> VaultNeck (loop 2)
+	{ "pos": Vector2(-45.5, 19.5), "width": 1.6, "dir": "z" },   # VaultNeck <-> Gallery (loop 2)
+	{ "pos": Vector2(-25, 4.2), "width": 1.6, "dir": "z" },      # PumpRoom <-> PumpPit (dead)
+	{ "pos": Vector2(-34, 3.4), "width": 1.6, "dir": "z" },      # Sump <-> SumpWell (dead)
+	{ "pos": Vector2(-40.2, 12.5), "width": 1.4, "dir": "z" },   # Vent <-> VentShaft (dead)
+	{ "pos": Vector2(-57, 3.4), "width": 1.6, "dir": "z" },      # Boiler <-> BoilerPit (dead)
 ]
 
 
@@ -348,6 +406,8 @@ func _restore_progress() -> void:
 			b.set_already_flipped()
 			_flipped_breakers[id] = true
 			_breakers_flipped += 1
+	if GameState.has_keycard:
+		_arm_apparition_after_keycard()   # L2: a restored keycard is a taken keycard
 	if bool(data.get("locker_unlocked", false)) and is_instance_valid(_locker):
 		_locker.unlocked = true
 	if bool(data.get("locker_moved", false)) and is_instance_valid(_locker):
@@ -458,7 +518,10 @@ const NO_LAMP_ROOMS := [
 	"DarkCorridor", "Junction",
 	"WestCorridor", "Plant",
 	"NorthSpur", "NorthVault",
-	"SouthSpur", "SouthHall", "PumpRoom", "BreakerNook",
+	"SouthSpur", "SouthHall", "PumpRoom",
+	"Cistern", "Sump", "LowerRun", "Vent", "Crossing", "Riser", "Gallery",
+	"FarHall", "Turn", "Boiler", "Shaft", "BreakerNook",
+	"PlantDrop", "VaultRun", "VaultNeck", "PumpPit", "SumpWell", "VentShaft", "BoilerPit",
 ]
 
 
@@ -1430,13 +1493,14 @@ func _make_door(door_name: String, advances: bool, goes_back: bool) -> StaticBod
 #
 # The trigger volume is deleted. It arms on a clock instead, and the window is randomised so two
 # runs do not agree.
-const APPARITION_AT := Vector2(42.0, 50.0)   # armed at randf_range of these
+const APPARITION_AT := Vector2(8.0, 16.0)    # L2: seconds AFTER THE KEYCARD, randf_range of these
 const APPARITION_POLL := 0.25
 # ⚠️ THE HARD DEADLINE. Past this the fairness gates below are dropped and it fires anyway. The
 # beat teaches a rule the player is killed by later (the House cellar, the Backrooms Flood), so
 # it may be DELAYED but must never be CANCELLED — `apparition_director.gd:OVERDUE_AFTER` makes
 # exactly the same trade for exactly the same reason.
-const APPARITION_DEADLINE := 65.0
+const APPARITION_DEADLINE := 30.0            # L2: after the keycard; the wing refusal outlives it
+var _apparition_armed: bool = false
 
 var _apparition_due: float = 0.0
 var _apparition_clock: float = 0.0
@@ -1446,12 +1510,14 @@ func _spawn_apparition() -> void:
 	# A taught "hold your nerve" apparition. teach=true: even a panicked sprint only shocks,
 	# not kills.
 	_apparition = Apparition.spawn(self, Apparition.Rule.HOLD, Vector3.ZERO, true) as Apparition
-	_apparition_due = randf_range(APPARITION_AT.x, APPARITION_AT.y)
+	# L2 (2026-09-13, capture #2, the user's call): NOT on a clock from the level start any more —
+	# it arms from `on_keycard_taken()` (see `_arm_apparition_after_keycard`).
+	_apparition_due = INF
 
 
 # Called every frame from `_process`. Cheap: a float compare until the clock is up.
 func _tick_apparition(delta: float) -> void:
-	if _apparition_fired or _apparition == null:
+	if _apparition_fired or _apparition == null or not _apparition_armed:
 		return
 	_apparition_clock += delta
 	if _apparition_clock < _apparition_due:
@@ -1460,9 +1526,52 @@ func _tick_apparition(delta: float) -> void:
 	if _apparition_poll > 0.0:
 		return
 	_apparition_poll = APPARITION_POLL
-	if _apparition_clock < APPARITION_DEADLINE and not _apparition_is_fair():
+	# ⚠️ The wing refusal is ABSOLUTE — the deadline drops the other gates, never this one
+	# (the user: "this creature should not appear while we are in the dark room").
+	if _in_wing():
+		return
+	# ⚠️ THE DEADLINE IS WALL-CLOCK (Issue 207). The J-capture pauses the tree, and a deadline on
+	# process time never arrived in a 40 s walk that held two captures; the beat must be
+	# delayable, never cancellable, and "delayed past the exit door" is cancelled.
+	var wall: float = (Time.get_ticks_msec() - _apparition_wall_ms) / 1000.0
+	if wall < APPARITION_DEADLINE and not _apparition_is_fair():
 		return
 	_trigger_apparition()
+
+
+# L2: the HOLD apparition's clock starts when the keycard is taken.
+func _arm_apparition_after_keycard() -> void:
+	if _apparition_armed or _apparition_fired:
+		return
+	_apparition_armed = true
+	_apparition_clock = 0.0
+	_apparition_wall_ms = Time.get_ticks_msec()
+	_apparition_due = randf_range(APPARITION_AT.x, APPARITION_AT.y)
+	var dbg := get_node_or_null("/root/DebugLog")
+	if dbg and dbg.has_method("note"):
+		dbg.note("LAB scripted apparition armed (keycard), due in %.1f s" % _apparition_due)
+
+
+var _apparition_wall_ms: int = 0
+var _apparition_aborts: int = 0
+
+
+# True while the player stands inside any WING_ROOMS room (read off the level's own ROOMS
+# table, so it holds whatever the wing grows into). The flashlight-lock zone's flag is the
+# other reading of the same fact; this one does not depend on an Area3D having fired.
+func _in_wing() -> bool:
+	var p := _player()
+	if p == null:
+		return false
+	var pos := p.global_position
+	for r in ROOMS:
+		if not (String(r["name"]) in WING_ROOMS):
+			continue
+		var c: Vector2 = r["pos"]
+		var s: Vector2 = r["size"]
+		if absf(pos.x - c.x) <= s.x * 0.5 + 0.3 and absf(pos.z - c.y) <= s.y * 0.5 + 0.3:
+			return true
+	return false
 
 
 # ⚠️ THE SAME FOUR CONDITIONS `apparition_director.gd:_can_fire()` USES, and for the same
@@ -1478,7 +1587,7 @@ func _apparition_is_fair() -> bool:
 	var nui := get_node_or_null("/root/NoteUI")
 	if nui and bool(nui.get("is_open")):
 		return false
-	if _in_breaker_nook:
+	if _in_breaker_nook or _in_wing():
 		return false
 	var p := _player()
 	if p == null:
@@ -1491,10 +1600,23 @@ func _apparition_is_fair() -> bool:
 func _trigger_apparition() -> void:
 	if _apparition_fired or not _apparition:
 		return
-	_apparition_fired = true
 	# force_teach: this is the designed teaching beat for the whole game's HOLD rule,
 	# so it stays survivable even in the rare case the director already fired one.
-	ApparitionDirector.arm(_apparition, true)
+	# ⚠️ NOT LATCHED UNTIL IT APPEARED (Issue 207). `appear()` can find no legible spot (27 % of
+	# placements in the clearance probe; the morgue is benches) and used to free itself silently
+	# while this flag and the taught ledger latched anyway. On an abort a fresh figure is built
+	# and the next 0.25 s poll tries again from wherever the player has walked to.
+	var appeared: bool = ApparitionDirector.arm(_apparition, true)
+	var dbg := get_node_or_null("/root/DebugLog")
+	if not appeared:
+		_apparition_aborts += 1
+		if dbg and dbg.has_method("note"):
+			dbg.note("LAB scripted apparition: no spot (attempt %d), retrying" % _apparition_aborts)
+		_apparition = Apparition.spawn(self, Apparition.Rule.HOLD, Vector3.ZERO, true) as Apparition
+		return
+	_apparition_fired = true
+	if dbg and dbg.has_method("note"):
+		dbg.note("LAB scripted apparition APPEARED after %d abort(s)" % _apparition_aborts)
 	# ⚠️ AND TELL THE DIRECTOR, or it will schedule its own on top of this one. Its `LEVEL_GRACE`
 	# is 45 s and this beat lands at 42-50 s, so without this the two clocks overlap by design —
 	# measured, a 43.2 s gap between consecutive apparitions against `count_apparitions.gd`'s 60 s
@@ -1552,6 +1674,7 @@ func _process(delta: float) -> void:
 	_tick_wing_meter(delta)
 	_tick_wing_markers(delta)
 	_tick_apparition(delta)
+	_tick_wing_beats(delta)
 
 
 var _apparition_director: Node = null
@@ -1566,7 +1689,13 @@ func _spawn_apparition_director() -> void:
 	# "hold still or flee" — the same double-jeopardy mistake this project has
 	# already made twice (KONTUR Gate 7, Backrooms Flood: never stack an
 	# unmitigated extra threat on a room whose whole premise is "solve it blind").
-	d.suppress = func() -> bool: return _in_breaker_nook
+	# ⭐ 2026-09-13: AND NOT BEFORE THE KEYCARD. The director's first roll landed ~90–135 s into
+	# the level regardless of progress, i.e. a figure in the corridors while the player was
+	# still hunting breakers — "another creature that doesn't make sense there" (playtest
+	# 2026-09-13). The Lab's rule is now: nothing appears until the keycard is taken; the
+	# scripted HOLD apparition (APPARITION_AT after the keycard) is the FIRST figure, and
+	# `on_keycard_taken()` pushes the director's clock out so it cannot pre-empt that beat.
+	d.suppress = func() -> bool: return _in_breaker_nook or _in_wing() or not GameState.has_keycard
 	add_child(d)
 	# Kept so the scripted teaching beat can reset its clock — see `_tick_apparition()`.
 	_apparition_director = d
@@ -1696,7 +1825,7 @@ func _tick_dark_breaker_tell(delta: float) -> void:
 # The cost is real, though: 20 panic against a PANIC_MAX of 50, followed by ~50 m of
 # walking back through the maze in the dark. Sprinting out is +6/s with decay
 # suppressed, which is exactly the mistake the level's own briefing note warns about.
-const NOOK_SCARE_DELAY := 5.0    # breathing behind you, then this
+const NOOK_SCARE_DELAY := 20.0   # L1.6 (2026-09-13, the user's number, was 5): breathing behind you for TWENTY seconds, then this
 const NOOK_REVEAL_TIME := 0.15   # how long the arc-flare holds the figure visible
 # Two sounds, staggered so they read as one event rather than mush: a SHORT positional
 # lunge at the figure (nook_scream, 1.2 s, in-world so it carries a direction), then the
@@ -1710,7 +1839,8 @@ const NOOK_REVEAL_TIME := 0.15   # how long the arc-flare holds the figure visib
 # the moment the figure becomes VISIBLE (NOOK_REVEAL_AT) rather than from the scream.
 const NOOK_TURN_TIME := 0.45     # the scripted camera turn
 const NOOK_REVEAL_AT := 0.45     # alpha starts as the turn lands
-const NOOK_FLASH_AT := 0.75      # = NOOK_REVEAL_AT + 0.30
+const NOOK_FLASH_AT := 0.75      # = NOOK_REVEAL_AT + 0.30 — the panic + unfreeze (no picture since 2026-09-13)
+const NOOK_FIGURE_HOLD := 0.6    # the figure stays visible this long now that no picture covers it
 # The headline jumpscare sound (user-supplied, 3.5 s .mp3). The hold is the time the
 # fullscreen image stays up, NOT the clip length — flash_scare() never stops the audio,
 # so the tail deliberately keeps ringing over the dark room after the picture drops.
@@ -1908,24 +2038,30 @@ func _nook_reveal() -> void:
 		if _nook_figure_mat:
 			var at := create_tween()
 			at.tween_property(_nook_figure_mat, "albedo_color:a", 1.0, 0.06)
-			at.tween_interval(NOOK_REVEAL_TIME)
-			at.tween_property(_nook_figure_mat, "albedo_color:a", 0.0, 0.12)
+			at.tween_interval(NOOK_FIGURE_HOLD)
+			at.tween_property(_nook_figure_mat, "albedo_color:a", 0.0, 0.25)
 	)
 
+	# ⭐ NO FULLSCREEN FACE SINCE 2026-09-13 (capture #002: the player read `lab_nook_face.png`
+	# as "the creature shared across levels, before I collected the keycard"). The user's rule:
+	# nothing fullscreen in the Lab until the keycard is in hand. The in-world figure, the
+	# turned camera, the positional scream and the panic stay; the picture that used to cover
+	# the 0.30 s after the reveal is gone, so the figure now HOLDS for NOOK_FIGURE_HOLD instead
+	# of NOOK_REVEAL_TIME — with nothing landing on top of it, a 0.15 s glimpse is a glitch.
 	get_tree().create_timer(NOOK_FLASH_AT).timeout.connect(func() -> void:
 		if not is_inside_tree():
 			return
-		Screamer.flash_scare(TEX + "lab_nook_face.png", NOOK_FLASH_AUDIO, NOOK_FLASH_HOLD)
+		_play_at(NOOK_FLASH_AUDIO, _player().global_position if _player() else spot, -6.0)
 		var pl := _player()
 		if pl:
 			pl.add_panic(NOOK_SCARE_PANIC)
-			# Control comes back with the picture, never later. A scripted turn that
+			# Control comes back as the figure fades, never later. A scripted turn that
 			# outlives its own beat is a player standing in the dark pressing keys.
 			pl.unfreeze_input()
 	)
 
-	# The lights come up as soon as the picture drops — the sting's tail is still going,
-	# which is the point: you can see the way out while it is still screaming at you.
+	# The lights come up on the old schedule — the sting's tail is still going, which is the
+	# point: you can see the way out while it is still screaming at you.
 	get_tree().create_timer(NOOK_FLASH_AT + NOOK_FLASH_HOLD).timeout.connect(_nook_cleanup)
 
 
@@ -2123,6 +2259,9 @@ func _build_nook_figure(spot: Vector3) -> void:
 
 
 func _nook_cleanup() -> void:
+	var dbg0 := get_node_or_null("/root/DebugLog")
+	if dbg0 and dbg0.has_method("note"):
+		dbg0.note("NOOK CLEANUP — the wing lights")
 	if is_instance_valid(_nook_figure):
 		_nook_figure.queue_free()
 	_nook_figure = null
@@ -2155,7 +2294,10 @@ func _nook_cleanup() -> void:
 # staged for a room you search by torchlight.
 const WING_ROOMS := [
 	"DarkCorridor", "Junction", "WestCorridor", "Plant",
-	"NorthSpur", "NorthVault", "SouthSpur", "SouthHall", "PumpRoom", "BreakerNook",
+	"NorthSpur", "NorthVault", "SouthSpur", "SouthHall", "PumpRoom",
+	"Cistern", "Sump", "LowerRun", "Vent", "Crossing", "Riser", "Gallery",
+	"FarHall", "Turn", "Boiler", "Shaft", "BreakerNook",
+	"PlantDrop", "VaultRun", "VaultNeck", "PumpPit", "SumpWell", "VentShaft", "BoilerPit",
 ]
 const WING_LIT_ENERGY := 0.5
 # Resolved once from WING_ROOMS so `_drive_lights()` can test membership without a per-frame
@@ -2165,6 +2307,8 @@ var _wing_lamp_names := {}     # dim emergency level — enough to navigate, not
 const WING_LIGHT_FADE := 1.5
 
 func _light_the_wing(silent: bool = false) -> void:
+	if is_instance_valid(_wing_hunter):
+		_wing_hunter.sleep()   # L1.3: the presence is a creature of the dark
 	# ⚠️ `silent` IS THE RESTORE PATH, and the wing payoff needs one. `_restore_progress()` brings
 	# `_nook_scare_done` back but rebuilt the wing DARK with the flashlight lock zone respawned —
 	# and the only thing that can ever call this is the nook breaker's `flipped`, which a restored
@@ -2238,10 +2382,12 @@ func _spawn_breaker_nook_zone() -> void:
 	_nook_zone = zone
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(25.0, h, 19.8)
+	# 2026-09-13: the union of all 28 wing rooms — x -60 (BreakerNook west) .. -12 (Records'
+	# wall), z 0.8 (PumpPit/SumpWell/BoilerPit south) .. 24 (NorthVault/VaultRun north).
+	shape.size = Vector3(48.0, h, 23.2)
 	col.shape = shape
 	zone.add_child(col)
-	zone.position = Vector3(-24.5, h / 2.0, 14.1)
+	zone.position = Vector3(-36.0, h / 2.0, 12.4)
 	add_child(zone)
 	zone.body_entered.connect(func(b: Node3D) -> void:
 		if b.is_in_group("player"):
@@ -2294,8 +2440,11 @@ func _drive_lights(delta: float) -> void:
 		# `entry[1]` at 0.0 so `_restore_power()`'s `entry[1] > 0.0` guard keeps treating these
 		# ten as "spawned dark on purpose" (Issue 36) — so the base has to come from somewhere
 		# else, and this is it.
-		if wing_burning and not _power_on:
-			base = WING_LIT_ENERGY
+		# ⚠️ Whatever `_power_on` says: the wing's lamps spawn at base 0.0 (NO_LAMP_ROOMS), so
+		# with the power already restored a lit wing used to drive them straight back to zero
+		# (found 2026-09-13 by check_lab_locker once the nook beat moved to 20 s).
+		if wing_burning:
+			base = maxf(base, WING_LIT_ENERGY)
 		# ⚠️ A FIXED level, not `entry[1]`: `_on_breaker_flipped()` raises `entry[1]` by 0.18 per
 		# breaker, and a home beacon that brightens as you solve the level is a progress meter.
 		elif pre_lit and not _power_on:
@@ -2319,6 +2468,9 @@ func _random_room_point(y: float) -> Vector3:
 
 # Keycard pickup feedback (called by keycard.gd via current_scene).
 func on_keycard_taken() -> void:
+	_arm_apparition_after_keycard()   # L2
+	if _apparition_director and _apparition_director.has_method("note_external_fire"):
+		_apparition_director.note_external_fire()   # the scripted HOLD goes first (2026-09-13)
 	_blackout_timer = BLACKOUT_DURATION
 	_play_at("creak", _player().global_position if _player() else Vector3.ZERO, 2.0)
 	var p := _player()
@@ -2365,7 +2517,9 @@ func _play_at(base_name: String, pos: Vector3, volume_db: float = 0.0) -> void:
 # ⚠️ On BOTH faces of the wall, so a doorway is marked from whichever room you approach it —
 # a strip on one side only tells you where you came from.
 const MARK_EMISSION := 0.14
-const MARK_COLOUR := Color(0.35, 0.9, 0.45)     # phosphor green — every egress strip ever made
+# L1.1 (2026-09-13, capture #1: "I do not like that they are green. Let's make them dark red —
+# more creepy"). Was phosphor green (0.35, 0.9, 0.45); the fade with distance is unchanged.
+const MARK_COLOUR := Color(0.55, 0.06, 0.05)
 const MARK_ALBEDO := Color(0.05, 0.08, 0.05)
 const MARK_SIZE := Vector3(0.035, 1.9, 0.015)
 const MARK_Y := 0.95
@@ -2464,3 +2618,212 @@ func wing_marker_nodes() -> Array:
 		if is_instance_valid(m[0]):
 			out.append(m[0])
 	return out
+
+
+# ---------------------------------------------------------------- L1.3-1.5: the wing's three beats
+#
+# ⭐ 2026-09-13, the user's design for the doubled wing:
+#   * THE PRESENCE (`lab_wing_hunter.gd`): something follows your footsteps in the dark at 1.6 m/s
+#     while you walk and stops when you stop — the only rule is "stop and it stops". It cannot
+#     enter 2.5 m; a contact is +12 and a jolt, then it drops back 6 m. Wakes on the first
+#     decision (entering Junction), sleeps when the wing lights.
+#   * THE LAUGH: once, 60-110 s into the wing, `wing_laugh` (the user's creepy_laugh.ogg) from a
+#     wing room the player has NOT visited. Nothing else happens.
+#   * THE MID-SEARCH SCREAMER: once, beyond Junction, >= 8 m from the breaker, >= WING_SCREAM_MIN_T
+#     into the wing and clear of the laugh: `wing_monster.png` (the user's monster_in_the_dark)
+#     lunges to 0.7 m from the eye with `screamer_forest` on Master after a HoldBreath dip, +15,
+#     gone in 0.6 s. In-world, no fullscreen image (cross-level X2).
+const WING_LAUGH_AT := Vector2(30.0, 70.0)   # was 60–110: a brisk player reached the breaker first (2026-09-13)
+const WING_LAUGH_DB := 8.0          # wing_laugh.ogg measured -24.1 dB mean / -5.6 peak (ffmpeg volumedetect)
+const WING_LAUGH_UNIT := 12.0
+const WING_SCREAM_MIN_T := 25.0
+const WING_SCREAM_GAP := 12.0       # s after the laugh before the screamer may fire
+const WING_SCREAM_MIN_FROM_BREAKER := 8.0
+const WING_SCREAM_PANIC := 15.0
+const WING_SCREAM_DIP := 0.5
+const WING_SCREAM_LUNGE_DIST := 0.7
+const WING_SCREAM_LUNGE_TIME := 0.25
+const WING_SCREAM_HOLD := 1.4        # 0.6 -> 1.4 (2026-09-14): nothing covers it now, it has to be SEEN
+const WING_SCREAM_GLOW := 1.6        # apparition.gd's emission idiom (Issue 208)
+const WING_SCREAM_LIGHT_RANGE := 5.0
+const WING_SCREAM_LIGHT_ENERGY := 1.4
+const WING_SCREAM_FLEE_M := 8.0
+const WING_SCREAM_FLEE_SPEED := 5.0
+const WING_SCREAM_HEIGHT := 2.0
+var _wing_hunter: LabWingHunter = null
+var _wing_time: float = 0.0
+var _wing_visited: Dictionary = {}
+var _wing_laugh_at: float = -1.0
+var _wing_laugh_done: bool = false
+var _wing_laugh_t: float = -1.0
+var _wing_scream_done: bool = false
+var _wing_scream_fig: DoorLunger = null
+
+
+func _room_name_at(pos: Vector3) -> String:
+	for r in ROOMS:
+		var c: Vector2 = r["pos"]
+		var half: Vector2 = r["size"] * 0.5
+		if absf(pos.x - c.x) <= half.x and absf(pos.z - c.y) <= half.y:
+			return String(r["name"])
+	return ""
+
+
+func _tick_wing_beats(delta: float) -> void:
+	if _nook_scare_done:
+		return
+	var p := _player()
+	if p == null or not _in_wing():
+		return
+	if _wing_laugh_at < 0.0:
+		_wing_laugh_at = randf_range(WING_LAUGH_AT.x, WING_LAUGH_AT.y)
+	_wing_time += delta
+	var room := _room_name_at(p.global_position)
+	if room != "":
+		_wing_visited[room] = true
+	# The presence wakes at the first decision.
+	if _wing_hunter == null and room == "Junction":
+		_wing_hunter = LabWingHunter.build(self, p, TEX + "lab_nook_figure.png")
+		_wing_hunter.wake(Vector3(-12.6, 0.0, 12.5))   # starts back at the wing's entrance
+	if not _wing_laugh_done and _wing_time >= _wing_laugh_at:
+		_fire_wing_laugh()
+	if not _wing_scream_done and _wing_time >= WING_SCREAM_MIN_T \
+			and (not _wing_laugh_done or _wing_time - _wing_laugh_t >= WING_SCREAM_GAP) \
+			and room != "" and room != "DarkCorridor" and room != "Junction" \
+			and p.global_position.distance_to(_nook_breaker_pos()) >= WING_SCREAM_MIN_FROM_BREAKER \
+			and _apparition_is_fair_for_wing_beat():
+		_fire_wing_screamer()
+
+
+func _apparition_is_fair_for_wing_beat() -> bool:
+	if get_tree().paused:
+		return false
+	var nui := get_node_or_null("/root/NoteUI")
+	if nui and bool(nui.get("is_open")):
+		return false
+	var p := _player()
+	return p != null and not (p.has_method("is_input_frozen") and p.is_input_frozen())
+
+
+# One laugh, from a room you have not been in.
+func _fire_wing_laugh() -> void:
+	if _wing_laugh_done:
+		return
+	_wing_laugh_done = true
+	_wing_laugh_t = _wing_time
+	var candidates: Array[String] = []
+	for n in WING_ROOMS:
+		if not _wing_visited.has(n):
+			candidates.append(String(n))
+	if candidates.is_empty():
+		candidates.append("NorthVault")
+	var room: String = candidates[randi() % candidates.size()]
+	var at: Vector3 = _builder.room_center(room) + Vector3(0, 1.4, 0)
+	var s := GameState.load_audio("wing_laugh")
+	if not s:
+		return
+	var pl := AudioStreamPlayer3D.new()
+	pl.name = "WingLaugh"
+	pl.stream = s
+	pl.volume_db = WING_LAUGH_DB
+	pl.unit_size = WING_LAUGH_UNIT
+	pl.max_db = 6.0
+	pl.bus = AudioBuses.AMBIENCE
+	add_child(pl)
+	pl.position = at
+	pl.finished.connect(pl.queue_free)
+	pl.play()
+	var dbg := get_node_or_null("/root/DebugLog")
+	if dbg and dbg.has_method("note"):
+		dbg.note("WING LAUGH from %s" % room)
+
+
+# The screamer: placed ahead with line of sight, then on you.
+func _fire_wing_screamer() -> void:
+	if _wing_scream_done:
+		return
+	_wing_scream_done = true
+	var p := _player()
+	if p == null:
+		return
+	var cam := p.get_node_or_null("Camera3D") as Camera3D
+	var eye: Vector3 = cam.global_position if cam else p.global_position + Vector3(0, 1.6, 0)
+	var fwd: Vector3 = -cam.global_transform.basis.z if cam else -p.global_transform.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3(1, 0, 0)
+	var space := get_world_3d().direct_space_state
+	var spot := Vector3(INF, INF, INF)
+	for deg in [0.0, 25.0, -25.0, 50.0, -50.0, 180.0, 140.0, -140.0]:
+		var dir := fwd.rotated(Vector3.UP, deg_to_rad(deg))
+		for dist in [2.6, 3.2, 1.9]:
+			var cand: Vector3 = p.global_position + dir * dist
+			cand.y = 0.0
+			if _room_name_at(cand) == "":
+				continue
+			var q := PhysicsRayQueryParameters3D.create(eye, cand + Vector3(0, 1.0, 0))
+			q.exclude = [p.get_rid()]
+			q.collision_mask = 1
+			if space.intersect_ray(q).is_empty():
+				spot = cand
+				break
+		if spot.x != INF:
+			break
+	if spot.x == INF:
+		spot = p.global_position + fwd * 1.9   # the sting still lands; the figure may clip
+		spot.y = 0.0
+	HoldBreath.dip(get_tree(), WING_SCREAM_DIP)
+	var fig := DoorLunger.build(self, spot, TEX + "wing_monster.png", WING_SCREAM_HEIGHT)
+	fig.name = "WingScreamer"
+	_wing_scream_fig = fig
+	# ⭐ 2026-09-14 (Issue 208, the user: "I did not see the jumpscare"): the figure GLOWS — the
+	# torch is locked off in the wing and an unshaded 12 %-grey cutout on black was invisible —
+	# and carries a short light so the walls come up around it; the camera is PINNED to it
+	# unconditionally (the Manager's and the cellar child's idiom, 0.45 s), it holds at arm's
+	# length for WING_SCREAM_HOLD and then FLEES back into the dark instead of popping out.
+	fig.set_glow(WING_SCREAM_GLOW)
+	fig.add_light(WING_SCREAM_LIGHT_RANGE, WING_SCREAM_LIGHT_ENERGY)
+	var to_player := Vector3(p.global_position.x - spot.x, 0.0, p.global_position.z - spot.z).normalized()
+	var feet := Vector3(eye.x, 0.0, eye.z) - to_player * WING_SCREAM_LUNGE_DIST
+	fig.lunged.connect(_on_wing_screamer_lunged)
+	p.velocity.x = 0.0
+	p.velocity.z = 0.0
+	p.freeze_input()
+	p.turn_to_face(spot + Vector3(0, 1.0, 0), NOOK_TURN_TIME)
+	get_tree().create_timer(NOOK_TURN_TIME + WING_SCREAM_LUNGE_TIME + WING_SCREAM_HOLD, false).timeout.connect(func() -> void:
+		if is_instance_valid(p):
+			p.unfreeze_input())
+	get_tree().create_timer(NOOK_TURN_TIME, false).timeout.connect(func() -> void:
+		if is_instance_valid(fig):
+			fig.lunge_to(feet, WING_SCREAM_LUNGE_TIME))
+
+
+func _on_wing_screamer_lunged() -> void:
+	var p := _player()
+	var s := GameState.load_audio("screamer_forest")
+	if s and is_instance_valid(_wing_scream_fig):
+		# a CHILD of the figure: positional, and it travels with the flee
+		var a := AudioStreamPlayer3D.new()
+		a.name = "WingScreamSting"
+		a.stream = s
+		a.bus = "Master"
+		a.volume_db = 0.0
+		a.max_db = 6.0
+		a.unit_size = 8.0
+		_wing_scream_fig.add_child(a)
+		a.position = Vector3(0, 1.2, 0)
+		a.play()
+	if p:
+		p.add_panic(WING_SCREAM_PANIC)
+		p.jolt_camera(0.2, 0.45)
+	var dbg := get_node_or_null("/root/DebugLog")
+	if dbg and dbg.has_method("note"):
+		dbg.note("WING SCREAMER")
+	get_tree().create_timer(WING_SCREAM_HOLD, false).timeout.connect(func() -> void:
+		if is_instance_valid(_wing_scream_fig):
+			# back into the dark the way it came, fading over the last metres; frees itself
+			var here: Vector3 = _wing_scream_fig.global_position
+			var away: Vector3 = here - (p.global_position if p else here)
+			away.y = 0.0
+			away = away.normalized() if away.length() > 0.01 else Vector3(1, 0, 0)
+			_wing_scream_fig.flee_to(here + away * WING_SCREAM_FLEE_M, WING_SCREAM_FLEE_SPEED, WING_SCREAM_FLEE_M * 0.6)
+		_wing_scream_fig = null)

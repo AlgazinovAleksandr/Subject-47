@@ -49,7 +49,7 @@ func _ok(label: String, cond: bool, detail: String = "") -> void:
 
 
 func _collect(n: Node, mirrors: Array, figures: Array) -> void:
-	if String(n.name) == "MirrorSurface" and n.has_node("SubViewport"):
+	if String(n.name) == "MirrorSurface" and n.has_node("SubViewport") and not String(n.get_parent().name).begins_with("Spur"):   # C1: spur mirrors are not turn mirrors
 		mirrors.append(n)
 	elif String(n.name).begins_with("MirrorFigure"):
 		figures.append(n)

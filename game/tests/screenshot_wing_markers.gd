@@ -23,6 +23,10 @@ const POSES := [
 	["junction_w", Vector3(-21.0, 0.1, 12.5), Vector3(-25.0, 1.4, 12.5)],
 	["junction_n", Vector3(-21.0, 0.1, 12.5), Vector3(-21.0, 1.4, 17.0)],
 	["southhall", Vector3(-24.0, 0.1, 7.7), Vector3(-30.0, 1.4, 7.7)],
+	["plantdrop", Vector3(-32.5, 0.1, 12.5), Vector3(-36.2, 1.4, 12.5)],
+	["vaultrun", Vector3(-30.0, 0.1, 22.7), Vector3(-42.7, 1.4, 22.7)],
+	["vaultneck", Vector3(-46.0, 0.1, 17.0), Vector3(-45.5, 1.4, 20.5)],
+	["pumppit", Vector3(-25.0, 0.1, 5.35), Vector3(-25.0, 1.4, 2.5)],
 ]
 var _pose := -1
 

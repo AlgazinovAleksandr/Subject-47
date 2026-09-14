@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bhbq2vv6pb77b"
-path="res://.godot/imported/lab_keycard.png-7a1b598912b13402bf8e32b5e4b31049.ctex"
+path.s3tc="res://.godot/imported/lab_keycard.png-7a1b598912b13402bf8e32b5e4b31049.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_1_lab/lab_keycard.png"
-dest_files=["res://.godot/imported/lab_keycard.png-7a1b598912b13402bf8e32b5e4b31049.ctex"]
+dest_files=["res://.godot/imported/lab_keycard.png-7a1b598912b13402bf8e32b5e4b31049.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

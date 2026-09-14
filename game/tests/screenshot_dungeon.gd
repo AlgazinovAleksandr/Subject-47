@@ -134,12 +134,13 @@ func _tick_static() -> bool:
 
 # ── The spark reveal ────────────────────────────────────────────────────────────
 func _begin_spark() -> void:
-	# Drive the level's own teaching beat rather than hand-placing a figure: this
-	# photographs the beat the player actually gets.
-	_level.call("_run_hollow_teach")
-	_teach = _level.get("_teach_hollow")
+	# ⚠️ The Hollow One was CUT on 2026-09-12 (the level no longer has an instant death). The
+	# room archetypes, the hunter and the map are photographed by screenshot_dungeon_rooms.gd.
+	print("the Hollow One is cut — see screenshot_dungeon_rooms.gd for the 2026-09-12 beats")
+	_finish()
+	return
+	_teach = null
 	if _teach == null:
-		print("no teaching Hollow One was created — nothing to photograph")
 		_finish()
 		return
 	# Stand in the corridor the grate is in, looking at it.

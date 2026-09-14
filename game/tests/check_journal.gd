@@ -69,7 +69,7 @@ func _process(_delta: float) -> bool:
 	var traps: Array[Node] = []
 	var note_script: GDScript = load("res://scripts/note.gd")
 	_walk(current_scene, note_script, safe, traps)
-	_ok("found safe notes", safe.size() >= 3, "%d" % safe.size())
+	_ok("found safe notes", safe.size() >= 2, "%d" % safe.size())   # H2 (2026-09-13): the Bedroom page became the digit on the fridge head
 	_ok("found trap notes", traps.size() >= 1, "%d" % traps.size())
 
 	print("--- reading them ---")

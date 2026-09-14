@@ -32,14 +32,21 @@ const ROUTE := [
 	Vector3(-21.0, 0.0, 12.5),      # Junction — decision 1
 	Vector3(-21.0, 0.0, 9.5),       # SouthSpur
 	Vector3(-26.0, 0.0, 7.7),       # SouthHall — decision 3
-	Vector3(-30.5, 0.0, 7.7),       # SouthHall, at the nook doorway
-	Vector3(-35.5, 0.0, 7.7),       # BreakerNook, on the breaker
+	Vector3(-30.5, 0.0, 7.7),       # SouthHall, at the Cistern doorway
+	Vector3(-34.0, 0.0, 7.7),       # Cistern — decision 4
+	Vector3(-40.5, 0.0, 7.7),       # LowerRun — decision 5
+	Vector3(-46.0, 0.0, 7.7),       # Crossing — decision 6
+	Vector3(-51.5, 0.0, 7.7),       # FarHall
+	Vector3(-57.0, 0.0, 7.7),       # Turn — decision 7
+	Vector3(-57.0, 0.0, 12.1),      # Shaft
+	Vector3(-58.5, 0.0, 16.5),      # BreakerNook, on the breaker
 ]
 # Dead ends, each paired with the route room it branches off.
 const DEAD_ENDS := [
-	["Plant", Vector3(-32.5, 0.0, 12.5), Vector3(-21.0, 0.0, 12.5)],
-	["NorthVault", Vector3(-24.5, 0.0, 22.0), Vector3(-21.0, 0.0, 12.5)],
-	["PumpRoom", Vector3(-25.0, 0.0, 5.35), Vector3(-26.0, 0.0, 7.7)],
+	["PumpPit", Vector3(-25.0, 0.0, 2.5), Vector3(-26.0, 0.0, 7.7)],
+	["SumpWell", Vector3(-34.0, 0.0, 2.1), Vector3(-34.0, 0.0, 7.7)],
+	["VentShaft", Vector3(-39.8, 0.0, 14.0), Vector3(-40.5, 0.0, 7.7)],
+	["BoilerPit", Vector3(-57.0, 0.0, 2.1), Vector3(-57.0, 0.0, 7.7)],
 ]
 
 var _frame := 0
@@ -130,20 +137,55 @@ func _process(_delta: float) -> bool:
 	_ok("every dead end was actually checked", checked == DEAD_ENDS.size(),
 		"%d of %d" % [checked, DEAD_ENDS.size()])
 
-	# THE CASE THAT CONVICTED THE OLD WIDGET, in this level's own geometry. Plant is the far
-	# end of the west limb: 6.6 m from the breaker through two walls, 30.0 m of walking.
-	# A straight-line meter reads it as nearly ARRIVED (~0.79) and points the player at a
-	# wall; the path-based one reads 0.04. That gap IS the fix, so it is asserted with a real
-	# margin rather than by a hair.
-	var plant := Vector3(-32.5, 0.0, 12.5)
-	var plant_path: float = _meter.call("signal_strength", plant)
-	var plant_naive: float = clampf(
-		1.0 - plant.distance_to(_breaker) / float(_meter.call("max_path")), 0.0, 1.0)
-	print("  ..  Plant: path-based %.2f vs the old straight-line answer %.2f"
-		% [plant_path, plant_naive])
-	_ok("Plant does NOT read warm (this is the Issue-34 lie, measured)",
-		plant_path < plant_naive - 0.4,
-		"path %.2f, beeline %.2f, gap %.2f" % [plant_path, plant_naive, plant_naive - plant_path])
+	# THE CASE THAT CONVICTED THE OLD WIDGET (Issue 34): a room that is CLOSE to the breaker as
+	# the crow flies and FAR by the doorway graph. A straight-line meter reads it warm and points
+	# the player at a wall; the path-based one reads it cold. Since 2026-09-13 Plant loops back
+	# into the route (so its lie shrank), and the worst liar is whichever room the geometry makes
+	# it — measured over the candidates below rather than typed in.
+	var liars := {
+		"Plant": Vector3(-32.5, 0.0, 12.5), "Gallery": Vector3(-46.0, 0.0, 17.0),
+		"VaultRun(west)": Vector3(-43.0, 0.0, 22.7), "VentShaft": Vector3(-39.8, 0.0, 14.0),
+	}
+	var worst_gap := 0.0
+	var worst_name := ""
+	for nm in liars:
+		var at: Vector3 = liars[nm]
+		var s_path: float = _meter.call("signal_strength", at)
+		var s_naive: float = clampf(1.0 - at.distance_to(_breaker) / float(_meter.call("max_path")), 0.0, 1.0)
+		print("  ..  %s: path-based %.2f vs the straight-line answer %.2f" % [nm, s_path, s_naive])
+		if s_naive - s_path > worst_gap:
+			worst_gap = s_naive - s_path
+			worst_name = nm
+	_ok("some room reads a LOT warmer by beeline than by path (the Issue-34 lie, measured)",
+		worst_gap >= 0.2, "%s: gap %.2f" % [worst_name, worst_gap])
+
+	# ⭐ 2026-09-13: NEAR-ONLY. The bar is shown within NEAR_HOPS (3) rooms of the breaker and
+	# hidden beyond — by doorway hops, never by straight line. Junction is 10+ rooms out; Turn
+	# is 3 (Turn -> Shaft -> BreakerNook = 2 hops... asserted from the meter's own graph).
+	var hops_junction := int(_meter.call("room_hops", Vector3(-21.0, 0.0, 12.5)))
+	var hops_turn := int(_meter.call("room_hops", Vector3(-57.0, 0.0, 7.7)))
+	var hops_nook := int(_meter.call("room_hops", Vector3(-57.0, 0.0, 16.5)))
+	print("  ..  hops: Junction %d, Turn %d, BreakerNook %d" % [hops_junction, hops_turn, hops_nook])
+	_ok("the breaker's own room is 0 hops", hops_nook == 0)
+	_ok("the hop graph reaches Junction (>= 8 hops out)", hops_junction >= 8, "%d hops" % hops_junction)
+	# 2026-09-14: the bar is LIVE EVERYWHERE in the wing again (the user's call). Drive tick()
+	# with a stand-in player at Junction and require the bar to stay on screen and read > 0.
+	var stand := Node3D.new()
+	current_scene.add_child(stand)
+	stand.global_position = Vector3(-21.0, 0.0, 12.5)
+	_meter.call("set_player", stand)
+	_meter.call("set_active", true)
+	_meter.call("tick", 0.1)
+	var root_ctl := _meter.get("_root") as CanvasItem
+	_ok("the bar is ON SCREEN from the first decision room (live everywhere)", root_ctl != null and root_ctl.visible)
+	_ok("...and it READS there", float(_meter.call("signal_strength", Vector3(-21.0, 0.0, 12.5))) > 0.0)
+	_meter.call("set_active", false)
+	stand.queue_free()
+	# The loops must be in the meter's graph: Plant reaches the breaker through PlantDrop.
+	var plant_hops := int(_meter.call("room_hops", Vector3(-32.5, 0.0, 12.5)))
+	var west_hops := int(_meter.call("room_hops", Vector3(-26.5, 0.0, 12.5)))
+	_ok("loop 1 is in the graph: Plant is CLOSER (by hops) than WestCorridor", plant_hops < west_hops,
+		"%d vs %d" % [plant_hops, west_hops])
 
 	# Outside the wing there is nothing to measure and it must say so rather than guess.
 	var outside: float = _meter.call("path_distance", Vector3(0.0, 0.0, 0.0))

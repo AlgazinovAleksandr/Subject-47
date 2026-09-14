@@ -33,7 +33,7 @@ signal lit_changed(is_lit: bool)
 signal sparked
 
 const BURN_SECONDS := 60.0        # DN2's exact duration
-const CARRY_CAP := 4              # between DN2's 6 and the Remaster's 3
+const CARRY_CAP := 6              # 4 -> 6 on 2026-09-13 (capture #014: "four candles are not enough"); caches 8, sconces refund one
 # ⚠️ Retuned from the spec's literal numbers after measuring (see the screenshots
 # in the build report). §B5 asks for energy 1.0 and attenuation 2.4 at range 4.5,
 # which in this project's lighting — ambient 0.02, no glow, no fog — renders a

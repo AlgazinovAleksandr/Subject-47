@@ -85,7 +85,7 @@ const CONFIG := {
 		# ⚠️ THE HOUSE HAS NO SAME-ROOM NOTE PAIRS. One note per room, on purpose, so the
 		# separation pass finds zero pairs here and the synthetic control in `_self_test()`
 		# is what keeps that rule from going vacuous on this scene.
-		"min_props": 8, "min_notes": 5, "min_pairs": 0,
+		"min_props": 8, "min_notes": 4, "min_pairs": 0,   # H2 (2026-09-13): the Bedroom page became the digit on the fridge head
 	},
 	"SCENE_CORRIDOR": {
 		"no_room_table": "corridor.gd builds a 320 m path from PATH_2D, not a room graph",
@@ -132,11 +132,9 @@ const CONFIG := {
 		"seeds": [1, 404],
 	},
 	"SCENE_LEVEL_3": {
-		"no_room_table": "level_3.gd hand-builds the Void's broken rooms; no ROOMS constant",
-		# ⚠️ ALL EIGHT VOID NOTES STAND ON TABLES (`_spawn_note_tables()` puts a 1.2 m box
-		# under each and the page sits on its top face). They are RESTING, not floating, and
-		# the classification below is what tells the two apart.
-		"min_props": 8, "min_notes": 8, "min_pairs": 0, "min_resting": 8,
+		# Rebuilt 2026-09-12: nine notes on walls through wall_point(), one per room, so the
+		# same-room separation pass legitimately finds zero pairs.
+		"min_props": 9, "min_notes": 9, "min_pairs": 0, "min_resting": 0,
 	},
 }
 

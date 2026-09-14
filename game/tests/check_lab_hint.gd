@@ -187,6 +187,8 @@ func _shot(shot_name: String) -> void:
 	# rather than to pretend: run this file WITHOUT `--headless` if you want the image.
 	var tex := root.get_viewport().get_texture()
 	var img: Image = tex.get_image() if tex != null else null
+	if img != null and img.is_compressed():
+		img.decompress()   # textures import VRAM-compressed since 2026-09-13 (memory); get_pixel needs raw
 	if img == null:
 		print("shot: %s SKIPPED (no render target — run this without --headless)" % shot_name)
 		return

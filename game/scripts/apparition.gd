@@ -248,12 +248,15 @@ const APPEAR_SILENCE := 0.6
 # Now: probe six rays per heading (both edges and the centre, at two heights), fan over
 # headings until one has real clearance, snap to the floor, and ABORT if nothing fits.
 # A skipped apparition is strictly better than one embedded in a wall.
-func appear() -> void:
+## Returns whether the figure actually materialised. 2026-09-14 (Issue 207): a `void` here let the
+## Lab's designed teaching beat abort in the morgue without a word, with every caller's "fired"
+## flag latched anyway — the player then met the House's LETHAL one first, untaught.
+func appear() -> bool:
 	if _engaged or _done:
-		return
+		return false
 	_resolve_player()
 	if not _player or not _camera:
-		return
+		return false
 	var fwd := -_camera.global_transform.basis.z
 	fwd.y = 0.0
 	if fwd.length() < 0.01:
@@ -263,10 +266,13 @@ func appear() -> void:
 	var desired := randf_range(APPEAR_DIST_MIN, APPEAR_DIST_MAX)
 	var spot: Variant = _find_spot(fwd, desired)
 	if spot == null:
-		# Nowhere legible to stand — a corner, a stairwell, a closed doorway. Say
-		# nothing and get out of the way; the director will try again later.
+		# Nowhere legible to stand — a corner, a stairwell, a closed doorway. Get out of the
+		# way, SAY SO (the log is the only witness a playtest has), and let the caller retry.
+		var dbg := get_node_or_null("/root/DebugLog")
+		if dbg and dbg.has_method("note"):
+			dbg.note("APPARITION aborted: no legible spot near %s" % str(_player.global_position.round()))
 		queue_free()
-		return
+		return false
 
 	global_position = spot
 	_spawn_dist = _horiz_dist_to_player()
@@ -284,7 +290,7 @@ func appear() -> void:
 		_play_arrival_sting(0.0)
 		var t := create_tween()
 		t.tween_property(_mat, "albedo_color:a", 1.0, FADE_IN)
-		return
+		return true
 
 	# ⭐ THE WORST CASE: nothing legible fits in front of you, so the camera is brought to it.
 	# `level_1.gd:_nook_reveal()` and `backrooms.gd:_tick_crate_watch()` are the same beat —
@@ -328,6 +334,8 @@ func appear() -> void:
 # original behaviour verbatim, so nothing that used to get an apparition stops getting one — it
 # just gets a camera turn with it. Splitting it this way rather than sorting the fan keeps the
 # existing ordering (dead ahead first, then progressively wider) intact inside each pass.
+	return true
+
 func _find_spot(fwd: Vector3, desired: float) -> Variant:
 	var visible_spot: Variant = _scan(fwd, desired, true)
 	if visible_spot != null:

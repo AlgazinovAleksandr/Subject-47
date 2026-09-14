@@ -63,7 +63,7 @@ func _process(delta: float) -> bool:
 	var respawn: float = total - margin
 	var door_d: float = total - 0.08
 
-	_ok("the corridor is its documented length", absf(total - 320.0) < 0.01, "%.1f m" % total)
+	_ok("the corridor is its documented length", absf(total - 455.0) < 0.01, "%.1f m" % total)   # C1: 320 -> 455
 
 	# 1. The fall lands where the user asked: its NEAR face 5 m from the door.
 	var near_face: float = fall - depth / 2.0

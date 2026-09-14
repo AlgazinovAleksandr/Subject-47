@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
-"""Merge the six Meshy "Hollow Crown" GLBs into ONE multi-animation model for the game.
+"""Merge one creature's per-clip GLBs into ONE multi-animation model for the game.
 
-    python3 tools/merge_creature_glb.py                # merge + material surgery
-    python3 tools/merge_creature_glb.py --shrink       # ...and halve the texture (needs sips)
-    python3 tools/merge_creature_glb.py --measure      # print clip measurements, write nothing
+    python3 tools/merge_creature_glb.py                          # hollow_crown: merge + surgery
+    python3 tools/merge_creature_glb.py --shrink                 # ...and halve the textures (sips)
+    python3 tools/merge_creature_glb.py --measure                # print clip measurements only
+    python3 tools/merge_creature_glb.py --profile parasite --shrink
     /Applications/Godot.app/Contents/MacOS/Godot --headless --path game --import
 
-INPUT   assets_src/models/hollow_crown/*.glb   (six files, ~15.2 MB each, gitignored)
-OUTPUT  game/assets/models/hollow_crown.glb
+PROFILES (2026-09-12 — the tool was hard-wired to the Hollow Crown until THE NIGHTMARE got its own
+creature; everything that was a module constant is now a row in PROFILES, and every number that was
+typed for the Meshy files — "bufferViews 0..7 are shared", "the rig is in cm under a 0.01 armature",
+"materials[0]" — is now DERIVED from the base file, because the Parasite breaks all three):
+
+  hollow_crown  assets_src/models/hollow_crown/*.glb  (six Meshy exports) -> game/assets/models/hollow_crown.glb
+  parasite      assets_src/models/parasite/*.glb      (two Blender exports of Mixamo FBX takes, see
+                tools/fbx_to_glb.py)                  -> game/assets/models/parasite.glb
 
 WHY MERGE AT ALL. All six files contain the SAME mesh, the same 24-joint skin and the same
 2048x2048 texture; they differ only in their single animation, which is 7-62 KB. Shipping six
@@ -56,23 +63,45 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SRC_DIR = ROOT / "assets_src" / "models" / "hollow_crown"
-OUT = ROOT / "game" / "assets" / "models" / "hollow_crown.glb"
 
-# source filename fragment -> the short, stable clip name the game uses.
-# ⚠️ These names are the contract with `game/scripts/creature_anim.gd`. Changing one here
-# without changing it there produces a creature that stands still and no error at all.
-CLIPS = {
-    "Walking":         "walk",
-    "Slow_Orc_Walk":   "shamble",
-    "Unsteady_Walk":   "unsteady",
-    "Running":         "run",
-    "RunFast":         "sprint",
-    "run_fast_10":     "charge",
+# ⚠️ The clip names are the contract with `game/scripts/creature_anim.gd` (`MODELS[...].clips`).
+# Changing one here without changing it there produces a creature that stands still and no
+# error at all. `root_motion` is either an explicit set of clip names or "auto" (strip every
+# clip whose Hips drift more than AUTO_ROOT_MOTION_M over the clip). `target_h` prints the
+# `.import` root_scale for that height, or None to ship the model at its natural size.
+PROFILES = {
+    "hollow_crown": {
+        "src": ROOT / "assets_src" / "models" / "hollow_crown",
+        "out": ROOT / "game" / "assets" / "models" / "hollow_crown.glb",
+        "clips": {
+            "Walking":         "walk",
+            "Slow_Orc_Walk":   "shamble",
+            "Unsteady_Walk":   "unsteady",
+            "Running":         "run",
+            "RunFast":         "sprint",
+            "run_fast_10":     "charge",
+        },
+        "base_key": "Walking",         # the file whose mesh/skin/texture/material is kept
+        "hips": "Hips",                # node name (suffix match, so "mixamorig:Hips" works too)
+        "root_motion": {"charge"},     # stripped, not dropped — see the header
+        "target_h": 1.97,
+    },
+    "parasite": {
+        "src": ROOT / "assets_src" / "models" / "parasite",
+        "out": ROOT / "game" / "assets" / "models" / "parasite.glb",
+        "clips": {
+            "parasite_walk": "walk",   # Mixamo "Mutant Walking", 1.43 s, hunched
+            "parasite_run":  "run",    # Mixamo "Injured Run", 0.63 s, a limp at speed
+        },
+        "base_key": "parasite_walk",
+        "hips": "mixamorig:Hips",
+        "root_motion": "auto",
+        "target_h": None,              # 2.01 m natural; the hunter ships at its own size
+    },
 }
-BASE_KEY = "Walking"          # the file whose mesh/skin/texture/material is kept
-ROOT_MOTION_CLIPS = {"charge"}  # stripped, not dropped — see the header
-SHARED_BUFFERVIEWS = 8        # 0..7 are the mesh/skin/texture; everything above is animation
+AUTO_ROOT_MOTION_M = 0.2
+PROFILE = PROFILES["hollow_crown"]   # rebound by --profile in main()
+CLIPS: dict = PROFILE["clips"]       # module aliases kept for the helpers below
 
 GLB_MAGIC = 0x46546C67
 JSON_CHUNK = 0x4E4F534A
@@ -143,17 +172,67 @@ def clip_of(path: Path) -> str:
     return ""
 
 
+def find_node(js: dict, suffix: str) -> int:
+    """Index of the node whose name is `suffix` or ends with it ("Hips" / "mixamorig:Hips")."""
+    for i, n in enumerate(js["nodes"]):
+        if n.get("name") == suffix:
+            return i
+    for i, n in enumerate(js["nodes"]):
+        if str(n.get("name", "")).endswith(suffix):
+            return i
+    die("no node named '%s' in the base file" % suffix)
+
+
+def node_scale_chain(js: dict, idx: int) -> float:
+    """Product of the ancestors' uniform scale — what turns the rig's cm into world metres.
+    The Meshy files put the rig in cm under a 0.01 Armature; Blender exports of Mixamo FBX do
+    the same. Derived rather than typed so a re-export at 1.0 does not silently 100x a drift."""
+    parent = {}
+    for i, n in enumerate(js["nodes"]):
+        for c in n.get("children", []):
+            parent[c] = i
+    k = 1.0
+    cur = parent.get(idx)
+    while cur is not None:
+        sc = js["nodes"][cur].get("scale")
+        if sc:
+            k *= float(sc[2])
+        cur = parent.get(cur)
+    return k
+
+
+def shared_views(js: dict) -> list:
+    """Every bufferView the base file's MESH, SKIN and IMAGES reference — the bytes that must
+    be identical across the per-clip files. (It was the literal `range(8)` for the Meshy files,
+    whose exporter happened to write those first; Blender's exporter interleaves them.)"""
+    used = set()
+    for m in js["meshes"]:
+        for prim in m["primitives"]:
+            for acc in list(prim["attributes"].values()) + ([prim["indices"]] if "indices" in prim else []):
+                a = js["accessors"][acc]
+                if "bufferView" in a:
+                    used.add(a["bufferView"])
+    for sk in js.get("skins", []):
+        if "inverseBindMatrices" in sk:
+            used.add(js["accessors"][sk["inverseBindMatrices"]]["bufferView"])
+    for im in js.get("images", []):
+        if "bufferView" in im:
+            used.add(im["bufferView"])
+    return sorted(used)
+
+
 # ---------------------------------------------------------------------------- the guard
-def assert_same_rig(loaded: dict) -> None:
+def assert_same_rig(loaded: dict, base_clip: str) -> None:
     ref_name = None
     ref = None
+    views = shared_views(loaded[base_clip][0])
     for name, (js, bn) in loaded.items():
         sig = {
             "nodes": [n.get("name") for n in js["nodes"]],
             "children": [n.get("children") for n in js["nodes"]],
             "joints": js["skins"][0]["joints"],
             "shared": hashlib.sha256(
-                b"".join(bv_bytes(js, bn, i) for i in range(SHARED_BUFFERVIEWS))).hexdigest(),
+                b"".join(bv_bytes(js, bn, i) for i in views)).hexdigest(),
         }
         if ref is None:
             ref, ref_name = sig, name
@@ -166,11 +245,11 @@ def assert_same_rig(loaded: dict) -> None:
                     % (ref_name, name, k))
     print("  guard: all %d files share one rig (nodes, children, joints, mesh bytes)"
           % len(loaded))
-    print("  guard: shared bufferView SHA-256 %s" % ref["shared"][:12])
+    print("  guard: %d shared bufferViews, SHA-256 %s" % (len(views), ref["shared"][:12]))
 
 
 # ---------------------------------------------------------------------------- measurement
-def measure(js: dict, bn: bytes, clip: str, anim: dict, hips: int) -> dict:
+def measure(js: dict, bn: bytes, clip: str, anim: dict, hips: int, scale: float) -> dict:
     dur = 0.0
     t0 = 1e9
     for s in anim["samplers"]:
@@ -183,22 +262,40 @@ def measure(js: dict, bn: bytes, clip: str, anim: dict, hips: int) -> dict:
             s = anim["samplers"][c["sampler"]]
             v, _ = acc_floats(js, bn, s["output"])
             t, _ = acc_floats(js, bn, s["input"])
-            # cm in the file; the Armature's 0.01 scale makes them metres in the world.
-            dx = (v[-3] - v[0]) * 0.01
-            dz = (v[-1] - v[2]) * 0.01
+            # cm in the file; the armature chain's scale (0.01 here) makes them world metres.
+            # ⚠️ ALL THREE AXES. The Meshy rig walked along its own z; the Mixamo rig's Hips
+            # bone carries its forward travel on its local Y (measured: `walk` drifted 214 cm
+            # in y and 0 in x/z, which the x/z-only version of this reported as "in place"
+            # while Godot rendered a creature sliding 2.1 m per cycle off its collider).
+            dx = (v[-3] - v[0]) * scale
+            dy = (v[-2] - v[1]) * scale
+            dz = (v[-1] - v[2]) * scale
             span = (t[-1] - t[0]) or 1.0
-            drift = (dx, dz, (dx * dx + dz * dz) ** 0.5 / span, len(t))
+            mag = (dx * dx + dy * dy + dz * dz) ** 0.5
+            drift = (dx, dy, dz, mag / span, len(t), mag)
     return {"clip": clip, "dur": dur, "t0": t0, "drift": drift}
 
 
 # ---------------------------------------------------------------------------- main
 def main() -> int:
+    global PROFILE, CLIPS
     shrink = "--shrink" in sys.argv
     measure_only = "--measure" in sys.argv
+    prof_name = "hollow_crown"
+    if "--profile" in sys.argv:
+        prof_name = sys.argv[sys.argv.index("--profile") + 1]
+    if prof_name not in PROFILES:
+        die("unknown --profile %s (have %s)" % (prof_name, sorted(PROFILES)))
+    PROFILE = PROFILES[prof_name]
+    CLIPS = PROFILE["clips"]
+    SRC_DIR: Path = PROFILE["src"]
+    OUT: Path = PROFILE["out"]
+    BASE_KEY: str = PROFILE["base_key"]
 
     if not SRC_DIR.is_dir():
-        die("no sources at %s\n  Extract Meshy_AI_Hollow_Crown_biped.zip there first "
-            "(see assets_src/README.md)." % SRC_DIR)
+        die("no sources at %s\n  (hollow_crown: extract Meshy_AI_Hollow_Crown_biped.zip there;"
+            " parasite: run tools/fbx_to_glb.py on the two Mixamo takes — see assets_src/README.md)"
+            % SRC_DIR)
     files = sorted(p for p in SRC_DIR.glob("*.glb"))
     if len(files) != len(CLIPS):
         die("expected %d source GLBs in %s, found %d" % (len(CLIPS), SRC_DIR, len(files)))
@@ -210,27 +307,36 @@ def main() -> int:
             die("cannot map %s to a clip name — CLIPS keys are %s"
                 % (p.name, sorted(CLIPS)))
         loaded[c] = read_glb(p)
-    print("== merge_creature_glb ==")
-    assert_same_rig(loaded)
-
+    print("== merge_creature_glb [%s] ==" % prof_name)
     base_clip = CLIPS[BASE_KEY]
+    assert_same_rig(loaded, base_clip)
+
     js, bn = loaded[base_clip]
     js = json.loads(json.dumps(js))          # deep copy; we mutate it
     bn = bytearray(bn)
-    nodes = js["nodes"]
-    hips = next(i for i, n in enumerate(nodes) if n.get("name") == "Hips")
+    hips = find_node(js, PROFILE["hips"])
+    scale = node_scale_chain(js, hips)
+    print("  rig: hips node %d '%s', ancestor scale %.4f" % (hips, js["nodes"][hips].get("name"), scale))
 
     # ------------------------------------------------------------------ measure everything
-    print("\n  clip        dur      keys   root drift (m)      implied m/s")
+    print("\n  clip        dur      keys   root drift (m)                  implied m/s")
     stats = []
+    root_motion_clips = set()
     for clip in CLIPS.values():
         cjs, cbn = loaded[clip]
-        m = measure(cjs, cbn, clip, cjs["animations"][0], hips)
+        m = measure(cjs, cbn, clip, cjs["animations"][0], hips, scale)
         stats.append(m)
-        dx, dz, speed, keys = m["drift"]
-        print("  %-10s %6.3fs  %4d   dx %+6.3f dz %+7.3f   %6.3f%s"
-              % (clip, m["dur"], keys, dx, dz, speed,
-                 "   <- ROOT MOTION" if abs(dz) > 0.2 or abs(dx) > 0.2 else ""))
+        if m["drift"] is None:
+            print("  %-10s %6.3fs   (no hips translation channel)" % (clip, m["dur"]))
+            continue
+        dx, dy, dz, speed, keys, mag = m["drift"]
+        moving = mag > AUTO_ROOT_MOTION_M
+        if moving:
+            root_motion_clips.add(clip)
+        print("  %-10s %6.3fs  %4d   dx %+6.3f dy %+7.3f dz %+7.3f   %6.3f%s"
+              % (clip, m["dur"], keys, dx, dy, dz, speed, "   <- ROOT MOTION" if moving else ""))
+    if PROFILE["root_motion"] != "auto":
+        root_motion_clips = set(PROFILE["root_motion"])
     if measure_only:
         return 0
 
@@ -290,7 +396,7 @@ def main() -> int:
 
     # ------------------------------------------------------------------ strip root motion
     for anim in js["animations"]:
-        if anim["name"] not in ROOT_MOTION_CLIPS:
+        if anim["name"] not in root_motion_clips:
             continue
         for c in anim["channels"]:
             if c["target"]["node"] != hips or c["target"]["path"] != "translation":
@@ -304,59 +410,103 @@ def main() -> int:
             t = list(struct.unpack("<%df" % n, bytes(bn[oi:oi + n * 4])))
             v = list(struct.unpack("<%df" % (n * 3), bytes(bn[oo:oo + n * 12])))
             span = (t[-1] - t[0]) or 1.0
-            before = (v[-3] - v[0], v[-1] - v[2])
+            before = (v[-3] - v[0], v[-2] - v[1], v[-1] - v[2])
             # ⚠️ Interpolate on the sampler's own TIMES, not on key index. The keys here are
             # uniform 30 fps, but a re-export need not be, and index-based removal would then
-            # leave a sawtooth that reads as a limp.
+            # leave a sawtooth that reads as a limp. All three axes: see measure().
             for i in range(n):
                 f = (t[i] - t[0]) / span
-                v[i * 3 + 0] -= (v[-3] - v[0]) * f
-                v[i * 3 + 2] -= (v[-1] - v[2]) * f
+                for k in range(3):
+                    v[i * 3 + k] -= before[k] * f
             bn[oo:oo + n * 12] = struct.pack("<%df" % (n * 3), *v)
-            after = (v[-3] - v[0], v[-1] - v[2])
-            print("  stripped root motion from '%s': dz %.1f cm -> %.2f cm  "
+            after = (v[-3] - v[0], v[-2] - v[1], v[-1] - v[2])
+            mag_b = (before[0] ** 2 + before[1] ** 2 + before[2] ** 2) ** 0.5
+            mag_a = (after[0] ** 2 + after[1] ** 2 + after[2] ** 2) ** 0.5
+            print("  stripped root motion from '%s': |d| %.1f cm -> %.2f cm  "
                   "(ground speed was %.3f m/s — CreatureAnim's anchor)"
-                  % (anim["name"], before[1], after[1], abs(before[1]) * 0.01 / span))
+                  % (anim["name"], mag_b, mag_a, mag_b * scale / span))
 
     # ------------------------------------------------------------------ material surgery
-    mat = js["materials"][0]
-    pbr = mat.setdefault("pbrMetallicRoughness", {})
-    old_metal = pbr.get("metallicFactor", "ABSENT (glTF default 1.0)")
-    pbr["metallicFactor"] = 0.0
-    old_rough = pbr.get("roughnessFactor", "absent (default 1.0)")
-    pbr["roughnessFactor"] = 0.88
-    had_emissive = "emissiveTexture" in mat or mat.get("emissiveFactor")
-    mat.pop("emissiveTexture", None)
-    mat.pop("emissiveFactor", None)
-    mat.pop("extensions", None)
+    # ⚠️ EVERY material, not materials[0]: the Parasite mesh has two primitives with two
+    # materials (body / head-and-growth), and Blender's FBX import gives both metallic 0.5.
+    for mi, mat in enumerate(js["materials"]):
+        pbr = mat.setdefault("pbrMetallicRoughness", {})
+        old_metal = pbr.get("metallicFactor", "ABSENT (glTF default 1.0)")
+        pbr["metallicFactor"] = 0.0
+        old_rough = pbr.get("roughnessFactor", "absent (default 1.0)")
+        pbr["roughnessFactor"] = 0.88
+        had_emissive = "emissiveTexture" in mat or mat.get("emissiveFactor")
+        mat.pop("emissiveTexture", None)
+        mat.pop("emissiveFactor", None)
+        mat.pop("extensions", None)
+        mat["doubleSided"] = False
+        print("\n  material[%d] '%s': metallicFactor %s -> 0.0        <- the 100%%-metal trap"
+              % (mi, mat.get("name", ""), old_metal))
+        print("  material[%d]: roughnessFactor %s -> 0.88" % (mi, old_rough))
+        print("  material[%d]: emissive %s" % (mi,
+              "REMOVED (was the albedo map at full strength)" if had_emissive else "already off"))
+        print("  material[%d]: doubleSided -> false, KHR_materials_* extensions removed" % mi)
     js.pop("extensionsUsed", None)
-    mat["doubleSided"] = False
-    print("\n  material: metallicFactor %s -> 0.0        <- the 100%%-metal trap"
-          % old_metal)
-    print("  material: roughnessFactor %s -> 0.88" % old_rough)
-    print("  material: emissive %s"
-          % ("REMOVED (was the albedo map at full strength)" if had_emissive else "already off"))
-    print("  material: doubleSided -> false, KHR_materials_specular/ior removed")
+    js.pop("extensionsRequired", None)
+
+    # ------------------------------------------------------------------ prune orphan textures
+    # A texture only an extension referenced (KHR_materials_specular's map, 2.3 MB on the
+    # Parasite) is now unreferenced; drop it and its image so the compact step below can free
+    # the bytes. Indices are remapped in place.
+    used_tex = set()
+    for mat in js["materials"]:
+        pbr = mat.get("pbrMetallicRoughness", {})
+        for slot in (pbr.get("baseColorTexture"), pbr.get("metallicRoughnessTexture"),
+                     mat.get("normalTexture"), mat.get("occlusionTexture"),
+                     mat.get("emissiveTexture")):
+            if slot:
+                used_tex.add(slot["index"])
+    if js.get("textures"):
+        tex_remap = {}
+        new_tex = []
+        for ti, tex in enumerate(js["textures"]):
+            if ti in used_tex:
+                tex_remap[ti] = len(new_tex)
+                new_tex.append(tex)
+        used_img = {t["source"] for t in new_tex if "source" in t}
+        img_remap = {}
+        new_img = []
+        for ii, im in enumerate(js.get("images", [])):
+            if ii in used_img:
+                img_remap[ii] = len(new_img)
+                new_img.append(im)
+        for t in new_tex:
+            if "source" in t:
+                t["source"] = img_remap[t["source"]]
+        for mat in js["materials"]:
+            pbr = mat.get("pbrMetallicRoughness", {})
+            for slot in (pbr.get("baseColorTexture"), pbr.get("metallicRoughnessTexture"),
+                         mat.get("normalTexture"), mat.get("occlusionTexture")):
+                if slot:
+                    slot["index"] = tex_remap[slot["index"]]
+        dropped = len(js["textures"]) - len(new_tex)
+        js["textures"] = new_tex
+        js["images"] = new_img
+        print("  prune: dropped %d unreferenced texture(s), %d image(s) kept" % (dropped, len(new_img)))
 
     # ------------------------------------------------------------------ optional texture shrink
-    if shrink:
-        img = js["images"][0]
-        bv = js["bufferViews"][img["bufferView"]]
-        o = bv.get("byteOffset", 0)
-        png = bytes(bn[o:o + bv["byteLength"]])
-        if not shutil.which("sips"):
-            print("  shrink: SKIPPED — sips not found (macOS only)")
-        else:
+    if shrink and not shutil.which("sips"):
+        print("  shrink: SKIPPED — sips not found (macOS only)")
+    elif shrink:
+        for img in js.get("images", []):
+            bv = js["bufferViews"][img["bufferView"]]
+            o = bv.get("byteOffset", 0)
+            png = bytes(bn[o:o + bv["byteLength"]])
+            ext = ".jpg" if img.get("mimeType") == "image/jpeg" else ".png"
             with tempfile.TemporaryDirectory() as td:
-                src = Path(td) / "t.png"
+                src = Path(td) / ("t" + ext)
                 src.write_bytes(png)
                 subprocess.run(["sips", "-Z", "1024", str(src)], check=True,
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 small = src.read_bytes()
-            # ⚠️ The image bufferView is 0..7, i.e. inside the region the guard hashes. It is
-            # rewritten by APPENDING and re-pointing rather than by editing in place, because
-            # every later bufferView's byteOffset is absolute and shifting one would move
-            # them all.
+            # ⚠️ Image bufferViews sit inside the region the guard hashes. Each is rewritten by
+            # APPENDING and re-pointing rather than by editing in place, because every later
+            # bufferView's byteOffset is absolute and shifting one would move them all.
             while len(bn) % 4:
                 bn.append(0)
             js["bufferViews"].append(
@@ -364,8 +514,8 @@ def main() -> int:
             bn += small
             img["bufferView"] = len(js["bufferViews"]) - 1
             js["buffers"] = [{"byteLength": len(bn)}]
-            print("  shrink: texture 2048 -> 1024  (%.2f MB -> %.2f MB)"
-                  % (len(png) / 1e6, len(small) / 1e6))
+            print("  shrink: image '%s' -> 1024  (%.2f MB -> %.2f MB)"
+                  % (img.get("name", "?"), len(png) / 1e6, len(small) / 1e6))
 
     # ------------------------------------------------------------------ compact the buffer
     #
@@ -429,8 +579,11 @@ def main() -> int:
     print("  sources total %.1f MB -> saved %.1f MB"
           % (sum(f.stat().st_size for f in files) / 1e6,
              (sum(f.stat().st_size for f in files) - OUT.stat().st_size) / 1e6))
-    print("\n  root_scale for a %.2f m figure = %.4f   (put it in the .import)"
-          % (1.97, 1.97 / height))
+    if PROFILE["target_h"]:
+        print("\n  root_scale for a %.2f m figure = %.4f   (put it in the .import)"
+              % (PROFILE["target_h"], PROFILE["target_h"] / height))
+    else:
+        print("\n  ships at natural size: %.3f m tall (root_scale 1.0)" % height)
     print("  NOW RUN:  Godot --headless --path game --import")
     return 0
 

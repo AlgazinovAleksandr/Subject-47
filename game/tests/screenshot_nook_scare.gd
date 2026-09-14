@@ -15,7 +15,7 @@ extends SceneTree
 #      proving lab_nook_face.png loaded and is framed sensibly.
 
 const OUT := "/tmp/nook_shots/"
-const NOOK_BREAKER_POS := Vector3(-36.85, 1.1, 7.7)
+const NOOK_BREAKER_POS := Vector3(-59.85, 1.1, 16.5)   # L1.2
 
 var _frame := 0
 var _scene: Node
@@ -23,6 +23,8 @@ var _flipped := false
 var _aimed := false
 var _got_reveal := false
 var _got_flash := false
+var _saw_flash := false
+var _after := 0
 
 
 func _initialize() -> void:
@@ -50,7 +52,7 @@ func _process(_delta: float) -> bool:
 		# Stand at the breaker facing the west wall, exactly where a player who has
 		# just thrown it is standing — that is the geometry _place_nook_figure() has
 		# to cope with (barely a metre of clearance dead ahead).
-		player.global_position = Vector3(-35.8, 0.2, 7.7)
+		player.global_position = Vector3(-58.8, 0.2, 16.5)
 		player.rotation.y = PI / 2.0
 		var nook: Node3D = null
 		for n in _scene.get_children():
@@ -89,22 +91,21 @@ func _process(_delta: float) -> bool:
 			_got_reveal = true
 		return false
 
-	if not _got_flash:
-		# Screamer builds a black ColorRect panel it shows for the flash's duration.
-		# ⚠️ Reached by node path, not by the `Screamer` identifier: naming an autoload
-		# in a SceneTree script is a compile-time lookup that happens before the
-		# autoloads exist, so it fails to compile outright.
-		var screamer := get_root().get_node_or_null("/root/Screamer")
-		var panel := _find_panel(screamer) if screamer else null
-		if panel and panel.visible:
-			_shoot("02_nook_flash")
-			_got_flash = true
+	# ⭐ 2026-09-13: there is NO fullscreen face any more (the user's rule — nothing fullscreen
+	# in the Lab before the keycard). The second shot is the frame AFTER the reveal window, and
+	# Screamer's black panel must NOT be visible at any point of the beat.
+	var screamer := get_root().get_node_or_null("/root/Screamer")
+	var panel := _find_panel(screamer) if screamer else null
+	if panel and panel.visible:
+		_saw_flash = true
+	_after += 1
+	if _after == 30:
+		_shoot("02_nook_after")
+	if _after < 200:
 		return false
 
-	if _frame > 1400:
-		print("TIMEOUT")
-	print("NOOK-SHOTS DONE  reveal=%s flash=%s" % [_got_reveal, _got_flash])
-	quit(0 if (_got_reveal and _got_flash) else 1)
+	print("NOOK-SHOTS DONE  reveal=%s fullscreen_seen=%s (must be false)" % [_got_reveal, _saw_flash])
+	quit(0 if (_got_reveal and not _saw_flash) else 1)
 	return true
 
 

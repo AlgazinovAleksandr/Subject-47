@@ -164,9 +164,11 @@ func _process(delta: float) -> bool:
 						and String(x.get_script().resource_path).ends_with("note.gd") \
 						and not bool(x.get("is_trap")):
 					safe.append(x)
-			_ok("House: found the three safe notes", safe.size() == 3,
+			# H2 (2026-09-13): TWO wall pages now — the third digit is on the head in the
+			# chained fridge and registers by gaze (`_mark_safe_note("SafeNote_Head")`).
+			_ok("House: found the two safe wall notes", safe.size() == 2,
 				"%d non-trap notes" % safe.size())
-			if safe.size() == 3:
+			if safe.size() == 2:
 				for i in range(3):
 					safe[0].emit_signal("read")
 				_ok("House: re-reading ONE note three times does NOT light the lamp",
@@ -174,7 +176,7 @@ func _process(delta: float) -> bool:
 					("note.gd emits `read` on every open, so a counter that increments would "
 					+ "light the house without the player ever going to the cellar"))
 				safe[1].emit_signal("read")
-				safe[2].emit_signal("read")
+				current_scene.call("_mark_safe_note", "SafeNote_Head")
 			# ⚠️ A SUB-STAGE 0.6 s LATER, INSIDE THE FADE. The normal cadence here is 3 s and
 			# `LAMP_ON_FADE` is 2.2, so every ordinary stage boundary lands AFTER the tween has
 			# settled — which is precisely why a fade that drove nothing went unnoticed. Winding
@@ -306,8 +308,8 @@ func _process(delta: float) -> bool:
 			# ⚠️ ALL TEN, not ">0". The wing is ten rooms and the payoff is that the whole route
 			# back is lit; a trimmed `WING_ROOMS` would sail through a >0 check while leaving the
 			# player walking most of the maze in the dark.
-			_ok("Lab: the wing lights up when the nook is cleared", lit_before == 10,
-				"%d of 10 wing lamps burning 3 s after _light_the_wing()" % lit_before)
+			_ok("Lab: the wing lights up when the nook is cleared", lit_before == 28,
+				"%d of 21 wing lamps burning 3 s after _light_the_wing()" % lit_before)
 			gs2().call("_capture_progress")
 			_ok("Lab: the snapshot carries the nook payoff",
 				bool(gs2().call("get_level_progress", 1).get("nook_scare_done", false)))
@@ -319,8 +321,8 @@ func _process(delta: float) -> bool:
 			# nook breaker's `flipped`, and a restored breaker never emits it again — so the wing
 			# came back DARK with its flashlight-lock zone respawned, i.e. a lightless 50 m maze
 			# whose puzzle was already solved and could not be re-solved.
-			_ok("Lab: RESUMED — the wing is still lit", _wing_burning() == 10,
-				"%d of 10 wing lamps burning on a restored Lab" % _wing_burning())
+			_ok("Lab: RESUMED — the wing is still lit", _wing_burning() == 28,
+				"%d of 21 wing lamps burning on a restored Lab" % _wing_burning())
 			_ok("Lab: RESUMED — and the flashlight lock zone is gone",
 				current_scene.get("_nook_zone") == null,
 				"re-entering must not re-lock a torch the player has earned back")

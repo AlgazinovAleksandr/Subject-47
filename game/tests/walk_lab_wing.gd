@@ -21,7 +21,7 @@ extends SceneTree
 #   5. both beacon layers exist, loop, and sit on the breaker
 #   6. the flashlight-lock zone covers every waypoint of the route
 
-const BREAKER_POS := Vector3(-36.85, 1.1, 7.7)
+const BREAKER_POS := Vector3(-59.85, 1.1, 16.5)   # L1.2: the terminus moved west (was -36.85, 7.7)
 
 # Centre-line of the intended solution. The walker steers point to point; if any
 # doorway on the route were sealed it would stall and the run would fail.
@@ -29,22 +29,56 @@ const ROUTE := [
 	Vector2(-13.0, 12.5),   # through the Records doorway
 	Vector2(-15.5, 12.5),   # DarkCorridor
 	Vector2(-21.0, 12.5),   # Junction  <- decision 1 (west / north / south)
+	# 2026-09-13: LOOP 1 — the west limb rejoins the route through PlantDrop.
+	Vector2(-26.5, 12.5),   # WestCorridor
+	Vector2(-32.5, 12.5),   # Plant
+	Vector2(-36.2, 12.5),   # PlantDrop (west of Plant)
+	Vector2(-36.2, 10.5),
+	Vector2(-36.2, 8.5),    # Cistern — loop 1 closed
+	Vector2(-35.0, 7.7),
+	Vector2(-40.5, 7.7),    # LowerRun
+	Vector2(-46.0, 7.7),    # Crossing
+	# LOOP 2 — Riser -> Gallery -> VaultNeck -> VaultRun -> NorthVault -> NorthSpur -> Junction.
+	Vector2(-46.0, 12.1),   # Riser
+	Vector2(-46.0, 17.0),   # Gallery
+	Vector2(-45.5, 18.3),
+	Vector2(-45.5, 20.5),   # VaultNeck west door
+	Vector2(-42.7, 20.5),   # VaultNeck east door
+	Vector2(-42.7, 22.7),   # VaultRun west end
+	Vector2(-30.0, 22.7),   # VaultRun east end
+	Vector2(-24.5, 22.7),   # NorthVault
+	Vector2(-21.0, 21.5),
+	Vector2(-21.0, 17.25),  # NorthSpur
+	Vector2(-21.0, 12.5),   # Junction — loop 2 closed
+	# The real route, as before.
 	Vector2(-21.0, 8.5),    # SouthSpur
 	Vector2(-23.5, 7.7),    # into SouthHall
 	Vector2(-30.0, 7.7),    # SouthHall west end  <- decision 3 (PumpRoom / on)
-	Vector2(-34.0, 7.7),    # BreakerNook
+	Vector2(-34.0, 7.7),    # Cistern  <- decision 4 (Sump / on)
+	Vector2(-40.5, 7.7),    # LowerRun <- decision 5 (Vent / on)
+	Vector2(-46.0, 7.7),    # Crossing <- decision 6 (Riser-Gallery / on)
+	Vector2(-51.5, 7.7),    # FarHall
+	Vector2(-57.0, 7.7),    # Turn     <- decision 7 (Boiler / Shaft)
+	Vector2(-57.0, 12.1),   # Shaft
+	Vector2(-57.0, 16.5),   # BreakerNook
 ]
 
 # probe point, room bounds [x0,x1,z0,z1], and the ONE direction that should be open.
 const DEAD_ENDS := [
-	{ "name": "Plant",      "probe": Vector2(-32.5, 12.5), "b": [-35.0, -30.0, 10.5, 14.5], "open": "+x" },
-	{ "name": "NorthVault", "probe": Vector2(-21.0, 22.0), "b": [-29.0, -20.0, 20.0, 24.0], "open": "-z" },
-	{ "name": "PumpRoom",   "probe": Vector2(-25.0, 5.35), "b": [-27.0, -23.0, 4.2, 6.5],   "open": "+z" },
+	# 2026-09-13: every dead end is TWO rooms deep and the old Plant/NorthVault/Gallery ends
+	# are LOOPS now (asserted below as walkable, not as dead).
+	{ "name": "PumpPit",   "probe": Vector2(-25.0, 2.5),  "b": [-27.0, -23.0, 0.8, 4.2],   "open": "+z" },
+	{ "name": "SumpWell",  "probe": Vector2(-34.0, 2.1),  "b": [-36.0, -32.0, 0.8, 3.4],   "open": "+z" },
+	{ "name": "VentShaft", "probe": Vector2(-39.8, 14.0), "b": [-41.0, -38.6, 12.5, 15.5], "open": "-z" },
+	{ "name": "BoilerPit", "probe": Vector2(-57.0, 2.1),  "b": [-59.0, -55.0, 0.8, 3.4],   "open": "+z" },
 ]
 
 const WING_ROOMS := [
 	"DarkCorridor", "Junction", "WestCorridor", "Plant", "NorthSpur",
-	"NorthVault", "SouthSpur", "SouthHall", "PumpRoom", "BreakerNook",
+	"NorthVault", "SouthSpur", "SouthHall", "PumpRoom",
+	"Cistern", "Sump", "LowerRun", "Vent", "Crossing", "Riser", "Gallery",
+	"FarHall", "Turn", "Boiler", "Shaft", "BreakerNook",
+	"PlantDrop", "VaultRun", "VaultNeck", "PumpPit", "SumpWell", "VentShaft", "BoilerPit",
 ]
 
 var _frame := 0

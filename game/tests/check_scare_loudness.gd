@@ -58,6 +58,10 @@ const FLOORS := {
 	# --- generated stings, raised via write_wav(loud=) in tools/make_sfx*.py ----------
 	"glass_shatter": -12.0,        # was -22.49, now -9.47  (+13.01) — the biggest single win
 	"matron_shriek": -7.0,         # was -14.70, now -4.00  (+10.70)
+	# --- THE NIGHTMARE's hunter and its statues (2026-09-12) ---------------------------
+	"parasite_jumpscare": -5.0,    # -2.60 as supplied (smile-dog), the catch's sting, on Master
+	"parasite_growl": -10.0,       # -7.79, the hunter's second call (positional)
+	"stillone_shriek": -8.0,       # -7.98, the survivable face flash when a statue reaches you
 	"screamer_kontur": -5.0,       # was -10.75, now -3.00  (+7.75)
 	"screamer_breach": -5.0,       # was -10.47, now -3.00  (+7.47)
 	"kontur_flash": -10.0,         # was -14.68, now -7.61  (+7.07)
@@ -151,6 +155,9 @@ const CLIP_BASELINE := {
 	"locker_settle": 0.00,
 	"locker_shove": 0.00,
 	"matron_shriek": 0.00,
+	"parasite_jumpscare": 1.50,   # a supplied full-scale sting; measured on first run
+	"parasite_growl": 0.00,
+	"stillone_shriek": 0.00,
 	"matron_step": 0.00,
 	"matron_theme": 0.00,
 	"mirror_stare": 0.00,

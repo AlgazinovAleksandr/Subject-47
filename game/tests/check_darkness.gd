@@ -48,7 +48,7 @@ const WIDE_TORCH_LEVELS := {
 const KEEPS_DARK_ZONES := {
 	"res://scenes/corridor.tscn": "the 145-172 m stretch, with its four beartraps",
 	"res://scenes/backrooms.tscn": "one arm goes dark per round, and relights",
-	"res://scenes/level_3.tscn": "the Void's rooms C and D",
+	"res://scenes/level_3.tscn": "the Void's tile hall, morgue and child's room",
 }
 
 var _fails: Array[String] = []

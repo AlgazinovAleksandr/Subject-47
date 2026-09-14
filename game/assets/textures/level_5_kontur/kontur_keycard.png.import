@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bje8eeub2obab"
-path="res://.godot/imported/kontur_keycard.png-6dec3d8b803b4f7d3ae96d649a5b5313.ctex"
+path.s3tc="res://.godot/imported/kontur_keycard.png-6dec3d8b803b4f7d3ae96d649a5b5313.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_5_kontur/kontur_keycard.png"
-dest_files=["res://.godot/imported/kontur_keycard.png-6dec3d8b803b4f7d3ae96d649a5b5313.ctex"]
+dest_files=["res://.godot/imported/kontur_keycard.png-6dec3d8b803b4f7d3ae96d649a5b5313.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

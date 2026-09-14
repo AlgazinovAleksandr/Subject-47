@@ -11,11 +11,96 @@ const H := 3.0   # corridor height
 const T := 0.3   # wall thickness
 
 # Corner points of the zigzag centerline (x, z). Segment lengths:
-# 50 + 40 + 50 + 45 + 45 + 45 + 45 = 320 m.
+# 50 + 40 + 50 + 45 + 45 + 45 + 45 + 45 + 45 + 45 = 455 m.
+# ⭐⭐ C1 (2026-09-13, the user: "make the corridor level more big and extensive, where you can at
+# some point turn the wrong side and get stuck somewhere … all the jumpscares will be in different
+# parts of the level"). Was 7 segments / 320 m; three more legs, three blind SIDE_PASSAGES with a
+# ten-second shut-in each, the three big beats spread >= 50 m apart, the last-corner mirror at
+# 410, and the dread zone / hush / noclip riding the new end. Corners: 50 90 140 185 230 275 320
+# 365 410.
 const PATH_2D: Array[Vector2] = [
 	Vector2(0, 0), Vector2(0, 50), Vector2(40, 50), Vector2(40, 100),
 	Vector2(-5, 100), Vector2(-5, 145), Vector2(40, 145), Vector2(40, 190),
+	Vector2(-5, 190), Vector2(-5, 235), Vector2(40, 235),
 ]
+
+# C1: blind spurs off the main corridor — [walked distance of the mouth, side, length]. Each one
+# is a 3 m-wide dead end; walk to its far end and a door slams across the mouth behind you and
+# is battered for ten seconds before it gives (`dead_end_trap.gd` + `slam_door.gd`). Zero panic —
+# the dark and the sound do the work. The second one is the WHISPERING ROOM: a voice behind its
+# end wall, audible from the corridor as you pass ("I want to get out but I can't").
+# ⚠️ Mouths must sit INSIDE a segment (never on a corner) and clear of every wall prop on that
+# side: torches, ajar/fake doors, panels, plates, mirrors. Re-check those tables if one moves.
+# ⭐ 2026-09-13 (the user: "these dead ends have nothing in them … they should all be different").
+# Each spur has a KIND, and the shut-in is a Space-mash escape (`spur_escape.gd`) rather than a
+# wait:
+#   "note"   — a page on the end wall ("You are not the first to take this experiment"); at the
+#              second bar a shadow crosses the strip of light under the door.
+#   "plea"   — the whispering room: the voice behind the end wall RISES with every bar you force,
+#              and stops mid-word at the third, as a wet hand-print appears on the inside of the door.
+#   "mirror" — a mirror on the end wall. While you push, something stands behind you in the
+#              glass, between you and the door. It is gone when the door gives.
+# Zero panic in all three. SPUR_SHUT_TIME is the FALLBACK — the door's own batter clock — for a
+# player who never pushes.
+const SIDE_PASSAGES := [
+	{ "at": 105.0, "side": -1.0, "len": 14.0, "whisper": false, "kind": "note" },
+	{ "at": 245.0, "side": 1.0, "len": 16.0, "whisper": true, "kind": "bell" },
+	{ "at": 330.0, "side": -1.0, "len": 12.0, "whisper": false, "kind": "cupboard" },
+]
+# ⭐ 2026-09-14 (BACKLOG_Sep_14 C2/C3, the user: "always pressing Space is boring"): the "plea"
+# and "mirror" spurs are gone. 245 is the BELL-AND-WAIT reception nook (`spur_bell.gd`: ring, the
+# steps come up behind you, the only decision is whether you turn round) and 330 is the PASS-BY
+# CUPBOARD (`spur_cupboard.gd`: step in, the slats shut, the Manager walks past; hold still with the
+# torch off). Neither has a trap volume, a mash bar or a panic term. Only spur 105 keeps the
+# Space-mash (one instance of the verb, the user's call).
+const SPUR_SHUT_TIME := 20.0          # fallback only (was 10, when waiting was the whole beat)
+const SPUR_NOTE_TEXT := """You are not the first to take this experiment.
+
+Room 217 was booked under my name too.
+
+They let you push. They only want to see how long you push for."""
+const SPUR_PLEA_STEP_DB := 4.0        # the plea rises this much per forced bar
+
+# ⭐ C2 (2026-09-13, the user: "there are no forks — no situations where you must decide right
+# or left"). Two FORKS: at `at` a second opening leaves the hall on `side` and runs OUT `out` m,
+# ACROSS `across` m parallel to the hall, and back to rejoin it at `at + across` through a door
+# that stands shut until you reach the loop's far corner, then opens onto the hall you came
+# from. The wrong branch costs the walk and one scare; it carries a hidden note. No panic. The
+# tells are quiet: the hall's carpet does not continue into the branch and a dead torch stands
+# at its mouth. Both mouths are cut from the hall wall like the spurs' (`_build_geometry`).
+const FORKS := [
+	{ "at": 118.0, "side": 1.0, "out": 8.0, "across": 9.0 },
+	{ "at": 380.0, "side": 1.0, "out": 8.0, "across": 9.0 },
+]
+const FORK_NOTE_TEXT := """There is a shorter way. There is always a shorter way.
+
+It is never this one.
+
+Go back to the hall. Keep walking."""
+var _forks: Array = []
+
+# ⭐ C4 (2026-09-14, capture #005: "what I meant by fork is at a corner — you need to turn right,
+# but what if you turn left?"). At two corners the hall ALSO continues straight past the turn
+# (a `_corridor_box` passage on the incoming leg's heading, cut into the facing wall). The tell
+# is EVIDENCE BEHIND YOU: a trail of wet footprints on the incoming leg's floor runs INTO the
+# wrong branch. 320's branch is a LOOP-BACK (walk to its end and you are standing at the previous
+# corner again, with a slam behind you); 365's branch ends in the BLIND ROOM (`blind_room.gd`).
+# Never in SIDE_PASSAGES: `check_corridor_events` indexes the spurs by position. Branches stay
+# under 20 m — `_nearest_path_distance` clamps to segment ends and the zigzag legs are 45 m
+# apart, so past ~22 m a branch would read as progress on the NEXT leg (save/resume, doors,
+# the hush all read `_furthest_reached`).
+const CORNER_BRANCHES := [
+	{ "corner": 320.0, "len": 16.0, "kind": "loop" },
+	{ "corner": 365.0, "len": 12.0, "kind": "blind" },
+]
+const TRAIL_STEP := 0.55          # m between footprints
+const TRAIL_BEFORE := 10.0        # m of trail on the incoming leg
+const TRAIL_INTO := 5.0           # m of trail into the branch
+const BLIND_ROOM_SIZE := 6.0
+var _branches: Array = []
+const SPUR_TRAP_DEPTH := 3.0          # the last metres of the spur spring it
+const PLEA_DB := 8.0    # corridor_plea.wav measured -11.9 dBFS peak / -34.8 mean incl. its 6 s tail (make_corridor_plea.py)
+const PLEA_UNIT := 10.0
 
 const TEX_DIR := "res://assets/textures/level_3_corridor/"
 
@@ -28,11 +113,13 @@ const TORCHES := [
 	[100.0, 1.0], [120.0, -1.0], [134.0, 1.0],
 	[148.0, -1.0], [158.0, 1.0], [168.0, -1.0],
 	[176.0, 1.0], [196.0, -1.0], [214.0, 1.0],
+	# C1: the longer middle keeps a few lit; Zone C proper (the dread zone) stays black.
+	[236.0, 1.0], [258.0, -1.0], [300.0, 1.0], [330.0, 1.0], [352.0, -1.0],
 ]
 const SHATTER_RANGE := Vector2(144.0, 172.0)  # torches extinguished by lights-out
 
 const BEARTRAPS := [  # [distance, lateral offset]
-	[150.0, 0.45], [155.0, -0.6], [162.0, 0.55], [168.0, 0.0], [245.0, -0.5],
+	[150.0, 0.45], [155.0, -0.6], [162.0, 0.55], [168.0, 0.0], [292.0, -0.5],   # C1: 245 -> 292 (the whisper spur's mouth is at 245)
 ]
 
 # ⚠️ Difficulty fix: DARK_ZONES used to have a second entry, Vector2(240, 318),
@@ -53,7 +140,7 @@ const DARK_ZONES := [Vector2(145.0, 172.0)]
 # Shortened from 230 (90 m of flat/no-recovery pressure) to 260 (60 m) — gives
 # the player real decay time after the silhouette/floor-crack events instead of
 # carrying whatever panic they had straight into the endurance stretch.
-const DREAD_ZONE := Vector2(260.0, 320.0)  # Zone C tail: weak decay + constant pressure
+const DREAD_ZONE := Vector2(395.0, 455.0)  # Zone C tail: weak decay + constant pressure (C1: the last 60 m of 455)
 
 # The Manager: a survivable scare that strikes once while you walk — a flash, a
 # scream, a panic spike to ride out. Distance-triggered (not wall-time) at a
@@ -67,8 +154,8 @@ var _furthest_reached: float = 0.0
 
 # THE RUNNING CREATURE (_ev_silhouette). All of the reasoning is at the function; these are
 # the numbers it moved and the ones it deliberately did not.
-const SILHOUETTE_TRIGGER := 219.0     # was 205 — the event volume's centre
-const SILHOUETTE_CROSS := 227.0       # was 228.5 — where it runs across; 8 m ahead, not 23.5
+const SILHOUETTE_TRIGGER := 340.0     # C1: was 219 — >= 60 m after the Manager's last telegraph (277)
+const SILHOUETTE_CROSS := 348.0       # 8 m ahead of the trigger, as before
 const SILHOUETTE_SIDE := 2.0          # was 1.2 — start/end BEHIND the walls (face 1.5 + T 0.3)
 const SILHOUETTE_CROSS_TIME := 0.8    # 4.0 m of travel = 5.0 m/s, 0.6 s of it in view
 # ⚠️ SET FROM THE FILE'S MEASURED LEVEL. `shared/jumpscare.wav` measures peak 0.0 dBFS, mean
@@ -97,7 +184,7 @@ const TURN_MIRROR_PANIC := 12.0
 # and the last, with the d=230 one removed on 2026-08-16. See the note in `_spawn_panels()`
 # for the panic arithmetic, and `_pick_silent_mirror()` for why nothing is muted at two.
 # A const rather than a literal in the loop so the tests can assert against the real table.
-const TURN_MIRRORS := [[90.0, 1.5], [275.0, 2.2]]
+const TURN_MIRRORS := [[90.0, 1.5], [410.0, 2.2]]   # C1: the LAST corner is 410 now (was 275)
 
 # ⭐ THE GLASS WAKES UP, AND YOU HEAR IT (2026-08-16).
 #
@@ -444,6 +531,14 @@ const DOOR_AJAR_MIN := 24.0        # degrees
 const DOOR_AJAR_MAX := 38.0
 const DOOR_SWING_TIME := 1.6       # slow, and silent — see AjarDoor.swing_ajar()
 const DOOR_SLAM_LEAD := 22.0       # metres past the ajar door before it slams
+# C5: the seventh door (see _spawn_doors): on the note spur's side, between it and the fake door at 130.
+const BREAK_DOOR_AT := 124.0
+const BREAK_DOOR_SIDE := -1.0
+const BREAK_DOOR_DEG := 14.0
+var _break_door: Node3D = null
+var _break_figure: Node = null
+var _break_spawned: bool = false
+var _break_done: bool = false
 const DOOR_VIEW_DOT := 0.35        # above this the player is looking at it; do not move it
 
 # P4 The False Ceiling. A telegraph that usually means nothing, then one that does.
@@ -457,11 +552,11 @@ const DOOR_VIEW_DOT := 0.35        # above this the player is looking at it; do 
 # delivers the Manager. That keeps the shape of the beat — you learn the sound means
 # something is coming, you are wrong once, and then you are right — which is the whole
 # point of P4, while the instrument is heard twice instead of five times.
-const TELEGRAPH_AT: Array[float] = [126.0, 190.0]
+const TELEGRAPH_AT: Array[float] = [240.0, 277.0]   # C1: just past the 230 and 275 corners, >= 55 m after the false door
 const TELEGRAPH_PAYOFF_DELAY := 0.9
 
 # The last stretch goes silent (P5's spatial cousin) instead of staying merely quiet.
-const HUSH_AT := 296.0
+const HUSH_AT := 431.0   # C1: total - 24, as it was (296 of 320)
 
 # The Corridor's score rides its own bus so the hush cannot silence it. Nested under
 # Master rather than Ambience — see _start_ambience().
@@ -561,6 +656,7 @@ func _process(delta: float) -> void:
 
 	_tick_doors()
 	_tick_hush()
+	_tick_break_door()
 
 
 # The glass coming alive, given a sound. See MIRROR_WAKE_DB for what fires when and why
@@ -822,7 +918,14 @@ func _build_geometry() -> void:
 		_corridor_box("Seg%dCeiling" % i, seg, lo, hi, 0.0, W + 2.0 * T, H + T / 2.0, T, _ceil_mat)
 
 		for side in [1.0, -1.0]:
-			var wa := lo
+			# ⚠️ The OUTER wall of a bend starts one wall thickness BEFORE lo (Issue 211,
+			# 2026-09-14): lo is -W/2 (the corner's inner face), the incoming leg's wall ends at
+			# that same face, so the T x T column at the bend's outer corner belonged to nobody
+			# — a pinhole at every corner, sampled by the shell sweep only along a diagonal, and
+			# a real 0.3 m hole once the 320 branch mouth removed the wall beside it. The side
+			# the previous leg attaches on is overridden to lo + W below, so only the outer wall
+			# takes this; it ABUTS the incoming leg's wall end (no overlap).
+			var wa := lo if i == 0 else lo - T
 			var wb := hi
 			# Leave a corridor-wide opening where the adjacent segment attaches.
 			if i > 0 and (-_segments[i - 1].dir as Vector2).distance_to(n * side) < 0.01:
@@ -830,13 +933,955 @@ func _build_geometry() -> void:
 			if i < _segments.size() - 1 and (_segments[i + 1].dir as Vector2).distance_to(n * side) < 0.01:
 				wb = hi - W
 			if wb - wa > 0.01:
-				var wall_name := "Seg%dWall%s" % [i, "A" if side > 0 else "B"]
-				_corridor_box(wall_name, seg, wa, wb, side * (W + T) / 2.0, T, H / 2.0, H + 2.0 * T, _wall_mat)
+				# C1: subtract every side-passage mouth on this segment and side, so the wall is
+				# emitted as one box per remaining interval.
+				var intervals: Array = [[wa, wb]]
+				var mouths: Array = []
+				for sp in SIDE_PASSAGES:
+					mouths.append([float(sp["at"]), float(sp["side"])])
+				for fk in FORKS:   # C2: two mouths per fork — out and back in
+					mouths.append([float(fk["at"]), float(fk["side"])])
+					mouths.append([float(fk["at"]) + float(fk["across"]), float(fk["side"])])
+				for cb in CORNER_BRANCHES:   # C4: the facing wall at a corner, on the OUTGOING leg only
+					var cm := _corner_branch_mouth(float(cb["corner"]))
+					if int(cm["seg"]) == i:
+						mouths.append([float(cm["at"]), float(cm["side"])])
+				for mo in mouths:
+					if signf(float(mo[1])) != signf(side):
+						continue
+					var at_local: float = float(mo[0]) - float(seg.start_d)
+					if at_local < 0.0 or at_local > float(seg.len):
+						continue
+					var cut := [at_local - W / 2.0, at_local + W / 2.0]
+					var next: Array = []
+					for iv in intervals:
+						if cut[1] <= iv[0] or cut[0] >= iv[1]:
+							next.append(iv)
+							continue
+						if cut[0] > iv[0]:
+							next.append([iv[0], cut[0]])
+						if cut[1] < iv[1]:
+							next.append([cut[1], iv[1]])
+					intervals = next
+				var k := 0
+				for iv in intervals:
+					if iv[1] - iv[0] <= 0.01:
+						continue
+					var wall_name := "Seg%dWall%s%s" % [i, "A" if side > 0 else "B", ("" if k == 0 else str(k))]
+					_corridor_box(wall_name, seg, iv[0], iv[1], side * (W + T) / 2.0, T, H / 2.0, H + 2.0 * T, _wall_mat)
+					k += 1
 
 		if i == 0:
 			_corridor_box("StartCapWall", seg, lo - T, lo, 0.0, W + 2.0 * T, H / 2.0, H + 2.0 * T, _wall_mat)
 		if i == _segments.size() - 1:
 			_corridor_box("EndCapWall", seg, hi, hi + T, 0.0, W + 2.0 * T, H / 2.0, H + 2.0 * T, _wall_mat)
+	_build_spurs()
+	_build_forks()
+	_build_corner_branches()
+
+
+# C1: the blind side passages. Each is built with the same box helper on a synthetic segment
+# whose p0 is the mouth's INNER wall face and whose dir points out through the wall. The floor,
+# ceiling and side walls start at `T` — the main corridor's own slabs already cover the wall's
+# thickness under and over the opening — so no two surfaces coincide (Issue 20).
+var _spurs: Array = []
+
+func _build_spurs() -> void:
+	for i in range(SIDE_PASSAGES.size()):
+		var sp: Dictionary = SIDE_PASSAGES[i]
+		var pt := _path_point(float(sp["at"]))
+		var side: float = float(sp["side"])
+		var n2 := Vector2(pt.side.x, pt.side.z) * side
+		var p0: Vector2 = Vector2(pt.pos.x, pt.pos.z) + n2 * (W / 2.0)
+		var seg := { "p0": p0, "dir": n2, "len": float(sp["len"]), "start_d": 0.0 }
+		var L: float = float(sp["len"])
+		_corridor_box("Spur%dFloor" % i, seg, T, L, 0.0, W + 2.0 * T, -T / 2.0, T, _floor_mat)
+		_corridor_box("Spur%dCeiling" % i, seg, T, L, 0.0, W + 2.0 * T, H + T / 2.0, T, _ceil_mat)
+		for s2 in [1.0, -1.0]:
+			_corridor_box("Spur%dWall%s" % [i, "A" if s2 > 0 else "B"], seg, T, L,
+				s2 * (W + T) / 2.0, T, H / 2.0, H + 2.0 * T, _wall_mat)
+		_corridor_box("Spur%dEndCap" % i, seg, L, L + T, 0.0, W + 2.0 * T, H / 2.0, H + 2.0 * T, _wall_mat)
+		# One torch half-way down, on the spur's own right-hand wall. It dies with the shut-in.
+		var dir3 := Vector3(n2.x, 0, n2.y)
+		var lat3 := Vector3(dir3.z, 0, -dir3.x)
+		var torch := Torch3D.new()
+		torch.name = "Spur%dTorch" % i
+		torch.position = Vector3(p0.x, 0, p0.y) + dir3 * (L * 0.55) + lat3 * (W / 2.0 - 0.12) + Vector3(0, 1.9, 0)
+		var inward: Vector3 = -lat3
+		torch.rotation.y = atan2(inward.x, inward.z)
+		add_child(torch)
+		# The door across the mouth, open, hinged on the jambs the wall cut left. Local +x must
+		# run ALONG the corridor (the leaves span the opening); the doorway plane is local z = 0.
+		var door := SlamDoor.new()
+		door.name = "Spur%dDoor" % i
+		door.door_width = W
+		door.door_height = H
+		door.door_texture = TEX_DIR + "hotel_door_leaf.png"
+		door.batter_time = SPUR_SHUT_TIME
+		door.player_operable = false   # C6: the shut-in owns it; no "Press E"
+		door.position = Vector3(p0.x, 0, p0.y) + dir3 * (T / 2.0)
+		var md: Vector3 = pt.dir
+		# + PI so the open leaves swing INTO the spur, not out across the hall (render-checked
+		# 2026-09-13: the first orientation parked a 1.5 m leaf in the corridor).
+		door.rotation.y = atan2(-md.z, md.x) + PI
+		add_child(door)
+		# ⚠️ The leaves are HIDDEN while the spur is open (render-checked twice, 2026-09-13: an open
+		# 1.5 m leaf parked itself in the corridor whichever way the door was turned). The frame
+		# stays — a framed opening off the hall — and the leaves appear as they slam.
+		for h in door.get_children():
+			if h is Node3D and String(h.name).begins_with("Hinge"):
+				(h as Node3D).visible = false
+		var kind: String = String(sp.get("kind", "note"))
+		# The trap at the far end — only the kinds whose shut-in is sprung by ARRIVING.
+		var trap: DeadEndTrap = null
+		if kind == "note":
+			trap = DeadEndTrap.new()
+			trap.name = "Spur%dTrap" % i
+			var col := CollisionShape3D.new()
+			var shape := BoxShape3D.new()
+			shape.size = Vector3(W, H, SPUR_TRAP_DEPTH) if absf(dir3.z) > 0.5 else Vector3(SPUR_TRAP_DEPTH, H, W)
+			col.shape = shape
+			trap.add_child(col)
+			trap.position = Vector3(p0.x, H / 2.0, p0.y) + dir3 * (L - SPUR_TRAP_DEPTH / 2.0)
+			add_child(trap)
+		var entry := { "index": i, "door": door, "torch": torch, "trap": trap, "mouth": Vector3(p0.x, 0, p0.y),
+			"dir": dir3, "lat": lat3, "len": L, "scrape": null, "kind": kind, "plea": null,
+			"handprint": null, "figure": null, "escape": null, "mirror": null, "note": null, "strip": null,
+			"bell": null, "cupboard": null }
+		if trap:
+			trap.sprung.connect(_on_spur_sprung.bind(entry))
+		_spurs.append(entry)
+		# The whispering room: a voice behind the end wall, audible from the corridor.
+		if bool(sp.get("whisper", false)):
+			var plea := GameState.load_audio("corridor_plea")
+			if plea:
+				var pl := AudioStreamPlayer3D.new()
+				pl.name = "Spur%dPlea" % i
+				pl.stream = plea
+				pl.volume_db = PLEA_DB
+				pl.unit_size = PLEA_UNIT
+				pl.max_db = 0.0
+				pl.bus = AudioBuses.AMBIENCE
+				add_child(pl)
+				pl.position = Vector3(p0.x, 1.4, p0.y) + dir3 * (L + 0.6)
+				pl.finished.connect(pl.play)
+				pl.play()
+				entry["plea"] = pl
+		_dress_spur(entry)
+
+
+# What each spur holds BEFORE the door shuts — the kind's fixture (see SIDE_PASSAGES).
+func _dress_spur(entry: Dictionary) -> void:
+	var i: int = int(entry["index"])
+	var mouth: Vector3 = entry["mouth"]
+	var dir3: Vector3 = entry["dir"]
+	var L: float = float(entry["len"])
+	var end_face: Vector3 = mouth + dir3 * (L - WALL_INSET)   # inner face of the end cap
+	var back: Vector3 = -dir3                                  # the end wall faces the mouth
+	match String(entry["kind"]):
+		"note":
+			var xform := Transform3D(Basis(Vector3.UP, atan2(back.x, back.z)), end_face + Vector3(0, 1.45, 0))
+			entry["note"] = _spawn_wall_page("Spur%dNote" % i, xform, TEX_DIR + "spur_note.png", 0.6, SPUR_NOTE_TEXT)
+		"bell":
+			_dress_bell_spur(entry, end_face, back)
+		"cupboard":
+			_dress_cupboard_spur(entry, end_face, back)
+
+
+# C2: the reception nook — a desk against the end wall with a counter bell on it (E rings it).
+func _dress_bell_spur(entry: Dictionary, end_face: Vector3, back: Vector3) -> void:
+	var i: int = int(entry["index"])
+	var dir3: Vector3 = entry["dir"]
+	var lat3: Vector3 = entry["lat"]
+	var wood := _make_mat(TEX_DIR + "clock_walnut.png", Vector3(0.6, 0.6, 0.6), Color(0.16, 0.10, 0.05))
+	var brass := StandardMaterial3D.new()
+	brass.albedo_color = Color(0.55, 0.42, 0.18)
+	brass.metallic = 0.8
+	brass.roughness = 0.35
+	var desk_c: Vector3 = end_face + back * 0.55          # 1.1 m deep desk, its back against the end wall
+	var yaw: float = atan2(back.x, back.z)
+	var desk := Node3D.new()
+	desk.name = "Spur%dDesk" % i
+	desk.position = desk_c
+	desk.rotation.y = yaw
+	add_child(desk)
+	for part in [["DeskTop", Vector3(1.8, 0.06, 1.0), Vector3(0, 0.95, 0)], ["DeskFront", Vector3(1.8, 0.92, 0.05), Vector3(0, 0.46, 0.475)],
+			["DeskShelf", Vector3(1.7, 0.04, 0.9), Vector3(0, 0.55, 0)], ["DeskEndL", Vector3(0.05, 0.92, 1.0), Vector3(-0.875, 0.46, 0)],
+			["DeskEndR", Vector3(0.05, 0.92, 1.0), Vector3(0.875, 0.46, 0)]]:
+		var b := CSGBox3D.new()
+		b.name = String(part[0])
+		b.size = part[1]
+		b.position = part[2]
+		b.use_collision = true
+		b.material = wood
+		desk.add_child(b)
+	# the bell: a brass dome on a base, its own body on layer 1 so the interact ray finds it
+	var bell := StaticBody3D.new()
+	bell.name = "Spur%dBell" % i
+	bell.set_script(_BELL_PROP_SCRIPT)
+	bell.position = desk_c + back * 0.25 + Vector3(0, 0.98, 0) + lat3 * 0.25
+	add_child(bell)
+	var base := MeshInstance3D.new()
+	var bc := CylinderMesh.new()
+	bc.top_radius = 0.07
+	bc.bottom_radius = 0.075
+	bc.height = 0.02
+	base.mesh = bc
+	base.material_override = brass
+	base.position = Vector3(0, 0.01, 0)
+	bell.add_child(base)
+	var dome := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 0.06
+	sm.height = 0.12
+	dome.mesh = sm
+	dome.material_override = brass
+	dome.position = Vector3(0, 0.05, 0)
+	bell.add_child(dome)
+	var btn := MeshInstance3D.new()
+	var bm := CylinderMesh.new()
+	bm.top_radius = 0.012
+	bm.bottom_radius = 0.012
+	bm.height = 0.03
+	btn.mesh = bm
+	btn.material_override = brass
+	btn.position = Vector3(0, 0.11, 0)
+	bell.add_child(btn)
+	var col := CollisionShape3D.new()
+	var shape := BoxShape3D.new()
+	shape.size = Vector3(0.22, 0.2, 0.22)
+	col.shape = shape
+	col.position = Vector3(0, 0.08, 0)
+	bell.add_child(col)
+	# a "RING FOR SERVICE" plate on the desk front, and the beat itself
+	var beat := SpurBell.new()
+	beat.name = "Spur%dBellBeat" % i
+	add_child(beat)
+	beat.setup(self, entry["door"], desk_c + Vector3(0, 0.98, 0), entry["mouth"], dir3)
+	bell.set("beat", beat)
+	entry["bell"] = beat
+	# the spur's lamp for this one is the desk lamp: a warm omni over the desk
+	var lamp := OmniLight3D.new()
+	lamp.name = "Spur%dDeskLamp" % i
+	lamp.light_color = Color(1.0, 0.8, 0.55)
+	lamp.light_energy = 0.7
+	lamp.omni_range = 4.0
+	lamp.position = desk_c + Vector3(0, 2.0, 0)
+	add_child(lamp)
+
+
+# C3: the linen cupboard at the spur's end — two sides, a shelf, a slatted door hinged open
+# toward the spur, a mirror on the back wall (the end wall), and the Area3D that seals it.
+func _dress_cupboard_spur(entry: Dictionary, end_face: Vector3, back: Vector3) -> void:
+	var i: int = int(entry["index"])
+	var dir3: Vector3 = entry["dir"]
+	var lat3: Vector3 = entry["lat"]
+	var wood := _make_mat(TEX_DIR + "clock_walnut.png", Vector3(0.6, 0.6, 0.6), Color(0.13, 0.09, 0.05))
+	var cw := 1.1      # interior width
+	var cd := 0.8      # interior depth
+	var ch := 2.3
+	var yaw: float = atan2(back.x, back.z)      # local +z = toward the mouth (the door's face)
+	var root := Node3D.new()
+	root.name = "Spur%dCupboard" % i
+	root.position = end_face + back * (cd / 2.0)
+	root.rotation.y = yaw
+	add_child(root)
+	for part in [["CupSideL", Vector3(0.05, ch, cd), Vector3(-(cw / 2.0 + 0.025), ch / 2.0, 0)],
+			["CupSideR", Vector3(0.05, ch, cd), Vector3(cw / 2.0 + 0.025, ch / 2.0, 0)],
+			["CupTop", Vector3(cw + 0.1, 0.05, cd), Vector3(0, ch + 0.025, 0)],
+			["CupShelf", Vector3(cw, 0.03, cd * 0.5), Vector3(0, 1.95, -cd * 0.25)]]:
+		var b := CSGBox3D.new()
+		b.name = String(part[0])
+		b.size = part[1]
+		b.position = part[2]
+		b.use_collision = true
+		b.material = wood
+		root.add_child(b)
+	# the slatted door: a hinge at the left front edge, seven slats with gaps
+	var hinge := Node3D.new()
+	hinge.name = "CupHinge"
+	hinge.position = Vector3(-cw / 2.0, 0, cd / 2.0)
+	root.add_child(hinge)
+	for k in 7:
+		var slat := CSGBox3D.new()
+		slat.name = "CupSlat%d" % k
+		slat.size = Vector3(cw, 0.16, 0.03)
+		slat.position = Vector3(cw / 2.0, 0.3 + k * 0.3, 0)
+		slat.use_collision = false
+		slat.material = wood
+		hinge.add_child(slat)
+	var stile := CSGBox3D.new()
+	stile.name = "CupStile"
+	stile.size = Vector3(0.05, ch, 0.04)
+	stile.position = Vector3(cw - 0.025, ch / 2.0, 0)
+	stile.use_collision = false
+	stile.material = wood
+	hinge.add_child(stile)
+	# the shut door is solid: a body on the hinge, enabled only while shut (spur_cupboard.gd)
+	var body := StaticBody3D.new()
+	body.name = "CupDoorBody"
+	var bcol := CollisionShape3D.new()
+	var bsh := BoxShape3D.new()
+	bsh.size = Vector3(cw, ch, 0.06)
+	bcol.shape = bsh
+	bcol.position = Vector3(cw / 2.0, ch / 2.0, 0)
+	body.add_child(bcol)
+	hinge.add_child(body)
+	var open_deg := -105.0
+	hinge.rotation.y = deg_to_rad(open_deg)
+	# the mirror on the back wall (the end wall), inside
+	var mx := Transform3D(Basis(Vector3.UP, atan2(back.x, back.z)), end_face + Vector3(0, 1.45, 0))   # end_face is already WALL_INSET off the cap
+	var quad := _spawn_quad(mx, Vector2(0.7, 1.3), TEX_DIR + "mirror.png")
+	if quad:
+		quad.name = "Spur%dCupboardMirror" % i
+		MirrorSurface.attach(quad)
+		_spawn_frame_bars(mx, Vector2(0.7, 1.3), "MirrorFrame_Cup%d" % i, Color(0.085, 0.070, 0.042), 0.04, 0.06)
+		entry["mirror"] = quad
+	# the beat
+	var beat := SpurCupboard.new()
+	beat.name = "Spur%dCupboardBeat" % i
+	add_child(beat)
+	var mouth: Vector3 = entry["mouth"]
+	var L: float = float(entry["len"])
+	var walk_from: Vector3 = mouth + dir3 * 1.0 - lat3 * (W / 2.0 - 0.7)
+	var walk_to: Vector3 = end_face - dir3 * (cd + 1.2) + lat3 * (W / 2.0 - 0.7)
+	beat.setup(hinge, open_deg, walk_from, walk_to, MANAGER_FIGURE_PATH, 2.0)
+	beat.sealed.connect(func() -> void: bcol.disabled = false)
+	beat.released.connect(func(_r: String) -> void: bcol.disabled = true)
+	bcol.disabled = true
+	entry["cupboard"] = beat
+	# the Area3D inside: stepping in seals it
+	var area := Area3D.new()
+	area.name = "Spur%dCupboardArea" % i
+	var acol := CollisionShape3D.new()
+	var ash := BoxShape3D.new()
+	ash.size = Vector3(cw * 0.8, ch, cd * 0.6)
+	acol.shape = ash
+	acol.position = Vector3(0, ch / 2.0, -cd * 0.1)
+	area.add_child(acol)
+	root.add_child(area)
+	area.body_entered.connect(func(b: Node) -> void:
+		if b.is_in_group("player"):
+			beat.seal())
+
+
+# A readable page on a wall: `note.gd` body + a dark pad + the art quad sized from its own aspect.
+# The intro note's recipe (`_spawn_intro_note`) stood up.
+func _spawn_wall_page(name: String, xform: Transform3D, tex_path: String, width: float, text: String) -> StaticBody3D:
+	var note := StaticBody3D.new()
+	note.name = name
+	note.set_script(_NOTE_SCRIPT)
+	note.note_text = text
+	note.transform = xform
+	add_child(note)
+	var page_w := width
+	var page_h := width * 1.05
+	var has_art: bool = ResourceLoader.exists(tex_path)
+	if has_art:
+		var tex: Texture2D = load(tex_path)
+		page_h = page_w * float(tex.get_height()) / float(tex.get_width())
+	var pad := MeshInstance3D.new()
+	pad.name = "NotePad"
+	pad.mesh = BoxMesh.new()
+	(pad.mesh as BoxMesh).size = Vector3(page_w * 0.97, page_h * 0.97, 0.006)
+	var paper := StandardMaterial3D.new()
+	paper.albedo_color = Color(0.09, 0.08, 0.06)
+	paper.roughness = 0.95
+	pad.set_surface_override_material(0, paper)
+	note.add_child(pad)
+	if has_art:
+		var page := MeshInstance3D.new()
+		page.name = "NotePage"
+		var qm := QuadMesh.new()
+		qm.size = Vector2(page_w, page_h)
+		page.mesh = qm
+		page.position = Vector3(0, 0, 0.004)
+		var m := StandardMaterial3D.new()
+		m.albedo_texture = load(tex_path)
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.roughness = 0.9
+		page.set_surface_override_material(0, m)
+		note.add_child(page)
+	var col := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(page_w, page_h, 0.06)
+	col.shape = box
+	note.add_child(col)
+	return note
+
+
+# The shut-in. The door slams across the mouth, the spur's torch dies, something batters the
+# door from the corridor side for SPUR_SHUT_TIME (the SlamDoor's own batter clock, which also
+# refuses E while it runs), a scrape rides under it, and then the door gives (`door_break`).
+# Zero panic; one-shot per spur.
+func _on_spur_sprung(entry: Dictionary) -> void:
+	var door: SlamDoor = entry["door"]
+	if not is_instance_valid(door):
+		return
+	for h in door.get_children():
+		if h is Node3D and String(h.name).begins_with("Hinge"):
+			(h as Node3D).visible = true
+	door.call("_set_closed", true)
+	_play_at("door_slam", entry["mouth"] + Vector3(0, 1.2, 0), 3.0)
+	door.start_battering(null)
+	var torch: Torch3D = entry["torch"]
+	if is_instance_valid(torch):
+		torch.extinguish()
+	var s := GameState.load_audio("bone_scrape")
+	if s:
+		var pl := AudioStreamPlayer3D.new()
+		pl.name = "Spur%dScrape" % int(entry["index"])
+		pl.stream = s
+		pl.volume_db = 0.0
+		pl.unit_size = 8.0
+		pl.bus = AudioBuses.AMBIENCE
+		add_child(pl)
+		pl.position = entry["mouth"] + Vector3(0, 1.0, 0) - (entry["dir"] as Vector3) * 0.8
+		pl.finished.connect(pl.play)
+		pl.play()
+		entry["scrape"] = pl
+		door.broken_open.connect(func() -> void:
+			if is_instance_valid(pl):
+				pl.finished.disconnect(pl.play)
+				pl.stop()
+				pl.queue_free(), CONNECT_ONE_SHOT)
+	# The way out: mash Space (spur_escape.gd). Each bar is a beat; the third forces the door.
+	var esc := SpurEscape.new()
+	esc.name = "Spur%dEscape" % int(entry["index"])
+	add_child(esc)
+	esc.setup(door)
+	esc.begin()
+	entry["escape"] = esc
+	esc.bar_filled.connect(func(n: int) -> void: _on_spur_bar(entry, n))
+	esc.escaped.connect(func() -> void: _on_spur_escaped(entry))
+	door.broken_open.connect(func() -> void: _on_spur_open(entry), CONNECT_ONE_SHOT)
+	if String(entry["kind"]) == "mirror":
+		_spur_mirror_figure(entry)
+	if String(entry["kind"]) == "note":
+		_spur_light_strip(entry)
+	var dbg := get_node_or_null("/root/DebugLog")
+	if dbg and dbg.has_method("note"):
+		dbg.note("SHUT-IN spur %d (%s)" % [int(entry["index"]), String(entry["kind"])])
+
+
+# The mirror spur: something stands BEHIND the player, between them and the shut door, and it is
+# only in the glass — `MIRROR_ONLY_LAYER`, the turn mirrors' idiom. Freed when the door gives.
+func _spur_mirror_figure(entry: Dictionary) -> void:
+	var p := _player_node()
+	if p == null:
+		return
+	var dir3: Vector3 = entry["dir"]
+	var mouth: Vector3 = entry["mouth"]
+	var here: Vector3 = p.global_position
+	# 1.8 m back toward the mouth, never past the door.
+	var back_d: float = minf(1.8, (here - mouth).dot(dir3) - 1.0)
+	var pos: Vector3 = here - dir3 * back_d
+	pos.y = 0.0
+	var w := Watcher.spawn(self, pos, TURN_MIRROR_FIGURE_PATH, 0.0, false, MIRROR_FIGURE_HEIGHT)
+	if w == null:
+		push_warning("corridor: no clear spot for the spur mirror figure")
+		return
+	w.persistent = true
+	w.name = "Spur%dFigure" % int(entry["index"])
+	_set_mirror_only(w)
+	entry["figure"] = w
+
+
+func _on_spur_bar(entry: Dictionary, n: int) -> void:
+	match String(entry["kind"]):
+		"note":
+			if n == 2:
+				_spur_shadow_cross(entry)
+		"plea":
+			var pl := entry["plea"] as AudioStreamPlayer3D
+			if is_instance_valid(pl):
+				pl.volume_db += SPUR_PLEA_STEP_DB
+				pl.max_db = maxf(pl.max_db, PLEA_DB + SPUR_PLEA_STEP_DB * n)
+		_:
+			pass
+
+
+# The note spur's shut-in: with its torch dead, the only light left is the corridor's, leaking
+# under the shut door as a thin warm strip (an unshaded quad at the threshold, facing into the
+# spur). It exists so that a shadow can cross it. Freed when the door gives.
+func _spur_light_strip(entry: Dictionary) -> void:
+	var mouth: Vector3 = entry["mouth"]
+	var dir3: Vector3 = entry["dir"]
+	var strip := MeshInstance3D.new()
+	strip.name = "Spur%dLightStrip" % int(entry["index"])
+	var qm := QuadMesh.new()
+	qm.size = Vector2(W - 0.1, 0.12)
+	strip.mesh = qm
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = Color(0.95, 0.80, 0.55)
+	m.emission_enabled = true
+	m.emission = Color(0.95, 0.80, 0.55)
+	m.emission_energy_multiplier = 1.0
+	strip.set_surface_override_material(0, m)
+	strip.transform = Transform3D(Basis(Vector3.UP, atan2(dir3.x, dir3.z)), mouth + dir3 * (T / 2.0 + 0.03) + Vector3(0, 0.07, 0))
+	add_child(strip)
+	entry["strip"] = strip
+	var door: Node = entry["door"]
+	door.broken_open.connect(func() -> void:
+		if is_instance_valid(strip):
+			strip.queue_free(), CONNECT_ONE_SHOT)
+
+
+# A shadow crosses the strip of light under the door: a black quad standing just in front of the
+# strip, tweened across the width in 1.2 s, then freed. No sound — the scrape is already there.
+func _spur_shadow_cross(entry: Dictionary) -> void:
+	var mouth: Vector3 = entry["mouth"]
+	var dir3: Vector3 = entry["dir"]
+	var lat3: Vector3 = entry["lat"]
+	var sh := MeshInstance3D.new()
+	sh.name = "Spur%dShadow" % int(entry["index"])
+	var qm := QuadMesh.new()
+	qm.size = Vector2(0.7, 0.26)
+	sh.mesh = qm
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = Color(0.0, 0.0, 0.0, 1.0)
+	sh.set_surface_override_material(0, m)
+	var basis := Basis(Vector3.UP, atan2(dir3.x, dir3.z))
+	var y := 0.08
+	var from := mouth + dir3 * (T / 2.0 + 0.06) + lat3 * (W / 2.0 + 0.4) + Vector3(0, y, 0)
+	var to := mouth + dir3 * (T / 2.0 + 0.06) - lat3 * (W / 2.0 + 0.4) + Vector3(0, y, 0)
+	sh.transform = Transform3D(basis, from)
+	add_child(sh)
+	var tw := create_tween()
+	tw.tween_property(sh, "position", to, 1.4).set_trans(Tween.TRANS_SINE)
+	tw.finished.connect(sh.queue_free)
+	HoldBreath.dip(get_tree(), 0.6)
+
+
+# The third bar forced the door.
+func _on_spur_escaped(entry: Dictionary) -> void:
+	if String(entry["kind"]) == "plea":
+		var pl := entry["plea"] as AudioStreamPlayer3D
+		if is_instance_valid(pl):
+			if pl.finished.is_connected(pl.play):
+				pl.finished.disconnect(pl.play)
+			pl.stop()   # mid-word
+		var hp := entry["handprint"] as Node3D
+		if is_instance_valid(hp):
+			hp.visible = true
+
+
+# The door is open again (forced or the fallback clock): the spur's shut-in dressing goes.
+func _on_spur_open(entry: Dictionary) -> void:
+	var fig := entry["figure"] as Node
+	if is_instance_valid(fig):
+		fig.queue_free()
+		entry["figure"] = null
+	var esc := entry["escape"] as SpurEscape
+	if is_instance_valid(esc):
+		esc.finish()
+
+
+func _player_node() -> CharacterBody3D:
+	return get_tree().get_first_node_in_group("player") as CharacterBody3D
+
+
+# C5: the figure in the seventh door's gap. Spawned as the player comes within reach (so the
+# Watcher's ray probes run with physics live), freed the moment they are past; the door shuts.
+func _tick_break_door() -> void:
+	if _break_done or _break_door == null or _player == null:
+		return
+	var d: float = _nearest_path_distance(_player.global_position)
+	if not _break_spawned and d > BREAK_DOOR_AT - 12.0 and d < BREAK_DOOR_AT - 1.0:
+		_break_spawned = true
+		var pt := _path_point(BREAK_DOOR_AT)
+		var into: Vector3 = (pt.side as Vector3) * BREAK_DOOR_SIDE
+		var spot: Vector3 = pt.pos + into * (W / 2.0 - 0.3) + (pt.dir as Vector3) * 0.25
+		spot.y = 0.0
+		# A DoorLunger billboard, not a Watcher: it stands IN the doorway's gap, 0.3 m off the
+		# wall plane, and Watcher.spawn()'s 0.9 m clearance fan refuses that by construction.
+		# Same contract — no collider, no rules, no panic.
+		var w := DoorLunger.build(self, spot, TURN_MIRROR_FIGURE_PATH, 1.85)
+		w.name = "BreakDoorFigure"
+		w.appear(0.01)
+		_break_figure = w
+		if _break_door.has_method("swing_ajar"):
+			_break_door.call("swing_ajar", BREAK_DOOR_DEG, 0.01)   # already ajar when you first see it
+	elif _break_spawned and d > BREAK_DOOR_AT + 3.0:
+		_break_done = true
+		if is_instance_valid(_break_figure):
+			_break_figure.queue_free()
+		_break_figure = null
+		if is_instance_valid(_break_door) and _break_door.has_method("slam"):
+			_break_door.call("slam")
+
+
+func spurs() -> Array:
+	return _spurs
+
+
+func forks() -> Array:
+	return _forks
+
+
+func corner_branches() -> Array:
+	return _branches
+
+
+# Where a corner branch's mouth is: the OUTGOING segment's wall that faces the incoming leg's
+# heading. Returns {seg, at, side}: `at` is the corner distance nudged 1 mm onto the outgoing leg
+# (so the incoming leg's `at_local > len` guard skips it — a corner distance belongs to both
+# segments) and `side` is the outgoing segment's side whose normal points along the incoming
+# heading.
+func _corner_branch_mouth(corner_d: float) -> Dictionary:
+	for i in range(_segments.size()):
+		var seg: Dictionary = _segments[i]
+		if absf(float(seg["start_d"]) - corner_d) < 0.01 and i > 0:
+			var d_in: Vector2 = _segments[i - 1]["dir"]
+			var n: Vector2 = Vector2(seg.dir.y, -seg.dir.x)
+			var side: float = 1.0 if n.dot(d_in) > 0.0 else -1.0
+			return { "seg": i, "at": corner_d + 0.001, "side": side }
+	return { "seg": -1, "at": corner_d, "side": 1.0 }
+
+
+func _build_corner_branches() -> void:
+	var branch_floor := _make_mat(TEX_DIR + "floor_crack.png", Vector3(0.6, 0.6, 0.6), Color(0.09, 0.08, 0.07))
+	for i in range(CORNER_BRANCHES.size()):
+		var cb: Dictionary = CORNER_BRANCHES[i]
+		var corner_d: float = float(cb["corner"])
+		var L: float = float(cb["len"])
+		var cm := _corner_branch_mouth(corner_d)
+		if int(cm["seg"]) < 0:
+			push_warning("corridor: corner branch %d has no corner at d=%.0f" % [i, corner_d])
+			continue
+		var d_in2: Vector2 = _segments[int(cm["seg"]) - 1]["dir"]
+		var corner2: Vector2 = _segments[int(cm["seg"])]["p0"]
+		var p0: Vector2 = corner2 + d_in2 * (W / 2.0)          # the facing wall's inner face
+		var seg := { "p0": p0, "dir": d_in2, "len": L, "start_d": 0.0 }
+		var kind := String(cb["kind"])
+		var room_len: float = L if kind != "blind" else L - BLIND_ROOM_SIZE
+		_corridor_box("Branch%dFloor" % i, seg, T, room_len, 0.0, W + 2.0 * T, -T / 2.0, T, branch_floor)
+		_corridor_box("Branch%dCeil" % i, seg, T, room_len, 0.0, W + 2.0 * T, H + T / 2.0, T, _ceil_mat)
+		for s2 in [1.0, -1.0]:
+			_corridor_box("Branch%dWall%s" % [i, "A" if s2 > 0 else "B"], seg, T, room_len, s2 * (W + T) / 2.0, T, H / 2.0, H + 2.0 * T, _wall_mat)
+		var dir3 := Vector3(d_in2.x, 0, d_in2.y)
+		var lat3 := Vector3(dir3.z, 0, -dir3.x)
+		var mouth := Vector3(p0.x, 0, p0.y)
+		var entry := { "index": i, "corner": corner_d, "kind": kind, "mouth": mouth, "dir": dir3, "lat": lat3, "len": L,
+			"end": mouth + dir3 * room_len, "room": null, "loops": 0 }
+		_branches.append(entry)
+		# the trail: wet footprints on the incoming leg, then INTO the branch
+		_spawn_footprint_trail(corner_d, dir3, lat3, mouth)
+		if kind == "loop":
+			_corridor_box("Branch%dEndCap" % i, seg, room_len, room_len + T, 0.0, W + 2.0 * T, H / 2.0, H + 2.0 * T, _wall_mat)
+			var lb := DeadEndTrap.new()
+			lb.name = "Branch%dLoopBack" % i
+			var col := CollisionShape3D.new()
+			var sh := BoxShape3D.new()
+			sh.size = Vector3(W, H, 1.6) if absf(dir3.z) > 0.5 else Vector3(1.6, H, W)
+			col.shape = sh
+			lb.add_child(col)
+			lb.position = mouth + dir3 * (room_len - 1.2) + Vector3(0, H / 2.0, 0)
+			add_child(lb)
+			lb.sprung.connect(_on_branch_loop_back.bind(entry))
+		else:
+			_build_blind_room(entry, seg, room_len, branch_floor)
+
+
+# The wet trail: alternating left/right prints along the hall's last TRAIL_BEFORE metres, then
+# on into the branch. Floor decals, no collider, no panic — just something you can read.
+func _spawn_footprint_trail(corner_d: float, dir3: Vector3, lat3: Vector3, mouth: Vector3) -> void:
+	var tex := TEX_DIR + "wet_footprint.png"
+	if not ResourceLoader.exists(tex):
+		return
+	var k := 0
+	var d := corner_d - TRAIL_BEFORE
+	while d < corner_d - 0.4:
+		var pt := _path_point(d)
+		var pos: Vector3 = pt.pos + lat3 * (0.18 if k % 2 == 0 else -0.18) + Vector3(0, FLOOR_DECAL_Y + 0.004, 0)
+		_spawn_footprint(pos, dir3, k)
+		d += TRAIL_STEP
+		k += 1
+	var into := T + 0.4
+	while into < TRAIL_INTO:
+		var pos2: Vector3 = mouth + dir3 * into + lat3 * (0.18 if k % 2 == 0 else -0.18) + Vector3(0, FLOOR_DECAL_Y + 0.004, 0)
+		_spawn_footprint(pos2, dir3, k)
+		into += TRAIL_STEP
+		k += 1
+
+
+func _spawn_footprint(pos: Vector3, dir3: Vector3, k: int) -> void:
+	var q := MeshInstance3D.new()
+	q.name = "Footprint%d_%d" % [int(pos.x * 10), k]
+	var qm := QuadMesh.new()
+	qm.size = Vector2(0.2, 0.42)
+	q.mesh = qm
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = load(TEX_DIR + "wet_footprint.png")
+	m.emission_enabled = true
+	m.emission = Color(0.25, 0.28, 0.32)
+	m.emission_energy_multiplier = 0.12   # a sheen, not a lamp: the trail must be read, not announced
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.roughness = 0.2
+	m.metallic_specular = 0.9
+	q.set_surface_override_material(0, m)
+	var yaw := atan2(dir3.x, dir3.z)
+	q.transform = Transform3D(Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, -PI / 2.0) * Basis(Vector3.BACK, 0.0 if k % 2 == 0 else PI), pos)
+	q.scale = Vector3(1.0 if k % 2 == 0 else -1.0, 1.0, 1.0)
+	add_child(q)
+
+
+# The loop-back: the branch's end puts you at the PREVIOUS corner, facing the way you were
+# walking, with a slam behind you. Repeatable; each time the trail is a little louder (a second
+# slam), never a panic term.
+func _on_branch_loop_back(entry: Dictionary) -> void:
+	var p := _player_node()
+	if p == null:
+		return
+	entry["loops"] = int(entry["loops"]) + 1
+	# the previous corner along the path (corners are the segments' start_d values)
+	var prev_d: float = 0.0
+	for sg in _segments:
+		var sd: float = float(sg["start_d"])
+		if sd < float(entry["corner"]) - 1.0 and sd > prev_d:
+			prev_d = sd
+	var pt := _path_point(prev_d + 1.5)
+	p.velocity = Vector3.ZERO
+	p.global_position = (pt.pos as Vector3) + Vector3(0, 0.1, 0)
+	if p.has_method("turn_to_face"):
+		p.call("turn_to_face", (pt.pos as Vector3) + (pt.dir as Vector3) * 8.0 + Vector3(0, 1.6, 0), 0.01)
+	HoldBreath.dip(get_tree(), 0.6)
+	_play_at("door_slam", (pt.pos as Vector3) - (pt.dir as Vector3) * 2.0 + Vector3(0, 1.2, 0), 3.0)
+	if int(entry["loops"]) >= 2:
+		_play_at("door_slam", (pt.pos as Vector3) - (pt.dir as Vector3) * 6.0 + Vector3(0, 1.2, 0), 1.0)
+	# re-arm the trap for the next time
+	var lb := get_node_or_null("Branch%dLoopBack" % int(entry["index"]))
+	if lb:
+		lb.set("_sprung", false)
+	var dbg := get_node_or_null("/root/DebugLog")
+	if dbg and dbg.has_method("note"):
+		dbg.note("CORNER BRANCH %d: looped back to the previous corner (x%d)" % [int(entry["index"]), int(entry["loops"])])
+
+
+# The blind room at the end of the 365 branch: a BLIND_ROOM_SIZE square, the branch's wall
+# materials (wood at the sides of the entry, stone at the far wall, metal on the lever wall so
+# they KNOCK differently), a portcullis at its mouth, the map on the wall behind the entry,
+# the lever in the far-left corner.
+func _build_blind_room(entry: Dictionary, seg: Dictionary, room_len: float, floor_mat: Material) -> void:
+	var i: int = int(entry["index"])
+	var dir3: Vector3 = entry["dir"]
+	var lat3: Vector3 = entry["lat"]
+	var R := BLIND_ROOM_SIZE
+	var a0 := room_len              # the room spans a0 .. a0 + R along the branch
+	_corridor_box("Blind%dFloor" % i, seg, a0, a0 + R, 0.0, R + 2.0 * T, -T / 2.0, T, floor_mat)
+	_corridor_box("Blind%dCeil" % i, seg, a0, a0 + R, 0.0, R + 2.0 * T, H + T / 2.0, T, _ceil_mat)
+	# side walls (wood), far wall (stone), the entry wall either side of the mouth (metal)
+	_corridor_box("Blind%dWallWood" % i, seg, a0, a0 + R, (R + T) / 2.0, T, H / 2.0, H + 2.0 * T, _wall_mat)
+	_corridor_box("Blind%dWallWood2" % i, seg, a0, a0 + R, -(R + T) / 2.0, T, H / 2.0, H + 2.0 * T, _wall_mat)
+	_corridor_box("Blind%dWallStone" % i, seg, a0 + R, a0 + R + T, 0.0, R + 2.0 * T, H / 2.0, H + 2.0 * T, _wall_mat)
+	for s2 in [1.0, -1.0]:
+		_corridor_box("Blind%dWallMetal%s" % [i, "A" if s2 > 0 else "B"], seg, a0 - T, a0, s2 * (W / 2.0 + T + (R - W) / 4.0), (R - W) / 2.0, H / 2.0, H + 2.0 * T, _wall_mat)
+	var mouth: Vector3 = entry["mouth"]
+	var room_mouth: Vector3 = mouth + dir3 * a0
+	var centre: Vector3 = mouth + dir3 * (a0 + R / 2.0)
+	# the portcullis: a slab across the room's mouth, hidden + non-solid until sealed
+	var gate := Node3D.new()
+	gate.name = "Blind%dGate" % i
+	add_child(gate)
+	var slab := CSGBox3D.new()
+	slab.name = "Slab"
+	slab.size = Vector3(W, H, 0.12) if absf(dir3.z) > 0.5 else Vector3(0.12, H, W)
+	slab.position = room_mouth - dir3 * 0.2 + Vector3(0, H / 2.0, 0)
+	slab.material = _make_mat("", Vector3.ONE, Color(0.06, 0.05, 0.05))
+	gate.add_child(slab)
+	# the map, on the entry wall INSIDE the room, beside the mouth (behind you as you walk in)
+	var mx := Transform3D(Basis(Vector3.UP, atan2(dir3.x, dir3.z)), room_mouth + dir3 * 0.03 + lat3 * ((W / 2.0 + R / 2.0) / 2.0) + Vector3(0, 1.5, 0))
+	var map_quad := _spawn_quad(mx, Vector2(1.0, 1.0), TEX_DIR + "blind_map.png")
+	if map_quad:
+		map_quad.name = "Blind%dMap" % i
+		var mm := map_quad.get_surface_override_material(0) as StandardMaterial3D
+		mm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var map_light := OmniLight3D.new()
+	map_light.name = "Blind%dMapLight" % i
+	map_light.light_energy = 2.5
+	map_light.omni_range = 5.0
+	map_light.light_color = Color(0.85, 0.9, 1.0)
+	map_light.position = centre + Vector3(0, 2.4, 0)
+	add_child(map_light)
+	# the lever, far-left corner (left = -lat3 for someone walking in)
+	var lever := StaticBody3D.new()
+	lever.name = "Blind%dLever" % i
+	lever.set_script(_BLIND_LEVER_SCRIPT)
+	lever.position = mouth + dir3 * (a0 + R - 0.4) - lat3 * (R / 2.0 - 0.5) + Vector3(0, 1.1, 0)
+	add_child(lever)
+	var lm := _make_mat("", Vector3.ONE, Color(0.35, 0.3, 0.2))
+	var plate := CSGBox3D.new()
+	plate.size = Vector3(0.24, 0.5, 0.06)
+	plate.material = lm
+	plate.use_collision = false
+	lever.add_child(plate)
+	var arm := CSGBox3D.new()
+	arm.size = Vector3(0.05, 0.4, 0.05)
+	arm.position = Vector3(0, 0.05, -0.15)
+	arm.rotation.x = 0.5
+	arm.material = _make_mat("", Vector3.ONE, Color(0.5, 0.1, 0.08))
+	arm.use_collision = false
+	lever.add_child(arm)
+	var lcol := CollisionShape3D.new()
+	var lsh := BoxShape3D.new()
+	lsh.size = Vector3(0.5, 0.7, 0.5)
+	lcol.shape = lsh
+	lever.add_child(lcol)
+	# the room
+	var room := BlindRoom.new()
+	room.name = "Blind%dRoom" % i
+	add_child(room)
+	room.position = centre
+	room.setup(gate, map_quad, map_light, lever, {
+		"Blind%dWallWood" % i: "wood", "Blind%dWallWood2" % i: "wood", "Blind%dWallStone" % i: "stone",
+		"Blind%dWallMetalA" % i: "metal", "Blind%dWallMetalB" % i: "metal", "Slab": "metal"})
+	lever.set("room", room)
+	entry["room"] = room
+	# stepping past the mouth seals it
+	var area := Area3D.new()
+	area.name = "Blind%dEnter" % i
+	var acol := CollisionShape3D.new()
+	var ash := BoxShape3D.new()
+	ash.size = Vector3(W, H, 1.2) if absf(dir3.z) > 0.5 else Vector3(1.2, H, W)
+	acol.shape = ash
+	area.add_child(acol)
+	area.position = room_mouth + dir3 * 1.2 + Vector3(0, H / 2.0, 0)
+	add_child(area)
+	area.body_entered.connect(func(b: Node) -> void:
+		if b.is_in_group("player"):
+			room.seal())
+
+
+# The loop is three legs of boxes on synthetic segments, every box ABUTTING its neighbour (never
+# overlapping — coincident faces are this project's oldest bug class, check_wall_overlap):
+#   A  out from the hall (mouth at `at`) to the far corner
+#   B  across, parallel to the hall, between the two far corners (its floor owns both corners)
+#   C  back to the hall (mouth at `at + across`), through the door
+func _build_forks() -> void:
+	var branch_floor := _make_mat(TEX_DIR + "floor_crack.png", Vector3(0.6, 0.6, 0.6), Color(0.09, 0.08, 0.07))
+	for i in range(FORKS.size()):
+		var fk: Dictionary = FORKS[i]
+		var at: float = float(fk["at"])
+		var s: float = float(fk["side"])
+		var LA: float = float(fk["out"])
+		var LB: float = float(fk["across"])
+		var pt := _path_point(at)
+		var d2 := Vector2(pt.dir.x, pt.dir.z)
+		var n2 := Vector2(pt.side.x, pt.side.z) * s
+		var p0: Vector2 = Vector2(pt.pos.x, pt.pos.z) + n2 * (W / 2.0)     # A's mouth, at the wall face
+		var segA := { "p0": p0, "dir": n2, "len": LA, "start_d": 0.0 }
+		var pB0: Vector2 = p0 + n2 * LA                                    # B's centreline = the corner squares' centres
+		var segB := { "p0": pB0, "dir": d2, "len": LB, "start_d": 0.0 }
+		var pC0: Vector2 = pB0 + d2 * LB                                    # C starts at its corner, runs back to the hall
+		var segC := { "p0": pC0, "dir": -n2, "len": LA, "start_d": 0.0 }
+		var far_a: float = LA - W / 2.0 - T                                 # A stops where B's floor begins
+		var hh: float = H / 2.0
+		var wall_h: float = H + 2.0 * T
+		# A
+		_corridor_box("Fork%dAFloor" % i, segA, T, far_a, 0.0, W + 2.0 * T, -T / 2.0, T, branch_floor)
+		_corridor_box("Fork%dACeil" % i, segA, T, far_a, 0.0, W + 2.0 * T, H + T / 2.0, T, _ceil_mat)
+		_corridor_box("Fork%dAFar" % i, segA, T, far_a + T + W, s * (W + T) / 2.0, T, hh, wall_h, _wall_mat)   # the wall away from B, to B's outer wall
+		_corridor_box("Fork%dANear" % i, segA, T, far_a, -s * (W + T) / 2.0, T, hh, wall_h, _wall_mat)        # the wall toward B, open at the corner
+		# B (its floor covers both corners)
+		_corridor_box("Fork%dBFloor" % i, segB, -W / 2.0 - T, LB + W / 2.0 + T, 0.0, W + 2.0 * T, -T / 2.0, T, branch_floor)
+		_corridor_box("Fork%dBCeil" % i, segB, -W / 2.0 - T, LB + W / 2.0 + T, 0.0, W + 2.0 * T, H + T / 2.0, T, _ceil_mat)
+		# B's lateral: n_B = (d2.y, -d2.x) = pt.side = s * n2 -> lateral +s is OUTWARD (away from the hall)
+		_corridor_box("Fork%dBOuter" % i, segB, -W / 2.0 - T, LB + W / 2.0 + T, s * (W + T) / 2.0, T, hh, wall_h, _wall_mat)
+		_corridor_box("Fork%dBInner" % i, segB, W / 2.0 + T, LB - W / 2.0 - T, -s * (W + T) / 2.0, T, hh, wall_h, _wall_mat)
+		# C (mirrors A; its lateral +s is also the side away from B)
+		# ⚠️ C runs from the CORNER CENTRE to the hall's wall face (LA away), so its boxes end at
+		# LA - T — one wall thickness short of the face, like the spurs' start at T. The first build
+		# ended them at LA - W/2 - T (A's arithmetic, where p0 IS the face) and left a 1.5 m hole in
+		# the floor inside the door; the walker fell through it (probe_forks.gd found it).
+		_corridor_box("Fork%dCFloor" % i, segC, W / 2.0 + T, LA - T, 0.0, W + 2.0 * T, -T / 2.0, T, branch_floor)
+		_corridor_box("Fork%dCCeil" % i, segC, W / 2.0 + T, LA - T, 0.0, W + 2.0 * T, H + T / 2.0, T, _ceil_mat)
+		_corridor_box("Fork%dCFar" % i, segC, -W / 2.0, LA - T, s * (W + T) / 2.0, T, hh, wall_h, _wall_mat)
+		_corridor_box("Fork%dCNear" % i, segC, W / 2.0 + T, LA - T, -s * (W + T) / 2.0, T, hh, wall_h, _wall_mat)
+
+		var dir3 := Vector3(n2.x, 0, n2.y)
+		var fwd3 := Vector3(d2.x, 0, d2.y)
+		var mouthA := Vector3(p0.x, 0, p0.y)
+		var mouthC := Vector3(p0.x, 0, p0.y) + fwd3 * LB
+		# The tell: a DEAD torch on A's jamb.
+		var dead := Torch3D.new()
+		dead.name = "Fork%dDeadTorch" % i
+		dead.position = mouthA + dir3 * 0.6 + fwd3 * (-(W / 2.0) + 0.12) + Vector3(0, 1.9, 0)
+		dead.rotation.y = atan2(fwd3.x, fwd3.z)
+		add_child(dead)
+		dead.extinguish()
+		# The door at C's mouth: shut until the far corner is reached, then it opens onto the hall.
+		var door := SlamDoor.new()
+		door.name = "Fork%dDoor" % i
+		door.door_width = W
+		door.door_height = H
+		door.door_texture = TEX_DIR + "hotel_door_leaf.png"
+		door.batter_time = 9999.0
+		door.player_operable = false   # C6: the far corner opens it; no "Press E" from the hall
+		door.position = mouthC + dir3 * (T / 2.0)
+		door.rotation.y = atan2(-fwd3.z, fwd3.x) + PI
+		add_child(door)
+		# The hidden note, on B's outer wall, halfway along.
+		var note_pos: Vector3 = Vector3(pB0.x, 0, pB0.y) + fwd3 * (LB / 2.0) + dir3 * (W / 2.0 - WALL_INSET) + Vector3(0, 1.45, 0)
+		var back3 := -dir3
+		var nx := Transform3D(Basis(Vector3.UP, atan2(back3.x, back3.z)), note_pos)
+		var note := _spawn_wall_page("Fork%dNote" % i, nx, TEX_DIR + "fork_note.png", 0.6, FORK_NOTE_TEXT)
+		# Triggers: A's mouth (the scare) and B's far corner (the door opens).
+		var entry := { "index": i, "door": door, "mouthA": mouthA, "mouthC": mouthC, "cornerA": Vector3(pB0.x, 0, pB0.y),
+			"cornerC": Vector3(pC0.x, 0, pC0.y), "dir": dir3, "fwd": fwd3, "note": note, "scared": false, "opened": false, "figure": null }
+		_forks.append(entry)
+		var tA := DeadEndTrap.new()
+		tA.name = "Fork%dEnter" % i
+		var cA := CollisionShape3D.new()
+		var shA := BoxShape3D.new()
+		shA.size = Vector3(W, H, 1.6) if absf(dir3.z) > 0.5 else Vector3(1.6, H, W)
+		cA.shape = shA
+		tA.add_child(cA)
+		tA.position = mouthA + dir3 * 1.6 + Vector3(0, H / 2.0, 0)
+		add_child(tA)
+		tA.sprung.connect(_on_fork_entered.bind(entry))
+		var tC := DeadEndTrap.new()
+		tC.name = "Fork%dCorner" % i
+		var cC := CollisionShape3D.new()
+		var shC := BoxShape3D.new()
+		shC.size = Vector3(W, H, W)
+		cC.shape = shC
+		tC.add_child(cC)
+		tC.position = Vector3(pC0.x, H / 2.0, pC0.y)
+		add_child(tC)
+		tC.sprung.connect(_on_fork_corner.bind(entry))
+	# Doors start SHUT (after the level is built, so the collider is live).
+	for e in _forks:
+		(e["door"] as SlamDoor).call("_set_closed", true)
+
+
+# Into the wrong branch: something stands at the far corner, and is gone as you approach.
+func _on_fork_entered(entry: Dictionary) -> void:
+	if entry["scared"]:
+		return
+	entry["scared"] = true
+	var spot: Vector3 = entry["cornerC"]
+	var w := Watcher.spawn(self, spot, TEX_DIR + "corridor_mirror_figure.png", 6.0, false, MIRROR_FIGURE_HEIGHT)
+	if w:
+		w.name = "Fork%dFigure" % int(entry["index"])
+		entry["figure"] = w
+	HoldBreath.dip(get_tree(), 0.8)
+	var dbg := get_node_or_null("/root/DebugLog")
+	if dbg and dbg.has_method("note"):
+		dbg.note("FORK %d entered (wrong branch)" % int(entry["index"]))
+
+
+# The far corner: the door back onto the hall opens by itself.
+func _on_fork_corner(entry: Dictionary) -> void:
+	if entry["opened"]:
+		return
+	entry["opened"] = true
+	var door: SlamDoor = entry["door"]
+	if is_instance_valid(door):
+		door.call("_set_closed", false)
+		_play_at("creak", entry["mouthC"] + Vector3(0, 1.2, 0), 0.0)
 
 
 # Axis-aligned CSG box spanning [a, b] along the segment direction,
@@ -1000,6 +2045,16 @@ func _spawn_grandfather_clock() -> void:
 		d.name = "AjarDoor_%d" % int(dd[0])
 		_ajar_doors.append({ "node": d, "dist": float(dd[0]), "opened": false })
 		_spawn_door_frame(dd[0], dd[1], AjarDoor.WIDTH, AjarDoor.HEIGHT, "AjarFrame_%d" % int(dd[0]))
+	# ⭐ C5 (2026-09-14): THE RHYTHM BREAK. Six doors that swing ajar the same way teach a rhythm;
+	# the SEVENTH, at BREAK_DOOR_AT, is already ajar when you arrive and something stands in its
+	# gap — a Watcher just inside the leaf's plane, visible only from the far side of the hall
+	# (the leaf hides it from the near side), and gone once you are past. Zero panic.
+	var bx := _panel_transform(BREAK_DOOR_AT, BREAK_DOOR_SIDE, 0.0, WALL_INSET) \
+		.translated_local(Vector3(-AjarDoor.WIDTH / 2.0, 0.0, 0.0))
+	var bd := AjarDoor.build(self, bx, TEX_DIR + "hotel_door_leaf.png")
+	bd.name = "AjarDoor_break"
+	_spawn_door_frame(BREAK_DOOR_AT, BREAK_DOOR_SIDE, AjarDoor.WIDTH, AjarDoor.HEIGHT, "AjarFrame_break")
+	_break_door = bd   # swung ajar as the player approaches (see _tick_break_door)
 
 
 # Transform flush against the wall at `dist` on `side`, quad facing inward.
@@ -1514,6 +2569,8 @@ func _spawn_zone_boxes(zone_range: Vector2, make_zone: Callable) -> void:
 
 const _DOOR_SCRIPT := preload("res://scripts/door.gd")
 const _NOTE_SCRIPT := preload("res://scripts/note.gd")
+const _BELL_PROP_SCRIPT := preload("res://scripts/bell_prop.gd")
+const _BLIND_LEVER_SCRIPT := preload("res://scripts/blind_lever.gd")
 
 
 func _spawn_doors() -> void:
@@ -2026,8 +3083,8 @@ func _spawn_events() -> void:
 	# figure crossed 23.5 m away and rendered 4.9 % of the screen's height in a near-black
 	# corridor, which the player photographed and called "too far away from me".
 	_spawn_event(SILHOUETTE_TRIGGER, _ev_silhouette)
-	_spawn_event(235.0, _ev_whisper_loop)
-	_spawn_event(250.0, _ev_floor_crack)
+	_spawn_event(395.0, _ev_whisper_loop)   # C1: at the dread zone's mouth (was 235)
+	_spawn_event(372.0, _ev_floor_crack)    # C1: was 250
 
 	# ⚠️ The Manager no longer gets a `_spawn_event` of its own. It used to drop at
 	# randf_range(80, 180) and fire COLD — a hard cut to a fullscreen image, which is F1's
@@ -2247,15 +3304,61 @@ func _play_on(host: Node, base_name: String, pos: Vector3, volume_db: float = 0.
 	p.play()
 
 
+# ⭐ C1 (2026-09-13): THE MANAGER IS IN THE WORLD. It used to be a fullscreen `flash_scare`
+# (`screamer_manager.png`); the user asked for "a manager 3d appearing on one of your turns (not
+# next to the mirror)". Now a `DoorLunger` wearing the generated full-length figure
+# (`manager_figure.png`, keyed by tools/cutout_black.py) stands MANAGER_AHEAD metres down the
+# corridor as the telegraph pays off, lunges to arm's length with the same `screamer_manager`
+# sting, then flees back the way the player came. MANAGER_PANIC 25 unchanged. Survivable.
+const MANAGER_FIGURE_PATH := TEX_DIR + "manager_figure.png"
+const MANAGER_AHEAD := 6.0
+const MANAGER_LUNGE_TIME := 0.32
+const MANAGER_LUNGE_REACH := 0.6
+const MANAGER_HOLD := 0.3
+const MANAGER_FLEE_BACK := 14.0
+var _manager_fig: DoorLunger = null
+
 func _ev_manager() -> void:
-	# Survivable: a flash, a scream, a panic spike — only fatal if you were
-	# already near the edge. Guarded so it never double-fires.
+	# Survivable: a figure, a scream, a panic spike — only fatal if you were already near the
+	# edge. Guarded so it never double-fires.
 	if _manager_fired:
 		return
 	_manager_fired = true
-	Screamer.flash_scare(MANAGER_SCARE_PATH, "screamer_manager", 0.85)
-	_player.jolt_camera(0.09, 0.6)
-	_player.add_panic(MANAGER_PANIC)
+	var d_now: float = _nearest_path_distance(_player.global_position)
+	var pt := _path_point(d_now + MANAGER_AHEAD)
+	var fig := DoorLunger.build(self, pt.pos, MANAGER_FIGURE_PATH, 2.0)
+	fig.name = "ManagerFigure"
+	_manager_fig = fig
+	HoldBreath.dip(get_tree(), 0.6)
+	var cam := _player.get_node_or_null("Camera3D") as Camera3D
+	var eye: Vector3 = cam.global_position if cam else _player.global_position + Vector3(0, 1.6, 0)
+	var to_player := Vector3(eye.x - pt.pos.x, 0.0, eye.z - pt.pos.z).normalized()
+	var feet := Vector3(eye.x, 0.0, eye.z) - to_player * MANAGER_LUNGE_REACH
+	# The eye is brought onto it: this is a beat the player is meant to SEE (Issue 113's rule).
+	_player.velocity.x = 0.0
+	_player.velocity.z = 0.0
+	_player.freeze_input()
+	_player.turn_to_face(pt.pos + Vector3(0, 1.1, 0), 0.25)
+	fig.lunged.connect(func() -> void:
+		var s := GameState.load_audio("screamer_manager")
+		if s:
+			var a := AudioStreamPlayer.new()
+			a.stream = s
+			a.bus = "Master"
+			add_child(a)
+			a.finished.connect(a.queue_free)
+			a.play()
+		_player.jolt_camera(0.12, 0.6)
+		_player.add_panic(MANAGER_PANIC)
+		get_tree().create_timer(MANAGER_HOLD, false).timeout.connect(func() -> void:
+			if is_instance_valid(fig):
+				var back := _path_point(maxf(0.0, d_now - MANAGER_FLEE_BACK))
+				fig.flee_to(back.pos, 6.0, 2.5)
+			if is_instance_valid(_player):
+				_player.unfreeze_input()))
+	get_tree().create_timer(0.25, false).timeout.connect(func() -> void:
+		if is_instance_valid(fig):
+			fig.lunge_to(feet, MANAGER_LUNGE_TIME))
 
 
 func _ev_entry_slam() -> void:
@@ -2485,10 +3588,35 @@ func painting_fall_transform() -> Transform3D:
 	for step in [0.0, 2.5, -2.5, 5.0, -5.0, 8.0, -8.0]:
 		var d: float = clampf(here + step, 2.0, _total_len - 2.0)
 		for s in [preferred, -preferred]:
+			# 2026-09-14: keep off every WALL OPENING on that side — spur and fork mouths, the
+			# corner-branch mouths, the rhythm-break door. A fork's return door stands in its
+			# mouth with a jamb proud of the wall, and check_painting_fall found a corner behind
+			# it at d 124.5 (the 118 fork's return mouth is at 127).
+			if _near_wall_opening(d, s):
+				continue
 			var xf := _panel_transform(d, s, PAINTING_Y)
 			if _has_backing(xf):
 				return xf
 	return _panel_transform(here, preferred, PAINTING_Y)
+
+
+# Every opening cut into the hall's side walls, as [d, side]; a painting must not straddle one.
+func _near_wall_opening(d: float, side: float) -> bool:
+	var margin: float = PAINTING_SIZE.x / 2.0 + W / 2.0 + 0.6
+	var openings: Array = []
+	for sp in SIDE_PASSAGES:
+		openings.append([float(sp["at"]), float(sp["side"])])
+	for fk in FORKS:
+		openings.append([float(fk["at"]), float(fk["side"])])
+		openings.append([float(fk["at"]) + float(fk["across"]), float(fk["side"])])
+	for cb in CORNER_BRANCHES:
+		var cm := _corner_branch_mouth(float(cb["corner"]))
+		openings.append([float(cm["at"]), float(cm["side"])])
+	openings.append([BREAK_DOOR_AT, BREAK_DOOR_SIDE])
+	for o in openings:
+		if signf(float(o[1])) == signf(side) and absf(d - float(o[0])) < margin:
+			return true
+	return false
 
 
 # Is there wall behind the whole width of a painting hung at `xf`? Three rays — the centre

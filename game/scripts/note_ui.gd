@@ -8,6 +8,7 @@ signal closed
 var _root: Control
 var _text_label: RichTextLabel
 var is_open: bool = false
+var _kept_audio: Array = []          # stream players flipped to PROCESS_MODE_ALWAYS for this page
 var _block_close: bool = false
 var _trap_rate: float = 0.0   # panic/s fed to the player while this note is open
 var _player: Node = null
@@ -109,6 +110,9 @@ func show_note(text: String, trap_rate: float = 0.0) -> void:
 	_trap_rate = trap_rate
 	_player = get_tree().current_scene.get_node_or_null("Player") if get_tree().current_scene else null
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	# Keep the level's SOUND running (2026-09-13): flip playing stream players to PROCESS_MODE_ALWAYS
+	# BEFORE the pause — once the tree is paused a player's `playing` already reads false.
+	_kept_audio = AudioBuses.keep_playing_through_pause(get_tree().current_scene)
 	get_tree().paused = true
 	set_deferred("_block_close", false)
 
@@ -122,6 +126,8 @@ func _process(delta: float) -> void:
 		_root.visible = false
 		is_open = false
 		_trap_rate = 0.0
+		AudioBuses.release_pause_exempt(_kept_audio)
+		_kept_audio = []
 		return
 	if _trap_rate > 0.0 and _player and is_instance_valid(_player) and _player.has_method("add_panic"):
 		_player.add_panic(delta * _trap_rate)
@@ -141,6 +147,8 @@ func _close() -> void:
 	_root.visible = false
 	is_open = false
 	_trap_rate = 0.0
+	AudioBuses.release_pause_exempt(_kept_audio)
+	_kept_audio = []
 	get_tree().paused = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	closed.emit()

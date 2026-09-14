@@ -40,6 +40,14 @@ const SHOTS := {
 	"level_3": [
 		[Vector3(0, 0, -2), Vector3(0, 1.4, 1.0), "void_spawn_creature"],
 		[Vector3(0, 0, -0.5), Vector3(0, 1.4, 1.0), "void_creature_near"],
+		# The rebuilt Void (2026-09-12): the ward fragment, the loop corridor seen up its
+		# length, the floating tiles over the pit, the morgue fragment, the child's room.
+		[Vector3(0, 0, 11.5), Vector3(0, 1.2, 15.5), "void_ward_gurneys"],
+		[Vector3(12.5, 0, 16.0), Vector3(12.5, 1.4, 40.0), "void_loop_corridor"],
+		[Vector3(2.0, 0, 45.5), Vector3(-4.0, 0.3, 45.5), "void_tile_hall"],
+		[Vector3(-1.8, 0, 47.0), Vector3(-7.7, 0.0, 45.5), "void_tiles_from_the_branch"],
+		[Vector3(-10.4, 0, 45.5), Vector3(-13.5, 1.0, 46.5), "void_morgue_fragment"],
+		[Vector3(-14, 0, 36.0), Vector3(-15.2, 0.8, 34.0), "void_child_bed"],
 	],
 	# The two props rebuilt from flat decals into real geometry (playtest 2026-07-25,
 	# captures #4 and #5). Head-on AND from an angle: a billboard/decal looks passable

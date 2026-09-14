@@ -80,15 +80,22 @@ var _ceil_mat: StandardMaterial3D
 
 const _NOTE_SCRIPT := preload("res://scripts/note.gd")
 
+# ⭐ B1 (2026-09-14, capture #009, the user: "the first correct note should be that there is no
+# door — walk straight through — and only after that you can give other notes"). The entry page
+# carries ONE lesson. The arrow rule and the Smiler rule are the SECOND page, spawned in the hub
+# by `_assign_round()` once the first loop-back has taught the verb (see ROUND_NOTE_TEXT).
 const NOTE_TEXT := """I stopped trying to reach the door. There is no door.
 
-The hum lies. It tells you to keep still and listen. Do not.
+Walk into the wall. Straight through. That is the only way anything down here opens.
+
+— someone who is still in here"""
+
+const ROUND_NOTE_TEXT := """You did it. You are back at the same crossing — it is always the same crossing.
 
 Follow the arrows pointing DOWN. Three down turns, taken in a row, will tear the seam. Miss one and the room starts you over.
 
-And if the lights die and something smiles at the end of the hall — kill your light. Stand still. Do not run. Let it pass.
-
-— someone who is still in here"""
+And if the lights die and something smiles at the end of the hall — kill your light. Stand still. Do not run. Let it pass."""
+const VERB_SCRAWL := "NO DOOR.\nWALK INTO IT."   # on the CORRECT arm's surface, every round
 
 @onready var _player: CharacterBody3D = $Player
 
@@ -196,6 +203,8 @@ func _restore_progress() -> void:
 		return
 	var zone: int = int(data.get("zone", 1))
 	_counter = int(data.get("counter", 0))
+	if _counter > 0:
+		_spend_cap_scrawls()   # B2: a loop-back already happened on this run
 	var searched: Array = data.get("flood_searched", [])
 	var set_v = data.get("flood_set", 0)          # kind array, or a legacy int
 	var held_v = data.get("flood_held", 0)
@@ -716,6 +725,18 @@ func _assign_round() -> void:
 	# The seam's voice follows the arrows. One source of truth for "which surface".
 	_move_seam_beacons()
 	_apply_dark_arm()
+	# B1: the VERB is written on the correct arm's surface (the others keep their own words).
+	for id in ["N", "E", "W"]:
+		var lbl := get_node_or_null("SeamScrawl%s" % id) as Label3D
+		if lbl == null:
+			continue
+		if id == _correct:
+			lbl.text = VERB_SCRAWL
+		else:
+			lbl.text = CAP_SCRAWL if id != "N" else EXIT_SCRAWL
+	# ...and the second page appears in the hub from the second round on.
+	if _counter >= 1 and get_node_or_null("RoundNote") == null:
+		_spawn_clue_note("RoundNote", Vector3(-1.1, 0.0, 1.1), ROUND_NOTE_TEXT)
 
 
 # ---------------------------------------------------------------- lights
@@ -849,6 +870,7 @@ func _on_arm_mouth(body: Node3D, id: String) -> void:
 func _on_loopback(body: Node3D, id: String) -> void:
 	if body != _player or id != _correct:
 		return
+	_spend_cap_scrawls()   # B2: the caps' line is read once
 	_counter += 1
 	_show_progress()
 	_teleport_to_spawn()
@@ -935,9 +957,12 @@ func _show_progress_text(text: String, delay: float = 0.0) -> void:
 const NOTE_PAGE_W := 0.22
 
 func _spawn_intro_note() -> void:
-	var pos := Vector3(0.9, 0.0, -4.0)
+	_spawn_clue_note("ClueNote", Vector3(0.9, 0.0, -4.0), NOTE_TEXT)
+
+
+func _spawn_clue_note(note_name: String, pos: Vector3, text: String) -> void:
 	var table := CSGBox3D.new()
-	table.name = "NoteTable"
+	table.name = "NoteTable" if note_name == "ClueNote" else note_name + "Table"
 	table.size = Vector3(0.45, 0.6, 0.4)
 	table.use_collision = true
 	table.position = pos + Vector3(0, 0.3, 0)
@@ -947,9 +972,9 @@ func _spawn_intro_note() -> void:
 	add_child(table)
 
 	var note := StaticBody3D.new()
-	note.name = "ClueNote"
+	note.name = note_name
 	note.set_script(_NOTE_SCRIPT)
-	note.note_text = NOTE_TEXT
+	note.note_text = text
 	note.position = pos + Vector3(0, 0.65, 0)
 	add_child(note)
 
@@ -1051,10 +1076,16 @@ func _spawn_kontur_scrawl() -> void:
 # Blood-red doors that mock the hope of retreat: [lateral_pos, facing_yaw].
 func _spawn_mirage_doors() -> void:
 	# [position, facing direction (into corridor)]
+	# B1 (2026-09-13): SIX of them, yellowed old-house doors, none working (capture #13: "more of
+	# them, none of them working"). Placed on arm side walls, clear of the mouths, the arrow
+	# posts, the loop-back caps and the utility room.
 	var placements := [
-		[Vector3(HALF - 0.06, 0, -3.5), Vector3(-1, 0, 0)],   # entry arm, right wall
-		[Vector3(7.0, 0, HALF - 0.06), Vector3(0, 0, -1)],    # E arm, +z wall
-		[Vector3(-7.0, 0, -(HALF - 0.06)), Vector3(0, 0, 1)], # W arm, -z wall
+		[Vector3(HALF - 0.06, 0, -3.5), Vector3(-1, 0, 0)],    # entry arm, right wall
+		[Vector3(-(HALF - 0.06), 0, -6.0), Vector3(1, 0, 0)],  # entry arm, left wall
+		[Vector3(7.0, 0, HALF - 0.06), Vector3(0, 0, -1)],     # E arm, +z wall
+		[Vector3(10.0, 0, -(HALF - 0.06)), Vector3(0, 0, 1)],  # E arm, -z wall
+		[Vector3(-7.0, 0, -(HALF - 0.06)), Vector3(0, 0, 1)],  # W arm, -z wall
+		[Vector3(-10.0, 0, HALF - 0.06), Vector3(0, 0, -1)],   # W arm, +z wall
 	]
 	for p in placements:
 		var door := MirageDoor.new()
@@ -1214,6 +1245,22 @@ func _move_seam_beacons() -> void:
 # on the side wall, and the two-layer seam audio (`_spawn_seam_beacons()`), which is the tell
 # they chose over making the glitch wall glow. `check_backrooms_seam.gd` asserts both, and
 # asserts that NO node named `DragMark*` exists anywhere in the scene.
+const CAP_SCRAWL := "EASY TO GET IN.\nIMPOSSIBLE TO GET OUT."   # B2, the user's words
+const EXIT_SCRAWL := "YOU ARE HERE FOR A REASON."                 # B2, capture #15
+var _cap_scrawls_spent := false
+
+
+# B2: after the first loop-back the two cap scrawls come down for good (restored as state).
+func _spend_cap_scrawls() -> void:
+	if _cap_scrawls_spent:
+		return
+	_cap_scrawls_spent = true
+	for id in ["E", "W"]:
+		var lbl := get_node_or_null("SeamScrawl%s" % id)
+		if lbl:
+			lbl.queue_free()
+
+
 func _spawn_seam_scrawls() -> void:
 	for id in CHOICE_ARMS:
 		var face: Vector3 = _seam_face(id)
@@ -1231,7 +1278,11 @@ func _spawn_seam_scrawls() -> void:
 		# decoration and becomes an instruction the player has already been given.
 		var lbl := Label3D.new()
 		lbl.name = "SeamScrawl%s" % id
-		lbl.text = "NO DOOR.\nWALK INTO IT."
+		# B2 (2026-09-13, captures #14/#15): "NO DOOR. / WALK INTO IT." on all three walls read as
+		# nagging — "one time is sufficient". The two loop-back CAPS carry the user's own line and
+		# lose it after the FIRST loop-back (`_spend_cap_scrawls`); the utility-room glitch wall
+		# carries the other. The seam SOUND stays on every cap — it is the completability guarantee.
+		lbl.text = CAP_SCRAWL if id != "N" else EXIT_SCRAWL
 		lbl.font_size = 40
 		lbl.pixel_size = 0.0032
 		lbl.modulate = Color(0.10, 0.08, 0.07)
@@ -1421,6 +1472,9 @@ func _on_dweller_running(runner: Node3D) -> void:
 	_player.turn_to_face(runner.global_position + Vector3(0, 1.1, 0), 0.45)
 
 
+const FOLLOW_SCRAWL := "SHOULD I FOLLOW IT?"
+
+
 func _on_dweller_arrived() -> void:
 	# ⚠️ THE OBJECTIVE STOPS LYING. On entry it reads "None of these walls are real. Something in
 	# here is." — true of a room where all four are painted wrong, and false the moment the
@@ -1428,6 +1482,8 @@ func _on_dweller_arrived() -> void:
 	# shipped three times in the House; the Flood already fixed it by asking its zone
 	# (`_zone3.objective_text()`).
 	GameState.set_objective("It went through that one. Follow it.")
+	# B4 (2026-09-13, capture #18): the question in the middle of the screen, in blood.
+	ScreenText.scrawl(get_tree(), FOLLOW_SCRAWL, 3.0)
 	if _watching == null:
 		return
 	# Keep looking at the wall it left through, not at the space where it used to be.

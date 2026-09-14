@@ -16,7 +16,9 @@ extends SceneTree
 #   - the bed is far enough from the spawn to be a walk
 #   - at least one CYCLE exists (a spanning tree makes a chaser unbeatable)
 #   - no sconce and no frame sits on a wall that carries a doorway
-#   - the Hollow One's alcove is sealed, and shares no chamber with a Still One
+#   - (2026-09-12) every chamber has a KIND, exactly one larder / well / chapel, the larder is
+#     a sconce chamber, the sconces satisfy the spacing rule, and there are NO beartraps and
+#     NO sealed alcove any more (the Hollow One is cut; the traps were a death path)
 #
 # ⚠️ It also asserts its own SAMPLE SIZE. check_apparition_clearance.gd reported a
 # cheerful "0 spawns checked ... PASS" when the script under test failed to compile;
@@ -37,7 +39,11 @@ var _rooms_max := -1
 var _rooms_total := 0
 var _cycles_total := 0
 var _bed_dist_min := 99999
+var _sealed_overrides := 0
 var _sconce_short := 0
+var _relaxed_total := 0
+var _gap_min := 99
+var _kind_counts: Dictionary = {}
 
 
 func _fail(msg: String) -> void:
@@ -71,6 +77,15 @@ func _process(_delta: float) -> bool:
 
 
 func _check_one(seed_i: int, g) -> void:
+	# D1 (2026-09-13): eight candle caches, in eight different chambers.
+	var caches: Array = g.candle_rooms
+	if caches.size() != int(g.CANDLE_CACHES) or caches.size() < 8:
+		_fail("seed %d: %d candle caches (want CANDLE_CACHES = %d, >= 8)" % [seed_i, caches.size(), int(g.CANDLE_CACHES)])
+	var uniq := {}
+	for c in caches:
+		uniq[c] = true
+	if uniq.size() != caches.size():
+		_fail("seed %d: candle caches share a room" % seed_i)
 	_checked += 1
 	var rooms: Array = g.rooms
 	var doors: Array = g.doorways
@@ -84,8 +99,8 @@ func _check_one(seed_i: int, g) -> void:
 
 	# --- chamber count ---------------------------------------------------------
 	var chambers: Array = g.chamber_names
-	if chambers.size() < 9 or chambers.size() > 12:
-		_fail("seed=%d chamber count %d outside 9..12" % [seed_i, chambers.size()])
+	if chambers.size() < 9 or chambers.size() > 16:
+		_fail("seed=%d chamber count %d outside 9..16" % [seed_i, chambers.size()])
 
 	# --- no two rooms overlap --------------------------------------------------
 	# Rooms in a ROOMS table must ABUT, never OVERLAP, or their floor and ceiling
@@ -112,13 +127,13 @@ func _check_one(seed_i: int, g) -> void:
 				return
 
 	# --- reachability ----------------------------------------------------------
-	# Every room must be reachable from the spawn. The Alcove is the one deliberate
-	# exception: it is SEALED (that is what makes the teaching beat zero-risk).
+	# Every room must be reachable from the spawn. (The sealed teaching alcove that used to be
+	# the one exception is gone with the Hollow One.)
 	var reachable: Array = g.reachable_rooms()
 	for r in rooms:
 		var nm: String = r["name"]
-		if nm == g.teach_room:
-			continue
+		if nm == "Alcove":
+			_fail("seed=%d a sealed 'Alcove' room still exists — the Hollow One was cut" % seed_i)
 		if not reachable.has(nm):
 			_fail("seed=%d room %s is UNREACHABLE from spawn %s" % [seed_i, nm, g.spawn_room])
 			return
@@ -179,34 +194,84 @@ func _check_one(seed_i: int, g) -> void:
 		_fail("seed=%d bed is only %d rooms from spawn" % [seed_i, bed_d])
 	_bed_dist_min = mini(_bed_dist_min, bed_d)
 
-	# --- entity exclusion zones (§B10) -----------------------------------------
+	# --- entity exclusion zones (§B10, as amended 2026-09-12) --------------------
+	# The spawn and bed chambers hold no resident statue. Sconce chambers MAY now: a Crypt's
+	# statue rises when its sconce is lit, and the statues no longer kill (creature_stalker.gd
+	# `lethal = false`), so the old "no entity in a lit chamber" ban is deliberately gone.
 	if g.still_one_rooms.has(g.spawn_room):
 		_fail("seed=%d a Still One is in the SPAWN chamber" % seed_i)
 	if g.still_one_rooms.has(g.bed_room):
 		_fail("seed=%d a Still One is in the BED chamber" % seed_i)
-	for s in spots:
-		if g.still_one_rooms.has(s["room"]):
-			_fail("seed=%d a Still One shares the sconce chamber %s" % [seed_i, s["room"]])
+	for nm3 in g.still_one_rooms:
+		var k: String = g.kind_of(nm3)
+		if k != "cells" and k != "crypt":
+			_fail("seed=%d a Still One in %s, a '%s' (only cells/crypt host them)" % [seed_i, nm3, k])
 			break
-	# Sparking is MANDATORY to solve the Hollow One and LETHAL near a Still One:
-	# textbook double jeopardy, so they may never share a chamber.
-	if g.teach_room != "" and g.still_one_rooms.has(g.teach_room):
-		_fail("seed=%d the Hollow One's alcove holds a Still One" % seed_i)
 
-	# --- the alcove is genuinely sealed ----------------------------------------
-	if g.teach_room != "":
-		for d in doors:
-			if _doorway_touches_room(g, d, g.teach_room):
-				_fail("seed=%d the teaching alcove has a DOORWAY — it must be sealed" % seed_i)
+	# --- no beartraps, no alcove (both cut 2026-09-12) -------------------------
+	# An absence assertion needs its subject to still be expressible, or it is vacuous: the
+	# generator has no `beartrap_rooms` any more, so assert on the property's ABSENCE too.
+	if g.get("beartrap_rooms") != null:
+		_fail("seed=%d the generator still exposes beartrap_rooms" % seed_i)
+	if g.get("teach_room") != null:
+		_fail("seed=%d the generator still exposes teach_room (the Hollow One's alcove)" % seed_i)
+
+	# --- room kinds ------------------------------------------------------------
+	var kinds: Dictionary = g.room_kinds
+	var counts: Dictionary = {}
+	for nm4 in chambers:
+		var k2: String = kinds.get(nm4, "")
+		if k2 == "" or not g.ROOM_KINDS.has(k2):
+			_fail("seed=%d chamber %s has no valid kind ('%s')" % [seed_i, nm4, k2])
+			break
+		counts[k2] = int(counts.get(k2, 0)) + 1
+		_kind_counts[k2] = int(_kind_counts.get(k2, 0)) + 1
+	if int(counts.get("larder", 0)) != 1:
+		_fail("seed=%d %d larders, want exactly 1" % [seed_i, int(counts.get("larder", 0))])
+	if int(counts.get("well", 0)) != 1:
+		_fail("seed=%d %d wells, want exactly 1" % [seed_i, int(counts.get("well", 0))])
+	# --- four-door chambers hold nothing on a wall (2026-09-12, seed 606) ------
+	# Every builder but the cistern's hugs a doorway-free "back" wall; a chamber with a doorway
+	# in every wall has none, and the fallback stood a lectern in a doorway. Such chambers are
+	# re-dealt to "cistern" and counted, so the rate is printed rather than assumed.
+	for nm5 in chambers:
+		# Sconce chambers become bench-less galleries (frames hang on walls); the rest, cisterns.
+		if nm5 == g.bed_room:
+			continue   # always a crypt; the builder drops its sarcophagi instead
+		if g.prop_sides(nm5).is_empty() and not ["cistern", "gallery"].has(kinds.get(nm5, "")):
+			_fail("seed=%d %s has no prop-safe wall but is a '%s'" % [seed_i, nm5, kinds.get(nm5, "")])
+			break
+	_sealed_overrides += int(g.sealed_kind_overrides)
+	if int(counts.get("chapel", 0)) != 1:
+		_fail("seed=%d %d chapels, want exactly 1" % [seed_i, int(counts.get("chapel", 0))])
+	if kinds.get(g.spawn_room, "") != "scriptorium":
+		_fail("seed=%d the spawn chamber is a '%s', not the zero-panic scriptorium" % [
+			seed_i, kinds.get(g.spawn_room, "")])
+	if kinds.get(g.bed_room, "") != "crypt":
+		_fail("seed=%d the bed chamber is a '%s', not a crypt" % [seed_i, kinds.get(g.bed_room, "")])
+	if g.lair_room == "" or not seen.has(g.lair_room):
+		_fail("seed=%d the larder %s is not a sconce chamber" % [seed_i, g.lair_room])
+	elif g.lair_room == g.spawn_room:
+		_fail("seed=%d the larder is the spawn chamber" % seed_i)
+	# Cells only where the niche fits (>= 2x3 cells).
+	for nm5 in chambers:
+		if kinds.get(nm5, "") == "cells":
+			var rr: Rect2i = g.room_rect(nm5)
+			if mini(rr.size.x, rr.size.y) < 2 or rr.size.x * rr.size.y < 6:
+				_fail("seed=%d cells in %s which is only %dx%d cells" % [seed_i, nm5, rr.size.x, rr.size.y])
 				break
 
-	# --- beartraps are not next to a Matron spawn ------------------------------
-	var adj: Dictionary = g.adjacency()
-	for t in g.beartrap_rooms:
-		for nb in adj.get(t, []):
-			if g.matron_spawn_rooms.has(nb):
-				_fail("seed=%d beartrap corridor %s is adjacent to Matron chamber %s" % [
-					seed_i, t, nb])
+	# --- sconce spacing ---------------------------------------------------------
+	# Pairwise room-graph distance >= the gap the generator reports it used; the number of
+	# seeds that had to relax below SCONCE_MIN_GAP is printed and asserted at the end.
+	_relaxed_total += g.sconce_relaxed
+	_gap_min = mini(_gap_min, g.sconce_gap_used)
+	for a2 in range(spots.size()):
+		for b2 in range(a2 + 1, spots.size()):
+			var dd: int = g.room_distance(spots[a2]["room"], spots[b2]["room"])
+			if dd < g.sconce_gap_used:
+				_fail("seed=%d sconces %s and %s are %d rooms apart, under the used gap %d" % [
+					seed_i, spots[a2]["room"], spots[b2]["room"], dd, g.sconce_gap_used])
 				break
 
 
@@ -239,7 +304,7 @@ func _doorway_is_shared(g, d: Dictionary) -> bool:
 	return on_low >= 1 and on_high >= 1
 
 
-func _doorway_touches_room(g, d: Dictionary, room_name: String) -> bool:
+func _doorway_touches_room_unused(g, d: Dictionary, room_name: String) -> bool:
 	for r in g.rooms:
 		if r["name"] != room_name:
 			continue
@@ -271,6 +336,15 @@ func _report() -> void:
 		print("  extra (cycle) edges: mean %.1f" % [float(_cycles_total) / _checked])
 		print("  shortest spawn->bed distance seen: %d rooms" % _bed_dist_min)
 		print("  seeds with fewer than 7 sconces: %d" % _sconce_short)
+		print("  sconce spacing: min gap used %d, relaxations %d across %d seeds" % [
+			_gap_min, _relaxed_total, _checked])
+		print("  kinds dealt over all seeds: %s" % str(_kind_counts))
+		print("  chambers with no prop-safe wall re-dealt (cistern / bench-less gallery): %d over %d seeds" % [_sealed_overrides, _checked])
+	# ⚠️ The spacing rule must hold on MOST dungeons, or it is decoration. Measured on the
+	# 24x24 / 16-chamber lattice and asserted as a fraction, not zero: a seed that draws few
+	# chambers may legitimately need the relaxation.
+	if _checked > 0 and _relaxed_total > _checked / 10:
+		_fail("sconce spacing relaxed on %d of %d seeds (limit 10%%)" % [_relaxed_total, _checked])
 	print("  %d checks, %d failed" % [_checked, _fails])
 	print("--------------------------------------------------")
 	print("RESULT: ", "PASS" if _fails == 0 else "FAIL (%d)" % _fails)

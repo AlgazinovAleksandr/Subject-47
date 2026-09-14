@@ -172,11 +172,14 @@ func _fire() -> void:
 # `force_teach` is for the Lab's designed teaching beat, which should stay survivable
 # even in the rare case the director got in first.
 # Returns whether this one ended up being the taught one.
+## Returns whether the figure APPEARED. The taught ledger latches only then (Issue 207): an
+## apparition that found no spot has taught nobody anything.
 static func arm(a: Apparition, force_teach: bool = false) -> bool:
 	if not a:
 		return false
 	var teach: bool = force_teach or not GameState.apparition_taught
 	a.teach = teach
-	GameState.apparition_taught = true
-	a.appear()
-	return teach
+	var appeared: bool = a.appear()
+	if appeared:
+		GameState.apparition_taught = true
+	return appeared

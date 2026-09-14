@@ -170,7 +170,7 @@ func _process(delta: float) -> bool:
 		# The assertion's intent is "the readout followed the collection", and pinning it to
 		# one wording made it an assertion about N instead.
 		_ok("…and the readout follows it",
-			readout.contains("%d /" % (_frags_a - 1)) or readout.contains("REACH THE MARK"),
+			readout.contains("%d /" % (_frags_a - 1)) or readout.contains("BREAK THE GLASS"),
 			"\"%s\"" % readout)
 		# Put the map down. This is what ESC does — `_unhandled_input` -> `_close()`.
 		_ui.call("_close")
@@ -257,8 +257,12 @@ func _process(delta: float) -> bool:
 	elif _stage == 6 and _t > 0.4:
 		_ok("the mark is INERT while fragments remain — standing on it does nothing",
 			_solo.get("_ui_open") == true and _solo.get("_instance_live") == true)
-		_ok("…and it LOOKS shut", _solo.get("_target_seal") != null
-			and (_solo.get("_target_seal") as CanvasItem).visible == true)
+		# H1b (2026-09-13): the glass is PANES across the key cell's open edges, not an overlay.
+		var panes_now: Array = _solo.get("_pane_rects")
+		_ok("…and it LOOKS shut (a glass pane on every open edge of the key's cell)",
+			panes_now.size() >= 1 and _solo.get("_glass_broken") == false, "%d pane(s)" % panes_now.size())
+		_ok("…and standing INSIDE the room with the hammer out there did not break the glass",
+			_solo.get("_glass_broken") == false)
 		_stage = 7
 		_t = 0.0
 
@@ -273,16 +277,40 @@ func _process(delta: float) -> bool:
 				_finish()
 				return true
 		else:
-			_ok("collecting the last fragment opens the mark",
-				_solo.get("_target_seal") != null
-					and (_solo.get("_target_seal") as CanvasItem).visible == false)
+			# H1b (2026-09-13): the panes stay SOLID with the hammer in hand (their tint goes
+			# live); only touching one with the hammer breaks them.
+			var pane_nodes: Array = _solo.get("_pane_nodes")
+			var consts_h1: Dictionary = (_solo.get_script() as GDScript).get_script_constant_map()
+			var live := pane_nodes.size() > 0
+			for n in pane_nodes:
+				if not (n as ColorRect).color.is_equal_approx(consts_h1["GLASS_LIVE"]):
+					live = false
+			_ok("collecting the last fragment makes the glass LIVE (tint), not gone", live
+				and _solo.get("_glass_broken") == false)
 			var open_text: String = _label_text(_solo, "_counter_label")
-			_ok("…and says so", open_text.contains("REACH THE MARK"), "\"%s\"" % open_text)
+			_ok("…and says so", open_text.contains("BREAK THE GLASS"), "\"%s\"" % open_text)
+			# Teleport ONTO the key without touching a pane: must NOT win (the glass is a room).
 			_solo.set("_player_pos", _solo.get("_target_pos"))
 			_stage = 8
 			_t = 0.0
 
-	elif _stage == 8 and _t > 0.4:
+	elif _stage == 8 and _t > 0.5:
+		_ok("standing on the key with the glass intact does NOT win (the room is sealed)",
+			_solo.get("_ui_open") == true and _solo.get("_glass_broken") == false)
+		# Now the hammer meets a pane: put the icon against the first pane's centre.
+		var panes: Array = _solo.get("_pane_rects")
+		var pr: Rect2 = panes[0]
+		_solo.set("_player_pos", pr.get_center())
+		_stage = 9
+		_t = 0.0
+
+	elif _stage == 9 and _t > 0.5:
+		_ok("the hammer against a pane BREAKS the glass", _solo.get("_glass_broken") == true)
+		_solo.set("_player_pos", _solo.get("_target_pos"))
+		_stage = 10
+		_t = 0.0
+
+	elif _stage == 10 and _t > 1.0:   # WIN_HOLD 0.4 s of the key lifting first
 		_ok("reaching the mark with everything collected closes the overlay",
 			_solo.get("_ui_open") == false)
 		_ok("…and RETIRES the maze", _solo.get("_instance_live") == false)
@@ -387,15 +415,16 @@ func _check_fragment_visuals() -> void:
 	_ok("the drawn footprint IS the pickup radius", wrong == 0,
 		"%d of %d marks drawn at the wrong size" % [wrong, rims.size()])
 
-	# A square rotated 45° whose half-diagonal is the radius: size.x * sqrt(2)/2 == radius.
+	# H1 (2026-09-13): the piece is a HAMMER glyph on a disc sized just inside the pickup
+	# radius (it was a 45° diamond). Asserted: a glyph is drawn, and the disc fits the radius.
 	var shape_wrong := 0
 	for f in fills:
-		var rect := f as ColorRect
-		if not is_equal_approx(rect.rotation, deg_to_rad(45.0)):
+		var disc := f as Control
+		if disc == null or absf(disc.size.x / 2.0 - radius) > 2.6:
 			shape_wrong += 1
-		elif absf(rect.size.x * 0.70710678 - radius) > 0.6:
+		elif disc.get_parent().get_node_or_null("FragNotch") == null:
 			shape_wrong += 1
-	_ok("…and the mark is a DIAMOND, not one more disc", shape_wrong == 0,
+	_ok("…and the mark is the HAMMER glyph on a disc at the pickup radius", shape_wrong == 0,
 		"%d of %d wrong" % [shape_wrong, fills.size()])
 
 	var wall_col := _first_wall_colour()
@@ -417,8 +446,8 @@ func _check_fragment_visuals() -> void:
 	_ok("the objective readout exists", readout.contains("0 /"), "\"%s\"" % readout)
 	_ok("…with a pip per fragment", (_ui.get("_pip_nodes") as Array).size() == expected,
 		"%d pips" % (_ui.get("_pip_nodes") as Array).size())
-	_ok("…and the mark starts sealed", _ui.get("_target_seal") != null
-		and (_ui.get("_target_seal") as CanvasItem).visible == true)
+	_ok("…and the key's room starts glazed (H1b)", (_ui.get("_pane_rects") as Array).size() >= 1
+		and _ui.get("_glass_broken") == false)
 
 
 # ⚠️ Never `bool(node.get("flag"))` and never a bare `.text` on a maybe-null node in a test:

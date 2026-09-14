@@ -34,7 +34,9 @@ func _look(eye: Vector3, target: Vector3) -> void:
 	_p.set("velocity", Vector3.ZERO)
 	_p.global_position = eye
 	if eye.distance_to(target) > 0.01:
-		_p.look_at(target, Vector3.UP)
+		# ai_look_at yaws the BODY and pitches the CAMERA. look_at() on the body pitched the whole
+		# capsule, swinging the eye 0.5 m backwards through the wall behind it (2026-09-13).
+		_p.call("ai_look_at", target)
 
 
 func _shot(name: String) -> void:
@@ -80,16 +82,35 @@ func _process(delta: float) -> bool:
 			# The Blackout figure — torch OFF, standing in the gate-7 room.
 			var dx: float = float(_k.get("_dark_x"))
 			_torch(false)
-			_look(Vector3(dx, 0.1, 52.5), Vector3(dx + (-1.6 if dx >= 0.0 else 1.6), 1.1, 56.0))
+			_look(Vector3(dx, 0.1, 51.3), Vector3(dx + (-1.6 if dx >= 0.0 else 1.6), 1.1, 53.6))
 			if _t > 0.6:
+				var bf = _k.get("_blackout_fig")
+				print("FIG visible=%s pos=%s player=%s torch=%s" % [bf.visible if bf else "-", bf.global_position if bf else "-", _p.global_position, _p.call("is_flashlight_on")])
+				var cam: Camera3D = _p.get_node("Camera3D")
+				print("FIG2 aabb=%s tex=%s infrustum=%s cam=%s fwd=%s layers=%d" % [bf.get_aabb(), bf.material_override.albedo_texture, cam.is_position_in_frustum(bf.global_position), cam.global_position, -cam.global_transform.basis.z, bf.layers])
 				_shot("04_blackout_figure_dark")
 				_torch(true)
+				_next(40)
+		40:
+			if _t > 0.3:   # a frame for _tick_blackout_figure to hide it
 				_shot("05_blackout_figure_lit")   # same view, torch on — the figure is gone
+				_next(41)
+		41:
+			# K5: the far wall from the middle of the room, torch ON — the real doorway must read as
+			# wall; then torch OFF — the seam glows in the gap.
+			var dx2: float = float(_k.get("_dark_x"))
+			_torch(true)
+			_look(Vector3(0.0, 0.1, 54.0), Vector3(dx2, 1.3, 60.0))
+			if _t > 0.5:
+				_shot("04b_seam_torch_on")
+				_torch(false)
+				_next(42)
+		42:
+			if _t > 0.4:
+				_shot("04c_seam_torch_off")
 				_next(5)
 		5:
-			# The Archive lot filling with strikes.
-			_k.call("_strike", "TEST 1")
-			_k.call("_strike", "TEST 2")
+			# The Archive lot (K2: it stays PENDING — there is no ledger any more).
 			if _p:
 				_p.set("_panic", 0.0)   # clear the HUD blur so the lot reads
 			_next(6)

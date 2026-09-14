@@ -106,7 +106,7 @@ const CONFIG := {
 		"filed": {},
 	},
 	"SCENE_LEVEL_1": {"min_props": 10, "min_free": 2, "filed": {}},
-	"SCENE_LEVEL_2": {"min_props": 10, "min_free": 4, "filed": {}},
+	"SCENE_LEVEL_2": {"min_props": 9, "min_free": 4, "filed": {}},   # H2 (2026-09-13): SafeNote_Bedroom became the digit on the fridge head
 	"SCENE_CORRIDOR": {
 		# The Corridor's own convention, and its own guard's numbers, unchanged.
 		"min_gap": 0.005, "max_gap": 0.045, "require_wall": true, "near_wall": 0.80,
@@ -129,7 +129,8 @@ const CONFIG := {
 		# The Void has NO flush wall props at all. Its eight notes stand on tables, its
 		# creatures are excluded as creatures, and its geometry is CSG. This guard therefore
 		# says nothing about that level, which is a coverage gap rather than a clean bill.
-		"min_props": 0, "min_free": 0, "filed": {},
+		# 2026-09-12: nine wall notes and the crayon drawing hang at the wall_point() inset.
+		"min_props": 8, "min_free": 0, "filed": {},
 	},
 }
 
@@ -149,7 +150,10 @@ const CONFIG := {
 #   BackDoor/Exit  built by door.gd in the end caps, on a different convention
 const SKIP_EXACT := ["IntroNote", "NoteTable", "ExitDoor", "BackDoor"]
 const SKIP_PREFIX := ["AjarFrame_", "FakeFrame_", "MirrorFrame_", "MirrorFigure",
-	"FalseExitFrame"]
+	"FalseExitFrame",
+	# C2 (2026-09-13): the fork doors stand SHUT across a cut mouth, like a spur door mid shut-in —
+	# a doorway prop, nothing behind it by construction.
+	"Fork0Door", "Fork1Door"]
 # ⚠️ Excluded by SCRIPT FILE, not by `is Beartrap` and not by node name.
 #   * not by name — `Torch3D.new()` is never named, so Godot calls all sixteen of them
 #     "@Node3D@NN" and any name filter misses every one;

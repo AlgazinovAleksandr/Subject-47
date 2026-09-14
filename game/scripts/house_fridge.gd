@@ -26,6 +26,8 @@ class_name HouseFridge
 # the hum only has to earn the approach.
 
 signal opened
+signal chain_tried   # H2: E on the chained door — the LEVEL decides whether the cutters are in hand
+signal unchained
 
 const SIZE := Vector3(0.78, 1.80, 0.72)
 const CAVITY_DEPTH := 0.30          # a real recess, not a 6 cm dark panel
@@ -34,6 +36,15 @@ const DOOR_OPEN_TIME := 0.55        # slower: the reveal has to be watchable
 const DOOR_DELAY := 0.28            # the scream lands BEFORE the door starts moving
 const REVEAL_DELAY := 0.62          # …and the head as the door clears it (DOOR_DELAY + swing)
 const THING_TEX := "res://assets/textures/level_2_house/house_fridge_thing.png"
+# H2 (2026-09-13, capture #7, the user's design): the House's third safe digit is written on the
+# head's forehead (baked by tools/make_head_digit.py), and the fridge wears a CHAIN + PADLOCK that
+# only the bolt cutters under the Bedroom bed can open. The chain is the message — E on it
+# rattles and says nothing (the Lab drawer rule).
+const THING_TEX_DIGIT := "res://assets/textures/level_2_house/house_fridge_thing_digit.png"
+const CHAIN_LINKS := 22              # dense enough to read as a chain, not a row of dots (render-checked 2026-09-13)
+const CHAIN_Z := 0.07                # proud of the door panel (which hangs at SIZE.z / 2 + 0.01)
+@export var chained: bool = true
+var _chain: Node3D = null
 const HEAD_HEIGHT := 0.46           # was 0.30 — "can you make this head bigger"
 const HUM_VOLUME_DB := -20.0
 const HUM_UNIT_SIZE := 4.0
@@ -198,7 +209,9 @@ func _build() -> void:
 	var tm := StandardMaterial3D.new()
 	tm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
 	tm.roughness = 0.35        # wet
-	if ResourceLoader.exists(THING_TEX):
+	if ResourceLoader.exists(THING_TEX_DIGIT):
+		tm.albedo_texture = load(THING_TEX_DIGIT)   # H2: the digit on the forehead
+	elif ResourceLoader.exists(THING_TEX):
 		tm.albedo_texture = load(THING_TEX)
 	else:
 		tm.albedo_color = Color(0.42, 0.45, 0.42)
@@ -266,6 +279,117 @@ func _build() -> void:
 	handle.position = Vector3(-SIZE.x + 0.10, SIZE.y / 2.0, 0.03)
 	_hinge.add_child(handle)
 
+	if chained:
+		_build_chain()
+
+
+# H2: eight links on a diagonal across the door with a padlock at the middle. A CHILD OF THE
+# FRIDGE, not of the hinge — the door must not carry the chain with it when it finally swings.
+func _build_chain() -> void:
+	_chain = Node3D.new()
+	_chain.name = "Chain"
+	add_child(_chain)
+	var iron := StandardMaterial3D.new()
+	iron.albedo_color = Color(0.22, 0.21, 0.20)
+	iron.metallic = 0.75
+	iron.roughness = 0.45
+	var a := Vector3(-0.30, 1.45, SIZE.z / 2.0 + CHAIN_Z)
+	var b := Vector3(0.30, 0.55, SIZE.z / 2.0 + CHAIN_Z)
+	var dir: Vector3 = (b - a).normalized()
+	var yaw_z: float = atan2(dir.y, dir.x)
+	for i in range(CHAIN_LINKS):
+		var link := MeshInstance3D.new()
+		link.name = "ChainLink%d" % i
+		var tor := TorusMesh.new()
+		tor.inner_radius = 0.016
+		tor.outer_radius = 0.034
+		link.mesh = tor
+		link.material_override = iron
+		link.position = a.lerp(b, (float(i) + 0.5) / float(CHAIN_LINKS))
+		# Alternate links turned 90° about the chain's own axis, as a chain hangs.
+		link.rotation = Vector3(PI / 2.0 if i % 2 == 0 else 0.0, 0.0, yaw_z)
+		_chain.add_child(link)
+	var lock := MeshInstance3D.new()
+	lock.name = "Padlock"
+	var lb := BoxMesh.new()
+	lb.size = Vector3(0.09, 0.11, 0.035)
+	lock.mesh = lb
+	var brass := StandardMaterial3D.new()
+	brass.albedo_color = Color(0.40, 0.33, 0.16)
+	brass.metallic = 0.6
+	brass.roughness = 0.5
+	lock.material_override = brass
+	lock.position = a.lerp(b, 0.5) + Vector3(0, -0.07, 0.01)
+	_chain.add_child(lock)
+	var shackle := MeshInstance3D.new()
+	shackle.name = "Shackle"
+	var st := TorusMesh.new()
+	st.inner_radius = 0.022
+	st.outer_radius = 0.034
+	shackle.mesh = st
+	shackle.material_override = iron
+	shackle.position = lock.position + Vector3(0, 0.07, 0)
+	_chain.add_child(shackle)
+
+
+func _rattle() -> void:
+	var s := GameState.load_audio("chain_rattle")
+	if s and _chain:
+		var p := AudioStreamPlayer3D.new()
+		p.stream = s
+		p.volume_db = -2.0
+		p.unit_size = 5.0
+		p.position = _chain.get_node("Padlock").position
+		add_child(p)
+		p.finished.connect(p.queue_free)
+		p.play()
+	if _chain:
+		var tw := create_tween()
+		tw.tween_property(_chain, "position:x", 0.012, 0.05)
+		tw.tween_property(_chain, "position:x", -0.010, 0.05)
+		tw.tween_property(_chain, "position:x", 0.0, 0.06)
+
+
+# The bolt cutters. The chain slides off and hits the floor; the fridge is an ordinary fridge.
+func unchain() -> void:
+	if not chained:
+		return
+	chained = false
+	unchained.emit()
+	if _chain == null:
+		return
+	var s := GameState.load_audio("chain_drop")
+	if s:
+		var p := AudioStreamPlayer3D.new()
+		p.stream = s
+		p.volume_db = 0.0
+		p.unit_size = 6.0
+		p.position = _chain.get_node("Padlock").position
+		add_child(p)
+		p.finished.connect(p.queue_free)
+		p.play()
+	var tw := _chain.create_tween()
+	tw.tween_property(_chain, "position:y", -1.2, 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.parallel().tween_property(_chain, "rotation:z", 0.6, 0.5)
+	tw.tween_callback(_chain.queue_free)
+	_chain = null
+
+
+# Resume path: already cut on an earlier visit. Silent.
+func mark_unchained() -> void:
+	chained = false
+	if _chain:
+		_chain.queue_free()
+		_chain = null
+
+
+func is_chained() -> bool:
+	return chained
+
+
+func thing_position() -> Vector3:
+	return _thing.global_position if _thing else global_position
+
 
 func _start_hum() -> void:
 	var s := GameState.load_audio("fridge_hum")
@@ -301,6 +425,11 @@ func can_interact() -> bool:
 func interact() -> void:
 	if _used:
 		return
+	if chained:
+		chain_tried.emit()          # the level cuts it here if the cutters are in hand
+		if chained:
+			_rattle()
+			return
 	_used = true
 
 	# The hum stops. The room gets quieter at the exact moment it should get louder, which

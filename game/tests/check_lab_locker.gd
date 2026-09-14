@@ -25,7 +25,7 @@ extends SceneTree
 
 const BREAKER_POS := Vector3(-9.0, 1.1, 9.65)     # Records breaker, wall_point-derived
 const EYE := Vector3(-9.0, 1.1, 11.5)             # standing in Records, looking at it
-const NOOK_BREAKER_POS := Vector3(-36.85, 1.1, 7.7)
+const NOOK_BREAKER_POS := Vector3(-59.85, 1.1, 16.5)   # L1.2
 
 # The ten rooms of the dark wing — the narrow exception that _light_the_wing() turns on
 # after the scare resolves. Kept in sync with level_1.gd's WING_ROOMS.
@@ -274,7 +274,7 @@ func _do_nook() -> void:
 	_phase = "aftermath"
 
 
-# The whole scare runs on SceneTree timers: 5 s to the reveal, then ~2.2 s of beats
+# The whole scare runs on SceneTree timers: 20 s of breathing to the reveal, then ~2.2 s of beats
 # before _nook_cleanup() lights the wing. Wait it out rather than calling the private
 # helper, so the timer chain itself is under test.
 #
@@ -283,8 +283,10 @@ func _do_nook() -> void:
 # SceneTreeTimer time this is waiting for — which is exactly how this check first
 # failed, reporting the wing dark when the scare simply had not finished yet.
 func _do_aftermath() -> void:
-	if _elapsed - _scare_started < 8.0:
+	# L1.6 (2026-09-13): NOOK_SCARE_DELAY is 20 s now, + the 6 s watch timeout + ~2.2 s of beats.
+	if _elapsed - _scare_started < 36.0:
 		return
+	print("      aftermath: scare_done=%s watch=%s figure=%s" % [_scene.get("_nook_scare_done"), _scene.get("_nook_watch"), _scene.get("_nook_figure")])
 	var dark: Array = []
 	for room in WING_ROOMS:
 		var lamp := _scene.get_node_or_null("Lamp_" + room) as OmniLight3D

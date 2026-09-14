@@ -264,6 +264,8 @@ func _figure_is_a_silhouette() -> void:
 	if mat.albedo_texture != null:
 		var img: Image = mat.albedo_texture.get_image()
 		if img != null and img.is_compressed():
+			img.decompress()   # textures import VRAM-compressed since 2026-09-13 (memory); get_pixel needs raw
+		if img != null and img.is_compressed():
 			if img.decompress() != OK:
 				img = null
 		if img != null:

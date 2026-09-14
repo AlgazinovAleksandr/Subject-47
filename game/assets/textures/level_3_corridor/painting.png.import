@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://ba7ys2n74wpvl"
-path="res://.godot/imported/painting.png-51d5bcc070e092f8a64e23c22e43ce7e.ctex"
+path.s3tc="res://.godot/imported/painting.png-51d5bcc070e092f8a64e23c22e43ce7e.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_3_corridor/painting.png"
-dest_files=["res://.godot/imported/painting.png-51d5bcc070e092f8a64e23c22e43ce7e.ctex"]
+dest_files=["res://.godot/imported/painting.png-51d5bcc070e092f8a64e23c22e43ce7e.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

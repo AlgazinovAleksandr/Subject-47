@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://crj7syos7xuu8"
-path="res://.godot/imported/tv_static_face.jpg-d83ecf89fd75f3fc6a2f7cd8e437b3ea.ctex"
+path.s3tc="res://.godot/imported/tv_static_face.jpg-d83ecf89fd75f3fc6a2f7cd8e437b3ea.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_2_house/tv_static_face.jpg"
-dest_files=["res://.godot/imported/tv_static_face.jpg-d83ecf89fd75f3fc6a2f7cd8e437b3ea.ctex"]
+dest_files=["res://.godot/imported/tv_static_face.jpg-d83ecf89fd75f3fc6a2f7cd8e437b3ea.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

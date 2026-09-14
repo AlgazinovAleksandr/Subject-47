@@ -95,17 +95,17 @@ func _visible_now(spot: Vector3) -> bool:
 
 func _build_poses() -> void:
 	var spots: Array[Vector3] = []
-	# BreakerNook (x -37..-31, z 5.7..9.7) — where the beat is designed to happen.
+	# BreakerNook (x -60..-54, z 14.5..18.5 since L1.2) — where the beat is designed to happen.
 	for xi in range(5):
 		for zi in range(3):
-			spots.append(Vector3(-36.2 + float(xi) * 1.1, 0.1, 6.6 + float(zi) * 1.1))
-	# SouthHall (x -31..-22.2, z 6.5..8.9) — where a player who walked out during the 5 s of
-	# breathing actually is.
-	for xi in range(6):
-		spots.append(Vector3(-30.0 + float(xi) * 1.4, 0.1, 7.7))
-	# SouthSpur (x -22.2..-19.8, z 6.5..10.5) — one room further out again.
+			spots.append(Vector3(-59.2 + float(xi) * 1.1, 0.1, 15.4 + float(zi) * 1.1))
+	# Shaft (x -58.2..-55.8, z 9.7..14.5) — where a player who walked out during the breathing
+	# actually is.
 	for zi in range(4):
-		spots.append(Vector3(-21.0, 0.1, 7.0 + float(zi) * 1.0))
+		spots.append(Vector3(-57.0, 0.1, 10.3 + float(zi) * 1.0))
+	# Turn (x -59..-55, z 5.7..9.7) — one room further out again.
+	for xi in range(4):
+		spots.append(Vector3(-58.0 + float(xi) * 1.0, 0.1, 7.7))
 	for s in spots:
 		for h in [0.0, 90.0, 180.0, 270.0]:
 			_poses.append([s, deg_to_rad(h)])
@@ -181,10 +181,10 @@ func _do_grid() -> void:
 	# (-24.20, 8.40), half a metre from SouthHall's north wall (z = 8.9), and "1.5 m directly
 	# behind" with their back to it lands the billboard inside that wall. The second is an
 	# ordinary open floor spot, so a _clear() that simply always said "no" would fail too.
-	_ok("control: a spot through SouthHall's north wall is REJECTED",
-		not _clear(Vector3(-24.2, 0.0, 9.9), Vector3(-24.2, 1.75, 8.4)))
+	_ok("control: a spot through the Shaft's east wall is REJECTED",
+		not _clear(Vector3(-53.5, 0.0, 12.0), Vector3(-57.0, 1.75, 12.0)))
 	_ok("control: an open spot in the middle of BreakerNook is ACCEPTED",
-		_clear(Vector3(-34.0, 0.0, 7.7), Vector3(-32.0, 1.75, 7.7)))
+		_clear(Vector3(-57.0, 0.0, 16.5), Vector3(-55.5, 1.75, 16.5)))
 	_phase = "turn"
 	_turn_started = _elapsed
 

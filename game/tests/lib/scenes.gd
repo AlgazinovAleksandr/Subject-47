@@ -139,3 +139,14 @@ static func _scene_consts() -> Dictionary:
 # KONTUR's `_dark_x`, the gate-1 colour and the Backrooms' arm assignment at the same time.
 static func pin_rng(n: int) -> void:
 	seed(n)
+	# ⚠️ THE DUNGEON NEEDS MORE THAN THE ENGINE RNG (2026-09-12). `dungeon.gd:_roll_seeds()` draws
+	# its two seeds with randi() in _ready(), but per-frame flicker and creature timers draw from
+	# the same global RNG between this call and that _ready(), so one "pinned" seed built a
+	# different dungeon on every run — measured 50 / 51 / 53 interactables on three runs of seed 1,
+	# and an intermittent check_reachable red nobody could reproduce. The snapshot is what
+	# `_roll_seeds()` reads FIRST, and it is how walk_dungeon.gd has always pinned it.
+	var ml := Engine.get_main_loop()
+	if ml is SceneTree:
+		var gs: Node = (ml as SceneTree).root.get_node_or_null("GameState")
+		if gs != null and gs.has_method("save_level_progress"):
+			gs.call("save_level_progress", 7, {"layout_seed": n, "content_seed": n * 31 + 7})

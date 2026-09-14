@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://r3cwbilxgsjs"
-path="res://.godot/imported/dungeon_floor.png-bfe4cfd5d324f32f7bb04b3d9e16b30d.ctex"
+path.s3tc="res://.godot/imported/dungeon_floor.png-bfe4cfd5d324f32f7bb04b3d9e16b30d.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_9_dungeon/dungeon_floor.png"
-dest_files=["res://.godot/imported/dungeon_floor.png-bfe4cfd5d324f32f7bb04b3d9e16b30d.ctex"]
+dest_files=["res://.godot/imported/dungeon_floor.png-bfe4cfd5d324f32f7bb04b3d9e16b30d.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

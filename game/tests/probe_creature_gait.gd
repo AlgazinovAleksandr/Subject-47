@@ -35,10 +35,29 @@ extends SceneTree
 # ⚠️ Bone poses come back in SKELETON space, which for this rig is CENTIMETRES under an
 # Armature scaled 0.01. Everything is converted through `skel.global_transform` first.
 
-const GLB := "res://assets/models/hollow_crown.glb"
-const CLIPS := ["walk", "shamble", "unsteady", "run", "sprint", "charge"]
+# ⚠️ `-- --model parasite` measures the second model (2026-09-12). Both of its takes carried root
+# motion, so BOTH clips have a true speed (`true` below); measured 2026-09-12 the stance estimate
+# was 1.526 vs 1.497 on `walk` (2 %) and 3.129 vs 2.829 on the limping `run` (10 % high — the
+# drunken-clip failure `unsteady` already taught). CreatureAnim.MODELS ships the true numbers.
+const MODELS := {
+	"hollow_crown": {
+		"glb": "res://assets/models/hollow_crown.glb",
+		"clips": ["walk", "shamble", "unsteady", "run", "sprint", "charge"],
+		"hips": "Hips", "toes": ["LeftToeBase", "RightToeBase"],
+		"anchor_clip": "charge", "anchor_true": 2.849,
+	},
+	"parasite": {
+		"glb": "res://assets/models/parasite.glb",
+		"clips": ["walk", "run"],
+		"hips": "mixamorig_Hips", "toes": ["mixamorig_LeftToeBase", "mixamorig_RightToeBase"],
+		# Both takes shipped with baked root motion; merge_creature_glb.py --profile parasite
+		# strips it and prints these ground speeds. The stance estimate is checked against them.
+		"anchor_clip": "walk", "anchor_true": 1.497,
+		"true": {"walk": 1.497, "run": 2.829},
+	},
+}
 const SAMPLES := 120
-const CHARGE_TRUE := 2.849
+const METHOD_K := 2.849 / 2.799   # the calibration the hollow_crown anchor established
 
 
 func _find(n: Node, cls: String, out: Array) -> void:
@@ -49,7 +68,14 @@ func _find(n: Node, cls: String, out: Array) -> void:
 
 
 func _process(_delta: float) -> bool:
-	var packed: PackedScene = load(GLB)
+	var model := "hollow_crown"
+	var args := OS.get_cmdline_user_args()
+	for i in range(args.size() - 1):
+		if args[i] == "--model":
+			model = args[i + 1]
+	var M: Dictionary = MODELS[model]
+	var CLIPS: Array = M["clips"]
+	var packed: PackedScene = load(M["glb"])
 	var inst: Node3D = packed.instantiate()
 	root.add_child(inst)
 	var skels: Array = []
@@ -58,8 +84,9 @@ func _process(_delta: float) -> bool:
 	_find(inst, "AnimationPlayer", players)
 	var skel: Skeleton3D = skels[0]
 	var ap: AnimationPlayer = players[0]
-	var hips := skel.find_bone("Hips")
-	var toes := [skel.find_bone("LeftToeBase"), skel.find_bone("RightToeBase")]
+	var hips := skel.find_bone(M["hips"])
+	var toes := [skel.find_bone(M["toes"][0]), skel.find_bone(M["toes"][1])]
+	print("== CREATURE GAIT [%s] ==  hips=%d toes=%s" % [model, hips, str(toes)])
 
 	var lib := ""
 	for a in ap.get_animation_list():
@@ -67,7 +94,6 @@ func _process(_delta: float) -> bool:
 			lib = String(a).get_slice("/", 0) + "/"
 			break
 
-	print("== CREATURE GAIT ==")
 	print("  clip        dur     stance run      implied m/s")
 	var est := {}
 	for clip in CLIPS:
@@ -106,15 +132,32 @@ func _process(_delta: float) -> bool:
 		print("  %-10s %6.3fs                  %6.3f" % [clip, anim.length, best])
 	ap.stop()
 
-	var anchor: float = est.get("charge", 0.0)
-	print("\n  ANCHOR: 'charge' true speed 2.849 m/s (from its stripped root motion)")
-	print("          stance estimate %.3f m/s  ->  ratio %.3f" % [anchor, anchor / CHARGE_TRUE])
-	if anchor > 0.01:
-		var k: float = CHARGE_TRUE / anchor
-		print("\n  CALIBRATED (estimate x %.4f) — these are the CLIP_SPEED values:" % k)
+	var anchor_clip: String = M["anchor_clip"]
+	if anchor_clip != "":
+		var anchor: float = est.get(anchor_clip, 0.0)
+		print("\n  ANCHOR: '%s' true speed %.3f m/s (from its stripped root motion)"
+			% [anchor_clip, M["anchor_true"]])
+		print("          stance estimate %.3f m/s  ->  ratio %.3f"
+			% [anchor, anchor / float(M["anchor_true"])])
+		if anchor > 0.01:
+			var k: float = float(M["anchor_true"]) / anchor
+			print("\n  CALIBRATED (estimate x %.4f) — these are the CLIP_SPEED values:" % k)
+			for clip in CLIPS:
+				if est.has(clip):
+					print("    %-10s %6.3f" % [clip, float(est[clip]) * k])
+	else:
+		print("\n  NO ANCHOR for this model. Applying the method's own"
+			+ " calibration k = %.4f from the hollow_crown anchor:" % METHOD_K)
 		for clip in CLIPS:
 			if est.has(clip):
-				print("    %-10s %6.3f" % [clip, float(est[clip]) * k])
+				print("    %-10s %6.3f" % [clip, float(est[clip]) * METHOD_K])
+	if M.has("true"):
+		print("\n  TRUE ground speeds (stripped root motion) vs the stance estimate:")
+		for clip in CLIPS:
+			if est.has(clip) and (M["true"] as Dictionary).has(clip):
+				var tr: float = float(M["true"][clip])
+				print("    %-10s true %6.3f   estimate %6.3f   ratio %.3f"
+					% [clip, tr, float(est[clip]), float(est[clip]) / tr])
 	inst.queue_free()
 	quit(0)
 	return true

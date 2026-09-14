@@ -161,3 +161,37 @@ static func reset_all() -> void:
 	for i in range(AudioServer.bus_count):
 		AudioServer.set_bus_volume_db(i, 0.0)
 		AudioServer.set_bus_mute(i, false)
+
+
+# ── Audio that survives a tree pause ─────────────────────────────────────────────────────
+# ⭐ NOTES AND THE JOURNAL KEEP THE LEVEL'S SOUND (2026-09-13, the user, twice: "when you open
+# notes the sounds completely disappear … while you are reading nothing can make you panic, as
+# it is now, but you will hear the level sounds. And make it applicable to notes on every level").
+# `get_tree().paused = true` is what stops panic, entities and timers — that stays. But every
+# level's beds and positional emitters are PROCESS_MODE_INHERIT, so the pause muted them too.
+# These two helpers flip every currently-playing stream player to PROCESS_MODE_ALWAYS for the
+# life of the overlay and put the originals back. Shared by NoteUI and JournalUI so the two
+# pausing overlays cannot drift apart.
+static func keep_playing_through_pause(scene: Node) -> Array:
+	var kept: Array = []
+	if scene == null:
+		return kept
+	var stack: Array = [scene]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		for c in n.get_children():
+			stack.append(c)
+		if (n is AudioStreamPlayer or n is AudioStreamPlayer3D or n is AudioStreamPlayer2D) \
+				and n.get("playing") and n.process_mode != Node.PROCESS_MODE_ALWAYS:
+			kept.append([n, n.process_mode])
+			n.process_mode = Node.PROCESS_MODE_ALWAYS
+	return kept
+
+
+static func release_pause_exempt(kept: Array) -> void:
+	for entry in kept:
+		# Untyped on purpose: a one-shot player that finished (and freed itself) under the page
+		# throws on assignment to a typed Node var before is_instance_valid() can run.
+		var n = entry[0]
+		if is_instance_valid(n):
+			(n as Node).process_mode = entry[1]

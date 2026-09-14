@@ -89,6 +89,9 @@ backlogs
 #   textures/intro/door_from_intro_to_lab.png              cutout_alpha.py -> restencil_door.py
 #   textures/level_3_corridor/door_from_corridor_to_...    manual crop (assets_src/README.md)
 #   audio/level_2_house/chase.wav                          tools/make_loop.py
+#   audio/level_9_dungeon/*.mp3 (two, ~1 MB)               ffmpeg -> tools/make_loop.py (parasite_chase)
+#   (models/parasite/*.fbx are INPUT too but fall under the models rule below — 3 × Mixamo
+#    FBX of one mesh; SHA-256s in assets_src/README.md)
 # Everything else is local-only. It is still irreplaceable — the pipelines are destructive and
 # generations are stochastic — but no automated step needs it, so it does not belong in a repo
 # other people clone.

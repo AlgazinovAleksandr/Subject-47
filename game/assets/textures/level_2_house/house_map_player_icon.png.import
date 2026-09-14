@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dfrfd6lkyq05j"
-path="res://.godot/imported/house_map_player_icon.png-3049a9221adf3cb28fb72b56a405f9f7.ctex"
+path.s3tc="res://.godot/imported/house_map_player_icon.png-3049a9221adf3cb28fb72b56a405f9f7.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_2_house/house_map_player_icon.png"
-dest_files=["res://.godot/imported/house_map_player_icon.png-3049a9221adf3cb28fb72b56a405f9f7.ctex"]
+dest_files=["res://.godot/imported/house_map_player_icon.png-3049a9221adf3cb28fb72b56a405f9f7.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

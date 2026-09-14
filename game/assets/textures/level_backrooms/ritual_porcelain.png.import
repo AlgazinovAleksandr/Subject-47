@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://djdiyb5qlika6"
-path="res://.godot/imported/ritual_porcelain.png-d1e1b396aa4b015da09a7c3b8cf9e799.ctex"
+path.s3tc="res://.godot/imported/ritual_porcelain.png-d1e1b396aa4b015da09a7c3b8cf9e799.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_backrooms/ritual_porcelain.png"
-dest_files=["res://.godot/imported/ritual_porcelain.png-d1e1b396aa4b015da09a7c3b8cf9e799.ctex"]
+dest_files=["res://.godot/imported/ritual_porcelain.png-d1e1b396aa4b015da09a7c3b8cf9e799.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

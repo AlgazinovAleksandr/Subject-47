@@ -374,6 +374,20 @@ func _process(delta: float) -> bool:
 			_ok("…and the camera has been turned squarely onto it", float(r["dot"]) >= 0.9,
 				"dot %.2f after the 0.45 s turn" % r["dot"])
 			_ok("…and the player is pinned while it stands there", _player.is_input_frozen())
+			# H3 (2026-09-13): the Ambience bed is DIPPED under the figure, and the scream is
+			# a real player, primed to land CHILD_SCREAM_LEAD into that silence.
+			# (The dip is CHILD_DIP 0.4 s and this stage samples at 1.0 s, so the ORDER is asserted
+			# off the source: the dip is fired before the scream is spawned.)
+			var src := FileAccess.get_file_as_string("res://scripts/level_2.gd")
+			var fn := src.find("func _cellar_child_appear(")
+			var body := src.substr(fn, src.find("\nfunc ", fn + 10) - fn) if fn >= 0 else ""
+			_ok("H3: the Ambience dip is fired BEFORE the scream is spawned",
+				body.find("HoldBreath.dip(") >= 0 and body.find("HoldBreath.dip(") < body.find("_spawn_guest_child()"))
+			var sp := _scene.get_node_or_null("GuestChildAudio") as AudioStreamPlayer3D
+			_ok("H3: the scream emitter exists at the figure with the loud ceiling",
+				sp != null and sp.max_db >= 24.0 and sp.stream != null)
+			_ok("H3: the scream leads the dip by nothing — it lands into it",
+				float(_scene.get("CHILD_SCREAM_LEAD")) > 0.0 and float(_scene.get("CHILD_SCREAM_LEAD")) < float(_scene.get("CHILD_DIP")))
 			# The two properties that keep it free.
 			_ok("the figure feeds NO gaze panic (no ScaryObject ancestor)",
 				not _has_ancestor_scary(child))
@@ -510,6 +524,9 @@ func _process(delta: float) -> bool:
 		_ok("the thing inside is hidden until it is opened",
 			not bool((_fridge.get_node("FridgeThing") as Node3D).visible))
 		_player.set("_panic", 0.0)
+		# H2 (2026-09-13): the fridge is CHAINED now; this test is about the reveal, so the chain
+		# is cut the silent way first (check_house_fridge_chain.gd covers the chain itself).
+		_fridge.call("mark_unchained")
 		_fridge.call("interact")
 		_ok("the fridge reports itself open", bool(_fridge.call("is_open")))
 		_ok("and it goes completely inert — no stale 'Press E'",

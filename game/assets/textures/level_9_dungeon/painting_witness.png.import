@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bvcmr7y2db3ef"
-path="res://.godot/imported/painting_witness.png-fc6d9aa2de9086870639246e26d2cd41.ctex"
+path.s3tc="res://.godot/imported/painting_witness.png-fc6d9aa2de9086870639246e26d2cd41.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_9_dungeon/painting_witness.png"
-dest_files=["res://.godot/imported/painting_witness.png-fc6d9aa2de9086870639246e26d2cd41.ctex"]
+dest_files=["res://.godot/imported/painting_witness.png-fc6d9aa2de9086870639246e26d2cd41.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b7i0qg3sjp4a7"
-path="res://.godot/imported/ordinary_hotel_door.png-1724b813922ac2c54b46f9d2a1faa7f0.ctex"
+path.s3tc="res://.godot/imported/ordinary_hotel_door.png-1724b813922ac2c54b46f9d2a1faa7f0.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_3_corridor/ordinary_hotel_door.png"
-dest_files=["res://.godot/imported/ordinary_hotel_door.png-1724b813922ac2c54b46f9d2a1faa7f0.ctex"]
+dest_files=["res://.godot/imported/ordinary_hotel_door.png-1724b813922ac2c54b46f9d2a1faa7f0.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

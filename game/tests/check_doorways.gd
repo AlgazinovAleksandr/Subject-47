@@ -68,7 +68,10 @@ const CONFIG := {
 	"SCENE_DUNGEON": {
 		"no_doors": "dungeon_gen.gd generates the graph at runtime; no DOORS constant",
 	},
-	"SCENE_LEVEL_3": {"no_doors": "level_3.gd hand-builds the Void; no DOORS constant"},
+	# ⭐ The Void is a RoomBuilder level since 2026-09-12 (14 rooms, 14 doorways) and is measured
+	# like every other one. The first build put the Morgue a metre short of the tile hall, so its
+	# doorway cut one wall and not the other — exactly what this guard exists to see.
+	"SCENE_LEVEL_3": {},
 }
 
 var _rows: Array = []

@@ -17,8 +17,8 @@ const SHOTS := [
 	# over every frame this harness exists to judge, including every turn mirror. The
 	# traps in this stretch are at 150 / 155 / 162 / 168; 152.6 is 2.4 m clear of the nearest.
 	[152.6, 160.0, "05_dark_stretch"],
-	[280.0, 285.0, "06_mirror"],
-	[313.0, 319.5, "07_exit_door"],
+	[415.0, 420.0, "06_mirror"],
+	[448.0, 454.5, "07_exit_door"],
 	[43.0, 53.0, "08_corner1"],
 	[83.0, 93.0, "09_corner2"],
 	[178.0, 188.0, "10_corner4"],
@@ -28,7 +28,9 @@ const SHOTS := [
 	# judges is whether that corner reads as an ordinary corner rather than as a hole where
 	# a prop used to be.
 	[228.3, 229.8, "12_corner_230_bare"],
-	[273.3, 274.8, "13_turnmirror_275"],
+	[408.3, 409.8, "13_turnmirror_410"],
+	[100.0, 105.0, "17_spur1_mouth"],
+	[240.0, 245.0, "18_spur2_mouth"],
 	[13.0, 19.0, "14_ordinary_door"],
 	# ⚠️ 169.6, not 168.0 — there is a beartrap at exactly d=168, and this shot sprang it.
 	# The escape HUD then sat over the ONE frame in this harness that exists to judge whether

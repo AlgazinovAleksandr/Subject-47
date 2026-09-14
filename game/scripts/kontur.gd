@@ -57,9 +57,24 @@ const PRESERVE := ["Environment", "AmbientPlayer", "HUDCanvas", "Player"]
 const _DOOR_SCRIPT := preload("res://scripts/door.gd")
 const _NOTE_SCRIPT := preload("res://scripts/note.gd")
 
-const STRIKE_PANIC := 18.0        # 3 x 18 = 54 > PANIC_MAX (50)
-const FLASH_PATH := TEX + "kontur_flash.png"
-const FLASH_AUDIO := "kontur_flash"
+# ⭐⭐ K2 (2026-09-13, capture #20, the user's design): A WRONG ACTION IS FATAL, AFTER ~20 s OF
+# RISING DREAD. The 2D flash + STRIKE_PANIC 18 and the three-strike ledger are GONE ("I do not
+# like this 2d image with the weird sound. Let's drop it completely … write in red like You've
+# done something wrong and you will pay for it. Your panic starts increasing and the tension in
+# the room is becoming more and more intense until you die. It will last for around 20 seconds").
+# `_condemn()` scrawls the sentence, pins decay, drives panic up an ease-in curve that reaches
+# PANIC_MAX at CONDEMN_TIME (so the bar's own screamer kills — no bespoke death path), pulses the
+# lamps red and rides a drone's pitch up. Every former `_strike()` caller condemns; so does
+# `_forfeit()`. ⚠️ Gate 8's MISTIMED catch is one of those callers and is therefore fatal too —
+# reported to the user as the harshest consequence of "every wrong action".
+const CONDEMN_TIME := 20.0
+const CONDEMN_TEXT := "YOU'VE DONE SOMETHING WRONG.\nYOU WILL PAY FOR IT."
+const CONDEMN_OBJECTIVE := "YOU WILL PAY FOR IT."
+const CONDEMN_DRONE_DB := -10.0    # kontur_condemn.wav measured -9.0 dBFS RMS (make_sfx_kontur_condemn.py); under the stings
+var _condemned: bool = false
+var _condemn_t: float = 0.0
+var _condemn_drone: AudioStreamPlayer = null
+var _condemn_colours: Dictionary = {}   # lamp -> its own colour, for the red ride
 
 # ⚠️ Was "47" — Subject 47, from the intro room's opening note. BACKLOG #24: that made
 # the one gate designed to be answered from memory into the one gate nobody had to look
@@ -138,7 +153,6 @@ const RANDOM_APPARITIONS := true
 
 var _builder: RoomBuilder
 var _lights: Array = []           # [OmniLight3D, base_energy]
-var _strikes: int = 0
 var _held_bottle: String = ""     # "" | "vinegar" | "bleach" | "poison" | "water"
 var _barrier: FungalBarrier
 var _vinegar_sheet: WallSheet = null
@@ -173,6 +187,7 @@ var _gates := {
 
 # Gate 7 state: [MeshInstance3D, is_real]
 var _dark_seams: Array = []
+var _dark_plug: CSGBox3D = null   # K5 (2026-09-13): the real doorway wears WALL while the torch is on
 
 # Gate 8 state. _airlock_t is time-in-zone, driving the marker's oscillation phase.
 var _airlock_t: float = 0.0
@@ -324,6 +339,8 @@ const GATE1_X := 2.0
 # and Terminus are built at whichever is drawn, so "which of the three doors is real"
 # has a different answer every run.
 const DARK_CANDIDATES := [-3.0, 0.0, 3.0]
+const BLACKOUT_DOOR_Z := 51.0        # Switchboard <-> Blackout doorway (DOORS)
+const BLACKOUT_FIG_AHEAD := 2.6      # K3: the dark figure stands this far past it
 
 const DOORS := [
 	{ "pos": Vector2(0, 4),           "width": 1.8, "dir": "z" },   # Landing     <-> Vestibule
@@ -440,7 +457,6 @@ func _place_player() -> void:
 func save_progress() -> Dictionary:
 	return {
 		"gates": _gates.duplicate(),
-		"strikes": _strikes,
 		"forfeited": _forfeited,
 		"has_hammer": _has_hammer,
 		"held_bottle": _held_bottle,
@@ -493,7 +509,6 @@ func _restore_progress() -> void:
 		return
 	for key in data.get("gates", {}):
 		_gates[key] = bool(data["gates"][key])
-	_strikes = int(data.get("strikes", 0))
 	_forfeited = bool(data.get("forfeited", false))
 	_has_hammer = bool(data.get("has_hammer", false))
 	_held_bottle = String(data.get("held_bottle", ""))
@@ -662,21 +677,255 @@ func _spawn_dread() -> void:
 
 # A wrong answer. Survivable on its own; the third one is not, because add_panic()
 # fires the fatal screamer once _panic crosses PANIC_MAX.
+# Every wrong answer lands here (K2). The name is kept for its eleven callers; it condemns.
 func _strike(message: String) -> void:
-	_strikes += 1
-	Screamer.flash_scare(FLASH_PATH, FLASH_AUDIO, 0.8)
+	_notice(message, Color(1.0, 0.3, 0.25))
+	_condemn(message)
+
+
+func _condemn(reason: String) -> void:
+	if _condemned:
+		return
+	_condemned = true
+	_condemn_t = 0.0
 	var p := _player()
 	if p:
 		p.jolt_camera(0.1, 0.5)
-		p.add_panic(STRIKE_PANIC)
-	_notice(message, Color(1.0, 0.3, 0.25))
-	_log_strike_to_archive()   # the facility files it in lot 23-Z (P2-F1)
-
-	# Playtest instrumentation. Guarded so removing the DebugLog autoload is enough
-	# to strip it — nothing here affects play.
+		if p.has_method("set_no_decay"):
+			p.set_no_decay(true)
+	ScreenText.scrawl(get_tree(), CONDEMN_TEXT, 5.0, 46)
+	GameState.set_objective(CONDEMN_OBJECTIVE)
+	for entry in _lights:
+		var lamp: OmniLight3D = entry[0]
+		if is_instance_valid(lamp):
+			_condemn_colours[lamp] = lamp.light_color
+	var s := GameState.load_audio("kontur_condemn")
+	if s:
+		_condemn_drone = AudioStreamPlayer.new()
+		_condemn_drone.name = "CondemnDrone"
+		_condemn_drone.stream = s
+		_condemn_drone.volume_db = CONDEMN_DRONE_DB
+		_condemn_drone.bus = "Master"          # not Ambience: a HoldBreath dip must not silence the sentence
+		_condemn_drone.pitch_scale = 0.8
+		add_child(_condemn_drone)
+		_condemn_drone.finished.connect(_condemn_drone.play)
+		_condemn_drone.play()
+	_condemn_beats = {"whisper": -1.0, "bed": -1.0, "figures": 0, "flashes": 0, "final": false}
+	_condemn_next_figure = CONDEMN_FIGURES_FROM
+	_condemn_next_flash = CONDEMN_FLASHES_FROM
+	_condemn_flash_gap = 3.0
 	var dbg := get_node_or_null("/root/DebugLog")
 	if dbg and dbg.has_method("note"):
-		dbg.note("STRIKE %d/3 — %s" % [_strikes, message])
+		dbg.note("CONDEMNED — %s" % reason)
+
+
+# ⭐ K3 (2026-09-13, the user: "after 'you will pay for it' nothing happens for 20 seconds").
+# The sentence is STAGED now, on the same clock, every stage a channel and none of them a number:
+#   0–6 s   whispers at the ear and the camera rolls (the blue-phone hallucination's idiom)
+#   6–12 s  figures stand at the edge of whatever room you are in and are GONE the frame you
+#           look at them; a discordant choir bed fades in under the drone
+#   12–18 s the screen cuts to black, then red, at a quickening rate; the sentence bleeds back
+#   18–20 s one figure at arm's length ahead, in frame, then the bar kills as before
+# Every beat is refused while a note is open or the tree is paused — it postpones, the clock
+# does not. Panic still comes only from the ease-in curve; nothing here adds any.
+const CONDEMN_FIGURES_FROM := 6.0
+const CONDEMN_FIGURE_EVERY := 2.0
+const CONDEMN_FLASHES_FROM := 12.0
+const CONDEMN_FLASH_GAPS := [3.0, 2.0, 1.2, 0.7, 0.5]
+const CONDEMN_FINAL_AT := 18.0
+# K2 (2026-09-14, the user's pick: "standing there when the lights return"). The finale: at
+# CONDEMN_FINAL_AT every lamp and the torch die; CONDEMN_DARK_HOLD later they come back and
+# the figure is 1.5 m ahead, in frame, and lunges to black (Screamer.trigger_with_lunge). The
+# bar is held just under the kill while that plays so the in-world death is the one that
+# lands; the force-kill at CONDEMN_TIME + CONDEMN_FALLBACK stays as the safety valve.
+const CONDEMN_DARK_HOLD := 2.0
+const CONDEMN_FINAL_AHEAD := 1.5
+const CONDEMN_HOLD_RATIO := 0.96
+const CONDEMN_FALLBACK := 3.0
+var _condemn_dark: bool = false
+var _condemn_dark_at: float = -1.0
+const CONDEMN_BED_DB := -8.0     # kontur_condemn_bed.wav measured -17.1 dBFS RMS (make_sfx_kontur_condemn.py)
+var _condemn_beats: Dictionary = {}
+var _condemn_next_figure: float = 0.0
+var _condemn_next_flash: float = 0.0
+var _condemn_flash_gap: float = 3.0
+var _condemn_flash_i: int = 0
+var _condemn_figures: Array = []
+var _condemn_bed: AudioStreamPlayer = null
+var _condemn_flash_layer: CanvasLayer = null
+
+
+func condemn_beats() -> Dictionary:
+	return _condemn_beats
+
+
+func _condemn_fair() -> bool:
+	if get_tree().paused:
+		return false
+	var nu := get_node_or_null("/root/NoteUI")
+	if nu and bool(nu.get("is_open")):
+		return false
+	var p := _player()
+	return p != null and not p.is_input_frozen()
+
+
+func _tick_condemn_beats(p: Node) -> void:
+	var t: float = _condemn_t
+	if not _condemn_fair():
+		return
+	# stage 1: the whisper at the ear + the roll
+	if float(_condemn_beats["whisper"]) < 0.0 and t >= 0.5:
+		_condemn_beats["whisper"] = t
+		var behind: Vector3 = p.global_position - (p as Node3D).global_transform.basis.z * -0.6 + Vector3(0, 1.5, 0)
+		_play_at("phone_whisper", behind, 4.0)
+		_hallucination_roll(p)
+	# stage 2: the bed, and figures at the edges that vanish when looked at
+	if float(_condemn_beats["bed"]) < 0.0 and t >= CONDEMN_FIGURES_FROM:
+		_condemn_beats["bed"] = t
+		var s := GameState.load_audio("kontur_condemn_bed")
+		if s:
+			_condemn_bed = AudioStreamPlayer.new()
+			_condemn_bed.name = "CondemnBed"
+			_condemn_bed.stream = s
+			_condemn_bed.bus = "Master"
+			_condemn_bed.volume_db = -40.0
+			add_child(_condemn_bed)
+			_condemn_bed.finished.connect(_condemn_bed.play)
+			_condemn_bed.play()
+			var tw := create_tween()
+			tw.tween_property(_condemn_bed, "volume_db", CONDEMN_BED_DB, 3.0)
+	if t >= _condemn_next_figure and t < CONDEMN_FINAL_AT:
+		_condemn_next_figure = t + CONDEMN_FIGURE_EVERY
+		if _condemn_edge_figure(p):
+			_condemn_beats["figures"] = int(_condemn_beats["figures"]) + 1
+	# figures are GONE the frame they enter the frustum
+	var cam := p.get_node_or_null("Camera3D") as Camera3D
+	if cam:
+		for f in _condemn_figures.duplicate():
+			if not is_instance_valid(f):
+				_condemn_figures.erase(f)
+				continue
+			if cam.is_position_in_frustum((f as Node3D).global_position + Vector3(0, 1.0, 0)):
+				_condemn_figures.erase(f)
+				(f as Node).queue_free()
+	# stage 3: the cuts
+	if t >= _condemn_next_flash and t < CONDEMN_FINAL_AT + 1.0:
+		_condemn_flash_gap = float(CONDEMN_FLASH_GAPS[mini(_condemn_flash_i, CONDEMN_FLASH_GAPS.size() - 1)])
+		_condemn_flash_i += 1
+		_condemn_next_flash = t + _condemn_flash_gap
+		_condemn_flash()
+		_condemn_beats["flashes"] = int(_condemn_beats["flashes"]) + 1
+	# stage 4 (K2): the lights die...
+	if not bool(_condemn_beats["final"]) and t >= CONDEMN_FINAL_AT:
+		_condemn_beats["final"] = true
+		_condemn_dark = true
+		_condemn_dark_at = t
+		for entry in _lights:                # now, not next frame — the lamp loop has already run
+			var lamp: OmniLight3D = entry[0]
+			if is_instance_valid(lamp):
+				lamp.light_energy = 0.0
+		p.force_flashlight_off()
+		if _env:
+			_env.ambient_light_energy = 0.0
+		_play_at("light_pop", p.global_position + Vector3(0, 2.6, 0), 4.0, 12.0, 10.0)
+		for f in _condemn_figures:
+			if is_instance_valid(f):
+				(f as Node).queue_free()
+		_condemn_figures.clear()
+	# ...and come back with it standing there.
+	if _condemn_dark and not bool(_condemn_beats.get("returned", false)) and t >= _condemn_dark_at + CONDEMN_DARK_HOLD:
+		_condemn_beats["returned"] = true
+		_condemn_dark = false
+		p.restore_flashlight()
+		if _env:
+			_env.ambient_light_energy = DARK_AMBIENT
+		p.jolt_camera(0.12, 0.4)
+		Screamer.trigger_with_lunge(TEX + "kontur_figure.png", CONDEMN_FINAL_AHEAD, 0.5, 0.3)
+
+
+# A figure at the edge of the CURRENT room, out of the camera's frame. Tries the headings behind
+# and beside the player at 3–4 m; Watcher.spawn() validates clearance and LOS with rays.
+func _condemn_edge_figure(p: Node) -> bool:
+	var cam := p.get_node_or_null("Camera3D") as Camera3D
+	var fwd: Vector3 = -(p as Node3D).global_transform.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized()
+	for deg in [150.0, -150.0, 110.0, -110.0, 180.0, 80.0, -80.0, 60.0, -60.0]:
+		for d in [3.5, 2.6, 1.9]:
+			var dir := fwd.rotated(Vector3.UP, deg_to_rad(deg))
+			var spot: Vector3 = p.global_position + dir * d
+			spot.y = 0.0
+			if cam and cam.is_position_in_frustum(spot + Vector3(0, 1.0, 0)):
+				continue
+			var w := Watcher.spawn(self, spot, TEX + "creature_shapechanger.png", 0.0, true, 1.9,
+				Color(0.33, 0.31, 0.35))
+			if w:
+				w.name = "CondemnFigure"
+				w.persistent = true
+				_condemn_figures.append(w)
+				return true
+	return false
+
+
+# Black for 0.3 s, then red for 0.25 s, then gone; the sentence redrawn under it at half weight.
+func _condemn_flash() -> void:
+	if _condemn_flash_layer and is_instance_valid(_condemn_flash_layer):
+		_condemn_flash_layer.queue_free()
+	var layer := CanvasLayer.new()
+	layer.name = "CondemnFlash"
+	layer.layer = 90          # under the Screamer (100), over everything else
+	layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	var rect := ColorRect.new()
+	rect.color = Color(0, 0, 0, 1)
+	rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(rect)
+	add_child(layer)
+	_condemn_flash_layer = layer
+	var tw := create_tween()
+	tw.tween_interval(0.3)
+	tw.tween_callback(func() -> void: rect.color = Color(0.55, 0.02, 0.02, 0.85))
+	tw.tween_interval(0.25)
+	tw.tween_callback(func() -> void:
+		if is_instance_valid(layer):
+			layer.queue_free()
+		if _condemn_flash_layer == layer:
+			_condemn_flash_layer = null)
+	ScreenText.scrawl(get_tree(), CONDEMN_TEXT, 1.0, 46)
+	var p := _player()
+	if p:
+		p.jolt_camera(0.06, 0.2)
+
+
+# The 20 s. Panic follows an ease-in curve to PANIC_MAX; the lamps go red and dim; the drone
+# climbs 0.8 -> 1.4. Nothing here calls Screamer — the bar does, exactly as any other death.
+func _tick_condemn(delta: float) -> void:
+	if not _condemned:
+		return
+	_condemn_t += delta
+	var r: float = clampf(_condemn_t / CONDEMN_TIME, 0.0, 1.0)
+	var p := _player()
+	if p == null:
+		return
+	_tick_condemn_beats(p)
+	var pmax: float = float(p.get("PANIC_MAX"))
+	var target: float = pmax * r * r
+	if bool(_condemn_beats.get("final", false)):
+		target = minf(target, pmax * CONDEMN_HOLD_RATIO)   # K2: the lunge lands the death
+	var cur: float = float(p.call("get_panic_ratio")) * pmax
+	if target > cur:
+		p.add_panic(target - cur)
+	if _condemn_t >= CONDEMN_TIME + CONDEMN_FALLBACK and not Screamer.is_lunging():
+		p.add_panic(pmax)
+	if is_instance_valid(_condemn_drone):
+		_condemn_drone.pitch_scale = lerpf(0.8, 1.4, r)
+	var pulse: float = 0.72 + 0.28 * sin(_condemn_t * TAU * (0.6 + 1.4 * r))
+	for entry in _lights:
+		var lamp: OmniLight3D = entry[0]
+		if not is_instance_valid(lamp) or not _condemn_colours.has(lamp):
+			continue
+		lamp.light_color = (_condemn_colours[lamp] as Color).lerp(Color(0.9, 0.08, 0.06), r)
+		lamp.light_energy *= (1.0 - 0.55 * r) * pulse
 
 
 func _notice(text: String, color: Color) -> void:
@@ -727,9 +976,8 @@ func _forfeit(reason: String) -> void:
 	if _forfeited:
 		return
 	_forfeited = true
-	_strike(reason)
-	ScreenText.scrawl(get_tree(), "THE PROTOCOL IS VOID\nYOU DO NOT LEAVE THIS FLOOR", 4.0, 46)
-	GameState.set_objective("PROTOCOL 4-B VOIDED — THERE IS NO EXIT NOW")
+	_notice(reason, Color(1.0, 0.3, 0.25))
+	_condemn(reason)   # K2: a forfeit is a wrong action like any other — the sentence, then death
 	_refresh_exit()
 	var dbg := get_node_or_null("/root/DebugLog")
 	if dbg and dbg.has_method("note"):
@@ -1302,7 +1550,12 @@ func _add_phone(colour: String, role: String, tint: Color, pos: Vector3) -> void
 func _on_phone_answered(colour: String) -> void:
 	match colour:
 		"yellow":
-			Screamer.trigger()          # a dead line answers with a scream; the run is lost
+			# K2 (2026-09-14): a dead line answers with the figure — in the world, at arm's
+			# length, then the funnel. Screamer.trigger() is still what ends the run.
+			# 1.0 m, not the 2.2 default: the phones stand on a desk with NO collider (so E
+			# reaches them), and the Screamer's placement rays cannot see it — at 2.2 m the
+			# figure stood IN the desk (rendered). 1.0 m is on the player's side of its edge.
+			Screamer.trigger_with_lunge(TEX + "kontur_figure.png", 1.0, 0.5, 0.28)
 		"blue":
 			_blue_answer_hallucinate()
 		"green":
@@ -1502,7 +1755,13 @@ func _spawn_gate6_hammer() -> void:
 	var hammer := KeyItem.new()
 	hammer.name = "Hammer"
 	hammer.label_text = "Hammer collected"
-	hammer.position = Vector3(-1.8, 0.95, -1.5)   # resting on the bench top (face at y 0.75)
+	# ⭐ 2026-09-13 (capture #010, the user: "looks very 2D from the side and floats"): a hammer
+	# built from PARTS, LYING on the bench top (face at y 0.75) — an ash handle along the bench,
+	# a steel head with a squared face and a forked claw, a ferrule where they meet. Yawed off
+	# the bench's axes so it reads as dropped there, not placed. `kontur_hammer.png` (the old
+	# upright quad) is retired to assets_src/textures/superseded/.
+	hammer.position = Vector3(-1.8, 0.75, -1.5)
+	hammer.rotation.y = 0.55
 	hammer.picked_up.connect(func() -> void:
 		_has_hammer = true
 		GameState.set_carried("hammer")
@@ -1510,30 +1769,64 @@ func _spawn_gate6_hammer() -> void:
 	)
 	add_child(hammer)
 
-	var mesh := MeshInstance3D.new()
-	var quad := QuadMesh.new()
-	quad.size = Vector2(0.4, 0.4)
-	mesh.mesh = quad
-	var tex_path := TEX + "kontur_hammer.png"
-	var mat := StandardMaterial3D.new()
-	if ResourceLoader.exists(tex_path):
-		mat.albedo_texture = load(tex_path)
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	else:
-		mat.albedo_color = Color(0.35, 0.3, 0.22)
-	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	# ⚠️ SHADED since 2026-09-03 — it was UNSHADED, i.e. self-lit, and once the Soviet half went
-	# dark a rusty hammer hung glowing in a black stairwell. It sits 2 m from the spawn point on
-	# the player's first sweep of the room, so the torch finds it immediately; what it must not
-	# do is find the player.
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
-	mesh.set_surface_override_material(0, mat)
-	hammer.add_child(mesh)
+	var wood := _mat("", 1.0, Color(0.36, 0.26, 0.15))
+	var steel := _mat("", 1.0, Color(0.16, 0.16, 0.17))
+	steel.metallic = 0.6
+	steel.roughness = 0.45
+	var handle := MeshInstance3D.new()
+	handle.name = "HammerHandle"
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.016
+	cyl.bottom_radius = 0.018
+	cyl.height = 0.32
+	handle.mesh = cyl
+	handle.material_override = wood
+	handle.rotation.z = PI / 2.0                 # lying along local x
+	handle.position = Vector3(-0.05, 0.018, 0.0)
+	hammer.add_child(handle)
+	var ferrule := MeshInstance3D.new()
+	ferrule.name = "HammerFerrule"
+	var fc := CylinderMesh.new()
+	fc.top_radius = 0.021
+	fc.bottom_radius = 0.021
+	fc.height = 0.03
+	ferrule.mesh = fc
+	ferrule.material_override = steel
+	ferrule.rotation.z = PI / 2.0
+	ferrule.position = Vector3(0.10, 0.021, 0.0)
+	hammer.add_child(ferrule)
+	var head := MeshInstance3D.new()
+	head.name = "HammerHead"
+	var hb := BoxMesh.new()
+	hb.size = Vector3(0.05, 0.045, 0.12)        # across the handle's end
+	head.mesh = hb
+	head.material_override = steel
+	head.position = Vector3(0.13, 0.0225, 0.0)
+	hammer.add_child(head)
+	var face := MeshInstance3D.new()             # the striking face, a touch wider
+	face.name = "HammerFace"
+	var fb := BoxMesh.new()
+	fb.size = Vector3(0.056, 0.05, 0.03)
+	face.mesh = fb
+	face.material_override = steel
+	face.position = Vector3(0.13, 0.025, 0.075)
+	hammer.add_child(face)
+	for k in 2:                                  # the claw: two prongs splaying back
+		var prong := MeshInstance3D.new()
+		prong.name = "HammerClaw%d" % k
+		var pb := BoxMesh.new()
+		pb.size = Vector3(0.05, 0.018, 0.07)
+		prong.mesh = pb
+		prong.material_override = steel
+		prong.position = Vector3(0.13 + (0.012 if k == 0 else -0.012), 0.014, -0.09)
+		prong.rotation.x = -0.35
+		hammer.add_child(prong)
 
 	var col := CollisionShape3D.new()
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(0.4, 0.4, 0.2)
+	shape.size = Vector3(0.40, 0.10, 0.18)
 	col.shape = shape
+	col.position = Vector3(0.0, 0.04, 0.0)
 	hammer.add_child(col)
 
 
@@ -1599,6 +1892,24 @@ func _spawn_gate7_dark() -> void:
 		_dark_seams.append([marker, is_real])
 
 		if is_real:
+			# ⚠️ K5 (2026-09-13, capture #23: "the real door was visible with the torch on"). The real
+			# seam is a real DOORWAY cut by RoomBuilder — a hole in the far wall — so hiding the glowing
+			# marker under the beam left a door-shaped GAP in a torch-lit tiled wall, which is the
+			# answer handed over in the light. The rule is "the way out is not there in the light", so
+			# the opening now wears a plug of the same triplanar facility tile while the torch is on and
+			# the gate is unpassed; torch off, the plug goes and the seam glows in the gap. No collider
+			# (the player must still be able to walk through when they turn the light off and commit).
+			# Sized to the opening (its faces continue the wall.s planes; it only TOUCHES the jambs) and lifted 15 mm off the
+			# floor so no face is coplanar with the wall, the floor bridge or the ceiling (Issue 20 and
+			# check_wall_overlap).
+			var plug := CSGBox3D.new()
+			plug.name = "DarkSeamPlug"
+			plug.size = Vector3(1.6, 2.98, 0.2)   # exactly the opening: a 1 cm slit showed the jambs as two lit lines
+			plug.position = Vector3(x, 1.505, 60.0)
+			plug.use_collision = false
+			plug.material = _mat(TEX + "kontur_facility_wall.png", 0.4, Color(0.62, 0.66, 0.62))
+			add_child(plug)
+			_dark_plug = plug
 			continue
 		# A decoy is solid wall. Walking into it costs a strike — retryable, because
 		# the room's whole job is to make you try the wrong one first.
@@ -1621,7 +1932,9 @@ func _spawn_gate7_dark() -> void:
 	# the torch OFF — the very state the real seam needs — and gone the instant you light the room.
 	# Zero panic, no collider, offset from the seam's x so it never occludes the answer.
 	var fig_x: float = _dark_x + (-1.6 if _dark_x >= 0.0 else 1.6)
-	_blackout_fig = _make_dark_figure(Vector3(fig_x, 0.0, 56.0))
+	# K3 (2026-09-13, capture #21: it stood mid-room, small and far): 2.6 m past the Switchboard
+	# doorway (z 51), on the approach line, so it is at arm's length the moment the torch goes off.
+	_blackout_fig = _make_dark_figure(Vector3(fig_x, 0.0, BLACKOUT_DOOR_Z + BLACKOUT_FIG_AHEAD))
 
 
 # A self-lit dark billboard, hidden by default; gate 7 shows it only while the torch is off. Unshaded
@@ -1638,7 +1951,10 @@ func _make_dark_figure(pos: Vector3) -> MeshInstance3D:
 		m.albedo_texture = load(tex_path)
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	m.albedo_color = Color(0.30, 0.29, 0.33)
+	# K3 (2026-09-13): at 2.6 m from the doorway the seam is no longer behind it to silhouette it, so
+	# the tint rose from (0.30, 0.29, 0.33) — which rendered as nothing on a black room — to a pale
+	# grey that reads as a shape in the dark and still sits well under the seam's glow.
+	m.albedo_color = Color(0.78, 0.76, 0.82)
 	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mi.material_override = m
@@ -1657,13 +1973,57 @@ func _tick_blackout_figure() -> void:
 	var pos := p.global_position
 	var in_room: bool = pos.z > 51.0 and pos.z < 60.5
 	var show: bool = in_room and not p.is_flashlight_on()
+	# ⭐ K4 (2026-09-13, capture #013: "I had to turn to see it — it should appear where the
+	# camera points, as close as now"). On the first reveal the figure is PLACED, not found: a
+	# frustum-first fan at BLACKOUT_FIG_AHEAD (2.6 m) — dead ahead, then ±18°/±36° — each spot
+	# ray-checked from the eye and kept off the real seam's x; if no in-frame spot is clear the
+	# camera is brought to the default spot with `turn_to_face()` (the Lab nook's idiom).
+	if show and not _blackout_fig_stung:
+		_blackout_fig_stung = true
+		_place_blackout_figure(p)
 	_blackout_fig.visible = show
 	# capture #9: it should hit with a jumpscare the first time you see it (torch off in the dark
 	# room). Zero panic — the figure is ruleless; the sting + a small jolt are the whole beat.
-	if show and not _blackout_fig_stung:
-		_blackout_fig_stung = true
+	if show and not _blackout_fig_stung_played:
+		_blackout_fig_stung_played = true
 		_play_at("jumpscare", _blackout_fig.global_position, 6.0, 6.0, 9.0)
 		p.jolt_camera(0.14, 0.4)
+
+
+var _blackout_fig_stung_played: bool = false
+
+
+func _place_blackout_figure(p: Node) -> void:
+	var cam := p.get_node_or_null("Camera3D") as Camera3D
+	if cam == null:
+		return
+	var eye: Vector3 = cam.global_position
+	var fwd: Vector3 = -cam.global_transform.basis.z
+	fwd.y = 0.0
+	if fwd.length() < 0.01:
+		return
+	fwd = fwd.normalized()
+	var space := (p as Node3D).get_world_3d().direct_space_state
+	for deg in [0.0, 18.0, -18.0, 36.0, -36.0]:
+		var dir := fwd.rotated(Vector3.UP, deg_to_rad(deg))
+		var spot: Vector3 = p.global_position + dir * BLACKOUT_FIG_AHEAD
+		spot.y = 0.0
+		if absf(spot.x - _dark_x) < 1.0:
+			continue                                 # never on the answer
+		if absf(spot.x) > 3.6 or spot.z < 51.4 or spot.z > 59.4:
+			continue                                 # inside the Blackout room (9 x 9 at z 51..60)
+		if not cam.is_position_in_frustum(spot + Vector3(0, 1.1, 0)):
+			continue
+		var q := PhysicsRayQueryParameters3D.create(eye, spot + Vector3(0, 1.1, 0))
+		q.exclude = [(p as CollisionObject3D).get_rid()]
+		q.collision_mask = 1
+		if not space.intersect_ray(q).is_empty():
+			continue
+		_blackout_fig.position = spot + Vector3(0, 0.95, 0)
+		return
+	# Nothing in frame: the figure stays on its authored mark and the camera comes to it.
+	if p.has_method("turn_to_face"):
+		p.call("turn_to_face", _blackout_fig.global_position, 0.35)
 
 
 # ---------------------------------------------------------------- gate 8: the airlock
@@ -1909,6 +2269,7 @@ func _spawn_creature() -> void:
 		_mimic_site = MIMIC_SITES[randi() % MIMIC_SITES.size()]
 	var c := CreatureShapechanger.new()
 	c.name = "Shapechanger"
+	c.death_figure = TEX + "kontur_figure.png"   # K2: its kill is an in-world lunge here
 
 	var shell := MimicShell.new()
 	shell.name = "MimicShell"
@@ -2838,26 +3199,10 @@ func _build_lot(side: float, shelf: int, z: float, kind: String, card: String) -
 
 
 # The facility files each mistake. Called from _strike(), and once at build for a resumed run.
-func _log_strike_to_archive() -> void:
-	_sync_archive_strikes()
-
-
+# K2: there is no ledger to file any more — the lot stays PENDING (the strike tags went with it).
 func _sync_archive_strikes() -> void:
-	if not is_instance_valid(_subject_lot):
-		return
-	for c in _subject_lot.get_children():
-		if String(c.name).begins_with("StrikeTag"):
-			_subject_lot.remove_child(c)
-			c.queue_free()
-	var tag_mat := _mb_mat(Color(0.10, 0.10, 0.11), 0.1, 0.7)
-	for i in range(mini(_strikes, 3)):
-		_mb_box(_subject_lot, "StrikeTag%d" % i, Vector3(0.07, 0.045, 0.10),
-			Vector3(-0.10 + i * 0.10, 0.032, 0.0), tag_mat)
 	if is_instance_valid(_subject_card):
-		if _strikes <= 0:
-			_subject_card.text = "LOT 23-Z   SUBJECT 47 — PENDING"
-		else:
-			_subject_card.text = "LOT 23-Z   SUBJECT 47 — %d OF 3 LOGGED" % _strikes
+		_subject_card.text = "LOT 23-Z   SUBJECT 47 — PENDING"
 
 
 # ---------------------------------------------------------------- A5: the hidden keycard
@@ -3053,6 +3398,8 @@ func _wall_panel(pos: Vector3, y_rot: float, height: float, tex_path: String) ->
 	# on two images that had no alpha at all, which is the same inert flag the old
 	# mailbox decal carried.
 	var img := tex.get_image()
+	if img != null and img.is_compressed():
+		img.decompress()   # textures import VRAM-compressed since 2026-09-13 (memory); get_pixel needs raw
 	if img and img.detect_alpha() != Image.ALPHA_NONE:
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
@@ -3258,11 +3605,15 @@ func _process(delta: float) -> void:
 		var base: float = entry[1]
 		if base <= 0.0:
 			continue
+		if _condemn_dark:
+			lamp.light_energy = 0.0
+			continue
 		if lamp.position.z > 51.0:
 			var flicker := 1.0 if sin(t * 47.0 + lamp.position.z) > -0.93 else 0.35
 			lamp.light_energy = base * flicker
 		else:
 			lamp.light_energy = base * (1.0 + sin(t * 5.0 + lamp.position.z) * 0.06)
+	_tick_condemn(delta)   # K2: after the lamp loop, so the red ride multiplies the flicker
 
 
 # Gate 7's tell, inverted against the flashlight exactly like the Backrooms Flood:
@@ -3280,3 +3631,6 @@ func _update_dark_seams() -> void:
 		var marker: MeshInstance3D = entry[0]
 		if is_instance_valid(marker):
 			marker.visible = (not lit) if entry[1] else lit
+	# K5: the real doorway is WALL under the beam (and open for good once the gate is passed).
+	if _dark_plug != null and is_instance_valid(_dark_plug):
+		_dark_plug.visible = lit and not bool(_gates.get("dark", false))

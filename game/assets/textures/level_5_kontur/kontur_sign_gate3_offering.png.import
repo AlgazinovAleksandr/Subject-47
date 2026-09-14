@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bsnkpdvuc06sk"
-path="res://.godot/imported/kontur_sign_gate3_offering.png-39a30c1ad9a9ccc8e8f3d31bedc7f66e.ctex"
+path.s3tc="res://.godot/imported/kontur_sign_gate3_offering.png-39a30c1ad9a9ccc8e8f3d31bedc7f66e.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_5_kontur/kontur_sign_gate3_offering.png"
-dest_files=["res://.godot/imported/kontur_sign_gate3_offering.png-39a30c1ad9a9ccc8e8f3d31bedc7f66e.ctex"]
+dest_files=["res://.godot/imported/kontur_sign_gate3_offering.png-39a30c1ad9a9ccc8e8f3d31bedc7f66e.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

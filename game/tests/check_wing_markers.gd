@@ -110,7 +110,7 @@ func _process(delta: float) -> bool:
 			_markers = _level.call("wing_marker_nodes")
 			var split := _split_doorways()
 			var wing: Array = split["wing"]
-			_ok("the wing has ten doorways (derived from ROOMS/DOORS/WING_ROOMS)", wing.size() == 10,
+			_ok("the wing has 30 doorways (derived from ROOMS/DOORS/WING_ROOMS; 21 + 9 for the 2026-09-13 loops/deeper ends)", wing.size() == 30,
 				"%d" % wing.size())
 			_ok("four strips per wing doorway (two faces, two jambs)", _markers.size() == wing.size() * 4,
 				"%d strips for %d doorways" % [_markers.size(), wing.size()])
@@ -151,6 +151,10 @@ func _process(delta: float) -> bool:
 					floating += 1
 					print("     strip %s: wall gap %.3f" % [mi.name, gap["back"]])
 			_ok("no strip carries a collider (a collider on a doorway seals a room)", colliders == 0)
+			# L1.1 (2026-09-13): dark red, the user's call — red dominant, not green.
+			var mc: Color = _consts().get("MARK_COLOUR", Color.WHITE)
+			_ok("the strips are DARK RED (red channel dominant)",
+				mc.r > mc.g * 3.0 and mc.r > mc.b * 3.0 and mc.r < 0.7, str(mc))
 			_ok("every strip's albedo is dark — the glow is the emission, not the paint", pale == 0,
 				"%d pale" % pale)
 			_ok("every strip is SEATED on a wall face (0.015–0.06 m), none floats", floating == 0,

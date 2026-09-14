@@ -45,6 +45,7 @@ var _capture_pos := Vector3.ZERO
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS   # keep logging while the tree is paused
+	_rotate_previous_session()
 	_f = FileAccess.open(LOG_PATH, FileAccess.WRITE)
 	_say("=== playtest session %s ===" % Time.get_datetime_string_from_system())
 	_say("log file: %s" % ProjectSettings.globalize_path(LOG_PATH))
@@ -53,11 +54,33 @@ func _ready() -> void:
 	_build_capture_ui()
 
 
+## A relaunch used to OVERWRITE the previous session's log and its numbered captures — on
+## 2026-09-13 a run the OS killed lost every typed J-note that way. The previous log and
+## capture folder are now moved aside under a timestamp before this session opens its own.
+func _rotate_previous_session() -> void:
+	var log_abs := ProjectSettings.globalize_path(LOG_PATH)
+	var cap_abs := ProjectSettings.globalize_path(CAPTURE_DIR).trim_suffix("/")
+	if not FileAccess.file_exists(log_abs) and not DirAccess.dir_exists_absolute(cap_abs):
+		return
+	var stamp := "unknown"
+	if FileAccess.file_exists(log_abs):
+		stamp = Time.get_datetime_string_from_unix_time(FileAccess.get_modified_time(log_abs))
+	stamp = stamp.replace(":", "-")
+	var da := DirAccess.open(ProjectSettings.globalize_path("user://"))
+	if da == null:
+		return
+	if FileAccess.file_exists(log_abs):
+		da.rename(log_abs, "%s.%s.txt" % [log_abs.trim_suffix(".txt"), stamp])
+	if DirAccess.dir_exists_absolute(cap_abs):
+		da.rename(cap_abs, "%s_%s" % [cap_abs, stamp])
+
+
 func _say(msg: String) -> void:
 	var line := "[%7.2f] %s" % [_t, msg]
 	print("LOG ", line)
 	if _f:
 		_f.store_line(line)
+		_f.flush()   # an OS kill (2026-09-13, low memory) must not take the buffered tail with it
 		_f.flush()          # flush every line — a crash must not lose the tail
 
 

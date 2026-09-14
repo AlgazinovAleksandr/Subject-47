@@ -1,6 +1,7 @@
 extends SceneTree
 
-# THE VOID (level_3.tscn) — photograph the four stalkers doing the thing they are for.
+# THE VOID (level_3.tscn) — photograph the stalkers doing the thing they are for.
+# (Six of them since the 2026-09-12 rebuild; the probe finds them by script, not by count.)
 # Run WITHOUT --headless.
 #
 #   /Applications/Godot.app/Contents/MacOS/Godot --path game --script res://tests/probe_void_creature.gd

@@ -105,7 +105,9 @@ const CONFIG := {
 		# the Void has no shell. That is Level 8's own pass to rule on: it may be intended,
 		# it may be why the level reads as unfinished, and it is not this pass's call.
 		# backlogs/08-void.md.
-		"min_points": 40, "filed_escapes": 142,
+		# ⭐ V-T2 CLOSED 2026-09-12: the rebuild has a shell. The tile hall's abyss is a walled
+		# pit whose floor is a storey of its own, so every ray from it is stopped too.
+		"min_points": 120,
 	},
 }
 
@@ -764,7 +766,10 @@ func _generic_punch() -> void:
 				continue
 			# ⚠️ Not a floor or a ceiling: this control is about seeing OUT.
 			var box: CSGBox3D = node
-			if box.size.y < 0.5:
+			# ⚠️ A WALL, not a floor, a ceiling or a PROP: the Lab's breaker panel is a CSG box
+			# standing in front of its wall, and deleting it proved nothing (2026-09-13, the
+			# doubled wing put a standable sample right in front of it).
+			if box.size.y < 2.0:
 				continue
 			# ⚠️ AND IT HAS TO BE AN OUTSIDE WALL. Deleting an interior partition proves
 			# nothing: the ray simply crosses the next room and is stopped by ITS far wall,
@@ -774,12 +779,22 @@ func _generic_punch() -> void:
 			var beyond: Vector3 = Vector3(hit["position"]) + dir * 0.6
 			if _stopped(beyond, beyond + dir * RAY_LEN):
 				continue
+			# ⚠️ NOT A GRAZING HIT. A ray that meets the wall within 0.6 m of its end clips the
+			# NEXT wall's corner once this one is gone and reports "still stopped" (the Lab's
+			# doubled wing, 2026-09-13: the nook's north wall hit at x -54.0, the east wall's
+			# corner). The hit must be well inside the slab's long axis.
+			var hp := Vector3(hit["position"])
+			var lo3: Vector3 = box.global_position - box.size * 0.5
+			var hi3: Vector3 = box.global_position + box.size * 0.5
+			var ax: int = 0 if box.size.x > box.size.z else 2
+			if hp[ax] - lo3[ax] < 0.6 or hi3[ax] - hp[ax] < 0.6:
+				continue
 			# ⚠️ REMEMBER THE NAME, NOT THE NODE. A freed Object compares EQUAL TO NULL in
 			# GDScript, so `_punched != null` on the node we have just deleted is false — the
 			# control reported "found no wall to delete" immediately after deleting one, and
 			# looked exactly like a control that could not fire. This is Issue 45's family:
 			# the wrong kind of nil check, silently.
-			_punched_name = String(node.name)
+			_punched_name = "%s size=%s at=%s dir=%s" % [node.name, box.size, box.global_position.snappedf(0.01), dir.snappedf(0.01)]
 			_punch_from = eye
 			_punch_dir = dir
 			node.get_parent().remove_child(node)

@@ -97,8 +97,22 @@ func _process(delta: float) -> bool:
 				have_green and have_yellow and have_blue,
 				"green=%s yellow=%s blue=%s" % [have_green, have_yellow, have_blue])
 
+			# K4: before the hammer the prompt is E only; after it, both keys are named.
+			_ok("prompt before the hammer names E only", String(y.call("prompt_text")).find("SPACE") < 0,
+				String(y.call("prompt_text")))
 			# Arm smashing (the player has the hammer).
 			_k.call("_arm_phones")
+			_ok("prompt with the hammer names E AND SPACE",
+				String(y.call("prompt_text")).find("E") >= 0 and String(y.call("prompt_text")).find("SPACE") >= 0,
+				String(y.call("prompt_text")))
+			# …and the HUD label carries it through the shipping ray.
+			var ypos: Vector3 = (y as Node3D).global_position
+			_p.global_position = ypos + Vector3(0, 0, 1.3) - Vector3(0, ypos.y, 0) + Vector3(0, 0.1, 0)
+			_p.call("ai_look_at", ypos)
+			var tgt = _p.call("ai_interact_target")
+			var lbl: Label = _p.get("interact_label")
+			_ok("aiming at the yellow phone puts BOTH keys on the HUD", tgt == y and lbl != null and lbl.text.find("SPACE") >= 0,
+				"target=%s label=%s" % [tgt, lbl.text if lbl else "-"])
 
 			# The ring cycle picks exactly one live phone.
 			_k.call("_tick_phones", 0.1)
@@ -134,7 +148,27 @@ func _process(delta: float) -> bool:
 			# Once resolved, the cycle rings nothing.
 			_k.call("_tick_phones", 0.1)
 			_ok("nothing rings once the gate is passed", _k.get("_ring_cur") == null)
-			return _done()
+			# K2 (2026-09-14): answering YELLOW is an in-world lunge that ends in the funnel.
+			# Driven last, because trigger() reloads the scene. (The yellow phone is smashed
+			# by now; the level's handler is what is under test, not the ring.)
+			var scr := root.get_node("/root/Screamer")
+			_k.call("_on_phone_answered", "yellow")
+			_ok("K2: the yellow answer starts a LUNGE, not the 2D flash", bool(scr.call("is_lunging")))
+			_ok("K2: the player is pinned for it", bool(_p.call("is_input_frozen")))
+			_ok("K2: a DeathLunger stands in the world", _k.get_node_or_null("DeathLunger") != null)
+			_ok("K2: ...with the level's sting AT it", _k.get_node_or_null("DeathLunger/LungeSting") != null)
+			_ok("K2: ...glowing (it must read in a dark room)", _k.get_node_or_null("DeathLunger/LungerLight") != null)
+			_ok("K2: no Screamer panel yet", not (scr.get("_black_panel") as CanvasItem).visible)
+			_t = 0.0
+			_phase = 99
+		99:
+			var scr2 := root.get_node("/root/Screamer")
+			if bool(scr2.get("_is_triggering")):
+				_ok("K2: the lunge ends in Screamer.trigger() within 1.5 s (%.2f s)" % _t, _t <= 1.5)
+				return _done()
+			if _t > 2.5:
+				_ok("K2: the lunge ends in Screamer.trigger()", false, "still not triggering at %.1f s" % _t)
+				return _done()
 	return false
 
 

@@ -36,6 +36,14 @@ const TIME_SCALE := 8.0
 const MIN_EXPECTED := 2
 const MIN_ACCEPTABLE_GAP := 60.0   # must be rarer than the 60 s metronome it replaced
 
+# ⭐ 2026-09-13: NOTHING appears in the Lab before the keycard (the user's rule, after a
+# figure showed up mid-breaker-hunt). The first KEYCARD_AT game-seconds run with no keycard
+# and must see ZERO appearances; then the keycard is taken through the level's own hook and
+# the count below applies to the remainder (the scripted HOLD 8–16 s later, then the director).
+const KEYCARD_AT := 150.0
+var _keycard_given := false
+var _before_keycard := 0
+
 var _elapsed := 0.0
 var _scene: Node
 var _seen := {}                  # instance id -> spawn time
@@ -73,7 +81,15 @@ func _process(delta: float) -> bool:
 		_scene = current_scene
 	if _scene == null:
 		return false
-		print("--- watching for %.0f s ---" % RUN_SECONDS)
+	if not _keycard_given and _elapsed >= KEYCARD_AT:
+		_keycard_given = true
+		_before_keycard = _seen.size()
+		var gs := root.get_node_or_null("GameState")
+		if gs:
+			gs.set("has_keycard", true)
+		if _scene.has_method("on_keycard_taken"):
+			_scene.call("on_keycard_taken")
+		print("--- keycard taken at t=%.0f s (%d appearance(s) before it) ---" % [_elapsed, _before_keycard])
 
 	# An Apparition is the node carrying both of these signals; duck-typed, because
 	# naming the class in a SceneTree script compiles it before the autoloads exist.
@@ -126,6 +142,9 @@ func _report() -> void:
 		if lo < MIN_ACCEPTABLE_GAP:
 			_fail("shortest gap %.1f s is under %.0f s — no rarer than what it replaced"
 				% [lo, MIN_ACCEPTABLE_GAP])
+	if _before_keycard > 0:
+		_fail("%d apparition(s) appeared BEFORE the keycard — the Lab must show none until then"
+			% _before_keycard)
 	if _seen.size() < MIN_EXPECTED:
 		_fail("only %d apparition(s) in %.0f s — expected at least %d. A suppression rule "
 			% [_seen.size(), _elapsed, MIN_EXPECTED]

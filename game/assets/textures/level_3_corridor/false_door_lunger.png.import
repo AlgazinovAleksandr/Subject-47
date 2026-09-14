@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://c44rmrque34ea"
-path="res://.godot/imported/false_door_lunger.png-54080e5938cc028e867f5378ee44e5e1.ctex"
+path.s3tc="res://.godot/imported/false_door_lunger.png-54080e5938cc028e867f5378ee44e5e1.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_3_corridor/false_door_lunger.png"
-dest_files=["res://.godot/imported/false_door_lunger.png-54080e5938cc028e867f5378ee44e5e1.ctex"]
+dest_files=["res://.godot/imported/false_door_lunger.png-54080e5938cc028e867f5378ee44e5e1.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

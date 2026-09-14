@@ -92,6 +92,7 @@ const CHILD_NEAR := [1.7, 2.0, 2.4]  # ahead, tried in this order; then a fan at
 const CHILD_FAN_DEG := 25.0
 const CHILD_TURN_TIME := 0.45        # NOOK_TURN_TIME, the Lab's proven number
 const CHILD_DIP := 0.4               # Ambience silence under the scream
+const CHILD_SCREAM_LEAD := 0.3       # H3: the dip lands first; the scream 0.3 s into it
 # ⚠️ 1.25 -> 1.95 m ("the child should be way bigger"). Taller than a real child on purpose:
 # this is a jumpscare at three metres in a pitch-black cellar, not a figure seen across a
 # room, and at child height it read as small and far away rather than as on top of you.
@@ -159,7 +160,6 @@ var _cellar_gate: CellarGate
 var _has_cellar_key: bool = false
 var _map_solved: bool = false
 var _safe_1: Node3D
-var _safe_2: Node3D
 var _safe_notes_read: Array[String] = []   # by node name — a re-read must not double-count
 var _lock_lamp_on: bool = false
 var _lock_lamp_gain: float = 0.0   # 0..1, tweened by _light_the_lock(); see _drive_lights()
@@ -341,6 +341,9 @@ func save_progress() -> Dictionary:
 		# rule KONTUR's gate ledger had to learn the hard way (Issues 141/142).
 		"safe_notes": _safe_notes_read.duplicate(),
 		"lock_lamp": _lock_lamp_on,
+		# H2: the chain and the cutters travel together with the digit (SafeNote_Head above).
+		"fridge_chained": bool(get_node("Fridge").call("is_chained")) if get_node_or_null("Fridge") else true,
+		"cutters_held": _cutters_held,
 	}
 
 
@@ -358,6 +361,19 @@ func _restore_progress() -> void:
 	_safe_notes_read.clear()
 	for k in data.get("safe_notes", []):
 		_safe_notes_read.append(String(k))
+	# H2: state, never the event — no chain_drop sting, no pickup toast.
+	if bool(data.get("cutters_held", false)):
+		_cutters_held = true
+		if is_instance_valid(_cutters):
+			_cutters.queue_free()
+			_cutters = null
+	var fr := get_node_or_null("Fridge")
+	if fr and not bool(data.get("fridge_chained", true)):
+		fr.call("mark_unchained")
+		if _cutters_held:
+			_cutters_held = true   # spent on the chain; the line is clear
+	elif _cutters_held:
+		GameState.set_carried("BOLT CUTTERS")
 	if bool(data.get("lock_lamp", false)):
 		_lock_lamp_on = true
 		# ⚠️ AND THE GAIN, or a restored house arrives with the lamp at zero and never fades up:
@@ -602,9 +618,9 @@ func _spawn_notes() -> void:
 	# Three safe notes — one digit each (code 472). The third is in the cellar.
 	_safe_1 = _make_note(_builder.wall_point("LivingRoom", Vector2(-1, 0), 1.4, 0.1), PI / 2.0,
 		"The first number is scratched by the door frame. It is 4.", false, "SafeNote_Living")
-	_safe_2 = _make_note(_builder.wall_point("Bedroom", Vector2(0, 1), 1.4, 0.1), PI,
-		"I checked everywhere. The second number must be 7. I'm sure of it.\n\nI'm sure.", false,
-		"SafeNote_Bedroom")
+	# H2 (2026-09-13): the second digit is no longer a page on the Bedroom wall — it is written
+	# on the forehead of the head in the chained fridge (see _tick_head_digit). The user: "one
+	# number is hard to get — while the others are just there".
 	# The cellar note is THE GUEST's last trigger: reading it is the deepest point of the
 	# route, so the walk back up is the longest single stretch the player will make with
 	# their back to the whole house.
@@ -629,7 +645,7 @@ func _spawn_notes() -> void:
 	# is three connections and an int.
 	# ⚠️ Connected to `read`, which fires on OPEN. Reading-to-the-end is a mechanic reserved for
 	# TRAP notes; requiring it here would make the lights depend on surviving something.
-	for n in [_safe_1, _safe_2, cellar_note]:
+	for n in [_safe_1, cellar_note]:
 		if n:
 			n.read.connect(_on_safe_note_read.bind(n))
 	# Two trap notes (read-to-die).
@@ -693,9 +709,13 @@ func _spawn_lock_and_doors() -> void:
 	# the door's own face quad (at local z=0.079) so it doesn't z-fight and is
 	# the first thing the interact raycast hits.
 	var lock := StaticBody3D.new()
+	lock.name = "ExitLock"
 	lock.set_script(_LOCK_SCRIPT)
 	lock.position = Vector3(0.0, -0.35, 0.1)
 	exit.add_child(lock)
+	lock.connect("unlocked", _on_exit_lock_unlocked.bind(lock))
+	if GameState.level2_code_correct:
+		lock.queue_free()   # resume path: a code already entered means a lock already on the floor
 
 	# Artwork on a QuadMesh (CLAUDE.md rule — a BoxMesh crops instead of showing
 	# the whole texture). house_lock_transparent.png has a real alpha channel (no
@@ -732,6 +752,29 @@ func _spawn_lock_and_doors() -> void:
 
 	var back := _make_door("BackDoor", false, true)
 	back.position = Vector3(0, 1.225, -2.85)
+
+
+# H4 (2026-09-13, capture #10, the user's design): the lock FALLS off the door and is gone, then
+# the door asks. `unlocked` is emitted while the dial UI still has the tree paused, and the lock
+# inherits the pause, so the whole beat rides one Tween on the lock: it starts the frame the UI
+# closes (Issue 58's shape, on purpose — the fall is what the player sees the UI close onto).
+# Zero panic; the scrawl is a question, not a rule.
+const LOCK_FALL := 0.9                     # metres, to the floor at the foot of the door
+const LOCK_SCRAWL := "ARE YOU SURE YOU WANT TO GO IN THERE?"
+func _on_exit_lock_unlocked(lock: Node3D) -> void:
+	if not is_instance_valid(lock):
+		return
+	# The interact ray must not find a falling lock (E would reopen the dials).
+	lock.set("collision_layer", 0)
+	var tw := lock.create_tween()
+	tw.tween_callback(func() -> void: _play_at("lock_drop", lock.global_position, 2.0))
+	tw.tween_property(lock, "position:y", lock.position.y - LOCK_FALL, 0.55) \
+		.set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(lock, "rotation:z", deg_to_rad(28.0), 0.4)
+	tw.tween_interval(0.05)
+	tw.tween_callback(func() -> void: ScreenText.scrawl(get_tree(), LOCK_SCRAWL, 3.0))
+	tw.tween_interval(0.6)
+	tw.tween_callback(lock.queue_free)
 
 
 func _make_door(door_name: String, advances: bool, goes_back: bool) -> StaticBody3D:
@@ -1077,6 +1120,7 @@ func _furnish_kitchen(kc: Vector3) -> void:
 	fridge.position = Vector3(7.9, 0.0, kc.z + 0.9)
 	fridge.rotation.y = -PI / 2.0     # its door faces -x, into the room
 	fridge.opened.connect(_on_fridge_opened)
+	fridge.chain_tried.connect(_on_fridge_chain_tried)   # H2
 	add_child(fridge)
 
 
@@ -1306,6 +1350,7 @@ func _spawn_room_props() -> void:
 	# is on the west.
 	var bd: Vector3 = _builder.room_center("Bedroom")
 	_build_bed(Vector3(bd.x - 1.6, 0.0, bd.z), Vector2(2.0, 1.4))
+	_spawn_cutters(Vector3(bd.x - 1.6, 0.0, bd.z), 2.0)   # H2
 	var drawing := TEX + "child_drawing.png"
 	if ResourceLoader.exists(drawing):
 		_make_cursed_body(_builder.wall_point("Bedroom", Vector2(0, -1), 1.5, 0.06),
@@ -1996,7 +2041,12 @@ func _spawn_guest_child() -> void:
 		if is_instance_valid(_child_node) else _player().global_position
 	add_child(p)
 	p.finished.connect(p.queue_free)
-	p.play()
+	# H3 (2026-09-13, capture #6: "more loud"): the file is re-mastered to the project's loud
+	# target and the Ambience dip already fired with the figure; the scream now LEADS by nothing
+	# and LANDS 0.3 s into that silence, so it arrives into a hole rather than over the bed.
+	var tw := p.create_tween()
+	tw.tween_interval(CHILD_SCREAM_LEAD)
+	tw.tween_callback(p.play)
 
 
 # `target_or_delta` is an ABSOLUTE position for props being relocated across the house, and
@@ -2192,6 +2242,8 @@ func _start_ambience() -> void:
 func _process(delta: float) -> void:
 	_tick_forest()
 	_tick_timers(delta)
+	_tick_head_digit(delta)
+	_tick_cutters()
 	_drive_lights()
 	_tick_tv_card(delta)
 	_tick_overhead(delta)
@@ -2283,11 +2335,90 @@ func _on_safe_note_read(n: Node) -> void:
 		push_warning("level_2: a safe note has no stable name ('%s') — the lock lamp counter "
 			% key + "keys on it and will not survive a resume. See _make_note().")
 		return
+	_mark_safe_note(key)
+
+
+# One of the three digits has been learned (a page opened, or the head's forehead read).
+func _mark_safe_note(key: String) -> void:
 	if _safe_notes_read.has(key):
 		return
 	_safe_notes_read.append(key)
 	if _safe_notes_read.size() >= SAFE_NOTES_TOTAL:
 		_light_the_lock()
+
+
+# H2: the digit on the head. Read by LOOKING — within HEAD_READ_DIST, the camera on it, for
+# HEAD_READ_TIME accumulated — after the fridge is open. Archived to the journal as text.
+const HEAD_READ_DIST := 2.2
+const HEAD_READ_TIME := 1.0
+const HEAD_READ_DOT := 0.94
+const HEAD_NOTE_TEXT := "On its forehead, in something dark: 7."
+var _head_read_t: float = 0.0
+func _tick_head_digit(delta: float) -> void:
+	if _safe_notes_read.has("SafeNote_Head"):
+		return
+	var fridge := get_node_or_null("Fridge")
+	if fridge == null or not bool(fridge.call("is_open")):
+		return
+	var p := _player()
+	if p == null:
+		return
+	var cam := p.get_node_or_null("Camera3D") as Camera3D
+	if cam == null:
+		return
+	var head: Vector3 = fridge.call("thing_position")
+	var to: Vector3 = head - cam.global_position
+	if to.length() > HEAD_READ_DIST or (-cam.global_transform.basis.z).dot(to.normalized()) < HEAD_READ_DOT:
+		return
+	_head_read_t += delta
+	if _head_read_t < HEAD_READ_TIME:
+		return
+	_mark_safe_note("SafeNote_Head")
+	GameState.record_note(HEAD_NOTE_TEXT, 2)
+	ScreenText.caption(get_tree(), HEAD_NOTE_TEXT, 3.0)
+
+
+# H2: the bolt cutters show only with the torch aimed at the floor from near the bed's foot.
+const CUTTERS_PITCH_DEG := -30.0
+const CUTTERS_DIST := 3.2
+var _cutters: Node3D = null
+var _cutters_held: bool = false
+func _tick_cutters() -> void:
+	if _cutters == null or not is_instance_valid(_cutters):
+		return
+	var p := _player()
+	if p == null:
+		return
+	var cam := p.get_node_or_null("Camera3D") as Camera3D
+	if cam == null:
+		return
+	var near: bool = Vector2(_cutters.global_position.x - p.global_position.x,
+		_cutters.global_position.z - p.global_position.z).length() <= CUTTERS_DIST
+	_cutters.visible = near and cam.rotation.x <= deg_to_rad(CUTTERS_PITCH_DEG) and p.is_flashlight_on()
+
+
+func _spawn_cutters(bed_base: Vector3, bed_len: float) -> void:
+	_cutters = BoltCutters.new()
+	_cutters.name = "BoltCutters"
+	# Half under the foot of the bed, handles out — the bed runs along +x from its base.
+	_cutters.position = Vector3(bed_base.x + bed_len / 2.0 - 0.02, 0.0, bed_base.z + 0.15)
+	_cutters.visible = false
+	_cutters.picked_up.connect(_on_cutters_taken)
+	add_child(_cutters)
+
+
+func _on_cutters_taken() -> void:
+	_cutters_held = true
+	_cutters = null
+	GameState.set_carried("BOLT CUTTERS")
+
+
+func _on_fridge_chain_tried() -> void:
+	var fridge := get_node_or_null("Fridge")
+	if fridge == null or not _cutters_held:
+		return
+	fridge.call("unchain")
+	GameState.set_carried("")
 
 
 func _light_the_lock() -> void:

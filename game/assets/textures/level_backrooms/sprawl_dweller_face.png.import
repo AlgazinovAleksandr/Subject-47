@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://c6b5fc6uhrj0"
-path="res://.godot/imported/sprawl_dweller_face.png-da9706773e4d33334c847b15ee70e799.ctex"
+path.s3tc="res://.godot/imported/sprawl_dweller_face.png-da9706773e4d33334c847b15ee70e799.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_backrooms/sprawl_dweller_face.png"
-dest_files=["res://.godot/imported/sprawl_dweller_face.png-da9706773e4d33334c847b15ee70e799.ctex"]
+dest_files=["res://.godot/imported/sprawl_dweller_face.png-da9706773e4d33334c847b15ee70e799.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
