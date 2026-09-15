@@ -40,6 +40,7 @@ class_name SprawlDweller
 # does not match its art is stretched (Issue 35 / `check_art_aspect.gd`).
 
 signal arrived
+signal lunged    # B3: it is at arm's length
 
 const TEX := "res://assets/textures/level_backrooms/sprawl_dweller.png"
 const HEIGHT := 2.15
@@ -55,6 +56,7 @@ var _running := false
 var _done := false
 var _alpha := 0.0
 var _fade_dir := 1.0
+var _lunging := false
 
 
 static func build(parent: Node, dweller_name: String, at: Vector3) -> SprawlDweller:
@@ -126,6 +128,20 @@ func release_voice(to: Node3D) -> Array:
 func run_to(target: Vector3) -> void:
 	_target = Vector3(target.x, global_position.y, target.z)
 	_running = true
+
+
+# B3 (2026-09-13): before the run, it comes for the player's face — `door_lunger.gd`'s idiom.
+# `point` is where its FEET land (the level puts it CRATE_LUNGE_DIST from the eye, on the floor).
+func lunge_to(point: Vector3, time: float) -> void:
+	if _lunging or _done:
+		return
+	_lunging = true
+	var tw := create_tween()
+	tw.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_property(self, "global_position", Vector3(point.x, global_position.y, point.z), time)
+	tw.tween_callback(func() -> void:
+		_lunging = false
+		lunged.emit())
 
 
 func is_done() -> bool:

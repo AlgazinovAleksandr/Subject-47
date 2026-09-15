@@ -1123,6 +1123,33 @@ Following the project's own testing conventions (`check_*` assert, `walk_*` driv
 
 ---
 
+## Deviations from this spec — the 2026-09-12 redesign (the user's decisions, do not re-open)
+
+The first six-seed bot run on the level as specced measured **0 wins, 2 deaths, 4 burned budgets**
+and six independent instant-death paths, and the user's verdict was *"very simple to get killed"*
+when it should be *hard to lose, easy to get scared*. The following are LOCKED and override the
+sections they name:
+
+| # | Spec said | Shipped instead |
+|---|---|---|
+| D1 | §B4 — contact with any primary entity is fatal | **No instant deaths.** The panic bar is the only death (`check_dungeon_hunter.gd`: no `Screamer.trigger(` in `dungeon.gd` / `dungeon_rooms.gd`) |
+| D2 | §B4.2 — the Matron kills on contact | **The hunter's catch is a beat**: in-world lunge to 0.6 m, `parasite_jumpscare` on Master, `CATCH_PANIC 20`, it lets go and the wave ends |
+| D3 | §B4.1 / §B4.6 — Still Ones and fatal Weeping Frames | Still Ones **non-lethal** (`creature_stalker.gd lethal = false`: face flash + `stillone_shriek` + 12 panic, then they topple for good); frames **ignite but cost gaze panic only** and burn out inert; **the Hollow One is CUT** (§B4.3 — `creature_hollow.gd` stays on disk, unused); **beartraps leave** the dungeon; the spark stays as a free light burst that still wakes statues |
+| D4 | §B12 — one creature model | The hunter is the **Parasite** (`parasite.glb`, `CreatureAnim.MODELS`); the Still Ones keep `hollow_crown.glb` |
+| D5 | §B4.2 — 3.4 chase, permanent cycle at 4 sconces | chase **3.4** (< 4.0 walk), patrol 1.5, hunts by ear, screams every 10–20 s while hunting, chase cue only with line of sight (fades ≤ 1.6 s after it is lost), waves ~60 s on / 30 s off, **wakes at sconce 3**; routed doorway to doorway via `set_portals()` |
+| D6 | §B3 — the seven-step sconce ladder | **Room archetypes** carry the scares (`dungeon_rooms.gd`: gallery · scriptorium · cells · well · chapel · crypt · cistern · larder, one scare each, on that room's sconce or first entry). The count keeps two gates: hunter at 3, finale at 7 |
+| D7 | §B6 — 18×18, 12 chambers | **24×24 lattice, 16 chambers**, corridors up to 7 cells, sconces ≥ 3 rooms apart (relaxed to 2 on 9 of 200 seeds, counted). A chamber with no PROP-SAFE wall (`prop_sides()`: doorway-free and no side doorway within 3 m) is re-dealt to a kind that puts nothing on the wall — `cistern`, a bench-less `gallery`, or (the bed room) a crypt with no sarcophagi; ~2.6 chambers per dungeon |
+| D8 | §B9 — navigate by ear alone | **A found map** (`dungeon_map_ui.gd`, **M**, non-pausing): a folded plan on the Antechamber rack; fog of war from the rooms walked, lit sconces marked, **never the player** |
+
+⚠️ §B10's bans on the Hollow One and on beartraps are DELETED rather than waived — an absence
+assertion about a cut entity is vacuous (`check_dungeon_entities.gd` asserts the cut itself).
+⚠️ `creature_object12.gd`'s "the dungeon is deliberately not fed portals" note is reversed: the
+hunter IS fed `_gen.rooms` / `_gen.doorways`, and `relocate_when_lost` is off because the waves own
+its coming and going. The Breach's Object 12 is byte-identical in effect (every new export defaults
+to today's value).
+
+---
+
 ## Sources
 
 Primary technical source — the Fandom wiki (see §A13 on why, and how to fetch it):

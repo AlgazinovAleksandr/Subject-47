@@ -43,6 +43,17 @@ enum State { PATROL, INVESTIGATE, CHASE, SEARCH, STAGGERED }
 @export var chase_speed: float = 5.0
 @export var contact_dist: float = 1.0
 @export var detect_range: float = 10.0
+
+# ⭐ THE NIGHTMARE's hunter (2026-09-12) — three additive knobs, every default = the Breach:
+#   model             which `CreatureAnim.MODELS` entry to wear ("parasite" for the hunter)
+#   lethal_contact    false: contact emits `caught` and goes inactive; the LEVEL owns the beat
+#                     (a survivable lunge into the camera, a sting, a panic term, a despawn)
+#   relocate_when_lost false: giving up a SEARCH never teleports near the player — the level's
+#                     own spawn/despawn waves are what makes the hunter come and go
+@export var model: String = "hollow_crown"
+@export var lethal_contact: bool = true
+@export var relocate_when_lost: bool = true
+signal caught
 const FOV_DOT := 0.5           # wide cone (~120 deg) — this creature actively hunts
 const CHEST := 0.9
 
@@ -148,7 +159,7 @@ func _ready() -> void:
 var _anim: CreatureAnim = null
 
 func _build_visual() -> void:
-	_anim = CreatureAnim.build(_body)
+	_anim = CreatureAnim.build(_body, model)
 	if _anim:
 		_visual_root = _anim.visual_root()
 	else:
@@ -214,13 +225,21 @@ const EMISSION_BASE := 0.12
 const ALBEDO_TINT := Color(0.35, 0.4, 0.32)
 const EMISSION_TINT := Color(0.4, 0.05, 0.05)
 
+# ⭐ The palette is overridable per creature (2026-09-12): the Parasite's pale skin under the
+# Breach's grey-green tint and red vein glow photographed as a red, faintly self-lit blob in a
+# black dungeon. Defaults = the constants above, so the Breach is byte-identical.
+@export var albedo_tint: Color = ALBEDO_TINT
+var death_override: Callable = Callable()   # X1: the level's staged death, if any (ends in trigger())
+@export var emission_tint: Color = EMISSION_TINT
+@export var emission_base: float = EMISSION_BASE
+
 func _apply_retint() -> void:
 	if _anim:
-		_material = _anim.apply_tint(ALBEDO_TINT, 1.0, 0.2, EMISSION_TINT, EMISSION_BASE)
+		_material = _anim.apply_tint(albedo_tint, 1.0, 0.2, emission_tint, emission_base)
 		return
 	# Procedural fallback: no imported material to duplicate.
 	_material = CreatureAnim.tinted_material(
-		null, ALBEDO_TINT, 1.0, 0.2, EMISSION_TINT, EMISSION_BASE)
+		null, albedo_tint, 1.0, 0.2, emission_tint, emission_base)
 	for mi in _find_mesh_instances(_visual_root):
 		mi.material_override = _material
 
@@ -294,6 +313,9 @@ func _refresh_clip() -> void:
 		# `halt()` (which would drop the skeleton to bind pose — a T-posed statue).
 		_anim.hold_pose(DORMANT_POSE_CLIP, DORMANT_POSE_AT)
 		return
+	# ⚠️ Every clip goes through `resolve_clip()`: a two-clip model (the Parasite) has no
+	# `unsteady` and no `charge`, and `CreatureAnim.play()` silently no-ops on a missing clip —
+	# which would leave the hunter frozen mid-stride in SEARCH and slow-motion in CHASE.
 	match _state:
 		State.PATROL:
 			_anim.play_locomotion(CreatureAnim.CLIP_WALK, patrol_speed)
@@ -302,14 +324,16 @@ func _refresh_clip() -> void:
 		State.CHASE:
 			var clip := CreatureAnim.CLIP_CHARGE if chase_speed < CHASE_CLIP_SPLIT \
 				else CreatureAnim.CLIP_RUN
-			_anim.play_locomotion(clip, chase_speed)
+			_anim.play_locomotion(_anim.resolve_clip(clip, CreatureAnim.CLIP_RUN), chase_speed)
 		State.SEARCH:
 			if _search_arrived:
-				_anim.play(CreatureAnim.CLIP_UNSTEADY, SCAN_RATE)
+				_anim.play(_anim.resolve_clip(CreatureAnim.CLIP_UNSTEADY, CreatureAnim.CLIP_WALK),
+					SCAN_RATE)
 			else:
 				_anim.play_locomotion(CreatureAnim.CLIP_WALK, investigate_speed)
 		State.STAGGERED:
-			_anim.play(CreatureAnim.CLIP_UNSTEADY, STAGGER_RATE)
+			_anim.play(_anim.resolve_clip(CreatureAnim.CLIP_UNSTEADY, CreatureAnim.CLIP_WALK),
+				STAGGER_RATE)
 
 
 func _find_mesh_instances(node: Node) -> Array:
@@ -336,6 +360,10 @@ func set_waypoints(points: PackedVector3Array) -> void:
 # called the creature stays motionless at its spawn point.
 func activate() -> void:
 	_active = true
+	# ⚠️ Resolve the player NOW, not on the first active tick: a level that activates the
+	# creature and in the same frame asks it to `force_chase()` or `has_line_of_sight()` (THE
+	# NIGHTMARE's Larder beat) found both bailing on a null `_player` (2026-09-12).
+	_ensure_player()
 	# Out of the dormant sway and into whatever _state says. Without this the creature would
 	# patrol the level still playing its standing-idle at half speed.
 	_refresh_clip()
@@ -371,6 +399,41 @@ func get_current_target() -> Vector3:
 			return _last_seen_pos
 		_:
 			return get_creature_position()
+
+
+# Does the creature have an unobstructed line from its chest to the player's camera right now?
+# The level uses it to gate the chase cue: the music plays only while it can actually SEE you.
+func has_line_of_sight() -> bool:
+	if _player == null:
+		_ensure_player()
+	if not is_instance_valid(_player) or _camera == null or _body == null:
+		return false
+	return _has_los(get_creature_position() + Vector3(0, CHEST, 0), _camera.global_position)
+
+
+# Drop straight into CHASE on the player's current position — the level's scripted "it is beside
+# you, run" beat. Only meaningful while active.
+func force_chase() -> void:
+	if _player == null:
+		_ensure_player()
+	if not _active or not is_instance_valid(_player):
+		return
+	_last_seen_pos = _player.global_position
+	_los_lost_t = 0.0
+	_enter(State.CHASE)
+
+
+# Put the body somewhere, facing something. `_body` is the thing that moves (Issue 10) and it is
+# private, so a level that wants to stage the creature — spawn it in a chamber, lunge it into the
+# camera — asks here rather than writing `position` on the outer node and hoping.
+func place_body(pos: Vector3, face_toward: Vector3) -> void:
+	if _body == null:
+		global_position = pos
+		return
+	_body.global_position = Vector3(pos.x, _body.global_position.y, pos.z)
+	var to := face_toward - _body.global_position
+	if Vector2(to.x, to.z).length() > 0.01:
+		_body.rotation.y = atan2(to.x, to.z)
 
 
 # Player sprinting or a slammed door within earshot — escalates PATROL -> INVESTIGATE.
@@ -647,7 +710,7 @@ func _tick_search(delta: float) -> void:
 	if _search_t >= SEARCH_TIME:
 		# Lost for good at this spot — try to reappear near the player (out of sight); otherwise
 		# fall back to drifting to the nearest patrol waypoint.
-		if _relocate_near_player():
+		if relocate_when_lost and _relocate_near_player():
 			return
 		_wp_index = _nearest_waypoint_index()
 		_enter(State.PATROL)
@@ -759,8 +822,18 @@ func _contact() -> void:
 	if not _active:
 		return
 	_active = false
-	contact_fatal.emit()
-	Screamer.trigger()
+	if lethal_contact:
+		contact_fatal.emit()
+		# X1 (2026-09-14): a level may stage the death itself (the Breach's grab through a
+		# slam door). The override MUST end in Screamer.trigger() — the funnel is not optional.
+		if death_override.is_valid():
+			death_override.call()
+		else:
+			Screamer.trigger()
+		return
+	# ⭐ Non-lethal (THE NIGHTMARE): the level catches `caught`, stages the lunge, charges the
+	# panic term and despawns the wave. Nothing here touches the Screamer.
+	caught.emit()
 
 
 func _regen_shield(delta: float) -> void:
@@ -798,8 +871,8 @@ func _update_wound_tint() -> void:
 	if not _material:
 		return
 	var wound: float = 1.0 - (_shield / SHIELD_MAX)
-	_material.emission = EMISSION_TINT.lerp(WOUND_TINT, wound)
-	_material.emission_energy_multiplier = lerp(EMISSION_BASE, WOUND_EMISSION, wound)
+	_material.emission = emission_tint.lerp(WOUND_TINT, wound)
+	_material.emission_energy_multiplier = lerp(emission_base, WOUND_EMISSION, wound)
 
 
 # ------------------------------------------------------------------ movement / detection
@@ -824,8 +897,27 @@ func _move_toward(raw_target: Vector3, speed: float, delta: float) -> void:
 	if dir.length() < 0.01:
 		return
 	dir = dir.normalized()
-	_body.global_position = here + dir * speed * delta
-	_body.rotation.y = atan2(dir.x, dir.z)
+	# ⭐ D2 (2026-09-13, the user: "the creature moves in a weird way / gets stuck"). The yaw used
+	# to be REWRITTEN every frame from the steer direction, so whenever the steer target flipped
+	# (doorway centre -> next doorway -> the target) the body snapped up to 180° in one frame.
+	# It now turns at TURN_RATE_DEG toward the desired heading and walks along the heading it
+	# is actually facing, so a course change is a curve rather than a cut.
+	var want: float = atan2(dir.x, dir.z)
+	var max_step: float = deg_to_rad(TURN_RATE_DEG) * delta
+	var cur: float = _body.rotation.y
+	var diff: float = angle_difference(cur, want)
+	_body.rotation.y = cur + clampf(diff, -max_step, max_step)
+	# ⚠️ The BODY moves along the routed line (`dir`), the MESH turns at TURN_RATE_DEG. The first
+	# version walked along the eased heading, and the arc it cut on the way round clipped
+	# masonry beside doorways in 1.4 % of `probe_breach_router_sweep.gd`'s traversals (against
+	# the routed 0 %). The convexity argument that keeps the router inside the walls only holds
+	# for the straight line to the doorway centre, so that is the line the body takes; the turn
+	# is presentation, and only the speed eases while the heading is still far off.
+	var face := Vector3(sin(_body.rotation.y), 0.0, cos(_body.rotation.y))
+	var align: float = clampf(face.dot(dir), 0.0, 1.0)
+	var step: float = speed * delta * lerpf(0.45, 1.0, align)
+	_body.global_position = here + dir * step
+	_last_step_speed = step / maxf(delta, 0.0001)
 
 
 # Somewhere to walk to after a stagger: the nearest patrol waypoint that is actually far enough
@@ -869,6 +961,9 @@ func _recovery_target() -> Vector3:
 # 0.9) — at 0.35 the creature is provably within the opening, which is what makes the segment to
 # the NEXT hop cross the shared plane inside the hole rather than beside it.
 const PORTAL_ARRIVE := 0.35
+const TURN_RATE_DEG := 240.0     # D2: yaw is eased at this rate, never snapped (see _move_toward)
+var _steer_room: int = -1          # D2: the room the router last resolved (hysteresis across shared planes)
+var _last_step_speed: float = 0.0  # D2: the speed the body ACTUALLY moved at this frame, for the legs
 # ⚠️ Half a wall thickness (`RoomBuilder.T` is 0.2). Connected rooms ABUT, so a point ON the
 # shared plane belongs to both; anything further than half a wall is genuinely next door. This
 # was 0.6 and that was three times too wide — measured, targets 0.21–0.60 m past the plane were
@@ -902,7 +997,10 @@ func set_portals(rooms: Array, doors: Array) -> void:
 		touching.sort_custom(func(x, y):
 			return wp.distance_to(_rooms[x]["c"]) < wp.distance_to(_rooms[y]["c"]))
 		var pi := _portals.size()
-		_portals.append({"pos": wp, "a": int(touching[0]), "b": int(touching[1])})
+		# D2: the doorway's normal (the axis it is crossed along) — "arrived" is measured along it.
+		var nrm := Vector3(1, 0, 0) if String(d.get("dir", "x")) == "x" else Vector3(0, 0, 1)
+		_portals.append({"pos": wp, "a": int(touching[0]), "b": int(touching[1]), "normal": nrm,
+			"half_w": float(d.get("width", 1.8)) * 0.5})
 		_adj[int(touching[0])].append(pi)
 		_adj[int(touching[1])].append(pi)
 
@@ -926,7 +1024,16 @@ func _steer(target: Vector3) -> Vector3:
 	if _portals.is_empty():
 		return target
 	var here := get_creature_position()
-	var from := _room_at(here)
+	# D2: ROOM HYSTERESIS. Abutting rooms share a wall plane, so a body standing in a doorway is
+	# in both, and `_room_at()` returns whichever the table lists first — which can flip between
+	# frames and re-pick the portal BEHIND the creature (the classic doorway ping-pong). Keep the
+	# room we last resolved while the body is still inside it, padded by one wall thickness.
+	var from := -1
+	if _steer_room >= 0 and _steer_room < _rooms.size() and _inside(_rooms[_steer_room], here, SAME_ROOM_PAD * 2.0):
+		from = _steer_room
+	else:
+		from = _room_at(here)
+	_steer_room = from
 	if from < 0:
 		return target
 	# ⚠️⚠️ IF THE TARGET IS IN MY OWN ROOM, WALK AT IT — and "my own room" is padded, because
@@ -995,7 +1102,23 @@ func _steer(target: Vector3) -> Vector3:
 	# having nowhere else to go. So skip any doorway already reached and aim at the next.
 	for pi in chain:
 		var pos: Vector3 = _portals[int(pi)]["pos"]
-		if Vector2(pos.x - here.x, pos.z - here.z).length() > PORTAL_ARRIVE:
+		# D2: "arrived" is measured ALONG THE DOORWAY'S NORMAL — have we crossed its plane (or
+		# are we within PORTAL_ARRIVE of it) — never as a radius. In a 2.2 m dungeon opening a
+		# body can stand 1 m off-centre, well past the plane, and a radius test kept aiming it
+		# back at the centre it had already walked through.
+		var pd2: Dictionary = _portals[int(pi)]
+		var nrm: Vector3 = pd2.get("normal", Vector3.ZERO)
+		var rel := Vector3(here.x - pos.x, 0, here.z - pos.z)
+		var arrived: bool
+		if nrm.length() > 0.5:
+			var along: float = absf(rel.dot(nrm))
+			var lateral: float = (rel - nrm * rel.dot(nrm)).length()
+			# ⚠️ AND inside the opening laterally — a body 0.3 m short of the plane but a metre
+			# off-centre is beside the jamb, and a line from there to the next doorway cuts it.
+			arrived = along <= PORTAL_ARRIVE and lateral <= maxf(0.2, float(pd2.get("half_w", 0.9)) - 0.3)
+		else:
+			arrived = rel.length() <= PORTAL_ARRIVE
+		if not arrived:
 			return pos
 	# Every doorway on the route is behind us: the target room is this one. Walk at it.
 	return target

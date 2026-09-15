@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://dn72r80vbmt4s"
-path="res://.godot/imported/backrooms_note.png-bc52c894ab4f42423a64af73ed1ecd1f.ctex"
+path.s3tc="res://.godot/imported/backrooms_note.png-bc52c894ab4f42423a64af73ed1ecd1f.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_backrooms/backrooms_note.png"
-dest_files=["res://.godot/imported/backrooms_note.png-bc52c894ab4f42423a64af73ed1ecd1f.ctex"]
+dest_files=["res://.godot/imported/backrooms_note.png-bc52c894ab4f42423a64af73ed1ecd1f.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

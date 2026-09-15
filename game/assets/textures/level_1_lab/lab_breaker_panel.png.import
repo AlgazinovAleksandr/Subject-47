@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bagu5a3n7swoq"
-path="res://.godot/imported/lab_breaker_panel.png-59347b866079a85ad6fe11dbc349a0db.ctex"
+path.s3tc="res://.godot/imported/lab_breaker_panel.png-59347b866079a85ad6fe11dbc349a0db.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_1_lab/lab_breaker_panel.png"
-dest_files=["res://.godot/imported/lab_breaker_panel.png-59347b866079a85ad6fe11dbc349a0db.ctex"]
+dest_files=["res://.godot/imported/lab_breaker_panel.png-59347b866079a85ad6fe11dbc349a0db.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

@@ -69,7 +69,9 @@ func _on_won() -> void:
 	# Playtest: on a win, pop a clear "go get it" message, and the map itself
 	# should vanish rather than linger as a solved-but-still-there prop — the
 	# level spawns the real key at this exact spot once the map is gone.
-	ScreenText.toast(get_tree(), "Collect the key.", Color(0.4, 1.0, 0.4))
+	# H3 (2026-09-16, capture #3): the key's own pickup label is centred, so this line takes
+	# the LOWER caption slot — the two were printed on top of each other.
+	ScreenText.caption(get_tree(), "Collect the key.", 3.0, Color(0.4, 1.0, 0.4))
 	won.emit()
 	queue_free()
 

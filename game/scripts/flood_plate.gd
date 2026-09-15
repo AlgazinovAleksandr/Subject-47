@@ -68,7 +68,14 @@ const SLOTS := 6
 
 const TOP := Vector3(1.55, 0.07, 0.86)
 const TOP_Y := 0.86
-const BOARD_H := 0.52
+# F1 (2026-09-14, the user's pick): a rusted steel AUTOPSY TABLE with a stained sheet, not
+# a trestle table with a backboard. The owner's line is chalked on the sheet's near edge
+# (`tools/make_flood_altar_art.py` — the art carries SCRAWL verbatim; there is no Label3D
+# any more, and no board for one to hang on). The board constant and its builder are gone.
+const TEX_DIR := "res://assets/textures/level_backrooms/"
+const SHEET := Vector2(1.35, 0.74)      # the art is 1024x561, the same aspect (check_art_aspect)
+const SHEET_T := 0.02
+const RIM_H := 0.03
 
 const FAR_AUDIO := "plate_hum"
 const NEAR_AUDIO := "plate_ring"
@@ -90,7 +97,9 @@ const TELL_BUS := "Master"
 const SET_DB := 2.0
 const DONE_DB := 2.0
 
-const SCRAWL := "SIX PIECES.\nSET THEM HERE."
+# 2026-09-13 (capture #009, the user: "six pieces, put them here is a bit weird — something like
+# my collection of ancient items… I believe they have powers"): an unseen owner addresses you.
+const SCRAWL := "SIX RELICS OF THE WARD.\nRETURN THEM TO ME."
 
 # ⭐ THE ALTAR (2026-09-10). One slot per RITUAL PIECE kind (`ritual_piece.gd`), each drawn as
 # a pale OUTLINE of the object that belongs in it — a ring for the candle, skull and bell, a
@@ -126,7 +135,6 @@ func _ready() -> void:
 	collision_mask = 0
 	_build_table()
 	_build_frame()
-	_build_board()
 	_build_collider()
 	_build_tell()
 
@@ -159,47 +167,78 @@ func _part(part_name: String, size: Vector3, pos: Vector3,
 	return mi
 
 
+func _tex(file: String, scale: float, fallback: Color, rough: float = 0.8,
+		metallic: float = 0.3, tint: Color = Color(1, 1, 1)) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.roughness = rough
+	m.metallic = metallic
+	var path := TEX_DIR + file
+	if ResourceLoader.exists(path):
+		m.albedo_texture = load(path)
+		m.albedo_color = tint
+		m.uv1_triplanar = true
+		m.uv1_scale = Vector3(scale, -scale, scale)
+	else:
+		m.albedo_color = fallback
+	return m
+
+
+# The autopsy table: a base plate and a central pedestal, a drain pipe down one end, a
+# rimmed steel top with a drain and a gutter, and the sheet lying over most of it with
+# its near edge hanging down. Steel is `flood_steel_rust.png` (triplanar); the sheet is a
+# linen box under `flood_sheet.png` on a QuadMesh (art on a quad, never a box face — Issue 24).
 func _build_table() -> void:
-	var steel := _flat(Color(0.22, 0.23, 0.24), 0.5, 0.55)
-	var dark := _flat(Color(0.12, 0.12, 0.13), 0.2, 0.85)
-	# Two trestles, each a foot, a post and a shoulder — a silhouette rather than a leg.
+	var steel := _tex("flood_steel_rust.png", 0.9, Color(0.22, 0.23, 0.24), 0.75, 0.35)
+	var dark := _flat(Color(0.08, 0.08, 0.09), 0.2, 0.9)
+	var linen := _flat(Color(0.50, 0.49, 0.45), 0.0, 1.0)
+	var top := TOP_Y + TOP.y / 2.0
+	_part("Base", Vector3(0.84, 0.05, 0.58), Vector3(0, 0.025, 0), dark)
+	_part("Pedestal", Vector3(0.36, TOP_Y - 0.085, 0.26), Vector3(0, (TOP_Y - 0.035) / 2.0 + 0.025, 0), steel)
+	_part("DrainPipe", Vector3(0.05, TOP_Y - 0.08, 0.05), Vector3(0.66, (TOP_Y - 0.08) / 2.0 + 0.02, 0.30), dark)
+	_part("Top", TOP, Vector3(0, TOP_Y, 0), steel)
+	# the raised rim (a tray, not a slab)
 	for sx in [-1.0, 1.0]:
-		_part("Foot%d" % int(sx), Vector3(0.14, 0.06, 0.72),
-			Vector3(0.60 * sx, 0.03, 0.0), dark)
-		_part("Post%d" % int(sx), Vector3(0.09, TOP_Y - 0.10, 0.09),
-			Vector3(0.60 * sx, (TOP_Y - 0.10) / 2.0 + 0.06, 0.0), steel)
-		_part("Shoulder%d" % int(sx), Vector3(0.16, 0.07, 0.56),
-			Vector3(0.60 * sx, TOP_Y - 0.07, 0.0), steel)
-	# The rail that makes the two trestles one object.
-	_part("Rail", Vector3(1.16, 0.06, 0.08), Vector3(0, 0.34, 0.0), steel)
-	# The top, standing PROUD of the trestles at both ends (the mattress rule).
-	_part("Top", TOP, Vector3(0, TOP_Y, 0.0), steel)
-	_part("TopLip", Vector3(TOP.x + 0.06, 0.03, 0.05),
-		Vector3(0, TOP_Y - 0.03, -TOP.z / 2.0 - 0.01), dark)
+		_part("RimX%d" % int(sx), Vector3(0.03, RIM_H, TOP.z), Vector3(sx * (TOP.x / 2.0 - 0.015), top + RIM_H / 2.0, 0), steel)
+	for sz in [-1.0, 1.0]:
+		_part("RimZ%d" % int(sz), Vector3(TOP.x, RIM_H, 0.03), Vector3(0, top + RIM_H / 2.0, sz * (TOP.z / 2.0 - 0.015)), steel)
+	# the gutter along the far edge and the drain at the foot end, both clear of the sheet
+	_part("Gutter", Vector3(TOP.x - 0.10, 0.012, 0.05), Vector3(0, top + 0.006, TOP.z / 2.0 - 0.065), dark)
+	_part("Drain", Vector3(0.12, 0.012, 0.08), Vector3(0.66, top + 0.006, 0.30), dark)
+	# the sheet
+	_part("Sheet", Vector3(SHEET.x, SHEET_T, SHEET.y), Vector3(0, top + SHEET_T / 2.0, 0), linen)
+	_part("SheetDrape", Vector3(SHEET.x, 0.22, 0.015), Vector3(0, top - 0.10, -SHEET.y / 2.0 - 0.006), linen)
+	var art := MeshInstance3D.new()
+	art.name = "SheetArt"
+	var qm := QuadMesh.new()
+	qm.size = SHEET
+	art.mesh = qm
+	var am := StandardMaterial3D.new()
+	am.roughness = 1.0
+	am.metallic_specular = 0.0
+	var apath := TEX_DIR + "flood_sheet.png"
+	if ResourceLoader.exists(apath):
+		am.albedo_texture = load(apath)
+	else:
+		am.albedo_color = linen.albedo_color
+	art.material_override = am
+	art.position = Vector3(0, top + SHEET_T + 0.002, 0)
+	art.rotation.x = -PI / 2.0       # image top -> world -Z; the art is rotated to suit
+	add_child(art)
 
 
 # The frame the fragments go into: a shallow tray with six empty recesses, so the thing
 # reads as unfinished before you have set anything in it.
 func _build_frame() -> void:
-	var frame := _flat(Color(0.30, 0.28, 0.25), 0.35, 0.6)
-	var hollow := _flat(Color(0.05, 0.05, 0.06), 0.0, 1.0)
 	var top := TOP_Y + TOP.y / 2.0
-	var w := 1.20
-	var d := 0.56
-	for sx in [-1.0, 1.0]:
-		_part("FrameSide%d" % int(sx), Vector3(0.05, 0.05, d + 0.10),
-			Vector3(sx * (w / 2.0 + 0.02), top + 0.02, 0.0), frame)
-	for sz in [-1.0, 1.0]:
-		_part("FrameEnd%d" % int(sz), Vector3(w + 0.09, 0.05, 0.05),
-			Vector3(0.0, top + 0.02, sz * (d / 2.0 + 0.02)), frame)
-	var outline := _flat(Color(0.30, 0.28, 0.25), 0.2, 0.7)
+	# F1: chalk on the sheet — pale, thin, matte, and exactly on the slot each piece is set
+	# in (3D, not baked into the art, so the outline and the piece cannot drift apart).
+	var outline := _flat(Color(0.72, 0.70, 0.64), 0.0, 1.0)
 	for i in range(SLOTS):
 		var c := _slot_pos(i, top)
 		var kind: String = SLOT_KINDS[i]
-		# The empty recess, the outline of what goes in it, and then the piece itself
-		# (hidden until set — built by the SAME builder the drowned objects use).
-		_part("Recess%d" % i, Vector3(0.34, 0.012, 0.24), c, hollow)
-		_build_outline(i, kind, c + Vector3(0, 0.009, 0), outline)
+		# The chalk outline of what goes here, and then the piece itself (hidden until set —
+		# built by the SAME builder the drowned objects use).
+		_build_outline(i, kind, c + Vector3(0, 0.002, 0), outline)
 		var piece := RitualPiece.build(kind, self, "Set%d_%s" % [i, kind])
 		piece.position = c + Vector3(0, 0.008, 0)
 		piece.visible = false
@@ -236,42 +275,16 @@ func _build_outline(i: int, kind: String, at: Vector3, mat: StandardMaterial3D) 
 func _slot_pos(i: int, top: float) -> Vector3:
 	var col := i % 3
 	var row := i / 3
-	return Vector3((float(col) - 1.0) * 0.40, top + 0.03, (float(row) - 0.5) * 0.26)
-
-
-# ⚠️ DARK LETTERING ON A PALE BOARD, not a pale label in the dark. Label3D is UNSHADED, so
-# its modulate colour is its final colour — a bright one is a self-lit object, which is
-# the anti-pattern this whole zone is built against. The board takes the Basin lamp; the
-# text takes its contrast from the board.
-func _build_board() -> void:
-	var top := TOP_Y + TOP.y / 2.0
-	var board := _part("Backboard", Vector3(TOP.x - 0.10, BOARD_H, 0.04),
-		Vector3(0, top + BOARD_H / 2.0, TOP.z / 2.0 - 0.06),
-		# ⚠️ Grimy, not white. Photographed at 0.46 under the Basin lamp it was the brightest
-		# thing in the frame — a pristine board in a flooded ruin, and a beacon in the one
-		# zone whose puzzle is about light. At 0.34 the dark lettering still holds ~3.7:1.
-		_flat(Color(0.34, 0.33, 0.30), 0.0, 0.95))
-	var lbl := Label3D.new()
-	lbl.name = "PlateScrawl"
-	lbl.text = SCRAWL
-	lbl.font_size = 46
-	lbl.pixel_size = 0.0030
-	lbl.modulate = Color(0.09, 0.08, 0.07)
-	lbl.outline_size = 0
-	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	# On the board's -Z face, i.e. the side the player approaches from.
-	lbl.position = board.position + Vector3(0, 0, -0.035)
-	lbl.rotation.y = PI
-	add_child(lbl)
+	return Vector3((float(col) - 1.0) * 0.40, top + SHEET_T + 0.004, (float(row) - 0.5) * 0.26)
 
 
 func _build_collider() -> void:
 	var col := CollisionShape3D.new()
 	col.name = "PlateCollision"
 	var shape := BoxShape3D.new()
-	shape.size = Vector3(TOP.x, TOP_Y + TOP.y + BOARD_H, TOP.z)
+	shape.size = Vector3(TOP.x, TOP_Y + TOP.y + RIM_H, TOP.z)
 	col.shape = shape
-	col.position = Vector3(0, (TOP_Y + TOP.y + BOARD_H) / 2.0, 0)
+	col.position = Vector3(0, (TOP_Y + TOP.y + RIM_H) / 2.0, 0)
 	add_child(col)
 
 
@@ -397,6 +410,15 @@ func set_kinds() -> Array:
 		if _slot_filled[i]:
 			out.append(SLOT_KINDS[i])
 	return out
+
+
+## R6: the altar's own copy of a set piece (null while that slot is empty) — the wake beat
+## animates the pieces where they lie.
+func set_piece(kind: String) -> Node3D:
+	var slot: int = SLOT_KINDS.find(kind)
+	if slot < 0 or not _slot_filled[slot]:
+		return null
+	return _set_pieces[slot]
 
 
 func slot_filled(kind: String) -> bool:

@@ -223,6 +223,15 @@ func interact() -> void:
 # Space / push_effort — SMASH (KONTUR Gate 6). E answers, Space smashes; the two verbs on one aim
 # are the whole choice. Needs the hammer (`smashable`). A no-op for the Backrooms phones, which are
 # never smashable, so their only verb stays E.
+# K4 (2026-09-13, capture #22: "which key?"). The HUD prompt names both verbs once the hammer is in
+# hand; before it, and for the Backrooms' read-to-die phone, there is only E. player.gd reads this
+# from any prop that has it and keeps its default "Press E" for every prop that does not.
+func prompt_text() -> String:
+	if smashable and not open_note:
+		return "E — answer   ·   SPACE — smash"
+	return "E — answer" if not open_note else "Press E"
+
+
 func secondary_interact() -> void:
 	if _answered or _smashed or _resolved:
 		return

@@ -122,7 +122,7 @@ func _collect(n: Node, mirrors: Array, watchers: Array) -> void:
 	# ⚠️ By NAME and shape, not by `get("MIRROR_ONLY_LAYER")` — `get()` reads properties,
 	# and a GDScript `const` is not one, so that predicate silently matched nothing and the
 	# first run of this test reported "0 found" against three working mirrors.
-	if String(n.name) == "MirrorSurface" and n.has_node("SubViewport"):
+	if String(n.name) == "MirrorSurface" and n.has_node("SubViewport") and not String(n.get_parent().name).begins_with("Spur"):   # C1: spur mirrors are not turn mirrors
 		mirrors.append(n)
 	elif String(n.name).begins_with("MirrorFigure"):
 		watchers.append(n)

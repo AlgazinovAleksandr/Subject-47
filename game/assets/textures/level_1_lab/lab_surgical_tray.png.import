@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bs5gx6dla1fy3"
-path="res://.godot/imported/lab_surgical_tray.png-6513038465b919b75c292f3871018ff2.ctex"
+path.s3tc="res://.godot/imported/lab_surgical_tray.png-6513038465b919b75c292f3871018ff2.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_1_lab/lab_surgical_tray.png"
-dest_files=["res://.godot/imported/lab_surgical_tray.png-6513038465b919b75c292f3871018ff2.ctex"]
+dest_files=["res://.godot/imported/lab_surgical_tray.png-6513038465b919b75c292f3871018ff2.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

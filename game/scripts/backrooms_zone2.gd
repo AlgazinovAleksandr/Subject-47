@@ -148,9 +148,15 @@ var _congregation: Congregation = null
 # (D17's rule).
 const CRATE_ALCOVES := [["N", 1], ["W", -1], ["S", 1], ["E", -1]]
 const CRATE_DARK_R := 11.0
-const CRATE_SCARE_IMAGE := "res://assets/textures/level_backrooms/sprawl_dweller_face.png"
-const CRATE_SCARE_AUDIO := "crate_shriek"
-const CRATE_SCARE_HOLD := 0.9
+# B3 (2026-09-13, the user's call: NO fullscreen image — "the animation of this 3d figure with
+# this sound is sufficient"). The dweller LUNGES to arm's length with the user's own sound
+# (`jumpscare.m4a` -> crate_jumpscare.ogg, 6.9 s, -0.4 dBFS peak) after an Ambience dip, holds,
+# then runs. `sprawl_dweller_face.png` / `crate_shriek` are retired from this beat.
+const CRATE_LUNGE_AUDIO := "crate_jumpscare"
+const CRATE_LUNGE_DIP := 0.5       # HoldBreath silence before it is on you
+const CRATE_LUNGE_TIME := 0.5      # s, spawn point -> arm's length
+const CRATE_LUNGE_DIST := 0.6      # m from the eye, horizontally
+const CRATE_LUNGE_HOLD := 0.35     # s at arm's length before the run
 # The dweller is spawned a step BEHIND the crate — deeper into the recess, on the line it is
 # about to run — so it is never inside the geometry it came out of and never in the hall.
 # ⚠️ The sign matters: `+ axis`, toward the end wall. `- axis` puts it in the hall running
@@ -699,10 +705,15 @@ func _build_pressure() -> void:
 		trap.position = p
 		add_child(trap)
 
-	# Mirage doors in two alcoves — the retreat that isn't.
-	for s in ["E", "W"]:
+	# Mirage doors in FOUR alcoves (B1, 2026-09-13; was two) — the retreat that isn't. On the
+	# back wall of the k = +1 recess of every side that is not the crate's (that recess ends in
+	# the real glitch wall, and a door in front of the exit would block it).
+	for s in ["E", "W", "N", "S"]:
+		if s == _crate_side and _crate_k == 1:
+			continue
 		var axis: Vector3 = SIDE_AXIS[s]
 		var door := MirageDoor.new()
+		door.name = "MirageDoor_%s" % s
 		door.position = axis * (HALF + ALCOVE_D - 0.15) \
 			+ Vector3(axis.z, 0, axis.x) * ALCOVE_AT
 		door.rotation.y = atan2(-axis.x, -axis.z)
@@ -772,7 +783,7 @@ func dweller_has_run() -> bool:
 # (`GAME_MECHANICS_IDEAS.md` §0.2). The camera jolt is presentation, not cost.
 func _on_crate_opened() -> void:
 	crate_scare.emit()
-	Screamer.flash_scare(CRATE_SCARE_IMAGE, CRATE_SCARE_AUDIO, CRATE_SCARE_HOLD)
+	HoldBreath.dip(get_tree(), CRATE_LUNGE_DIP)
 
 	# ...and the thing that was in it leaves. Spawned a step BEHIND the crate, deeper into the
 	# recess, on the line it is about to run — never inside the geometry it came out of
@@ -788,17 +799,64 @@ func _on_crate_opened() -> void:
 		_dweller.adopt_voice(_crate.voice_players())
 	_dweller.arrived.connect(_on_dweller_arrived)
 
-	# ⚠️ IT DOES NOT SET OFF UNDER THE SCARE (2026-08-18). `flash_scare` puts a fullscreen
-	# image over everything for `CRATE_SCARE_HOLD`, so a run started here is a run the
-	# player cannot see — and the whole of the user's note is *"Force my camera to see that
-	# action."* The start is deferred by exactly the image's own hold, and the level pins
-	# the camera to it from `dweller_running`.
+	# ⚠️ (History: until B3 on 2026-09-13 this beat was a fullscreen `flash_scare`, and the run
+	# was deferred by the image's hold. There is NO fullscreen image now — the figure lunges to
+	# arm's length in the world, then runs — and the level pins the camera to it from
+	# `dweller_running`, which the lunge emits.)
 	#
 	# ⚠️ `SceneTreeTimer` defaults to `process_always = true`, so a bare `create_timer()`
 	# fires straight through a tree pause — a note or the journal opened in that window
 	# would run the whole beat behind the overlay (the House's cellar child, 2026-08-16).
 	# Pass false.
-	var t := get_tree().create_timer(CRATE_SCARE_HOLD, false)
+	# B3: the lunge. The camera pin (`dweller_running`) starts NOW so the level's re-aim follows
+	# it to the face; the run starts after the hold.
+	var t := get_tree().create_timer(SprawlDweller.FADE_IN * 0.5, false)
+	t.timeout.connect(_start_the_lunge)
+
+
+func _start_the_lunge() -> void:
+	if not is_instance_valid(_dweller) or _dweller_done:
+		return
+	var p := get_tree().get_first_node_in_group("player") as Node3D
+	var cam := p.get_node_or_null("Camera3D") as Node3D if p else null
+	if p == null or cam == null:
+		_start_the_run()
+		return
+	var eye: Vector3 = cam.global_position
+	var to: Vector3 = _dweller.global_position - eye
+	to.y = 0.0
+	var dir: Vector3 = to.normalized() if to.length() > 0.01 else -cam.global_transform.basis.z
+	var feet := Vector3(eye.x, _origin.y, eye.z) + dir * CRATE_LUNGE_DIST
+	_dweller.lunged.connect(_on_dweller_lunged, CONNECT_ONE_SHOT)
+	# ⭐ THE STING PLAYS AS THE LUNGE STARTS (2026-09-13, capture #008: "the jumpscare sound
+	# appears only when the creature starts running away — it should come earlier"). It used to
+	# play on `lunged`, i.e. at the END of the 0.5 s lunge and 0.35 s before the run, so ~95 % of
+	# the 6.9 s file rode the retreat. Now the user's sound, at the figure, into the dip, as the
+	# thing comes at you. Master, so nothing ducks it.
+	var s := GameState.load_audio(CRATE_LUNGE_AUDIO)
+	if s:
+		var a := AudioStreamPlayer3D.new()
+		a.name = "LungeSting"
+		a.stream = s
+		a.bus = "Master"
+		a.volume_db = 0.0
+		a.max_db = 6.0
+		a.unit_size = 8.0
+		_dweller.add_child(a)
+		a.position = Vector3(0, 1.2, 0)
+		a.finished.connect(a.queue_free)
+		a.play()
+	_dweller.lunge_to(feet, CRATE_LUNGE_TIME)
+	dweller_running.emit(_dweller)
+
+
+func _on_dweller_lunged() -> void:
+	if not is_instance_valid(_dweller):
+		return
+	var p := get_tree().get_first_node_in_group("player")
+	if p and p.has_method("jolt_camera"):
+		p.jolt_camera(0.18, 0.4)
+	var t := get_tree().create_timer(CRATE_LUNGE_HOLD, false)
 	t.timeout.connect(_start_the_run)
 
 
@@ -806,7 +864,6 @@ func _start_the_run() -> void:
 	if not is_instance_valid(_dweller) or _dweller_done:
 		return
 	_dweller.run_to((exit_wall() as Node3D).global_position)
-	dweller_running.emit(_dweller)
 
 
 # It went through that wall, and the wall keeps saying so — and the wall is now a way out.

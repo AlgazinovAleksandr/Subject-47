@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b4ips6h5ac7g3"
-path="res://.godot/imported/kontur_sign_gate8_airlock.png-918bf666514b4a238305b5b5bb43ba01.ctex"
+path.s3tc="res://.godot/imported/kontur_sign_gate8_airlock.png-918bf666514b4a238305b5b5bb43ba01.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_5_kontur/kontur_sign_gate8_airlock.png"
-dest_files=["res://.godot/imported/kontur_sign_gate8_airlock.png-918bf666514b4a238305b5b5bb43ba01.ctex"]
+dest_files=["res://.godot/imported/kontur_sign_gate8_airlock.png-918bf666514b4a238305b5b5bb43ba01.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

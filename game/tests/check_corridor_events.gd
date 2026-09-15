@@ -215,7 +215,146 @@ func _process(delta: float) -> bool:
 			_ok("the figure is GONE once it has fled (freed, not parked)",
 				_find(_scene, "DoorLunger") == null)
 			_free_width_control()
-			return _report()
+			_c1_spacing()
+			_c1_shut_in_start()
+			_stage = 5
+			_t = 0.0
+		5:
+			# The shut-in: sprung at t=0; the door must be closed and battering for ~10 s, the
+			# torch dead, and open again after SPUR_SHUT_TIME.
+			if _t > 0.4 and not _shut_checked:
+				_shut_checked = true
+				_ok("C1: the spur door is CLOSED behind the player", bool(_spur_door.get("_closed")))
+				_ok("C1: ...and battering (E cannot reopen it)", bool(_spur_door.get("_battering")))
+				_ok("C1: the spur's torch died", not bool(_spur_torch.get("lit")))
+				_ok("C1: a scrape rides under it", _scene.get_node_or_null("Spur0Scrape") != null)
+				_ok("C1: the shut-in costs zero panic (nothing ADDED; decay is free to run)",
+					_player.get_panic_ratio() <= _panic_before_shut + 0.005,
+					"%.3f -> %.3f" % [_panic_before_shut, _player.get_panic_ratio()])
+			# 2026-09-13: the way out is the Space-mash escape. Drive it through the shipping
+			# SpurEscape.press(): bar 1, bar 2 (the shadow crosses under the door), bar 3 forces it.
+			if _t > 1.0 and not _mash_done:
+				_mash_done = true
+				var esc: Node = _scene.get_node_or_null("Spur0Escape")
+				_ok("C1: a SpurEscape is live behind the shut door", esc != null and bool(esc.call("is_active")))
+				_ok("C1: the fallback clock is SPUR_SHUT_TIME and it is >= 20 s",
+					float(_spur_door.get("batter_time")) == float(_cs().get("SPUR_SHUT_TIME")) and float(_cs().get("SPUR_SHUT_TIME")) >= 20.0)
+				if esc:
+					# Press until the second bar lands (the bar had a second of decay first).
+					var guard := 0
+					while int(esc.call("bars")) < 2 and guard < 40:
+						esc.call("press")
+						guard += 1
+					_ok("C1: two bars in, the door is still shut", bool(_spur_door.get("_closed")) and int(esc.call("bars")) == 2,
+						"%d presses, %d bars" % [guard, int(esc.call("bars"))])
+					_ok("C1: the second bar sent a SHADOW across the light under the door (note spur)",
+						_scene.get_node_or_null("Spur0Shadow") != null)
+					guard = 0
+					while bool(esc.call("is_active")) and guard < 20:
+						esc.call("press")
+						guard += 1
+					_ok("C1: the third bar FORCES the door", not bool(_spur_door.get("_closed")))
+					_ok("C1: ...and the escape UI is gone", not bool(esc.call("is_active")))
+					_ok("C1: ...and the shut-in still cost zero panic", _player.get_panic_ratio() <= _panic_before_shut + 0.005)
+			if _mash_done and _t > 1.6:
+				_ok("C1: ...and the scrape stops", _scene.get_node_or_null("Spur0Scrape") == null)
+				_c2_bell_start()
+				_stage = 50
+				_t = 0.0
+		50:
+			# C4 (2026-09-15, the user's design): ring → the lights die for BLACKOUT_S → they come
+			# back and the 217 key is beside the bell → E takes it → it is what opens door 217.
+			# The mouth door NEVER closes. Zero panic throughout.
+			var beat: Node = _scene.get_node_or_null("Spur1BellBeat")
+			var lamp := _scene.get_node_or_null("Spur1DeskLamp") as OmniLight3D
+			# ⚠️ Never name `SpurBell` here: a SceneTree script compiles before the autoloads exist,
+			# so a class it depends on that mentions `GameState` fails to compile with it.
+			var bcs: Dictionary = (beat.get_script() as GDScript).get_script_constant_map() if beat != null else {}
+			var after: float = float(bcs.get("BLACKOUT_AFTER", 1.2))
+			var dark: float = float(bcs.get("BLACKOUT_S", 4.5))
+			if _t > 0.3 and not _bell_rung:
+				_bell_rung = true
+				_ok("C4: ringing the bell does NOT shut the door behind you", not bool((_bell_door as Node).get("_closed")))
+				_ok("C4: ...and no key yet", _scene.get_node_or_null("Spur1Key") == null)
+				_panic_before_bell = _player.get_panic_ratio()
+			if _t > after + 0.5 and not _bell_turned:
+				_bell_turned = true
+				_ok("C4: %.1f s after the ding the lights are OUT" % after, beat != null and bool(beat.call("is_dark")))
+				_ok("C4: ...the desk lamp is dead", lamp != null and lamp.light_energy < 0.05, "%.2f" % (lamp.light_energy if lamp else -1.0))
+				_ok("C4: ...your own torch is taken", not bool(_player.call("is_flashlight_on")) and bool(_player.get("_flashlight_locked")))
+				_ok("C4: ...something is walking up the spur in the dark", beat != null and beat.get_node_or_null("BellSteps") != null)
+				_ok("C4: ...and still no key", _scene.get_node_or_null("Spur1Key") == null)
+			if _t > after + dark + 0.6:
+				var key := _scene.get_node_or_null("Spur1Key")
+				_ok("C4: the lights come back", beat != null and bool(beat.call("is_done")) and not bool(beat.call("is_dark"))
+					and lamp != null and lamp.light_energy > 0.5 and bool(_player.call("is_flashlight_on")))
+				_ok("C4: ...and the 217 key is lying beside the bell", key != null
+					and (key as Node3D).global_position.distance_to((_scene.get_node("Spur1Bell") as Node3D).global_position) < 0.4)
+				_ok("C4: ...the walker is gone", beat != null and beat.get_node_or_null("BellSteps") == null)
+				_ok("C4: ...the door STILL never closed", not bool((_bell_door as Node).get("_closed")))
+				if key != null:
+					(key as Node).call("interact")
+					_ok("C4: E takes the key and you carry it", bool(beat.call("has_key")) and String(root.get_node("/root/GameState").get("carried_item")).contains("217"))
+					_ok("C4: ...which unlocks door 217", _door != null and bool(_door.call("has_key")))
+				_ok("C4: ...and all of it cost nothing", _player.get_panic_ratio() <= _panic_before_bell + 0.005)
+				_c3_cupboard_start()
+				_stage = 51
+				_t = 0.0
+		51:
+			var cb: Node = _scene.get_node_or_null("Spur2CupboardBeat")
+			if _t > 0.5 and not _cup_checked:
+				_cup_checked = true
+				_ok("C3: stepping into the cupboard seals it", cb != null and bool(cb.call("is_sealed")))
+				_ok("C7: ...the door has slammed shut behind you", not bool(_scene.get_node("Spur2ClosetDoor").call("is_ajar")))
+				_ok("C3: ...and the Manager is walking the spur", _scene.get_node_or_null("CupboardFigure") != null)
+				# C3 (2026-09-15): the seal TAKES the torch and SAYS the rule — the user sat in here
+				# with the torch on for 88 s: "how do I get away from here?"
+				_ok("C3: the seal takes your torch (F is locked)", not bool(_player.call("is_flashlight_on")) and bool(_player.get("_flashlight_locked")))
+				var said := false
+				for n in _descendants(root):
+					if n is Label and String((n as Label).text).contains("MOVE"):
+						said = true
+				_ok("C3: ...and the scrawl says DON'T MOVE", said)
+			# A breach at t 1.5-2.5: the slats stop a walk headless and F is locked, so the torch is
+			# lit on the raw node — the state the beat READS — to exercise the pause + clock reset.
+			if _t > 1.5 and _t < 2.5 and not _cup_torch_on:
+				_cup_torch_on = true
+				(_player.get("flashlight") as Node3D).visible = true
+			elif _t >= 2.5 and not _cup_move_checked:
+				_cup_move_checked = true
+				var fig := _scene.get_node_or_null("CupboardFigure")
+				_ok("C3: a lit torch stops it outside the slats", fig != null and not bool(fig.call("is_walking")))
+				_ok("C3: ...and resets the stillness clock", float(cb.call("still_time")) < 1.0, "%.2f" % float(cb.call("still_time")))
+				(_player.get("flashlight") as Node3D).visible = false
+			if _t > 12.5:
+				_ok("C3: holding still (torch off) for HOLD_S releases you", bool(cb.call("is_released")), "%.1f s still" % float(cb.call("still_time")))
+				_ok("C3: ...and gives the torch back", not bool(_player.get("_flashlight_locked")))
+				_ok("C7: ...and the door is open again", bool(_scene.get_node("Spur2ClosetDoor").call("is_ajar")))
+				_ok("C3: ...for free", _player.get_panic_ratio() <= _panic_before_cup + 0.005, "%.3f -> %.3f" % [_panic_before_cup, _player.get_panic_ratio()])
+				_c1_manager_start()
+				_stage = 6
+				_t = 0.0
+		6:
+			var fig := _find(_scene, "ManagerFigure") as Node3D
+			_mgr_panic_max = maxf(_mgr_panic_max, _player.get_panic_ratio())
+			if fig:
+				_mgr_seen = true
+				var cam := _cam()
+				_mgr_nearest = minf(_mgr_nearest, Vector2(fig.global_position.x - cam.global_position.x, fig.global_position.z - cam.global_position.z).length())
+				if cam.is_position_in_frustum(fig.global_position + Vector3(0, 1.0, 0)):
+					_mgr_in_frame = true
+			if _t > 4.5:
+				_ok("C1: the Manager is a figure IN THE WORLD", _mgr_seen)
+				_ok("C1: ...on screen", _mgr_in_frame)
+				_ok("C1: ...that came to arm's length", _mgr_nearest <= 1.0, "%.2f m" % _mgr_nearest)
+				_ok("C1: ...costing MANAGER_PANIC (peak over the beat)", _mgr_panic_max - _panic_before_mgr >= float(_cs().get("MANAGER_PANIC")) / 50.0 - 0.02,
+					"peak %.2f from %.2f" % [_mgr_panic_max, _panic_before_mgr])
+				_ok("C1: ...and gone afterwards", _find(_scene, "ManagerFigure") == null)
+				_ok("C1: ...with NO fullscreen flash", not _mgr_flash)
+				return _report()
+			var scr := root.get_node_or_null("Screamer")
+			if scr and scr.get("_black_panel") != null and (scr.get("_black_panel") as CanvasItem).visible:
+				_mgr_flash = true
 	return false
 
 
@@ -326,6 +465,218 @@ func _silhouette() -> void:
 
 # ---- B. THE FALSE ROOM 217 ----------------------------------------------------------------
 
+# ---- C1 ------------------------------------------------------------------------------------
+var _spur_door: Node = null
+var _mash_done := false
+var _spur_torch: Node = null
+var _shut_checked := false
+var _panic_before_shut := 0.0
+var _panic_before_mgr := 0.0
+var _mgr_seen := false
+var _mgr_in_frame := false
+var _mgr_nearest := 999.0
+var _mgr_flash := false
+var _mgr_panic_max := 0.0
+
+
+func _cs() -> Dictionary:
+	return (_scene.get_script() as GDScript).get_script_constant_map()
+
+
+# The three big one-shots and the two mirrors, pairwise >= 50 m apart (the user: "all the
+# jumpscares will be in different parts of the level"). The Manager's two telegraphs are ONE
+# beat (one of them pays off), so the nearest of the two counts.
+func _c1_spacing() -> void:
+	var cs := _cs()
+	var beats := {
+		"false door": float(cs["FALSE_DOOR_DIST"]),
+		"manager (nearest telegraph)": float((cs["TELEGRAPH_AT"] as Array).min()),
+		"running creature": float(cs["SILHOUETTE_TRIGGER"]),
+		"mirror 1": float((cs["TURN_MIRRORS"] as Array)[0][0]),
+		"mirror 2": float((cs["TURN_MIRRORS"] as Array)[1][0]),
+	}
+	var names := beats.keys()
+	var worst := INF
+	var pair := ""
+	for i in range(names.size()):
+		for j in range(i + 1, names.size()):
+			var d := absf(float(beats[names[i]]) - float(beats[names[j]]))
+			if d < worst:
+				worst = d
+				pair = "%s vs %s" % [names[i], names[j]]
+	_ok("C1: every big beat is >= 50 m from every other", worst >= 50.0, "nearest pair %s at %.0f m" % [pair, worst])
+	_ok("C1: the corridor is ~455 m with three side passages", (cs["SIDE_PASSAGES"] as Array).size() == 3
+		and absf(float(_scene.get("_total_len")) - 455.0) < 0.01)
+	_ok("C1: the last mirror is at the last corner (410)", is_equal_approx(float((cs["TURN_MIRRORS"] as Array)[1][0]), 410.0))
+	var spurs: Array = _scene.call("spurs")
+	_ok("C1: three spurs were built, each with a door and a torch (only the note spur has a trap)", spurs.size() == 3
+		and spurs.all(func(e): return is_instance_valid(e["door"]) and is_instance_valid(e["torch"]))
+		and is_instance_valid((spurs[0] as Dictionary)["trap"]))
+	# C4 (2026-09-15): the bell spur moved to 208 and lost the whisper — it is silent until rung.
+	_ok("C4: no spur whispers any more (the bell nook is silent until rung)", _scene.get_node_or_null("Spur1Plea") == null)
+	_ok("C4: the bell spur sits BEFORE door 217 (the key is served first, no backtracking)",
+		float(((cs["SIDE_PASSAGES"] as Array)[1] as Dictionary)["at"]) < float(cs["FALSE_DOOR_DIST"]))
+	# 2026-09-13: three DIFFERENT spurs (the user: "they need to present something different").
+	var kinds: Array = []
+	for e in spurs:
+		kinds.append(String(e["kind"]))
+	_ok("C1: the three spurs are three different kinds", kinds.size() == 3 and kinds[0] != kinds[1] and kinds[1] != kinds[2] and kinds[0] != kinds[2], str(kinds))
+	_ok("C1: the note spur carries a readable page on its end wall", _scene.get_node_or_null("Spur0Note") != null
+		and (_scene.get_node("Spur0Note") as Node).has_method("interact") and _scene.get_node("Spur0Note").get_node_or_null("NotePage") != null)
+	# 2026-09-14 (C2/C3): the bell nook and the cupboard replace the plea and mirror spurs.
+	_ok("C2: the bell spur has a desk and a bell that answers E", _scene.get_node_or_null("Spur1Desk") != null
+		and _scene.get_node_or_null("Spur1Bell") != null and _scene.get_node("Spur1Bell").has_method("interact")
+		and String(_scene.get_node("Spur1Bell").call("prompt_text")).contains("ring"))
+	_ok("C2: ...and no trap volume (the bell springs it, not arriving)", _scene.get_node_or_null("Spur1Trap") == null)
+	# C7 (2026-09-16): a service CLOSET behind a real door (the slats and the mirror are gone —
+	# the mirror read as a window onto another room).
+	_ok("C7: the cupboard spur ends in a closet behind a real hotel door", _scene.get_node_or_null("Spur2Cupboard") != null
+		and _scene.get_node_or_null("Spur2ClosetDoor") != null and bool(_scene.get_node("Spur2ClosetDoor").call("is_ajar"))
+		and _scene.get_node_or_null("Spur2ClosetStrip") != null)
+	_ok("C7: ...and no mirror in it any more", _scene.get_node_or_null("Spur2CupboardMirror") == null)
+	_ok("C3: ...and no trap volume either", _scene.get_node_or_null("Spur2Trap") == null)
+	_ok("C1: only the note spur keeps the Space-mash", (spurs[0] as Dictionary)["kind"] == "note")
+	# C4 (2026-09-14): two corner branches, a footprint trail into each, a loop-back and a blind room.
+	var branches: Array = _scene.call("corner_branches")
+	_ok("C4: two corner branches were built", branches.size() == 2)
+	var prints := 0
+	for n in _scene.get_children():
+		if String(n.name).begins_with("Footprint"):
+			prints += 1
+	_ok("C4: the wet trail exists (>= 30 prints across both corners)", prints >= 30, "%d" % prints)
+	if branches.size() == 2:
+		_ok("C4: 320 loops back, 365 is the blind room", String((branches[0] as Dictionary)["kind"]) == "loop"
+			and String((branches[1] as Dictionary)["kind"]) == "blind" and (branches[1] as Dictionary)["room"] != null)
+		_ok("C4: the blind room has its lever, map and gate", _scene.get_node_or_null("Blind1Lever") != null
+			and _scene.get_node_or_null("Blind1Map") != null and _scene.get_node_or_null("Blind1Gate") != null)
+		for b in branches:
+			var bd: Dictionary = b
+			var clear2 := true
+			for name in beats:
+				if absf(float(beats[name]) - float(bd["corner"])) < 8.0:
+					clear2 = false
+			_ok("C4: branch at %.0f is >= 8 m from every big beat" % float(bd["corner"]), clear2)
+	# C5: the seventh ajar door, on the note spur's side. It swings ajar AS YOU APPROACH (so it
+	# sits flush for check_prop_mounting at load) with a figure in its gap, and is shut once
+	# you are past. Drive the tick with the player placed, then put them back.
+	var bdoor := _scene.get_node_or_null("AjarDoor_break")
+	_ok("C5: the rhythm-break door exists", bdoor != null)
+	if bdoor != null:
+		_ok("C5: ...flush at load (it swings on the approach)", not bool(bdoor.call("is_ajar")))
+		var keep: Vector3 = _player.global_position
+		var bat: float = float(_scene.get("BREAK_DOOR_AT"))
+		_player.global_position = (_scene.call("_path_point", bat - 6.0) as Dictionary)["pos"] + Vector3(0, 0.1, 0)
+		_scene.call("_tick_break_door")
+		_ok("C5: approaching it swings it ajar", bool(bdoor.call("is_ajar")))
+		# C6 (2026-09-16): a DOUBLE door onto a real room — the second leaf opens with it, and a
+		# ray through the doorway travels into the bedroom instead of hitting wallpaper.
+		var bdoor2 := _scene.get_node_or_null("AjarDoor_break2")
+		_ok("C6: the second leaf exists and opens with the first", bdoor2 != null and bool(bdoor2.call("is_ajar")))
+		var pt0: Dictionary = _scene.call("_path_point", bat)
+		var side_v: Vector3 = (pt0["side"] as Vector3) * float(_scene.get("BREAK_DOOR_SIDE"))
+		var from: Vector3 = (pt0["pos"] as Vector3) + Vector3(0, 1.2, 0)
+		var q := PhysicsRayQueryParameters3D.create(from, from + side_v * 8.0)
+		q.collision_mask = 1
+		var hit := _player.get_world_3d().direct_space_state.intersect_ray(q)
+		var depth: float = from.distance_to(hit.position) if hit else 99.0
+		_ok("C6: there is a ROOM behind the doors (%.2f m to the back wall)" % depth, depth > 1.5 + 2.5 and depth < 1.5 + 4.0)
+		_ok("C6: ...with a bed in it", _scene.get_node_or_null("BreakRoomBed") != null)
+		var fig := _scene.get_node_or_null("BreakDoorFigure") as Node3D
+		_ok("C5: ...with a figure standing in the hall", fig != null)
+		if fig:
+			var fp: Dictionary = _scene.call("_path_point", bat + float(_scene.get("BREAK_FIGURE_PAST")))
+			var off := Vector2(fig.global_position.x - (fp["pos"] as Vector3).x, fig.global_position.z - (fp["pos"] as Vector3).z).length()
+			_ok("C5: ...in the MIDDLE of the way, 2 m past the door (%.2f m off the centreline)" % off, off < 0.3)
+		# walk up to it: within BREAK_FIGURE_GONE_M it is gone and the door is shut
+		_player.global_position = (_scene.call("_path_point", bat + 0.5) as Dictionary)["pos"] + Vector3(0, 0.1, 0)
+		_scene.call("_tick_break_door")
+		_ok("C5: at arm's reach the beat is done and the figure is gone", bool(_scene.get("_break_done")))
+		_ok("C6: ...and BOTH leaves slam shut", not bool(bdoor.call("is_ajar")) and (bdoor2 == null or not bool(bdoor2.call("is_ajar"))))
+		_player.global_position = keep
+	# C2 (2026-09-13): two forks, each a loop with a shut door, a note and a dead torch; zero panic.
+	var forks: Array = _scene.call("forks")
+	_ok("C2: two forks were built", forks.size() == 2)
+	for f in forks:
+		var i2: int = int(f["index"])
+		_ok("C2: fork %d's door starts SHUT" % i2, bool((f["door"] as Node).get("_closed")))
+		_ok("C2: fork %d carries a readable note" % i2, _scene.get_node_or_null("Fork%dNote" % i2) != null)
+		_ok("C2: fork %d has a dead torch at its mouth" % i2, _scene.get_node_or_null("Fork%dDeadTorch" % i2) != null
+			and not bool(_scene.get_node("Fork%dDeadTorch" % i2).get("lit")))
+		var fa: float = float((cs["FORKS"] as Array)[i2]["at"])
+		var fb: float = fa + float((cs["FORKS"] as Array)[i2]["across"])
+		var clear := true
+		for name in beats:
+			var bd: float = float(beats[name])
+			if bd > fa - 8.0 and bd < fb + 8.0:
+				clear = false
+		_ok("C2: fork %d (%.0f-%.0f m) sits clear of every big beat" % [i2, fa, fb], clear)
+
+
+func _c1_shut_in_start() -> void:
+	var spurs: Array = _scene.call("spurs")
+	var e: Dictionary = spurs[0]
+	_spur_door = e["door"]
+	_spur_torch = e["torch"]
+	_panic_before_shut = _player.get_panic_ratio()
+	# Walk into the far end of spur 0.
+	var deep: Vector3 = (e["mouth"] as Vector3) + (e["dir"] as Vector3) * (float(e["len"]) - 1.2)
+	_player.global_position = deep + Vector3(0, 0.1, 0)
+	_player.velocity = Vector3.ZERO
+
+
+var _bell_rung := false
+var _bell_turned := false
+var _bell_door: Node = null
+var _bell_mouth: Vector3 = Vector3.ZERO
+var _panic_before_bell := 0.0
+var _cup_checked := false
+var _cup_move_checked := false
+var _cup_torch_on := false
+var _panic_before_cup := 0.0
+
+
+func _c2_bell_start() -> void:
+	var e: Dictionary = (_scene.call("spurs") as Array)[1]
+	_bell_door = e["door"]
+	_bell_mouth = e["mouth"]
+	var desk: Node3D = _scene.get_node("Spur1Desk")
+	# stand in front of the desk, facing it, and ring through the shipping ray
+	_player.global_position = desk.global_position - (e["dir"] as Vector3) * 1.4 + Vector3(0, 0.1, 0)
+	_player.velocity = Vector3.ZERO
+	var bell: Node3D = _scene.get_node("Spur1Bell")
+	_player.call("ai_look_at", bell.global_position)
+	_player.set("_panic", 0.0)
+	(bell as Node).call("interact")
+
+
+func _c3_cupboard_start() -> void:
+	var e: Dictionary = (_scene.call("spurs") as Array)[2]
+	var cup: Node3D = _scene.get_node("Spur2Cupboard")
+	_panic_before_cup = 0.0
+	# "...for free" measures the cupboard's OWN cost; the global RandomAmbient metronome
+	# (5/8/12 panic every 18–35 s) is not part of it and fired inside the 12.5 s window once.
+	var ra := root.get_node_or_null("/root/RandomAmbient")
+	if ra:
+		ra.set_process(false)
+	_player.set("_panic", 0.0)
+	_player.global_position = cup.global_position + Vector3(0, 0.1, 0)
+	_player.velocity = Vector3.ZERO
+	_player.call("ai_look_at", (e["mouth"] as Vector3) + Vector3(0, 1.4, 0))
+
+
+func _c1_manager_start() -> void:
+	# Stand where the second telegraph pays off, facing down the corridor, and fire it.
+	var d: float = float((_cs()["TELEGRAPH_AT"] as Array)[1])
+	var pt: Dictionary = _scene.call("_path_point", d)
+	_player.global_position = (pt["pos"] as Vector3) + Vector3(0, 0.1, 0)
+	_player.velocity = Vector3.ZERO
+	_player.call("ai_look_at", (pt["pos"] as Vector3) + (pt["dir"] as Vector3) * 10.0 + Vector3(0, 1.6, 0))
+	_player.set("_panic", 0.0)
+	_panic_before_mgr = _player.get_panic_ratio()
+	_scene.set("_manager_fired", false)
+	_scene.call("_ev_manager")
+
+
 func _false_door_static() -> void:
 	var cs: GDScript = _scene.get_script()
 	_door = _find(_scene, "FalseExitDoor") as Node3D
@@ -418,6 +769,20 @@ func _false_door_open() -> void:
 		"%.2f m away, target %s"
 			% [_player.global_position.distance_to(_door.global_position),
 				str(_player.call("ai_interact_target"))])
+	# C4 (2026-09-15): without the bell's key E does nothing — no swing, no figure, no panic.
+	_ok("C4: it requires the key", bool(_door.get("requires_key")) and not bool(_door.call("has_key")))
+	_player.call("ai_interact")
+	_ok("C4: E without the key does not open it", not bool(_door.call("is_used")) and is_zero_approx(_door.rotation.y - _door_rest_y())
+		and _find(_scene, "DoorLunger") == null)
+	_ok("C4: ...and costs nothing", is_equal_approx(_player.get_panic_ratio(), _panic_before))
+	var toast := false
+	for n in _descendants(root):
+		if n is Label and String((n as Label).text).contains("needs a key"):
+			toast = true
+	_ok("C4: ...and it says so (\"It needs a key.\")", toast)
+	_ok("C4: ...and still answers E afterwards", bool(_door.call("can_interact")))
+	# the bell served it — the C4 stage later proves the handoff through the beat itself
+	_door.call("give_key")
 	_player.call("ai_interact")
 	# ⚠️ The spike is measured as a PEAK over the following frames (`_false_door_watch`), not
 	# here: since 2026-09-10 it lands with the lunge, FALSE_DOOR_LUNGE_AT after E. Panic decays
@@ -652,6 +1017,17 @@ func _false_door_payload() -> void:
 	_ok("...but still legible — not a black cut-out", fig.p99 >= 40.0,
 		"p99 luminance %.1f of 255" % fig.p99)
 
+	# ---- THE MANAGER (C2, 2026-09-15: "should look more creepy... regenerate the image"). A
+	# green-screened flux generation keyed by `tools/cutout_green.py`; the same cutout rules.
+	var mgr := _cutout_stats("res://assets/textures/level_3_corridor/manager_figure.png")
+	_ok("C2: the Manager's texture loaded", mgr.n > 0, "%d opaque pixels sampled" % mgr.n)
+	if mgr.n > 0:
+		_ok("C2: ...a real RGBA cutout with a figure in it", mgr.has_alpha and mgr.coverage > 0.15
+			and mgr.coverage < 0.85, "alpha=%s, %.0f %% opaque" % [mgr.has_alpha, mgr.coverage * 100.0])
+		_ok("C2: ...dark enough for the hall", mgr.mean <= 115.0, "opaque-pixel mean %.1f of 255" % mgr.mean)
+		_ok("C2: ...no blown-out pixels", mgr.hot <= 1.0, "%.2f %% above 0.90 sRGB" % mgr.hot)
+		_ok("C2: ...and legible", mgr.p99 >= 40.0, "p99 luminance %.1f of 255" % mgr.p99)
+
 
 # Mean / p99 / hot % over the OPAQUE pixels of an RGBA cutout, plus its alpha coverage.
 func _cutout_stats(path: String) -> Dictionary:
@@ -660,6 +1036,8 @@ func _cutout_stats(path: String) -> Dictionary:
 		return out
 	var tex: Texture2D = load(path)
 	var img: Image = tex.get_image()
+	if img != null and img.is_compressed():
+		img.decompress()   # textures import VRAM-compressed since 2026-09-13 (memory); get_pixel needs raw
 	if img == null:
 		return out
 	if img.is_compressed():
@@ -706,6 +1084,8 @@ func _image_stats(path: String) -> Dictionary:
 	if tex == null:
 		return out
 	var img: Image = tex.get_image()
+	if img != null and img.is_compressed():
+		img.decompress()   # textures import VRAM-compressed since 2026-09-13 (memory); get_pixel needs raw
 	if img == null:
 		return out
 	if img.is_compressed():

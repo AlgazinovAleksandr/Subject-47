@@ -106,7 +106,7 @@ const CONFIG := {
 		"filed": {},
 	},
 	"SCENE_LEVEL_1": {"min_props": 10, "min_free": 2, "filed": {}},
-	"SCENE_LEVEL_2": {"min_props": 10, "min_free": 4, "filed": {}},
+	"SCENE_LEVEL_2": {"min_props": 9, "min_free": 4, "filed": {}},   # H2 (2026-09-13): SafeNote_Bedroom became the digit on the fridge head
 	"SCENE_CORRIDOR": {
 		# The Corridor's own convention, and its own guard's numbers, unchanged.
 		"min_gap": 0.005, "max_gap": 0.045, "require_wall": true, "near_wall": 0.80,
@@ -114,7 +114,17 @@ const CONFIG := {
 		# which meant the first legitimate prop removal — the 230 m turn mirror, on the user's
 		# request — put a correct level one prop from a red test. The floor exists to catch a
 		# scene that builds NOTHING, so it sits a couple below the real count.
-		"min_props": 28, "min_free": 0, "filed": {},
+		"min_props": 28, "min_free": 0,
+		# C6 (2026-09-16): the 124 double door stands in a real OPENING onto the bedroom behind
+		# it — there is no wall behind the leaves by design. The frame is measured instead.
+		"filed": {
+			"AjarDoor_break": "C6: hung in the cut doorway of the bedroom, nothing behind it by design",
+			"AjarDoor_break2": "C6: the right-hand leaf of the same double door",
+			"Spur2ClosetDoor": "C7: hung in the closet partition's opening, nothing behind it by design",
+			"Spur2ClosetStrip": "C7: the strip of light under the closet door, at the sill of the opening",
+			"ClosetFrame_2": "C7: the architrave round that opening — proud of a partition with a hole in it",
+		},
+		"min_filed": 4,
 	},
 	"SCENE_BACKROOMS": {"min_props": 6, "min_free": 2, "filed": {}},
 	"SCENE_KONTUR": {"min_props": 12, "min_free": 3, "filed": {}, "seeds": [7]},
@@ -129,7 +139,8 @@ const CONFIG := {
 		# The Void has NO flush wall props at all. Its eight notes stand on tables, its
 		# creatures are excluded as creatures, and its geometry is CSG. This guard therefore
 		# says nothing about that level, which is a coverage gap rather than a clean bill.
-		"min_props": 0, "min_free": 0, "filed": {},
+		# 2026-09-12: nine wall notes and the crayon drawing hang at the wall_point() inset.
+		"min_props": 8, "min_free": 0, "filed": {},
 	},
 }
 
@@ -149,7 +160,10 @@ const CONFIG := {
 #   BackDoor/Exit  built by door.gd in the end caps, on a different convention
 const SKIP_EXACT := ["IntroNote", "NoteTable", "ExitDoor", "BackDoor"]
 const SKIP_PREFIX := ["AjarFrame_", "FakeFrame_", "MirrorFrame_", "MirrorFigure",
-	"FalseExitFrame"]
+	"FalseExitFrame",
+	# C2 (2026-09-13): the fork doors stand SHUT across a cut mouth, like a spur door mid shut-in —
+	# a doorway prop, nothing behind it by construction.
+	"Fork0Door", "Fork1Door"]
 # ⚠️ Excluded by SCRIPT FILE, not by `is Beartrap` and not by node name.
 #   * not by name — `Torch3D.new()` is never named, so Godot calls all sixteen of them
 #     "@Node3D@NN" and any name filter misses every one;

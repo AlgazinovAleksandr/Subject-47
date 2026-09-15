@@ -87,6 +87,35 @@ const CROSSFADE := 0.18
 # again this is the single place to flip.
 const MODEL_YAW := 0.0
 
+# ⭐ A SECOND MODEL (2026-09-12). THE NIGHTMARE's hunter is Mixamo's "Parasite" — a 69-bone
+# `mixamorig_*` rig with TWO clips, built by `tools/fbx_to_glb.py` + `tools/merge_creature_glb.py
+# --profile parasite` into `parasite.glb`. Everything above is the hollow_crown contract and is
+# unchanged; a caller picks a model BY NAME in `build()`, and the instance carries its own clip
+# list and speed table from here on. `containment_cell.gd` still reads `GLB_PATH`, the stalker and
+# Object 12 still ask for `CLIP_*` by name — a two-clip model answers those through `resolve_clip()`.
+#
+# ⚠️ Speeds are MEASURED: both Parasite takes carried baked root motion, which the merge tool
+# strips and reports as a true ground speed — the same anchor `charge` gave the hollow_crown
+# table. `tests/probe_creature_gait.gd -- --model parasite` cross-checks them by stance.
+const PARASITE_GLB_PATH := "res://assets/models/parasite.glb"
+const MODELS := {
+	"hollow_crown": {
+		"path": GLB_PATH, "clips": ALL_CLIPS, "speeds": CLIP_SPEED, "yaw": MODEL_YAW,
+	},
+	"parasite": {
+		"path": PARASITE_GLB_PATH,
+		"clips": [CLIP_WALK, CLIP_RUN],
+		# walk: Mixamo "Mutant Walking" — hunched, heavy. run: "Injured Run" — a limp at speed.
+		# ⚠️ These are ROOT-MOTION ANCHORS, not stance estimates: both takes arrived with their
+		# forward travel baked into the Hips (2.145 m / 1.792 m per cycle), which
+		# tools/merge_creature_glb.py strips and prints as a ground speed. The stance estimator
+		# (probe_creature_gait.gd -- --model parasite) returned 1.526 / 3.129 — right on the
+		# walk, 10 % high on the limping run, exactly the drunken-clip failure `unsteady` taught.
+		"speeds": {CLIP_WALK: 1.497, CLIP_RUN: 2.829},
+		"yaw": 0.0,   # verified +Z in the scratch render (face toward a +Z camera)
+	},
+}
+
 var _root: Node3D
 var _player: AnimationPlayer
 var _skel: Skeleton3D
@@ -94,21 +123,34 @@ var _meshes: Array[MeshInstance3D] = []
 var _lib := ""
 var _clip := ""
 var _frozen := false
+var _model := "hollow_crown"
+var _desc: Dictionary = MODELS["hollow_crown"]
 
 
-# Instantiate the model under `parent` and return a driver, or null if the asset is unusable.
-static func build(parent: Node3D) -> CreatureAnim:
-	if not ResourceLoader.exists(GLB_PATH):
+# Instantiate `model` (a MODELS key) under `parent` and return a driver, or null if the asset is
+# unusable. The default is the hollow_crown, so every existing caller is byte-for-byte unchanged.
+static func build(parent: Node3D, model: String = "hollow_crown") -> CreatureAnim:
+	if not MODELS.has(model):
+		push_warning("CreatureAnim: unknown model '%s'" % model)
 		return null
-	var packed: PackedScene = load(GLB_PATH)
+	var desc: Dictionary = MODELS[model]
+	var path: String = desc["path"]
+	if not ResourceLoader.exists(path):
+		return null
+	var packed: PackedScene = load(path)
 	if packed == null:
 		return null
 	var inst := packed.instantiate() as Node3D
 	if inst == null:
 		return null
 	parent.add_child(inst)
+	var yaw: float = float(desc.get("yaw", 0.0))
+	if yaw != 0.0:
+		inst.rotation.y = yaw
 	var a := CreatureAnim.new()
 	a._root = inst
+	a._model = model
+	a._desc = desc
 	a._collect(inst)
 	if a._player == null or a._meshes.is_empty():
 		inst.queue_free()
@@ -116,6 +158,21 @@ static func build(parent: Node3D) -> CreatureAnim:
 	a._name_library()
 	a._make_everything_loop()
 	return a
+
+
+func model() -> String:
+	return _model
+
+
+# The measured feet-speed of `clip` for THIS model, or 0.0 if the model does not carry it.
+func clip_speed(clip: String) -> float:
+	return float((_desc.get("speeds", CLIP_SPEED) as Dictionary).get(clip, 0.0))
+
+
+# `preferred` if this model carries it, else `fallback` — how a caller written against the six
+# hollow_crown clips (`unsteady` for a scan, `charge` for a slow chase) runs on a two-clip model.
+func resolve_clip(preferred: String, fallback: String) -> String:
+	return preferred if has_clip(preferred) else fallback
 
 
 func _collect(n: Node) -> void:
@@ -142,7 +199,7 @@ func _name_library() -> void:
 # of truth. Every one of these clips is a cycle; a non-looping walk plays once and then the
 # creature slides along in a frozen pose, which reads as the old T-pose bug returning.
 func _make_everything_loop() -> void:
-	for clip in ALL_CLIPS:
+	for clip in _desc.get("clips", ALL_CLIPS):
 		var full: String = _lib + String(clip)
 		if _player.has_animation(full):
 			_player.get_animation(full).loop_mode = Animation.LOOP_LINEAR
@@ -200,11 +257,13 @@ func play(clip: String, speed: float = 1.0, blend: float = CROSSFADE) -> void:
 
 # Which gait best represents travelling at `world_speed`, by log-ratio so a 2x error costs the
 # same whether it is too fast or too slow.
-static func locomotion_clip(world_speed: float) -> String:
+static func locomotion_clip(world_speed: float, model: String = "hollow_crown") -> String:
 	var best := CLIP_WALK
 	var best_err := INF
-	for clip in [CLIP_SHAMBLE, CLIP_UNSTEADY, CLIP_WALK, CLIP_CHARGE, CLIP_RUN, CLIP_SPRINT]:
-		var s: float = CLIP_SPEED[clip]
+	var desc: Dictionary = MODELS.get(model, MODELS["hollow_crown"])
+	var speeds: Dictionary = desc.get("speeds", CLIP_SPEED)
+	for clip in desc.get("clips", ALL_CLIPS):
+		var s: float = float(speeds.get(clip, 0.0))
 		if s <= 0.0:
 			continue
 		var err: float = absf(log(maxf(0.01, world_speed) / s))
@@ -216,7 +275,7 @@ static func locomotion_clip(world_speed: float) -> String:
 
 # Play `clip` scaled so its feet keep up with `world_speed` m/s.
 func play_locomotion(clip: String, world_speed: float, blend: float = CROSSFADE) -> void:
-	var ref: float = CLIP_SPEED.get(clip, 1.0)
+	var ref: float = float((_desc.get("speeds", CLIP_SPEED) as Dictionary).get(clip, 1.0))
 	var scale: float = clampf(world_speed / maxf(0.01, ref), SPEED_SCALE_MIN, SPEED_SCALE_MAX)
 	play(clip, scale, blend)
 

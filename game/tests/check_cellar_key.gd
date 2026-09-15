@@ -135,6 +135,9 @@ func _process(delta: float) -> bool:
 		return false
 	if _scene == null:
 		_scene = current_scene
+		# H2 (2026-09-16): entering the cellar now PINS the player for the child's blackout; this
+		# test measures the gate and the ramp, so the child beat is marked spent before the walk.
+		_scene.set("_guest_child_done", true)
 		_gs = root.get_node_or_null("/root/GameState")
 		_gate = _scene.get_node_or_null("CellarGate") as Node3D
 		_player = _scene.get_node_or_null("Player") as CharacterBody3D

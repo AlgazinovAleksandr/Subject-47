@@ -79,7 +79,7 @@ const FAR_MAX_DB := 5.0
 const NEAR_MAX_DB := 5.0
 const TELL_BUS := "Master"
 
-const SIZE := Vector3(1.05, 0.78, 0.72)
+const SIZE := Vector3(1.2, 1.0, 1.2)      # B3 (2026-09-13): a big GIFT BOX, the user's call (was a 1.05 x 0.78 x 0.72 slatted crate)
 const LID_TIME := 0.45
 
 var _opened := false
@@ -135,48 +135,48 @@ func _part(parent: Node3D, part_name: String, size: Vector3, pos: Vector3,
 
 
 func _build() -> void:
-	var wood := _flat(Color(0.20, 0.15, 0.10), 0.95)
-	var pale := _flat(Color(0.29, 0.23, 0.15), 0.9)
-	var iron := _flat(Color(0.13, 0.13, 0.14), 0.7)
+	# ⭐ B3 (2026-09-13, captures #16/#17, the user: "Let's make it look like a big gift box").
+	# Was a slatted wooden crate. A 1.2 m wrapped box with a lid, two ribbon bands crossing it, a
+	# bow of four loops on top — all from parts, flat-tinted, never emissive: it is still found
+	# by EAR (the whisper loops below), and the recess it stands in has no ceiling light.
+	var paper := _flat(Color(0.30, 0.05, 0.07), 0.85)      # deep crimson wrapping
+	var paper2 := _flat(Color(0.26, 0.04, 0.06), 0.85)     # the lid, a shade darker
+	var ribbon := _flat(Color(0.52, 0.42, 0.16), 0.55)     # dull gold
+	var h: float = SIZE.y - 0.16                            # the box below the lid
 
-	# Four corner posts, so the silhouette has vertical structure at every angle.
-	for sx in [-1.0, 1.0]:
-		for sz in [-1.0, 1.0]:
-			_part(self, "Post%d%d" % [int(sx), int(sz)],
-				Vector3(0.10, SIZE.y - 0.08, 0.10),
-				Vector3(sx * (SIZE.x / 2.0 - 0.05), (SIZE.y - 0.08) / 2.0,
-					sz * (SIZE.z / 2.0 - 0.05)), wood)
-	# Slats with gaps between them — the gaps are what stop it reading as a box.
-	for i in range(3):
-		var y: float = 0.14 + float(i) * 0.22
-		_part(self, "SlatFront%d" % i, Vector3(SIZE.x - 0.06, 0.15, 0.04),
-			Vector3(0, y, -SIZE.z / 2.0 + 0.02), pale)
-		_part(self, "SlatBack%d" % i, Vector3(SIZE.x - 0.06, 0.15, 0.04),
-			Vector3(0, y, SIZE.z / 2.0 - 0.02), pale)
-		_part(self, "SlatLeft%d" % i, Vector3(0.04, 0.15, SIZE.z - 0.06),
-			Vector3(-SIZE.x / 2.0 + 0.02, y, 0), pale)
-		_part(self, "SlatRight%d" % i, Vector3(0.04, 0.15, SIZE.z - 0.06),
-			Vector3(SIZE.x / 2.0 - 0.02, y, 0), pale)
-	_part(self, "Band", Vector3(SIZE.x + 0.02, 0.035, 0.05),
-		Vector3(0, 0.47, -SIZE.z / 2.0 - 0.01), iron)
+	_part(self, "BoxBody", Vector3(SIZE.x, h, SIZE.z), Vector3(0, h / 2.0, 0), paper)
+	# Ribbon bands round the box, proud of the paper (never coplanar).
+	_part(self, "BandX", Vector3(SIZE.x + 0.02, h + 0.01, 0.12), Vector3(0, h / 2.0, 0), ribbon)
+	_part(self, "BandZ", Vector3(0.12, h + 0.01, SIZE.z + 0.02), Vector3(0, h / 2.0, 0), ribbon)
 
-	# The lid, hinged along the far edge so it opens TOWARD the player.
+	# The lid, hinged along the far edge so it opens TOWARD the player, with a lip that
+	# overhangs the box and the bow on top.
 	_lid = Node3D.new()
 	_lid.name = "CrateLid"
-	_lid.position = Vector3(0, SIZE.y - 0.05, SIZE.z / 2.0)
+	_lid.position = Vector3(0, h, SIZE.z / 2.0)
 	add_child(_lid)
-	_part(_lid, "LidSlab", Vector3(SIZE.x + 0.04, 0.06, SIZE.z + 0.04),
-		Vector3(0, 0.03, -SIZE.z / 2.0), wood)
-	_part(_lid, "LidRib", Vector3(SIZE.x + 0.06, 0.04, 0.06),
-		Vector3(0, 0.06, -SIZE.z + 0.04), iron)
+	_part(_lid, "LidSlab", Vector3(SIZE.x + 0.06, 0.16, SIZE.z + 0.06),
+		Vector3(0, 0.08, -SIZE.z / 2.0), paper2)
+	_part(_lid, "LidBandX", Vector3(SIZE.x + 0.08, 0.17, 0.12), Vector3(0, 0.08, -SIZE.z / 2.0), ribbon)
+	_part(_lid, "LidBandZ", Vector3(0.12, 0.17, SIZE.z + 0.08), Vector3(0, 0.08, -SIZE.z / 2.0), ribbon)
+	for i in range(4):
+		var loop := MeshInstance3D.new()
+		loop.name = "BowLoop%d" % i
+		var tor := TorusMesh.new()
+		tor.inner_radius = 0.06
+		tor.outer_radius = 0.14
+		loop.mesh = tor
+		loop.material_override = ribbon
+		var a: float = float(i) * PI / 2.0
+		loop.position = Vector3(cos(a) * 0.13, 0.22, -SIZE.z / 2.0 + sin(a) * 0.13)
+		loop.rotation = Vector3(PI / 2.0 * 0.55, a, 0)
+		_lid.add_child(loop)
+	_part(_lid, "BowKnot", Vector3(0.10, 0.08, 0.10), Vector3(0, 0.20, -SIZE.z / 2.0), ribbon)
 
-	# The inside, seen once the lid goes: an empty crate with straw and one handprint's
-	# worth of dark. There is nothing to take — the thing that was in it leaves on its own.
-	var inner := _part(self, "CrateFloor", Vector3(SIZE.x - 0.14, 0.05, SIZE.z - 0.14),
-		Vector3(0, 0.10, 0), _flat(Color(0.07, 0.06, 0.05), 1.0))
-	inner.name = "CrateFloor"
-	_part(self, "Straw", Vector3(SIZE.x - 0.26, 0.06, SIZE.z - 0.30),
-		Vector3(0.05, 0.15, -0.04), _flat(Color(0.16, 0.14, 0.09), 1.0))
+	# The inside, seen once the lid goes: dark tissue and nothing to take — the thing that was
+	# in it leaves on its own.
+	_part(self, "CrateFloor", Vector3(SIZE.x - 0.14, 0.05, SIZE.z - 0.14),
+		Vector3(0, h - 0.06, 0), _flat(Color(0.07, 0.05, 0.05), 1.0))
 
 
 func _build_collider() -> void:

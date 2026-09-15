@@ -56,7 +56,7 @@ const CONFIG := {
 		# 3x the ceiling, and the Corridor is a verified, closed level whose art this pass
 		# does not touch. backlogs/03-corridor.md; the count is exact, so a 17th torch or a
 		# retune both move it.
-		"allow_energy": [3.0, 16, "Torch3D flame cups, filed as a Corridor art finding"],
+		"allow_energy": [3.0, 26, "Torch3D flame cups, filed as a Corridor art finding (C1: 16 + 5 new corridor torches + 3 spur torches; C2 2026-09-13: + 2 dead fork torches, whose cups still carry the emission)"],
 	},
 	"SCENE_BACKROOMS": {
 		"min_fittings": 20,
@@ -97,12 +97,8 @@ const CONFIG := {
 	# same failure mode.
 	"SCENE_DUNGEON": {"min_fittings": 1, "seeds": [1]},
 	"SCENE_LEVEL_3": {
-		"min_fittings": 1,
-		# ⚠️ FILED, NOT FIXED — the Void has not had its level pass. Its two candle flames
-		# run at 1.50, half again over the clamp, so both render as flat white blobs in the
-		# level's ONLY recovery anchor (Room A's CalmZone is lit by exactly these two).
-		# backlogs/08-void.md.
-		"allow_energy": [1.5, 2, "the two Room A candle flames — filed as a Void art finding"],
+		# V-T3 CLOSED 2026-09-12: the two candle flames run at 0.9 now (they were 1.5, flat white).
+		"min_fittings": 2,
 	},
 }
 

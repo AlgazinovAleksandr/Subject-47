@@ -95,6 +95,8 @@ Mirrors the destination path, so it is obvious what each source becomes:
 | `video/dungeon_wake.mp4` | `game/assets/video/dungeon_wake.ogv` | `ffmpeg` (see below) | local |
 | `video/seeds/*.png` | *nothing — Veo conditioning frames, `VIDEO_PROMPTS.md` §2* | — | local |
 | `models/hollow_crown/*.glb` (six) | `game/assets/models/hollow_crown.glb` | `tools/merge_creature_glb.py --shrink` | local |
+| `models/parasite/*.fbx` (three) | `game/assets/models/parasite.glb` (+ three extracted 1024² PNGs) | `tools/fbx_to_glb.py` (Blender) → `tools/merge_creature_glb.py --profile parasite --shrink` | local |
+| `audio/level_9_dungeon/*.mp3` (two) | `game/assets/audio/level_9_dungeon/parasite_jumpscare.wav`, `parasite_chase.wav` | `ffmpeg` → (chase) `tools/make_loop.py --xfade 2.0` | **yes** |
 | `textures/level_6_breach/breach_door_raw.jpg` | `game/assets/textures/level_6_breach/breach_door.png` | `tools/make_breach_door.py` | **yes** |
 | `audio/pre_remaster/*` | *originals of the stings `tools/remaster_scares.py` rewrote in place* | — | local |
 
@@ -139,6 +141,46 @@ standing between a re-download and a silently scrambled skeleton.
 ⚠️ And `run_fast_10` ships with **2.279 m of baked root motion** (2.849 m/s). The tool strips the
 linear component and keeps the residual sway; that measured speed is what anchors
 `CreatureAnim.CLIP_SPEED`, so it is data, not junk.
+
+### `models/parasite/` — the hunter (THE NIGHTMARE), same rule as `hollow_crown/`
+
+Three Mixamo FBX files supplied by the user on 2026-09-12 (`Mutant Walking.fbx`, `Injured Run.fbx`,
+`character.fbx`), local-only under the `assets_src/models/` rule. `character.fbx` is a T-pose
+duplicate of the same `parasiteZombie` mesh and is not consumed. Pipeline:
+
+```
+Blender --factory-startup -b --python tools/fbx_to_glb.py -- "assets_src/models/parasite/Mutant Walking.fbx" assets_src/models/parasite/parasite_walk.glb
+Blender --factory-startup -b --python tools/fbx_to_glb.py -- "assets_src/models/parasite/Injured Run.fbx"    assets_src/models/parasite/parasite_run.glb
+python3 tools/merge_creature_glb.py --profile parasite --shrink
+```
+
+Shipped: `game/assets/models/parasite.glb` 4.99 MB, clips `walk` 1.467 s / `run` 0.667 s, 2.012 m
+tall, 69-bone `mixamorig` rig (Godot sanitises `mixamorig:Hips` → `mixamorig_Hips`). ⚠️ The
+forward root motion is on the hips node's LOCAL Y (the armature is rotated), which is why the
+merge tool strips the linear component on all three axes; the implied speeds it prints — walk
+**1.497 m/s**, run **2.829 m/s** — are the anchors for `CreatureAnim.MODELS["parasite"].speeds`.
+`Action.fcurves` no longer exists in Blender 5.x, which `tools/fbx_to_glb.py` allows for.
+
+SHA-256 of exactly what shipped:
+
+```
+59e5da2311fc45622135cec4ca85fd5e65c9788b6092258da0cd0daa989a331e  Injured Run.fbx
+481cf50c20e2094fe8dd841de9fa460a2e96c25b1e8bc9b9a7a9c0c2f51fe63d  Mutant Walking.fbx
+b25686a4e71d1011e12e39044b3a7420d1f0e7e5b4fbe76bae1ec11a884f72fd  character.fbx   (unused)
+```
+
+### `audio/level_9_dungeon/` — the hunter's two supplied sounds (committed: tool inputs)
+
+```
+72637011a50b8359965cdeee8f420e2e33e00ca67a671f116c0ec4db0088cf68  jeremayjimenez-smile-dog-jumpscare-167171.mp3
+7f35b3a20783f037aea6805faf9b6086545bb0c80cf43eff7c33bf7f7731c16f  tomas_herudek-horror-transition-jumpscares-amp-chase-tension-443387.mp3
+```
+
+The sting → `parasite_jumpscare.wav` (2.09 s, peak 0.0 dBFS, loudest-300 ms −2.6 dBFS — the
+shared screamers' class; `check_scare_loudness.gd` floor −5.0). The chase piece (28.7 s, four hits,
+a 5 s fade tail) → `tools/make_loop.py --xfade 2.0` → `parasite_chase.wav`, a 21.26 s loop with a
+0.8 dB seam, shipped as `.wav` and relooped via `finished → play` (an Ogg encoder delay would reopen
+the seam — the House `chase.wav` precedent).
 
 ## Regenerating
 

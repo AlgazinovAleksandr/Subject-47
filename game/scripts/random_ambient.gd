@@ -112,6 +112,12 @@ func _play_near_player(base_name: String, vol_db: float) -> void:
 		randf_range(0.0, 2.0),
 		randf_range(-4.0, 4.0)
 	)
-	get_tree().current_scene.add_child(p)
+	# X0 (2026-09-15): at a level transition `current_scene` is null for a frame and the
+	# metronome fired into it (SCRIPT ERROR in the 2026-09-14 run at the House load).
+	var host: Node = get_tree().current_scene
+	if host == null or not is_instance_valid(_player) or not _player.is_inside_tree():
+		p.queue_free()
+		return
+	host.add_child(p)
 	p.finished.connect(p.queue_free)
 	p.play()

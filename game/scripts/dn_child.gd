@@ -109,6 +109,34 @@ func tick(delta: float, allowed: bool) -> void:
 	_fire()
 
 
+# ⭐ Scripted (2026-09-12): the Well archetype's scare. Bypasses the timer and the level's
+# allowed-gate — the caller has already decided — and shows the peek (or the face) AT `at`
+# rather than ahead of the player; SPRINT_PAST ignores `at`. Same panic term as a random one.
+func fire_now(variant: int, at: Vector3) -> void:
+	if _player == null or not is_instance_valid(_player) or _peek_t > 0.0:
+		return
+	match variant:
+		Variant.PEEK:
+			global_position = Vector3(at.x, 0.0, at.z)
+			_peek.position = Vector3(0, 0.62, 0)
+			_peek.visible = true
+			_peek_t = PEEK_SECONDS
+			_play("child_peek")
+		Variant.SPRINT_PAST:
+			_do_sprint_past()
+		_:
+			global_position = Vector3(at.x, 0.0, at.z)
+			_peek.position = Vector3(0, 1.2, 0)
+			_peek.visible = true
+			_peek_t = FACE_SECONDS
+			_play("child_laugh")
+	if _player.has_method("add_panic"):
+		_player.add_panic(PANIC)
+	# Push the random clock back so a scripted appearance is not followed by a random one.
+	_timer = maxf(_timer, MIN_GAP * 0.5)
+	appeared.emit()
+
+
 func _fire() -> void:
 	var pick: int = randi() % 3
 	match pick:

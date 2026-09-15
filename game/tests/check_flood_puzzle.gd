@@ -553,15 +553,23 @@ func _announcement_channels() -> void:
 			"%.1f m from a %.1f m lamp" % [d, lamp.omni_range])
 
 	# --- and it says what it is for, in writing, without lighting itself ---
-	var lbl: Label3D = _plate.get_node_or_null("PlateScrawl") as Label3D
-	_ok("the plate carries a written instruction", lbl != null and lbl.text.length() > 8,
-		"\"%s\"" % ("" if lbl == null else lbl.text.replace("\n", " / ")))
-	if lbl != null:
-		# Label3D is unshaded: a pale modulate IS a self-lit object (§5.2(8)). The board
-		# behind it takes the lamp; the lettering takes its contrast from the board.
-		var v: float = maxf(lbl.modulate.r, maxf(lbl.modulate.g, lbl.modulate.b))
-		_ok("...in dark lettering, not as a self-lit label", v < 0.25,
-			"brightest channel %.2f" % v)
+	# F1 (2026-09-14): the words are CHALKED ON THE SHEET by tools/make_flood_altar_art.py —
+	# there is no Label3D. Assert the art is on the table and that the generator letters the
+	# plate's own SCRAWL, line for line, so the two cannot drift apart.
+	var art := _plate.get_node_or_null("SheetArt") as MeshInstance3D
+	var amat := (art.material_override if art else null) as StandardMaterial3D
+	_ok("the sheet carries the generated art", art != null and amat != null and amat.albedo_texture != null
+		and amat.albedo_texture.resource_path.ends_with("flood_sheet.png"))
+	_ok("...on a QuadMesh, with no emission", art != null and art.mesh is QuadMesh
+		and amat != null and not amat.emission_enabled)
+	_ok("there is no Label3D on the altar any more", _plate.get_node_or_null("PlateScrawl") == null)
+	var tool_src := FileAccess.get_file_as_string(ProjectSettings.globalize_path("res://").path_join("../tools/make_flood_altar_art.py"))
+	var scrawl: String = _plate.get("SCRAWL")
+	var all_lines := tool_src != ""
+	for line in scrawl.split("\n"):
+		if not tool_src.contains("\"%s\"" % line):
+			all_lines = false
+	_ok("the generator letters the plate's SCRAWL verbatim", all_lines, "tool %d bytes" % tool_src.length())
 
 
 # ⚠️ THE BACK-DOOR RETURN IS THE OTHER WAY TO MANUFACTURE AN UNWINNABLE WING, and it does not

@@ -28,20 +28,22 @@ extends SceneTree
 # should now agree.
 
 const AUTOPLAYER := preload("res://tests/autoplay/autoplayer.gd")
-const BREAKER_POS := Vector3(-36.85, 1.1, 7.7)
+const BREAKER_POS := Vector3(-59.85, 1.1, 16.5)   # L1.2
 const ROUTE := [
 	Vector3(-11.5, 0.0, 12.5), Vector3(-13.0, 0.0, 12.5), Vector3(-15.5, 0.0, 12.5),
 	Vector3(-21.0, 0.0, 12.5), Vector3(-21.0, 0.0, 8.5), Vector3(-23.5, 0.0, 7.7),
-	Vector3(-30.0, 0.0, 7.7), Vector3(-34.5, 0.0, 7.7), Vector3(-36.0, 0.0, 7.7),
+	Vector3(-30.0, 0.0, 7.7), Vector3(-34.0, 0.0, 7.7), Vector3(-40.5, 0.0, 7.7),
+	Vector3(-46.0, 0.0, 7.7), Vector3(-51.5, 0.0, 7.7), Vector3(-57.0, 0.0, 7.7),
+	Vector3(-57.0, 0.0, 12.1), Vector3(-57.0, 0.0, 15.5), Vector3(-59.0, 0.0, 16.5),
 ]
-# Walking out again: back east down SouthHall, which is the only way there is.
-const OUT_ROUTE := [Vector3(-30.0, 0.0, 7.7), Vector3(-24.0, 0.0, 7.7), Vector3(-21.5, 0.0, 9.5)]
+# Walking out again: back south down the Shaft into Turn, which is the only way there is.
+const OUT_ROUTE := [Vector3(-57.0, 0.0, 13.5), Vector3(-57.0, 0.0, 10.5), Vector3(-57.0, 0.0, 7.7)]
 const STYLES := ["walk_out", "stand_still"]
 
 # What "close enough" means. The billboard is 2.3 m tall, so at 2.4 m it fills ~70 % of screen
 # height, at 3.5 m ~51 %, at 6 m ~30 %. NOOK_MIN_FRAMING is 2.2, so nothing can beat that.
 const WANT_MAX := 4.2
-const WANT_MIN := 2.1
+const WANT_MIN := 1.5   # W1 (2026-09-16): it appears 1.5-3.6 m out and LUNGES to 0.65 — the appearance distance no longer carries the beat
 
 var _fails := 0
 var _checks := 0
@@ -146,9 +148,9 @@ func _process(delta: float) -> bool:
 					_auto.reset_stuck()
 			else:
 				_auto.stop()
-			# The reveal fires at +5 s (armed) and the figure is visible for ~0.33 s from +0.45.
-			# Give the whole beat room, then judge.
-			if _t > 16.0:
+			# The reveal fires at +20 s (NOOK_SCARE_DELAY, L1.6) + up to 6 s of watch, and the
+			# figure is visible for ~0.33 s from +0.45. Give the whole beat room, then judge.
+			if _t > 32.0:
 				_ok("%s: a figure appeared at all" % STYLES[_style], _seen_at >= 0.0,
 					"_place_nook_figure() returns non-finite when nothing fits, and the beat "
 					+ "then keeps the sting and drops the picture — that is a legitimate "

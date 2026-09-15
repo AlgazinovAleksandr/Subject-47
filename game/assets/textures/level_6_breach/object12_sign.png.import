@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://rx1qmbm2ks56"
-path="res://.godot/imported/object12_sign.png-7676d36562de874895ed7f95515b6e1a.ctex"
+path.s3tc="res://.godot/imported/object12_sign.png-7676d36562de874895ed7f95515b6e1a.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_6_breach/object12_sign.png"
-dest_files=["res://.godot/imported/object12_sign.png-7676d36562de874895ed7f95515b6e1a.ctex"]
+dest_files=["res://.godot/imported/object12_sign.png-7676d36562de874895ed7f95515b6e1a.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

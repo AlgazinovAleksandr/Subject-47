@@ -78,6 +78,10 @@ var _walk_from := Vector3.ZERO
 var _yaw_at_run := 0.0
 var _turned := 0.0
 var _frozen_seen := false
+var _black_seen := false
+var _pending_sting_check := false
+var _sting_before_run := false
+var _nearest_m := 999.0
 var _run_seen_t := 0.0     # seconds the runner was in frustum while running (2026-09-10)
 
 var _checks := 0
@@ -103,6 +107,8 @@ func _advance(n: int) -> void:
 
 
 func _report() -> bool:
+	if _pending_sting_check:
+		_ok("B1: the crate sting plays while the thing LUNGES, before the run (2026-09-13)", _sting_before_run)
 	print("--------------------------------------------------")
 	print("  %d checks, %d failed" % [_checks, _fails.size()])
 	for f in _fails:
@@ -149,10 +155,25 @@ func _process(delta: float) -> bool:
 	if _stage >= 7 and is_instance_valid(_player):
 		if bool(_player.call("is_input_frozen")):
 			_frozen_seen = true
+		var scr2 := root.get_node_or_null("Screamer")
+		if scr2 and scr2.get("_black_panel") != null and (scr2.get("_black_panel") as CanvasItem).visible:
+			_black_seen = true
+		var dw := _zone.get_node_or_null("SprawlDweller") if is_instance_valid(_zone) else null
+		var cam2 := _player.get_node_or_null("Camera3D") as Node3D
+		if dw != null and cam2 != null:
+			var e: Vector3 = cam2.global_position
+			var f: Vector3 = (dw as Node3D).global_position
+			_nearest_m = minf(_nearest_m, Vector2(f.x - e.x, f.z - e.z).length())
 		_turned = maxf(_turned,
 			absf(rad_to_deg(angle_difference(_yaw_at_run, _player.rotation.y))))
 		# The run, as SEEN: runner alive, actually running, inside the camera's frustum.
 		var runner := _zone.get_node_or_null("SprawlDweller") if is_instance_valid(_zone) else null
+		# B1 (2026-09-13): the sting must be heard BEFORE the run — i.e. while the thing is
+		# coming at you, not as it retreats (capture #008).
+		if _pending_sting_check and runner != null and not bool(runner.get("_running")):
+			var sting := runner.get_node_or_null("LungeSting") as AudioStreamPlayer3D
+			if sting != null and sting.playing:
+				_sting_before_run = true
 		var cam := _player.get_node_or_null("Camera3D") as Camera3D
 		if runner != null and cam != null and bool(runner.get("_running")) \
 				and cam.is_position_in_frustum((runner as Node3D).global_position + Vector3(0, 1.1, 0)):
@@ -526,8 +547,13 @@ func _open_the_crate() -> bool:
 	# player is not made to watch it through a fullscreen image. Measuring this in the frame
 	# of the press is the whole of Issue 113, so it is measured as a NEGATIVE here and as a
 	# positive twelve seconds later.
-	_ok("...and it has not started running while the scare image is up",
+	# B3 (2026-09-13): no fullscreen image any more — it LUNGES to arm's length first, then runs.
+	_ok("...and it has not started running yet (the lunge comes first)",
 		dweller != null and not bool(dweller.get("_running")))
+	_pending_sting_check = true
+	var scr := root.get_node_or_null("Screamer")
+	_ok("B3: NO fullscreen flash on the press",
+		scr == null or scr.get("_black_panel") == null or not (scr.get("_black_panel") as CanvasItem).visible)
 	if dweller != null:
 		# ⚠️ NOT A Watcher, and not one of the Congregation's — see the header.
 		var watcher_script: GDScript = load("res://scripts/watcher.gd")
@@ -581,6 +607,16 @@ func _the_mark() -> bool:
 	# THE RUN WAS SEEN (2026-09-10): ~7 m straight down the recess, in frustum, >= 1.6 s.
 	_ok("the run was ON SCREEN for at least 1.6 s", _run_seen_t >= 1.6,
 		"%.2f s in frustum while running" % _run_seen_t)
+	_ok("B3: it came to arm's length first (nearest <= 1.0 m from the eye)", _nearest_m <= 1.0,
+		"%.2f m" % _nearest_m)
+	_ok("B3: the Screamer's black panel was never shown across the beat", not _black_seen)
+	# B4 (2026-09-13): the question on the screen the moment it goes through.
+	var asked := false
+	for n in root.get_children():
+		for c in n.get_children():
+			if c is Label and (c as Label).text.contains("SHOULD I FOLLOW IT"):
+				asked = true
+	_ok("B4: SHOULD I FOLLOW IT? is on the screen after the run", asked)
 
 	# THE MARK. Motion, not brightness: the shader's own vertex-jitter amplitude.
 	var marked: Array[String] = []

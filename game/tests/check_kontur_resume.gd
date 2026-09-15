@@ -62,7 +62,7 @@ var _gs: Node
 
 var _dark_x_a := 0.0
 var _black_east_a := false
-var _strikes_before := 0
+var _condemned_before := false
 
 
 func _initialize() -> void:
@@ -119,7 +119,7 @@ func _phase_build() -> void:
 		_finish()
 		return
 	p.set("ai_active", true)
-	_strikes_before = int(k.get("_strikes"))
+	_condemned_before = bool(k.get("_condemned"))
 
 	# ---- gate 1, through the real interact ray -----------------------------------
 	var gate_x: float = 2.0 if _black_east_a else -2.0
@@ -154,8 +154,7 @@ func _phase_build() -> void:
 		"target=%s" % (barrier.name if barrier else "<none>"))
 	p.call("ai_interact")
 	_ok("gate 2 is passed", bool((k.get("_gates") as Dictionary)["shelf"]))
-	_ok("and it cost no strike", int(k.get("_strikes")) == _strikes_before,
-		"strikes=%d" % int(k.get("_strikes")))
+	_ok("and it did not condemn", bool(k.get("_condemned")) == _condemned_before and not bool(k.get("_condemned")))
 
 	# ---- gates 5 and 8 -------------------------------------------------------------
 	var lock := k.get_node_or_null("RosterLock")

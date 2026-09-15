@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://btshjakxt6t67"
-path="res://.godot/imported/apparition_figure.png-65715f2826565b5b9406a76085e65c8f.ctex"
+path.s3tc="res://.godot/imported/apparition_figure.png-65715f2826565b5b9406a76085e65c8f.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_1_lab/apparition_figure.png"
-dest_files=["res://.godot/imported/apparition_figure.png-65715f2826565b5b9406a76085e65c8f.ctex"]
+dest_files=["res://.godot/imported/apparition_figure.png-65715f2826565b5b9406a76085e65c8f.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

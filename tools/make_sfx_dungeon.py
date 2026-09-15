@@ -736,6 +736,63 @@ def cot_sleep(seconds=2.8):
     return fade_edges(out, ms=40)
 
 
+# ------------------------------------------------------------------- the hunter (2026-09-12)
+# ⚠️ APPENDED, NEVER INSERTED. `random.seed(709)` is seeded once at module scope and every file
+# in main() consumes the stream in order, so a new sound must be the LAST thing written or all
+# nineteen earlier files silently change. Verify with `git diff --stat game/assets/audio/`.
+
+def parasite_growl(seconds=1.6):
+    """The hunter's second call — a low wet growl, 45-65 Hz with a breathy top, alternating
+    with `matron_shriek` every 10-20 s while it hunts. Positional, on the un-ducked chase bus."""
+    n = n_samples(seconds)
+    buf = [0.0] * n
+    for i in range(n):
+        t = i / SR
+        x = i / n
+        env = math.sin(math.pi * min(1.0, x * 1.15)) ** 1.3
+        f = 52.0 + 11.0 * math.sin(TAU * 2.7 * t) + 6.0 * math.sin(TAU * 0.6 * t)
+        s = math.sin(TAU * f * t) + 0.55 * math.sin(TAU * f * 1.5 * t + 0.4) \
+            + 0.25 * math.sin(TAU * f * 2.98 * t)
+        buf[i] += 0.5 * env * s
+    prev = 0.0
+    for i in range(n):
+        x = i / n
+        env = math.sin(math.pi * min(1.0, x * 1.15)) ** 1.6
+        white = random.uniform(-1.0, 1.0)
+        prev += 0.045 * (white - prev)
+        buf[i] += prev * 1.7 * env
+    # a rasp: amplitude-modulate at ~28 Hz so it is not a clean tone
+    for i in range(n):
+        t = i / SR
+        buf[i] *= 0.72 + 0.28 * math.sin(TAU * 28.0 * t)
+    return fade_edges(buf, ms=25)
+
+
+def stillone_shriek(seconds=0.7):
+    """The survivable face flash when a Still One reaches you (creature_stalker.gd
+    `lethal = false`): a dry bone rattle under a short, rising shriek. Shorter than the 0.6 s
+    flash it accompanies plus a tail, and deliberately NOT a fatal screamer's voice."""
+    n = n_samples(seconds)
+    buf = [0.0] * n
+    for i in range(n):
+        t = i / SR
+        x = i / n
+        env = min(1.0, x * 40.0) * math.exp(-x * 2.6)
+        f = 520.0 + 900.0 * min(1.0, x * 2.2)
+        s = 0.0
+        for h, a in ((1.0, 1.0), (2.02, 0.45), (3.1, 0.22)):
+            s += a * math.sin(TAU * f * h * t)
+        buf[i] += 0.38 * env * s
+    # the rattle: a train of short clicks
+    at = 0
+    while at < n:
+        L = n_samples(random.uniform(0.004, 0.011))
+        for k in range(min(L, n - at)):
+            buf[at + k] += random.uniform(-1.0, 1.0) * 0.6 * math.exp(-k / max(1, L) * 3.0)
+        at += L + n_samples(random.uniform(0.012, 0.03))
+    return fade_edges(buf, ms=12)
+
+
 def main():
     write_wav("ambient_dungeon.wav", ambient_dungeon())
     write_wav("matron_theme.wav", matron_theme())
@@ -756,6 +813,10 @@ def main():
     write_wav("frame_ignite.wav", frame_ignite(), loud=-8.0)
     write_wav("whisper_dungeon.wav", whisper_dungeon())
     write_wav("cot_sleep.wav", cot_sleep())
+    # ⚠️ Appended 2026-09-12 — see the note above parasite_growl(). Nothing may go after these
+    # but more appends.
+    write_wav("parasite_growl.wav", parasite_growl(), loud=-10.0)
+    write_wav("stillone_shriek.wav", stillone_shriek(), loud=-8.0)
 
 
 if __name__ == "__main__":

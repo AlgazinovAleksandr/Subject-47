@@ -64,8 +64,8 @@ The distinction that keeps them from drifting:
 | `backlogs/04-backrooms.md` | 4 The Backrooms | **verified** — 4 revision rounds. Eight sealed alcoves opened, the Flood made a six-fragment puzzle, the Sprawl's real wall gated behind a crate in the dark. Final replay: zero captures, cleared all three zones |
 | `backlogs/05-kontur.md` | 5 KONTUR | **in progress** — never playtested this run; carries 6 machine findings from the hardening sweep, incl. a real defect (`_restore_progress()` never restores `_dark_x`, so a back-door return re-rolls the Blackout answer while the ledger says the gate was passed) |
 | `backlogs/06-breach.md` | 6 The Breach | not started — 4 machine findings filed. Every hiding place is stretched, and hiding is that level's entire counter-play |
-| `backlogs/07-nightmare.md` | 7 THE NIGHTMARE | not started — 5 machine findings filed. Both cots stretched 3.194× |
-| `backlogs/08-void.md` | 8 The Void | not started — 7 machine findings filed. ⚠️ **The Void has no shell (142 escaping rays from 48 standable points)**, two interactables sit in a pocket no route reaches, and until 2026-08-17 nothing had ever walked that level |
+| `backlogs/07-nightmare.md` | 7 THE NIGHTMARE | **redesigned 2026-09-12, awaiting the hand playtest** — nothing kills (panic bar only), the Parasite hunter in waves, eight room archetypes, 24×24 / 16 chambers, a found map on M. Decisions in `DUNGEON_NIGHTMARES.md` "Deviations" |
+| `backlogs/08-void.md` | 8 The Void | **rebuilt 2026-09-12 on `RoomBuilder`, awaiting the hand playtest** — 15 rooms, the loop corridor, the floating tiles, fragment rooms of earlier levels; the sealed pocket and the 142 sky rays are gone (202 points / 0 escaping, 11/11 reachable), and `walk_void.gd` walks it end to end |
 
 The run is **strictly serial** — a level is played, backlogged, approved, built, tested and
 re-played before the next one opens. `.claude/agents/level-improver.md` is the agent that does it

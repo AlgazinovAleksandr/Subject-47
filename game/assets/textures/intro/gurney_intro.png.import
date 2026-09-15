@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://b8i6ru3ktl7jp"
-path="res://.godot/imported/gurney_intro.png-852262ce1601267bc661326c8a94807a.ctex"
+path.s3tc="res://.godot/imported/gurney_intro.png-852262ce1601267bc661326c8a94807a.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/intro/gurney_intro.png"
-dest_files=["res://.godot/imported/gurney_intro.png-852262ce1601267bc661326c8a94807a.ctex"]
+dest_files=["res://.godot/imported/gurney_intro.png-852262ce1601267bc661326c8a94807a.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

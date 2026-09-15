@@ -174,6 +174,28 @@ func _dark_room_inverts() -> void:
 			decoy_shown = false
 	_ok("real seam hidden with the light ON", real_hidden)
 	_ok("decoys visible with the light ON", decoy_shown)
+	# K5 (2026-09-13): under the beam the real DOORWAY is plugged with wall (the hole itself was the
+	# tell, capture #23). R9 (2026-09-16, capture #8 "I could walk into the door before I turned
+	# off the flashlight"): the plug is SOLID while lit, and opens with the torch off.
+	var plug: CSGBox3D = _scene.get("_dark_plug")
+	_ok("K5: the real doorway wears a wall plug with the light ON", plug != null and plug.visible)
+	_ok("R9: the plug is SOLID while the light is on", plug != null and plug.use_collision)
+	if plug:
+		var wall_mat = null
+		for c in _scene.get_children():
+			if c is CSGBox3D and c.name.begins_with("Blackout") and (c as CSGBox3D).material:
+				wall_mat = (c as CSGBox3D).material
+				break
+		var ptex = (plug.material as StandardMaterial3D).albedo_texture if plug.material is StandardMaterial3D else null
+		_ok("K5: the plug is textured like the room's wall (facility tile)",
+			ptex != null and ptex.resource_path.get_file() == "kontur_facility_wall.png")
+	# K3 (2026-09-13): the dark figure stands on the approach line, within 3 m of the doorway.
+	var fig: Node3D = _scene.get("_blackout_fig")
+	var door := Vector3(0, 0, 51.0)
+	_ok("K3: the dark figure is within 3 m of the Switchboard doorway",
+		fig != null and Vector2(fig.global_position.x - door.x, fig.global_position.z - door.z).length() <= 3.0 + 0.95)
+	_ok("K3: and it is offset from the real seam's x by >= 1.5 m",
+		fig != null and absf(fig.global_position.x - float(_scene.get("_dark_x"))) >= 1.5)
 
 	flash.visible = false
 	_scene._update_dark_seams()
@@ -186,6 +208,8 @@ func _dark_room_inverts() -> void:
 			decoy_hidden = false
 	_ok("real seam visible with the light OFF", real_shown)
 	_ok("decoys hidden with the light OFF", decoy_hidden)
+	var plug2: CSGBox3D = _scene.get("_dark_plug")
+	_ok("K5: the plug is gone with the light OFF", plug2 != null and not plug2.visible)
 
 	# REGRESSION (playtest 2026-07-21, and the Backrooms Flood before it): a room whose
 	# answer is "flashlight off" must not also be a DarkZone. DarkZone charges +3/s for
@@ -223,6 +247,11 @@ func _signs_not_buried() -> void:
 		# OUTSIDE the wall and reports every sign as buried.
 		var from: Vector3 = c.global_position + c.global_transform.basis.z * 1.2
 		var q := PhysicsRayQueryParameters3D.create(from, c.global_position)
+		# The gate-2 sign is a WallSheet (a StaticBody3D with its own 0.08 m collider) since
+		# 2026-09-09; the ray must ignore the sign's OWN body or it reports the sign as buried
+		# behind itself (the only red in the suite on 2026-09-13, X3/K6).
+		if c is CollisionObject3D:
+			q.exclude = [(c as CollisionObject3D).get_rid()]
 		if not _space().intersect_ray(q).is_empty():
 			buried += 1
 			print("      buried: %s at %v" % [c.name, c.global_position])

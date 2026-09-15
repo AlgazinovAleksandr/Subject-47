@@ -39,7 +39,7 @@ const FRAMES_PER_HOP := 700
 # Measured: a 7-sconce route plus the walk to the bed is ~150 waypoints, and seed
 # 707 lit 7/7 then ran out of budget on the final leg. The cap is a HANG GUARD, not
 # a difficulty statement — size it so a competent run always finishes.
-const RUN_FRAME_CAP := 45000
+const RUN_FRAME_CAP := 30000   # physics ticks = 500 s per seed since 2026-09-12
 const ARRIVE := 1.4
 const INTERACT_RANGE := 1.6
 # Light the candle only within this of a sconce; walk dark the rest of the time.
@@ -59,7 +59,7 @@ var _route: Array = []          # [{pos, kind, room}]
 var _leg := 0
 var _hop_frames := 0
 var _run_frames := 0
-var _retry_leg := -1
+var _retried: Dictionary = {}    # leg index -> already backed up once for it (Issue 194)
 
 # Per-seed measurements.
 var _lit := 0
@@ -84,7 +84,7 @@ var _results: Array = []
 #     a 25 deg cone at 6 m (`weeping_frame.gd:149-155`) — and the walker aims at its waypoint,
 #     which is a wall direction as often as not.
 # Each is the level's OWN taught rule, not a general-purpose AI, exactly like the Still One watch.
-const SPARK_FROM_SCONCES := 6     # HOLLOW_SCONCE — before this there is nothing to look for
+const SPARK_FROM_SCONCES := 99    # the Hollow One is CUT (2026-09-12): sparking is light, not a search
 const SPARK_EVERY := 4.0          # game seconds between sparks while hunting the Hollow One
 const SPARK_KILL_DIST := 2.0      # creature_stalker.gd's own constant; kept in sync by hand
 const MATRON_EVADE_DIST := 6.5    # start walking away well inside her detect range
@@ -98,6 +98,7 @@ var _blind_sparks := 0            # sparked with the candle out, i.e. unable to 
 var _evades := 0
 var _gaze_breaks := 0
 var _hollow_seen := 0
+var _catches := 0
 var _matron_min := 999.0
 var _frame_gaze_t := 0.0
 
@@ -195,16 +196,21 @@ func _begin_run() -> void:
 	# Light the candle: the same method the F key runs, since
 	# Input.parse_input_event() does not work headless.
 	_level.call("_toggle_candle")
+	# ⭐ Catches are SURVIVED now (2026-09-12) — count them, they are the level's cost.
+	var hunter = _level.call("get_hunter") if _level.has_method("get_hunter") else null
+	if hunter != null and hunter.has_signal("caught"):
+		hunter.caught.connect(func() -> void: _catches += 1)
 
 	_route = []
 	_lit = 0
+	_retried = {}
 	_died = false
 	_peak_panic = 0.0
 	_sim_seconds = 0.0
 	_leg = 0
 	_hop_frames = 0
 	_run_frames = 0
-	_retry_leg = -1
+	_retried = {}
 
 	var at: String = _gen.spawn_room
 	for spot in _gen.sconce_spots:
@@ -217,6 +223,22 @@ func _begin_run() -> void:
 		"room": _gen.bed_room})
 
 
+# Unit vector through doorway `door` toward `toward`: the axis the doorway's "dir" names,
+# signed by which side `toward` lies on.
+func _door_normal(door: Vector3, toward: Vector3) -> Vector3:
+	var axis := Vector3.ZERO
+	for d in _gen.doorways:
+		var p: Vector2 = d["pos"]
+		if absf(p.x - door.x) < 0.01 and absf(p.y - door.z) < 0.01:
+			axis = Vector3(1, 0, 0) if d["dir"] == "x" else Vector3(0, 0, 1)
+			break
+	if axis == Vector3.ZERO:
+		var n := toward - door
+		n.y = 0.0
+		return n.normalized() if n.length() > 0.01 else Vector3.ZERO
+	return axis * (1.0 if (toward - door).dot(axis) >= 0.0 else -1.0)
+
+
 func _append_path(a: String, b: String) -> void:
 	var hops: Array = _gen.path_between(a, b)
 	for i in range(1, hops.size()):
@@ -224,12 +246,15 @@ func _append_path(a: String, b: String) -> void:
 		var door: Vector3 = _gen.doorway_between(hops[i - 1], hops[i])
 		if door != Vector3.INF:
 			_route.append({"pos": door, "kind": "walk", "room": hops[i]})
-			var n := next_c - door
-			n.y = 0.0
+			# ⚠️ Through the doorway along its NORMAL, not toward the next room's centre
+			# (2026-09-12): aimed at the centre, a door near a room corner gets a commit point
+			# diagonally through the jamb, and the bot pushed into that corner for thousands of
+			# seconds while the hunter caught it on repeat (seed 101, (4.5, 9) -> (2.6, 8.4)).
+			var n := _door_normal(door, next_c)
 			if n.length() > 0.01:
-				_route.append({"pos": door + n.normalized() * 2.0, "kind": "walk",
-					"room": hops[i]})
-		_route.append({"pos": next_c, "kind": "walk", "room": hops[i]})
+				_route.append({"pos": door + n * 2.0, "kind": "walk", "room": hops[i]})
+		# ⚠️ No centre waypoint for pass-through rooms — see walk_dungeon.gd's note; the room
+		# archetypes put props there. The objective point is appended by the caller.
 
 
 func _sconce_pos(room: String) -> Vector3:
@@ -240,8 +265,16 @@ func _sconce_pos(room: String) -> Vector3:
 	return _gen.room_center_world(room)
 
 
+var _last_phys := -1
+
+
 func _tick(p: CharacterBody3D, delta: float) -> bool:
-	_run_frames += 1
+	# ⚠️ Budgets count PHYSICS TICKS (walk_dungeon.gd's 2026-09-12 lesson): headless render
+	# frames run at whatever rate the machine allows, the body moves 60 times a second.
+	var pf := Engine.get_physics_frames()
+	var ticks: int = 1 if _last_phys < 0 else maxi(0, pf - _last_phys)
+	_last_phys = pf
+	_run_frames += ticks
 	_since_spark += delta
 	_update_snapshot(p)
 	if _run_frames > RUN_FRAME_CAP or _leg >= _route.size():
@@ -284,17 +317,24 @@ func _tick(p: CharacterBody3D, delta: float) -> bool:
 	# ⭐ THE THREE COMPETENCES ADDED 2026-09-07, and why each one had to exist before this
 	# harness could say anything about the late game. Order matters: movement first, then the
 	# gaze guard (which may re-aim the camera the movers just set), then the spark.
-	if not _matron_evade(p, delta, target):
-		if not _walk_watching(p, target):
-			_auto.step_toward(target)
+	# ⚠️ NO EVADE SINCE 2026-09-12. The hunter cannot kill any more (a catch is +20 panic and it
+	# lets go), and the level's own rule is "walk away; do not run" — measured, the evade written
+	# for the lethal Matron spent 563-1663 interventions per run sidestepping a creature that
+	# could not hurt the bot, and reached the bed on 0 of 4 seeds. Walking on is the play; the
+	# catches are counted and are the level's cost.
+	_matron_min = minf(_matron_min, _hunter_distance(p))
+	if not _walk_watching(p, target):
+		_auto.step_toward(target)
 	_break_frame_gaze(p, delta)
 	_tick_spark(p, delta)
-	_hop_frames += 1
+	_hop_frames += ticks
 	if _hop_frames > FRAMES_PER_HOP:
 		# One retry by backing out, then give up on this leg — same reasoning as
 		# walk_dungeon.gd: AutoPlayer has no pathfinding and can wedge on a jamb.
-		if _retry_leg != _leg:
-			_retry_leg = _leg
+		# ⚠️ Per-LEG bookkeeping (Issue 194): a single int let two adjacent stalls retry each
+		# other for ever, which the log records as a 130 s "STATIONARY … geometry trap".
+		if not _retried.has(_leg):
+			_retried[_leg] = true
 			_leg = maxi(0, _leg - 1)
 			_hop_frames = 0
 			_auto.reset_stuck()
@@ -409,7 +449,7 @@ func _finish_seed() -> bool:
 		"candles": _candles_left(),
 		"sparks": _sparks, "blind_sparks": _blind_sparks,
 		"evades": _evades, "gaze_breaks": _gaze_breaks,
-		"hollow_seen": _hollow_seen, "matron_min": _matron_min,
+		"hollow_seen": _hollow_seen, "matron_min": _matron_min, "catches": _catches,
 		"snap": _snap.duplicate(),
 	})
 	if _auto != null:
@@ -421,6 +461,7 @@ func _finish_seed() -> bool:
 	_evades = 0
 	_gaze_breaks = 0
 	_hollow_seen = 0
+	_catches = 0
 	_matron_min = 999.0
 	_spark_t = 0.0
 	_since_spark = 999.0
@@ -457,7 +498,7 @@ func _report() -> bool:
 			r["candles"]])
 		print("           sparks %d (%d of them blind)  matron evades %d, closest %.1f m  "
 			% [r["sparks"], r["blind_sparks"], r["evades"], r["matron_min"]]
-			+ "gaze breaks %d  hollow seen %d" % [r["gaze_breaks"], r["hollow_seen"]])
+			+ "gaze breaks %d  catches survived %d" % [r["gaze_breaks"], r["catches"]])
 		if r["died"]:
 			print("           " + _death_line(r["snap"]))
 		total_lit += int(r["lit"])
@@ -494,6 +535,15 @@ func _report() -> bool:
 	_ok("meaningful progress is possible with the roster live",
 		total_lit >= 3, "%d sconces lit across %d runs (%d won, %d died)" % [
 			total_lit, _results.size(), wins, deaths])
+
+	# ⭐ ASSERTED SINCE 2026-09-12: THE BOT WINS AT LEAST HALF ITS SEEDS. Nothing in the level
+	# can kill it any more except the panic bar (the user's call: "hard to lose"), so a run that
+	# does not reach the bed is either a navigation failure or a panic death — and both are
+	# findings now, not weather. A completion floor on a no-death level is a completability
+	# guard, not a difficulty instrument.
+	_ok("the bot reaches the bed on at least half the seeds",
+		wins * 2 >= _results.size(), "%d of %d" % [wins, _results.size()])
+	_ok("no run died", deaths == 0, "%d deaths" % deaths)
 
 	print("  %d checks, %d failed" % [_checks, _fails])
 	print("--------------------------------------------------")
@@ -576,6 +626,13 @@ func _still_one_within(p: CharacterBody3D, r: float) -> bool:
 #
 # ⚠️ Deliberately NOT perfect. AutoPlayer has no pathfinding, and a bot that evaded flawlessly
 # would measure a player who cannot exist. The hop budget and stuck detector still own recovery.
+func _hunter_distance(p: CharacterBody3D) -> float:
+	var m = _level.get("_matron")
+	if m == null or not is_instance_valid(m) or not bool(_level.call("hunter_present")):
+		return 999.0
+	return (m.call("get_creature_position") as Vector3).distance_to(p.global_position)
+
+
 func _matron_evade(p: CharacterBody3D, _delta: float, goal: Vector3) -> bool:
 	var m = _level.get("_matron")
 	if m == null or not is_instance_valid(m) or not (m as Node3D).visible:
@@ -705,8 +762,6 @@ func _death_line(sn: Dictionary) -> String:
 			% [sn["still"], sn["since_spark"]])
 	if float(sn["matron"]) <= 1.6:
 		causes.append("the Matron (%.1f m)" % sn["matron"])
-	if float(sn["hollow"]) <= 1.6:
-		causes.append("the Hollow One (%.1f m)" % sn["hollow"])
 	if float(sn["frame"]) <= FRAME_FATAL_RANGE:
 		causes.append("a fatal Frame was within %.1f m" % sn["frame"])
 	var who := " AND ".join(causes) if not causes.is_empty() else "UNATTRIBUTED"

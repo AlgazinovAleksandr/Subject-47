@@ -59,7 +59,8 @@ func _ok(label: String, cond: bool, detail: String = "") -> void:
 
 
 func _find(node: Node, out: Array) -> void:
-	if String(node.name) == "MirrorSurface":
+	# C1 (2026-09-13): the spur mirrors are MirrorSurfaces too, but not TURN mirrors — skip them.
+	if String(node.name) == "MirrorSurface" and not String(node.get_parent().name).begins_with("Spur"):
 		out.append(node)
 	for c in node.get_children():
 		_find(c, out)

@@ -481,7 +481,23 @@ func _build_leaf(side: float, leaf_w: float, edge_mat: StandardMaterial3D,
 # noticed the player). Corridor1 <-> Junction1 has no bypass — a player who slammed it
 # early softlocked themselves with no way back and no way forward. Toggling lets the
 # player undo their own slam any time the creature isn't already mid-batter.
+## C6 (2026-09-14, capture #6: "Why press E here?"). The Corridor's spur and fork doors are
+## opened by their beats, never by the player; `player.gd` consults this before showing a
+## prompt or setting an interact target, so E is silent on them. Battering doors are inert too.
+@export var player_operable: bool = true
+
+
+func can_interact() -> bool:
+	if not player_operable:
+		return false
+	if _closed and _battering:
+		return false
+	return true
+
+
 func interact() -> void:
+	if not can_interact():
+		return
 	if _closed:
 		if _battering:
 			return   # the creature is already breaking it down; don't fight the tween
@@ -570,6 +586,23 @@ func _process(delta: float) -> void:
 		if player and player.has_method("jolt_camera"):
 			player.jolt_camera(0.05, 0.3)
 	if _batter_t <= 0.0:
+		_break_open()
+
+
+## C1 (2026-09-13): the Corridor's spur escape forces the door open with Space (SpurEscape).
+## Same path as the batter clock running out — the reslam cooldown and `broken_open` included.
+## X1: shut without the player's cooldown or the fleeing gain — the grab's leaf on the lens.
+func slam_shut() -> void:
+	if not _closed:
+		_set_closed(true)
+
+
+func is_closed() -> bool:
+	return _closed
+
+
+func force_open() -> void:
+	if _closed:
 		_break_open()
 
 

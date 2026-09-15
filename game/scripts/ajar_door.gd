@@ -42,6 +42,10 @@ const SLAM_TIME := 0.12        # fast enough to read as violent
 
 var _tex_path: String = ""
 var _open_deg: float = 0.0
+# C6 (2026-09-16): -1 swings the free end one way (the six hall doors, into the corridor),
+# +1 the other; a leaf hung on the RIGHT jamb (rotated PI) needs the opposite sign to swing
+# the same world direction as its partner.
+var swing_sign: float = -1.0
 
 
 static func build(parent: Node, xform: Transform3D, tex_path: String) -> AjarDoor:
@@ -107,11 +111,11 @@ func is_ajar() -> bool:
 # Swing silently to `deg` (clamped). SILENCE IS THE MECHANIC: the door was never HEARD
 # opening, so the player has no moment to attribute it to. A creak here would make this
 # an event; without one it is a discrepancy.
-func swing_ajar(deg: float, time: float = 1.4) -> void:
-	_open_deg = clampf(absf(deg), 0.0, AJAR_MAX_DEG)
+func swing_ajar(deg: float, time: float = 1.4, limit: float = AJAR_MAX_DEG) -> void:
+	_open_deg = clampf(absf(deg), 0.0, limit)
 	var tw := create_tween()
 	tw.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	tw.tween_property(self, "rotation:y", rotation.y - deg_to_rad(_open_deg), time)
+	tw.tween_property(self, "rotation:y", rotation.y + swing_sign * deg_to_rad(_open_deg), time)
 
 
 # The one that is heard. The level owns the sound and the timing — this only reports it,
@@ -119,7 +123,7 @@ func swing_ajar(deg: float, time: float = 1.4) -> void:
 func slam() -> void:
 	if not is_ajar():
 		return
-	var target := rotation.y + deg_to_rad(_open_deg)
+	var target := rotation.y - swing_sign * deg_to_rad(_open_deg)
 	_open_deg = 0.0
 	var tw := create_tween()
 	tw.set_trans(Tween.TRANS_QUINT).set_ease(Tween.EASE_IN)

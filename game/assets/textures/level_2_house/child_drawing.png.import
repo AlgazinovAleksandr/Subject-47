@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://lal3auitu86e"
-path="res://.godot/imported/child_drawing.png-d13dac3dd5e4e3c3f113fcca81fdafd5.ctex"
+path.s3tc="res://.godot/imported/child_drawing.png-d13dac3dd5e4e3c3f113fcca81fdafd5.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_2_house/child_drawing.png"
-dest_files=["res://.godot/imported/child_drawing.png-d13dac3dd5e4e3c3f113fcca81fdafd5.ctex"]
+dest_files=["res://.godot/imported/child_drawing.png-d13dac3dd5e4e3c3f113fcca81fdafd5.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

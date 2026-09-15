@@ -1,6 +1,6 @@
 extends SceneTree
 
-# The ASSET contract for the creature model. No level, no creature script — just the GLB.
+# The ASSET contract for the creature models. No level, no creature script — just the GLBs.
 #
 #   Godot --headless --path game --script res://tests/check_creature_model.gd
 #
@@ -17,31 +17,53 @@ extends SceneTree
 # Assertion 1 below is the guard for exactly that, and it is the reason this file runs before
 # `check_creature_anim.gd`.
 #
-# WHAT IT ASSERTS
+# ⭐ TABLE-DRIVEN SINCE 2026-09-12: THE NIGHTMARE's hunter is a second model (`parasite.glb`, a
+# 69-bone Mixamo rig with two clips, built by tools/fbx_to_glb.py + merge_creature_glb.py
+# --profile parasite). Every row below states its own rig, clips, facing bones and height; the
+# hollow_crown row is the previous file's literals, untouched.
+#
+# WHAT IT ASSERTS, PER MODEL
 #   1. the GLB resolves at all (the forgotten --import)
 #   2. the rig is intact — one skeleton, one mesh, the named bones
-#   3. six clips with the expected durations
+#   3. the clips, with the expected durations
 #   4. NO CLIP TRANSLATES THE ROOT — the `run_fast_10` class of bug, which would slide the mesh
 #      2.25 m off its own collider every cycle
 #   5. it is not in bind pose — the animations actually move bones
-#   6. it is NOT SELF-LIT and NOT METAL — the two traps baked into the source material
+#   6. it is NOT SELF-LIT and NOT METAL — the two traps baked into a source material
 #   7. it faces the axis the creature scripts already assume
 #   8. it is the height the .import's root_scale claims
 #   9. the polygon budget is on the record
 
-const GLB := "res://assets/models/hollow_crown.glb"
-
-# clip -> duration in seconds, from tools/merge_creature_glb.py's own printout.
+const MODELS := [
+	{
+		"name": "hollow_crown",
+		"glb": "res://assets/models/hollow_crown.glb",
+		# clip -> duration in seconds, from tools/merge_creature_glb.py's own printout.
+		"clips": {"walk": 1.067, "shamble": 5.533, "unsteady": 3.000,
+			"run": 0.667, "sprint": 0.500, "charge": 0.833},
+		"bones": 24,
+		"named": ["Hips", "Head", "LeftArm", "headfront", "head_end"],
+		"hips": "Hips", "arm": "LeftArm",
+		"front": ["headfront", "head_end"],   # front bone z > back bone z  =>  faces +Z
+		# The merge tool reports the bind mesh at 1.6400 m and the .import applies root_scale 1.2012.
+		"target_h": 1.97,
+	},
+	{
+		"name": "parasite",
+		"glb": "res://assets/models/parasite.glb",
+		"clips": {"walk": 1.467, "run": 0.667},
+		"bones": 69,
+		# ⚠️ Godot sanitises `mixamorig:Hips` to `mixamorig_Hips`; _bone() tries both spellings.
+		"named": ["mixamorig_Hips", "mixamorig_Head", "mixamorig_LeftArm",
+			"mixamorig_LeftFoot", "mixamorig_LeftToe_End"],
+		"hips": "mixamorig_Hips", "arm": "mixamorig_LeftArm",
+		"front": ["mixamorig_LeftToe_End", "mixamorig_LeftFoot"],   # toes ahead of the heel
+		"target_h": 2.01,   # ships at its natural size, root_scale 1.0
+	},
+]
 # ⚠️ Godot resamples to `animation/fps=30` on import, so a tolerance of one frame is required;
 # anything tighter fails for a reason that has nothing to do with the asset being wrong.
-const CLIPS := {
-	"walk": 1.067, "shamble": 5.533, "unsteady": 3.000,
-	"run": 0.667, "sprint": 0.500, "charge": 0.833,
-}
 const FRAME := 1.0 / 30.0
-
-# The merge tool reports the bind mesh at 1.6400 m and the .import applies root_scale 1.2012.
-const TARGET_H := 1.97
 const H_TOL := 0.10
 
 # ⚠️ A LOOSER BOUND THAN IT LOOKS. `shamble` and `unsteady` are deliberately drunken — the
@@ -50,13 +72,14 @@ const H_TOL := 0.10
 # end-to-end bound below is the strict half.
 #
 # ⚠️⚠️ MEASURE IN WORLD SPACE. `Skeleton3D.get_bone_global_pose()` returns SKELETON space, and
-# this rig's bones are in CENTIMETRES under an Armature scaled 0.01 — so the first version of
+# both rigs' bones are in CENTIMETRES under an Armature scaled 0.01 — so the first version of
 # this test read "shamble drifts 51.497 m" and failed six clips on a perfectly good asset. The
 # conversion is `skel.global_transform * pose.origin`, and it is the same trap for the height
 # check: for a SKINNED mesh the MeshInstance3D's own transform is not what renders it, the
 # skeleton is, so `mi.global_transform * mesh.get_aabb()` reported a 2 cm creature.
 const MAX_MID_DRIFT := 0.75
 const MAX_END_DRIFT := 0.02
+const MIN_CHECKS := 60   # the sample-size floor: two models' worth of assertions
 
 var _fails: Array[String] = []
 var _checks := 0
@@ -76,17 +99,38 @@ func _find(n: Node, cls: String, out: Array) -> void:
 		_find(c, cls, out)
 
 
+func _bone(skel: Skeleton3D, name: String) -> int:
+	var i := skel.find_bone(name)
+	if i < 0:
+		i = skel.find_bone(name.replace("_", ":"))
+	return i
+
+
 func _process(_delta: float) -> bool:
-	print("== CREATURE MODEL ==")
+	for M in MODELS:
+		_check_model(M)
+	_ok("sample size: at least %d checks ran" % MIN_CHECKS, _checks >= MIN_CHECKS, "%d" % _checks)
+	print("== %d checks, %d failed ==" % [_checks, _fails.size()])
+	for f in _fails:
+		print("   FAILED: " + f)
+	quit(1 if _fails.size() > 0 else 0)
+	return true
+
+
+func _check_model(M: Dictionary) -> void:
+	var tag: String = M["name"]
+	var GLB: String = M["glb"]
+	var CLIPS: Dictionary = M["clips"]
+	print("== CREATURE MODEL [%s] ==" % tag)
 
 	# ------------------------------------------------------------------ 1. it resolves
-	_ok("the merged GLB exists (did you run --import?)", ResourceLoader.exists(GLB), GLB)
+	_ok("[%s] the merged GLB exists (did you run --import?)" % tag, ResourceLoader.exists(GLB), GLB)
 	if not ResourceLoader.exists(GLB):
-		print("== %d checks, %d failed ==" % [_checks, _fails.size()])
-		quit(1)
-		return true
+		return
 	var packed: PackedScene = load(GLB)
-	_ok("it loads as a PackedScene", packed != null)
+	_ok("[%s] it loads as a PackedScene" % tag, packed != null)
+	if packed == null:
+		return
 	var inst: Node3D = packed.instantiate()
 	root.add_child(inst)
 
@@ -97,33 +141,33 @@ func _process(_delta: float) -> bool:
 	_find(inst, "Skeleton3D", skels)
 	_find(inst, "MeshInstance3D", meshes)
 	_find(inst, "AnimationPlayer", players)
-	_ok("exactly one Skeleton3D", skels.size() == 1, "%d found" % skels.size())
-	_ok("exactly one MeshInstance3D", meshes.size() == 1, "%d found" % meshes.size())
-	_ok("exactly one AnimationPlayer", players.size() == 1, "%d found" % players.size())
+	_ok("[%s] exactly one Skeleton3D" % tag, skels.size() == 1, "%d found" % skels.size())
+	_ok("[%s] exactly one MeshInstance3D" % tag, meshes.size() == 1, "%d found" % meshes.size())
+	_ok("[%s] exactly one AnimationPlayer" % tag, players.size() == 1, "%d found" % players.size())
 	if skels.is_empty() or meshes.is_empty() or players.is_empty():
-		print("== %d checks, %d failed ==" % [_checks, _fails.size()])
-		quit(1)
-		return true
+		inst.queue_free()
+		return
 	var skel: Skeleton3D = skels[0]
 	var mi: MeshInstance3D = meshes[0]
 	var ap: AnimationPlayer = players[0]
 
-	_ok("24 bones", skel.get_bone_count() == 24, "%d" % skel.get_bone_count())
-	var hips := skel.find_bone("Hips")
-	var head := skel.find_bone("Head")
-	var larm := skel.find_bone("LeftArm")
-	var hfront := skel.find_bone("headfront")
-	var hend := skel.find_bone("head_end")
-	for pair in [["Hips", hips], ["Head", head], ["LeftArm", larm],
-			["headfront", hfront], ["head_end", hend]]:
-		_ok("bone '%s' resolves" % pair[0], int(pair[1]) >= 0)
+	_ok("[%s] %d bones" % [tag, M["bones"]], skel.get_bone_count() == int(M["bones"]),
+		"%d" % skel.get_bone_count())
+	var hips := _bone(skel, M["hips"])
+	var larm := _bone(skel, M["arm"])
+	for nm in M["named"]:
+		_ok("[%s] bone '%s' resolves" % [tag, nm], _bone(skel, nm) >= 0)
+	if hips < 0 or larm < 0:
+		inst.queue_free()
+		return
 
-	# ------------------------------------------------------------------ 3. six clips
+	# ------------------------------------------------------------------ 3. the clips
 	var have := ap.get_animation_list()
 	var names: Array[String] = []
 	for a in have:
 		names.append(String(a).get_file())
-	_ok("six clips present", have.size() == 6, "got %s" % str(names))
+	_ok("[%s] %d clips present" % [tag, CLIPS.size()], have.size() == CLIPS.size(),
+		"got %s" % str(names))
 	var lib := ""
 	for a in have:
 		if String(a).contains("/"):
@@ -132,11 +176,11 @@ func _process(_delta: float) -> bool:
 	for clip in CLIPS.keys():
 		var full: String = lib + String(clip)
 		var anim: Animation = ap.get_animation(full)
-		_ok("clip '%s' exists" % clip, anim != null)
+		_ok("[%s] clip '%s' exists" % [tag, clip], anim != null)
 		if anim:
 			var want: float = CLIPS[clip]
-			_ok("clip '%s' is %.3fs" % [clip, want], absf(anim.length - want) <= FRAME * 1.5,
-				"got %.3f" % anim.length)
+			_ok("[%s] clip '%s' is %.3fs" % [tag, clip, want],
+				absf(anim.length - want) <= FRAME * 1.5, "got %.3f" % anim.length)
 
 	# ------------------------------------------------------------------ 4/5. motion
 	# ⚠️ Sampled through the real AnimationPlayer with `seek(t, true)` and read off the
@@ -168,45 +212,51 @@ func _process(_delta: float) -> bool:
 		var oend: Vector3 = skel.global_transform * skel.get_bone_global_pose(hips).origin
 		var end_d := Vector2(oend.x - origin0.x, oend.z - origin0.z).length()
 
-		_ok("'%s' never walks away from its own collider" % clip, worst_mid <= MAX_MID_DRIFT,
+		_ok("[%s] '%s' never walks away from its own collider" % [tag, clip],
+			worst_mid <= MAX_MID_DRIFT,
 			"worst mid-clip root drift %.3f m (limit %.2f)" % [worst_mid, MAX_MID_DRIFT])
-		_ok("'%s' ends where it started" % clip, end_d <= MAX_END_DRIFT,
+		_ok("[%s] '%s' ends where it started" % [tag, clip], end_d <= MAX_END_DRIFT,
 			"end-to-end root drift %.4f m (limit %.2f)" % [end_d, MAX_END_DRIFT])
 		if max_arm_swing > 5.0:
 			moved_bones += 1
-		_ok("'%s' actually animates a limb" % clip, max_arm_swing > 5.0,
-			"LeftArm swings %.1f deg from rest" % max_arm_swing)
+		_ok("[%s] '%s' actually animates a limb" % [tag, clip], max_arm_swing > 5.0,
+			"arm swings %.1f deg from rest" % max_arm_swing)
 	ap.stop()
-	_ok("every clip moves the skeleton (not a bind-pose model)", moved_bones == CLIPS.size(),
-		"%d of %d" % [moved_bones, CLIPS.size()])
+	_ok("[%s] every clip moves the skeleton (not a bind-pose model)" % tag,
+		moved_bones == CLIPS.size(), "%d of %d" % [moved_bones, CLIPS.size()])
 
 	# ------------------------------------------------------------------ 6. not lit, not metal
 	var mesh: Mesh = mi.mesh
-	_ok("the mesh has a surface", mesh != null and mesh.get_surface_count() >= 1)
+	_ok("[%s] the mesh has a surface" % tag, mesh != null and mesh.get_surface_count() >= 1)
 	for s in range(mesh.get_surface_count()):
 		var m := mesh.surface_get_material(s) as StandardMaterial3D
-		_ok("surface %d has a StandardMaterial3D" % s, m != null)
+		_ok("[%s] surface %d has a StandardMaterial3D" % [tag, s], m != null)
 		if m == null:
 			continue
-		# ⚠️ THE TWO TRAPS. The source had no `metallicFactor` at all, and glTF's default is
-		# 1.0 — a 100 % metal creature is a black mirror at 0.02 ambient. And its albedo map was
-		# ALSO wired as an emissive texture at full strength, which in a game built on "you only
-		# see what the torch finds" is the single thing that cannot ship.
-		_ok("surface %d is not metal" % s, m.metallic <= 0.01, "metallic %.3f" % m.metallic)
-		_ok("surface %d is not self-lit" % s, not m.emission_enabled,
+		# ⚠️ THE TWO TRAPS. The hollow_crown source had no `metallicFactor` at all (glTF's default
+		# is 1.0 — a 100 % metal creature is a black mirror at 0.02 ambient) and its albedo map
+		# was ALSO wired as an emissive texture at full strength; the Parasite's Blender export
+		# arrived at metallic 0.5. In a game built on "you only see what the torch finds", a
+		# self-lit or mirror creature is the single thing that cannot ship.
+		_ok("[%s] surface %d is not metal" % [tag, s], m.metallic <= 0.01, "metallic %.3f" % m.metallic)
+		_ok("[%s] surface %d is not self-lit" % [tag, s], not m.emission_enabled,
 			"emission_enabled %s" % str(m.emission_enabled))
-		_ok("surface %d KEPT its texture" % s, m.albedo_texture != null,
+		_ok("[%s] surface %d KEPT its texture" % [tag, s], m.albedo_texture != null,
 			"a retint that drops this is the bug the swap exists to fix")
 
 	# ------------------------------------------------------------------ 7. facing
 	# The creature scripts all compute yaw as atan2(dir.x, dir.z) and forward as
 	# (sin(y), 0, cos(y)), i.e. they treat +Z as forward. The rig must agree, or every creature
 	# in the game runs backwards (corridor.gd shipped exactly that once — Issue 102).
-	if hfront >= 0 and hend >= 0:
-		var zf: float = (skel.global_transform * skel.get_bone_global_pose(hfront).origin).z
-		var zb: float = (skel.global_transform * skel.get_bone_global_pose(hend).origin).z
-		_ok("the rig faces +Z, like every creature script assumes", zf > zb,
-			"headfront z %.3f vs head_end z %.3f" % [zf, zb])
+	ap.stop()
+	skel.reset_bone_poses()
+	var fb := _bone(skel, M["front"][0])
+	var bb := _bone(skel, M["front"][1])
+	if fb >= 0 and bb >= 0:
+		var zf: float = (skel.global_transform * skel.get_bone_global_pose(fb).origin).z
+		var zb: float = (skel.global_transform * skel.get_bone_global_pose(bb).origin).z
+		_ok("[%s] the rig faces +Z, like every creature script assumes" % tag, zf > zb,
+			"%s z %.3f vs %s z %.3f" % [M["front"][0], zf, M["front"][1], zb])
 
 	# ------------------------------------------------------------------ 8. height
 	# ⚠️ From the BONES in world space, not from the mesh AABB. A skinned mesh is posed by its
@@ -215,35 +265,34 @@ func _process(_delta: float) -> bool:
 	# MeshInstance3D's 0.020 scale and reported a 2 cm monster.
 	var lowest := 1e9
 	var highest := -1e9
-	ap.stop()
-	skel.reset_bone_poses()
 	for b in range(skel.get_bone_count()):
 		var wp: Vector3 = skel.global_transform * skel.get_bone_global_pose(b).origin
 		lowest = minf(lowest, wp.y)
 		highest = maxf(highest, wp.y)
 	var bone_span := highest - lowest
+	var target_h: float = M["target_h"]
 	# Bone span is crown-of-skull-joint to toe-joint, i.e. a little under the silhouette; the
 	# mesh AABB is the silhouette. Assert on the mesh, report both.
 	var mesh_h: float = mesh.get_aabb().size.y
-	_ok("the mesh is about %.2f m tall (root_scale applied)" % TARGET_H,
-		absf(mesh_h - TARGET_H) <= H_TOL,
+	_ok("[%s] the mesh is about %.2f m tall (root_scale applied)" % [tag, target_h],
+		absf(mesh_h - target_h) <= H_TOL,
 		"mesh AABB %.3f m, bone span %.3f m" % [mesh_h, bone_span])
-	_ok("the skeleton is posed at the same scale as the mesh",
-		bone_span > TARGET_H * 0.6 and bone_span < TARGET_H * 1.1,
+	_ok("[%s] the skeleton is posed at the same scale as the mesh" % tag,
+		bone_span > target_h * 0.6 and bone_span < target_h * 1.1,
 		"bone span %.3f m — if this is ~100x the mesh, the cm/metre unit split is unresolved"
 			% bone_span)
 
 	# ------------------------------------------------------------------ 9. budget, on the record
-	var arrays: Array = mesh.surface_get_arrays(0)
-	var vcount: int = (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
-	var icount: int = (arrays[Mesh.ARRAY_INDEX] as PackedInt32Array).size()
-	print("  INFO  budget: %d verts, %d tris  (4 stalkers in the Void = %d tris on screen)"
-		% [vcount, icount / 3, (icount / 3) * 4])
-	_ok("under the stated 120k-triangle budget", icount / 3 <= 120000, "%d tris" % (icount / 3))
+	var tris_total := 0
+	var verts_total := 0
+	for s in range(mesh.get_surface_count()):
+		var arrays: Array = mesh.surface_get_arrays(s)
+		verts_total += (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+		var idx = arrays[Mesh.ARRAY_INDEX]
+		tris_total += (idx.size() / 3) if idx != null else 0
+	print("  INFO  [%s] budget: %d verts, %d tris  (x4 on screen = %d tris)"
+		% [tag, verts_total, tris_total, tris_total * 4])
+	_ok("[%s] under the stated 120k-triangle budget" % tag, tris_total <= 120000,
+		"%d tris" % tris_total)
 
 	inst.queue_free()
-	print("== %d checks, %d failed ==" % [_checks, _fails.size()])
-	for f in _fails:
-		print("   FAILED: " + f)
-	quit(1 if _fails.size() > 0 else 0)
-	return true

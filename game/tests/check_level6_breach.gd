@@ -29,6 +29,13 @@ const DOORS := [
 
 var _frame := 0
 var _fails := 0
+# X1 (2026-09-14): the grab through the door, driven after the single-frame checks.
+var _phase := 0
+var _t := 0.0
+var _grab_door: Node3D = null
+var _grab_player: CharacterBody3D = null
+var _hand_min: float = INF
+var _frozen_seen := false
 var _hiding_script: GDScript
 var _slam_script: GDScript
 var _purge_script: GDScript
@@ -47,10 +54,12 @@ func _initialize() -> void:
 	change_scene_to_file("res://scenes/level_6_breach.tscn")
 
 
-func _process(_delta: float) -> bool:
+func _process(delta: float) -> bool:
 	_frame += 1
 	if _frame < 8:
 		return false
+	if _phase >= 1:
+		return _tick_grab(delta)
 
 	var player := current_scene.get_node_or_null("Player") as CharacterBody3D
 	if not player:
@@ -125,6 +134,72 @@ func _process(_delta: float) -> bool:
 	var r2 := space.intersect_ray(q2)
 	_check("Incinerator floor present", not r2.is_empty(), "")
 
+	# ---- X1: the grab through the door ---------------------------------------------
+	print("--- X1: contact at a slam door is a GRAB, then the funnel ---")
+	var lvl := current_scene
+	_grab_player = player
+	_grab_door = slam_doors[0] as Node3D
+	var nrm3: Vector3 = _grab_door.global_transform.basis.z.normalized()
+	var near_pos: Vector3 = _grab_door.global_position + nrm3 * 0.9
+	near_pos.y = 0.1
+	# A point genuinely away from EVERY door: the room centre with the largest door clearance
+	# (6 m along one door's normal lands beside the next chokepoint — measured).
+	var far_pos: Vector3 = Vector3.ZERO
+	var far_clear: float = -1.0
+	for room in lvl.get("ROOMS"):
+		var c: Vector3 = lvl.get("_builder").room_center(room["name"])
+		var nearest: float = INF
+		for d in slam_doors:
+			nearest = minf(nearest, Vector2(c.x - (d as Node3D).global_position.x, c.z - (d as Node3D).global_position.z).length())
+		if nearest > far_clear:
+			far_clear = nearest
+			far_pos = c
+	_check("X1: a room centre >= 1.5 m from every door exists (%.1f m)" % far_clear, far_clear >= 1.5, "")
+	# The pure half: which door, if any, is "the door you are at".
+	_check("X1: a door 0.9 m away is found", lvl.call("_nearest_slam_door", near_pos, 1.5) == _grab_door, "")
+	_check("X1: CONTROL — away from every door none is found (plain death path)", lvl.call("_nearest_slam_door", far_pos, 1.5) == null, "")
+	var scr := root.get_node("/root/Screamer")
+	_check("X1: nothing is triggering before the contact", not bool(scr.get("_is_triggering")), "")
+	player.global_position = near_pos
+	player.velocity = Vector3.ZERO
+	# Drive the creature's own death hook, exactly as _contact() does.
+	var creature: Node = lvl.get("_creature")
+	var cb: Callable = creature.get("death_override")
+	_check("X1: the creature's death is overridden by the level", cb.is_valid(), "")
+	cb.call()
+	_check("X1: the player is pinned for it", bool(player.call("is_input_frozen")), "")
+	_check("X1: an arm is in the world (GrabArm)", lvl.get_node_or_null("GrabArm") != null, "")
+	_check("X1: no Screamer panel yet (the grab comes first)", not bool(scr.get("_is_triggering")), "")
+	_phase = 1
+	_t = 0.0
+	return false
+
+
+func _tick_grab(delta: float) -> bool:
+	_t += delta
+	var scr := root.get_node("/root/Screamer")
+	var arm := current_scene.get_node_or_null("GrabArm") as Node3D
+	var cam := _grab_player.get_node_or_null("Camera3D") as Camera3D
+	if arm and cam:
+		_hand_min = minf(_hand_min, arm.global_position.distance_to(cam.global_position))
+	if bool(_grab_player.call("is_input_frozen")):
+		_frozen_seen = true
+	if bool(scr.get("_is_triggering")):
+		_check("X1: the hand reached the lens (min %.2f m <= 0.5)" % _hand_min, _hand_min <= 0.5, "")
+		var d := Vector2(_grab_player.global_position.x - _grab_door.global_position.x,
+			_grab_player.global_position.z - _grab_door.global_position.z).length()
+		_check("X1: the player was hauled to the leaf (%.2f m <= 0.45)" % d, d <= 0.45, "")
+		_check("X1: the leaf is SHUT on the lens", bool(_grab_door.call("is_closed")), "")
+		_check("X1: pinned throughout", _frozen_seen, "")
+		_check("X1: the funnel ran within 1.5 s (%.2f s)" % _t, _t <= 1.5, "")
+		return _finish()
+	if _t > 2.5:
+		_check("X1: the grab ends in Screamer.trigger()", false, "still not triggering at %.1f s" % _t)
+		return _finish()
+	return false
+
+
+func _finish() -> bool:
 	print("--------------------------------------------------")
 	print("RESULT: ", "PASS" if _fails == 0 else "FAIL (%d)" % _fails)
 	print("--------------------------------------------------")

@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://55crh8w43503"
-path="res://.godot/imported/shared_screamer_2.png-99f2e1891db5edf35b5c4818e02732dc.ctex"
+path.s3tc="res://.godot/imported/shared_screamer_2.png-99f2e1891db5edf35b5c4818e02732dc.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/screamers/shared_screamer_2.png"
-dest_files=["res://.godot/imported/shared_screamer_2.png-99f2e1891db5edf35b5c4818e02732dc.ctex"]
+dest_files=["res://.godot/imported/shared_screamer_2.png-99f2e1891db5edf35b5c4818e02732dc.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

@@ -73,6 +73,67 @@ func _build_figure(tex_path: String) -> void:
 	add_child(_quad)
 
 
+## L2 (2026-09-14, Issue 208). An UNSHADED billboard renders at its texture's own values, and
+## `wing_monster.png` is ~12 % grey — against the Lab wing's black (torch locked off) that is
+## nothing. `apparition.gd`'s figure reads in the dark because it carries its albedo as
+## EMISSION at 1.6; this gives a lunger the same knob. Off by default: the Manager and the
+## false-door figure stand in lit corridors and were tuned without it.
+func set_glow(energy: float) -> void:
+	if _mat == null:
+		return
+	_mat.emission_enabled = energy > 0.0
+	if _mat.albedo_texture:
+		_mat.emission_texture = _mat.albedo_texture
+	_mat.emission = Color(1, 1, 1)
+	_mat.emission_energy_multiplier = energy
+
+
+## A short-range light that travels with the figure (the walls around it light up as it comes).
+func add_light(range_m: float, energy: float, colour: Color = Color(0.8, 0.85, 1.0)) -> OmniLight3D:
+	var l := OmniLight3D.new()
+	l.name = "LungerLight"
+	l.omni_range = range_m
+	l.light_energy = energy
+	l.light_color = colour
+	l.position = Vector3(0, _height * 0.6, 0)
+	add_child(l)
+	return l
+
+
+## C3: a WALK (no shudder, no self-free) at `speed` toward `point`, pausable — the pass-by.
+var _walking: bool = false
+var _walk_to: Vector3 = Vector3.ZERO
+var _walk_speed: float = 1.0
+var _walk_paused: bool = false
+signal walked      # it reached the walk's end (and is still there; the caller frees it)
+
+
+func walk_to(point: Vector3, speed: float) -> void:
+	_shudder = false
+	_fleeing = false
+	_walking = true
+	_walk_paused = false
+	_walk_to = Vector3(point.x, global_position.y, point.z)
+	_walk_speed = maxf(0.2, speed)
+	var fade := create_tween()
+	fade.tween_property(_mat, "albedo_color:a", 1.0, 0.4)
+
+
+func set_walk_paused(paused: bool) -> void:
+	_walk_paused = paused
+
+
+func is_walking() -> bool:
+	return _walking and not _walk_paused
+
+
+## Just stand there: fade in over `time`, no motion (the C5 doorway figure, where a Watcher's
+## 0.9 m clearance fan can never pass).
+func appear(time: float = 0.3) -> void:
+	var fade := create_tween()
+	fade.tween_property(_mat, "albedo_color:a", 1.0, maxf(0.01, time))
+
+
 func figure_height() -> float:
 	return _height
 
@@ -111,6 +172,18 @@ func flee_to(point: Vector3, speed: float, fade_m: float) -> void:
 
 
 func _process(delta: float) -> void:
+	if _walking:
+		if _walk_paused:
+			return
+		var wto := _walk_to - global_position
+		var wstep := _walk_speed * delta
+		if wto.length() <= wstep:
+			global_position = _walk_to
+			_walking = false
+			walked.emit()
+			return
+		global_position += wto.normalized() * wstep
+		return
 	if _shudder:
 		_shudder_t += delta
 		var s := sin(_shudder_t * TAU * SHUDDER_HZ) * SHUDDER_AMP

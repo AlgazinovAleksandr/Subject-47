@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://c1rpbegdeg1lt"
-path="res://.godot/imported/dn_sconce.png-fc8e8aa16256c83175a41cf40d31b90a.ctex"
+path.s3tc="res://.godot/imported/dn_sconce.png-fc8e8aa16256c83175a41cf40d31b90a.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_9_dungeon/dn_sconce.png"
-dest_files=["res://.godot/imported/dn_sconce.png-fc8e8aa16256c83175a41cf40d31b90a.ctex"]
+dest_files=["res://.godot/imported/dn_sconce.png-fc8e8aa16256c83175a41cf40d31b90a.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

@@ -148,9 +148,16 @@ func _freeze_player() -> void:
 # being added to it, so the time from death to reload does not move.
 const BLACK_HOLD := 0.2
 
-func trigger(image_override: String = "") -> void:
+# `with_image` false (R7, 2026-09-16, the user: "only the running animation accompanied by the
+# scream, we do not need the static image following after it"): the lunge deaths cut to black
+# and restart with no fullscreen picture — the figure at arm's length WAS the picture.
+func trigger(image_override: String = "", with_image: bool = true) -> void:
 	if _is_triggering:
 		return
+	# K3 (2026-09-16, capture #6 again): while a lunge is in progress ANY death is the lunge —
+	# the condemn bar's own `add_panic()` death raced the figure and brought the picture back.
+	if _lunging:
+		with_image = false
 	_is_triggering = true
 	_log_death()
 	get_tree().paused = false
@@ -159,7 +166,8 @@ func trigger(image_override: String = "") -> void:
 	_apply_level_av()
 	if image_override != "" and ResourceLoader.exists(image_override):
 		_screamer_image.texture = load(image_override)
-	await _black_then_scream()
+	await _black_then_scream(with_image)
+	_suppress_sting = false
 	await get_tree().create_timer(maxf(0.0, RESTART_DELAY - BLACK_HOLD)).timeout
 	_black_panel.visible = false
 	_screamer_image.visible = true
@@ -174,14 +182,116 @@ func trigger(image_override: String = "") -> void:
 # reload that follows regardless, so a dip interrupted by the scene change cannot leak.
 # ⚠️ The timer is `process_always` — `trigger()` unpauses the tree, but `trigger_to_menu()` can
 # be reached from a paused NoteUI, and a paused SceneTreeTimer here would hang on black forever.
-func _black_then_scream() -> void:
+func _black_then_scream(with_image: bool = true) -> void:
 	_screamer_image.visible = false
 	_black_panel.visible = true
 	HoldBreath.dip(get_tree(), PRE_SCARE_SILENCE)
 	await get_tree().create_timer(BLACK_HOLD, true, false, true).timeout
-	_screamer_image.visible = true
-	if _audio.stream:
+	_screamer_image.visible = with_image
+	if _audio.stream and not _suppress_sting:
 		_audio.play()
+
+
+# ⭐ K2 (2026-09-14, the user's design: "in-world deaths"). A death that happens IN THE WORLD
+# before the funnel: the player is pinned and turned, a figure stands `ahead` metres in front
+# (validated by a ray from the eye — if the wall is nearer it stands short of the wall, never
+# in it), glows so it reads in a dark room, and lunges to `reach` metres from the lens over
+# `time` seconds with the LEVEL'S OWN fatal sting playing AT the figure; on arrival `trigger()`
+# runs unchanged (black, image, restart), with the 2D sting suppressed because it has already
+# been heard once, at arm's length. The funnel is still `trigger()` — `_is_triggering`,
+# `_log_death()`, `RESTART_DELAY` and `restart_current_level()` are untouched, so every test
+# that watches `_is_triggering` sees the same death; it just starts ~`time` later.
+# ⚠️ `_lunging` mirrors `_is_flashing`: a second call during the wind-up is ignored, and a
+# plain `trigger()` from elsewhere (the panic bar) still pre-empts — the funnel wins.
+# ⚠️ The timers are `process_always` and the player is frozen by `freeze_input()`, not by
+# `process_mode` (that comes in `trigger()`): the camera tween needs the player processing.
+const LUNGE_GLOW := 1.4
+const LUNGE_LIGHT_RANGE := 4.0
+const LUNGE_LIGHT_ENERGY := 1.2
+const LUNGE_TURN := 0.3
+const LUNGE_MIN_AHEAD := 0.9
+var _lunging: bool = false
+var _suppress_sting: bool = false
+var _lunger: Node3D = null
+
+
+func is_lunging() -> bool:
+	return _lunging
+
+
+func trigger_with_lunge(tex_path: String, ahead: float = 2.2, reach: float = 0.5,
+		time: float = 0.28, image_override: String = "") -> void:
+	if _is_triggering or _lunging:
+		return
+	var p := get_tree().get_first_node_in_group("player") as Node3D
+	var scene := get_tree().current_scene
+	if p == null or scene == null:
+		trigger(image_override)
+		return
+	_lunging = true
+	get_tree().paused = false
+	if p.has_method("freeze_input"):
+		p.call("freeze_input")
+	if "velocity" in p:
+		var v: Vector3 = p.get("velocity")
+		p.set("velocity", Vector3(0, v.y, 0))
+	# Where it stands: straight ahead on the floor, short of any wall.
+	var fwd: Vector3 = -p.global_transform.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3(0, 0, -1)
+	var d: float = ahead
+	var space := p.get_world_3d().direct_space_state
+	# Rays at eye AND waist height: a desk in front of you is under the eye ray, and a
+	# figure standing in a desk is the picture the first render produced.
+	for h in [1.6, 0.9]:
+		var from: Vector3 = p.global_position + Vector3(0, h, 0)
+		var q := PhysicsRayQueryParameters3D.create(from, from + fwd * (ahead + 0.6))
+		q.exclude = [p.get_rid()] if p is CollisionObject3D else []
+		var hit := space.intersect_ray(q)
+		if hit:
+			d = minf(d, clampf(from.distance_to(hit.position) - 0.45, LUNGE_MIN_AHEAD, ahead))
+	var spot: Vector3 = p.global_position + fwd * d
+	spot.y = p.global_position.y
+	var l := DoorLunger.build(scene, spot, tex_path, 2.0)
+	l.name = "DeathLunger"
+	l.set_glow(LUNGE_GLOW)
+	l.add_light(LUNGE_LIGHT_RANGE, LUNGE_LIGHT_ENERGY)
+	_lunger = l
+	# The level's own fatal sting, AT the figure.
+	_apply_level_av()
+	if _audio.stream:
+		var sp := AudioStreamPlayer3D.new()
+		sp.name = "LungeSting"
+		sp.stream = _audio.stream
+		sp.max_db = 6.0
+		sp.unit_size = 8.0
+		sp.position = Vector3(0, 1.4, 0)
+		l.add_child(sp)
+		sp.play()
+		_suppress_sting = true
+	HoldBreath.dip(get_tree(), LUNGE_TURN + time + 0.4)
+	if p.has_method("turn_to_face"):
+		p.call("turn_to_face", spot + Vector3(0, 1.2, 0), LUNGE_TURN)
+	l.lunged.connect(func() -> void:
+		_lunging = false
+		trigger(image_override, false)   # R7: no static picture after the lunge
+	)
+	await get_tree().create_timer(LUNGE_TURN, true).timeout   # scales with time_scale, like the tween
+	if not is_instance_valid(l):
+		_lunging = false
+		trigger(image_override, false)
+		return
+	var dir_to: Vector3 = (l.global_position - p.global_position)
+	dir_to.y = 0.0
+	dir_to = dir_to.normalized() if dir_to.length() > 0.01 else fwd
+	var end: Vector3 = p.global_position + dir_to * reach
+	end.y = l.global_position.y
+	l.lunge_to(end, time)
+	# Safety valve: if the tween never lands (a freed scene), the funnel still runs.
+	await get_tree().create_timer(time + 0.6, true).timeout
+	if _lunging:
+		_lunging = false
+		trigger(image_override, false)
 
 
 # image_override lets a caller force a specific fatal image regardless of the

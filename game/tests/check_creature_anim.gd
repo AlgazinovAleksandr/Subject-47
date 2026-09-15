@@ -30,6 +30,7 @@ var _t := 0.0
 var _wall := 0.0
 var _stalker: Node3D
 var _obj: Node3D
+var _para: Node3D
 var _player: CharacterBody3D
 var _cam: Camera3D
 var _dormant_pose := PackedFloat32Array()
@@ -140,6 +141,12 @@ func _initialize() -> void:
 	_obj = OBJ12.new()
 	_obj.position = Vector3(20, 0, 20)
 	world.add_child(_obj)
+
+	# ⭐ The second model (2026-09-12): THE NIGHTMARE's hunter wears the Parasite, a two-clip rig.
+	_para = OBJ12.new()
+	_para.set("model", "parasite")
+	_para.position = Vector3(-20, 0, 20)
+	world.add_child(_para)
 
 
 func _process(delta: float) -> bool:
@@ -305,6 +312,30 @@ func _process(delta: float) -> bool:
 			_ok("CONTROL: watched and unwatched read differently",
 				free_speed != 0.0,
 				"if these are ever equal, the freeze assertion above is vacuous")
+
+			# ------------------------------------------------ ⭐ the Parasite on the same script
+			_ok("PARASITE: built its animated model (not the capsule fallback)",
+				_anim_of(_para) != null and _skel(_para) != null)
+			_ok("PARASITE: the driver knows which model it wears",
+				_para.get("_anim") != null and str(_para.get("_anim").call("model")) == "parasite")
+			var pm := _mats(_para)
+			_ok("PARASITE: kept its skin", pm.size() >= 1
+				and (pm[0] as StandardMaterial3D).albedo_texture != null)
+			_para.call("activate")
+			_para.call("_enter", 0)   # PATROL
+			_ok("PARASITE: PATROL walks on its own walk clip", _clip_of(_para) == "walk",
+				"clip '%s'" % _clip_of(_para))
+			_para.set("chase_speed", 3.4)
+			_para.call("_enter", 2)   # CHASE
+			_ok("PARASITE: a 3.4 m/s CHASE resolves the missing `charge` to its `run`",
+				_clip_of(_para) == "run", "clip '%s'" % _clip_of(_para))
+			_ok("...at a believable rate (measured run speed 2.829 m/s)",
+				_speed_of(_para) > 0.9 and _speed_of(_para) < 1.5, "speed_scale %.2f" % _speed_of(_para))
+			_para.call("_enter", 3)   # SEARCH
+			_para.set("_search_arrived", true)
+			_para.call("_refresh_clip")
+			_ok("PARASITE: the scan resolves the missing `unsteady` to `walk` (never a frozen clip)",
+				_clip_of(_para) == "walk", "clip '%s'" % _clip_of(_para))
 			print("== %d checks, %d failed ==" % [_checks, _fails.size()])
 			for f in _fails:
 				print("   FAILED: " + f)

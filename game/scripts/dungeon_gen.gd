@@ -28,7 +28,10 @@ extends RefCounted
 # See ISSUES_SOLUTIONS.md Issue 41.
 
 const CELL := 3.0          # one corridor width — DN's "hallway"
-const GRID := 18           # 18 x 18 cells, a ~54 x 54 m envelope
+# ⭐ 24, not 18 (2026-09-12, the user's call): a clean run of the 18x18 lattice took 82 s against
+# a 12-15 minute target, with sconces a room or two apart. 72 x 72 m gives the hunter room to
+# hunt in and the sconce-spacing rule below something to space across.
+const GRID := 24           # 24 x 24 cells, a ~72 x 72 m envelope
 const ROOM_H := 3.2        # uniform; see the ⚠️ above
 const CORRIDOR_CEIL_H := 2.6   # dungeon.gd's drop ceiling, not a RoomBuilder height
 
@@ -37,17 +40,31 @@ const CORRIDOR_CEIL_H := 2.6   # dungeon.gd's drop ceiling, not a RoomBuilder he
 # the bed chamber, minus any chamber whose every wall ended up carrying a doorway,
 # the pool was exactly 7 in the best case and measured short on 69 of 200 seeds.
 # Slack is the fix; the extra chambers also give the Matron more places to be.
-const CHAMBER_COUNT := 12
+const CHAMBER_COUNT := 16   # 16 on the 24x24 lattice (was 12 on 18x18) — enough for every
+                            # room KIND to appear, see _deal_kinds()
 const MIN_CHAMBERS := 9     # hard floor — below this the level cannot be won
 const PLACE_ATTEMPTS := 60  # then give up on this chamber — NEVER loop forever
 const SCONCE_COUNT := 7
-const CANDLE_CACHES := 4
+const CANDLE_CACHES := 8   # 4 -> 8 on 2026-09-13 (D1): one per two chambers
 const STILL_ONE_COUNT := 6
-const FRAME_COUNT := 5
+const FRAME_COUNT := 6
 const HIDING_COUNT := 2
-const BEARTRAP_COUNT := 2
 const DOOR_WIDTH := 2.2
-const MAX_STRAIGHT := 5     # cells; longer runs get a jog (§B6 step 8)
+const MAX_STRAIGHT := 7     # cells; longer runs get a jog (§B6 step 8). 5 on the 18x18 lattice.
+
+# ⭐ SCONCE SPACING (2026-09-12). Room-graph BFS distance (corridors count as rooms, so two
+# chambers joined by one corridor are 2 apart; chambers never abut, so 2 is unconstrained).
+# Seven sconces are picked greedily at >= this gap; if seven do not fit the gap is relaxed to 2
+# and `sconce_relaxed` counts it, because 7/7 is what reveals the bed and is non-negotiable.
+const SCONCE_MIN_GAP := 3
+
+# ⭐ ROOM ARCHETYPES (2026-09-12, the user's structure: "variety by room, not a ladder"). Every
+# chamber is dealt a KIND; `dungeon_rooms.gd` builds the props and owns the one scare each kind
+# fires — when that room's sconce is lit (SCONCE_KINDS) or when the player first steps in
+# (ENTRY_KINDS). This file only deals the cards; it never builds anything.
+const ROOM_KINDS := ["gallery", "scriptorium", "cells", "well", "chapel", "crypt", "cistern", "larder"]
+const SCONCE_KINDS := ["gallery", "chapel", "crypt", "larder", "scriptorium"]
+const ENTRY_KINDS := ["cells", "well", "cistern", "scriptorium"]
 
 const EMPTY := 0
 const CHAMBER := 1
@@ -60,15 +77,17 @@ var chamber_names: Array[String] = []
 var corridor_names: Array[String] = []
 var spawn_room: String = ""
 var bed_room: String = ""
-var teach_room: String = ""      # the Hollow One's SEALED alcove (no doorway)
-var teach_corridor: String = ""  # the corridor you hear it from, through a grate
 var sconce_spots: Array = []     # [{room, side: Vector2}]
-var frame_spots: Array = []      # [{room, side: Vector2}]
-var still_one_rooms: Array[String] = []
+var frame_spots: Array = []      # [{room, side: Vector2}] — the Gallery rooms' paintings
+var still_one_rooms: Array[String] = []   # the Cells and Crypt rooms (never the bed)
 var candle_rooms: Array[String] = []
 var hiding_rooms: Array[String] = []
-var beartrap_rooms: Array[String] = []
 var matron_spawn_rooms: Array[String] = []
+var room_kinds: Dictionary = {}  # chamber name -> one of ROOM_KINDS
+var lair_room: String = ""       # the one "larder": the hunter's lair, a sconce chamber
+var sconce_relaxed: int = 0      # how many times the spacing rule had to be loosened (0 = never)
+var sealed_kind_overrides := 0   # chambers re-dealt to 'cistern' for having no prop-safe wall (prop_sides)
+var sconce_gap_used: int = 0     # the gap the seven sconces actually satisfy
 var slam_doorways: Array = []    # indices into `doorways` — chamber<->corridor only
 var extra_edge_count: int = 0    # cycles added beyond the spanning tree
 
@@ -110,15 +129,16 @@ func _reset() -> void:
 	corridor_names = []
 	spawn_room = ""
 	bed_room = ""
-	teach_room = ""
-	teach_corridor = ""
 	sconce_spots = []
 	frame_spots = []
 	still_one_rooms = []
 	candle_rooms = []
 	hiding_rooms = []
-	beartrap_rooms = []
 	matron_spawn_rooms = []
+	room_kinds = {}
+	lair_room = ""
+	sconce_relaxed = 0
+	sconce_gap_used = 0
 	slam_doorways = []
 	extra_edge_count = 0
 	_chambers = []
@@ -690,54 +710,74 @@ func _place_content() -> void:
 		sconce_pool.erase(spawn_room)
 		sconce_pool.push_front(spawn_room)
 
-	var want: int = mini(SCONCE_COUNT, sconce_pool.size())
-	for i in range(want):
-		var nm: String = sconce_pool[i]
+	# ⭐ SPACING: greedy at SCONCE_MIN_GAP, relaxed one step at a time (never below 2, which is
+	# unconstrained) only if seven do not fit. The spawn chamber is always first in the pool so it
+	# always gets its tutorial sconce.
+	var picked: Array[String] = []
+	var gap: int = SCONCE_MIN_GAP
+	while gap >= 2:
+		picked = []
+		for nm in sconce_pool:
+			var ok := true
+			for other in picked:
+				if int(dist.get(nm, {}).get(other, 99)) < gap:
+					ok = false
+					break
+			if ok:
+				picked.append(nm)
+			if picked.size() >= SCONCE_COUNT:
+				break
+		if picked.size() >= SCONCE_COUNT:
+			break
+		gap -= 1
+		sconce_relaxed += 1
+	sconce_gap_used = gap
+	for nm in picked:
 		var sides: Array = free_sides(nm)
 		sconce_spots.append({"room": nm, "side": sides[_content_rng.randi() % sides.size()]})
 
 	var sconce_rooms: Array[String] = []
-	for s in sconce_spots:
-		sconce_rooms.append(s["room"])
+	for sp in sconce_spots:
+		sconce_rooms.append(sp["room"])
 
-	# Still Ones: chambers of at least 2x3 cells, never the spawn/bed/sconce rooms.
-	# DN's rule verbatim — "Skeletons cannot spawn in a room smaller than 2x3 cells".
-	var big: Array[String] = []
-	for nm in chamber_names:
-		if nm == spawn_room or nm == bed_room or sconce_rooms.has(nm):
-			continue
-		var r: Rect2i = _room_rect[nm]
-		if mini(r.size.x, r.size.y) >= 2 and r.size.x * r.size.y >= 6:
-			big.append(nm)
-	_shuffle(big)
-	for i in range(mini(STILL_ONE_COUNT, big.size())):
-		still_one_rooms.append(big[i])
+	# ⭐ The kinds are dealt BEFORE the entities, because the entities now follow the kinds.
+	_deal_kinds(sconce_rooms)
 
-	# Weeping Frames: chamber walls without doorways, and never in a chamber that
-	# holds a Still One (staring at one while the other is behind you is not a
-	# choice, it is a coin flip).
-	var frame_pool: Array[String] = []
+	# Still Ones live in the Cells (behind bars, leashed) and the Crypts (rising from a
+	# sarcophagus when its sconce is lit). Never the bed chamber — §B10's one rule that survived
+	# the archetype pass: the finale's room holds no resident threat.
 	for nm in chamber_names:
-		if nm == spawn_room or still_one_rooms.has(nm):
+		if nm == bed_room:
 			continue
-		if not free_sides(nm).is_empty():
-			frame_pool.append(nm)
-	_shuffle(frame_pool)
-	for i in range(mini(FRAME_COUNT, frame_pool.size())):
-		var nm2: String = frame_pool[i]
-		var sides2: Array = free_sides(nm2)
-		# Prefer a side the sconce is not already using.
+		var k: String = room_kinds.get(nm, "")
+		if k == "cells" or k == "crypt":
+			still_one_rooms.append(nm)
+	if still_one_rooms.size() > STILL_ONE_COUNT:
+		still_one_rooms.resize(STILL_ONE_COUNT)
+
+	# Weeping Frames: the Gallery rooms' paintings, on doorway-free walls the sconce is not
+	# using — up to two per gallery, FRAME_COUNT overall.
+	for nm in chamber_names:
+		if room_kinds.get(nm, "") != "gallery":
+			continue
 		var taken: Variant = null
-		for s in sconce_spots:
-			if s["room"] == nm2:
-				taken = s["side"]
+		for sp in sconce_spots:
+			if sp["room"] == nm:
+				taken = sp["side"]
 		var choices: Array = []
-		for sd in sides2:
+		for sd in free_sides(nm):
 			if taken == null or sd != taken:
 				choices.append(sd)
-		if choices.is_empty():
-			continue
-		frame_spots.append({"room": nm2, "side": choices[_content_rng.randi() % choices.size()]})
+		_shuffle(choices)
+		# ⚠️ TWO PAINTINGS PER WALL, 1.1 m either side of the centre (2026-09-12). One per wall
+		# left most galleries with a single frame — a 2-cell chamber has two free walls and the
+		# sconce takes one — and a gallery with one picture is not a gallery. `offset` runs along
+		# the wall; dungeon.gd applies it.
+		for i in range(mini(2, choices.size())):
+			for off in [-1.1, 1.1]:
+				if frame_spots.size() >= FRAME_COUNT:
+					break
+				frame_spots.append({"room": nm, "side": choices[i], "offset": off})
 
 	# Candle caches: chambers only, one candle each.
 	var cache_pool: Array[String] = chamber_names.duplicate()
@@ -757,76 +797,160 @@ func _place_content() -> void:
 	for i in range(mini(HIDING_COUNT, hide_pool.size())):
 		hiding_rooms.append(hide_pool[i])
 
-	# The Matron spawns in a chamber, never a corridor, and never the spawn/bed room.
+	# The hunter spawns in a chamber, never a corridor, and never the spawn/bed room.
 	for nm in chamber_names:
 		if nm != spawn_room and nm != bed_room:
 			matron_spawn_rooms.append(nm)
 
-	# Beartraps: corridors only. ⚠️ Never in a corridor adjacent to a Matron spawn
-	# chamber — a limp during a chase is the double-jeopardy shape (§B8).
-	var trap_pool: Array[String] = []
-	for nm in corridor_names:
+	# ⚠️ No beartraps and no sealed alcove any more (2026-09-12): the traps were a death path in a
+	# level whose only death is now the panic bar, and the alcove existed for the Hollow One,
+	# which is cut. Both are asserted absent by check_dungeon_gen.gd.
+
+
+# ⭐ Deal a KIND to every chamber. Pure data, content-RNG, so the same seed deals the same hand.
+#
+#   spawn chamber   -> scriptorium   a zero-panic first beat: writing appears on the wall
+#   bed chamber     -> crypt         dressing only; NO resident statue (§B10, the finale room)
+#   sconce chambers -> one LARDER (the hunter's lair, preferring >= 3 rooms from spawn), one
+#                      CHAPEL, then gallery / crypt / scriptorium cycling
+#   the rest        -> one WELL, then cells (only if the chamber is >= 2x3 cells) / cistern /
+#                      scriptorium cycling
+func _deal_kinds(sconce_rooms: Array[String]) -> void:
+	room_kinds = {}
+	lair_room = ""
+	room_kinds[spawn_room] = "scriptorium"
+	room_kinds[bed_room] = "crypt"
+
+	var lair_pool: Array[String] = []
+	var lair_far: Array[String] = []
+	for nm in sconce_rooms:
+		if nm == spawn_room or nm == bed_room:
+			continue
+		if prop_sides(nm).is_empty():
+			continue   # the larder's hooks and barrels need a prop-safe wall
+		lair_pool.append(nm)
+		if room_distance(spawn_room, nm) >= 3:
+			lair_far.append(nm)
+	var pool: Array[String] = lair_far if not lair_far.is_empty() else lair_pool
+	if not pool.is_empty():
+		lair_room = pool[_content_rng.randi() % pool.size()]
+		room_kinds[lair_room] = "larder"
+
+	var rest: Array[String] = []
+	for nm in sconce_rooms:
+		if not room_kinds.has(nm):
+			rest.append(nm)
+	_shuffle(rest)
+	var cycle := ["gallery", "crypt", "scriptorium"]
+	var i := 0
+	sealed_kind_overrides = 0
+	for nm in rest:
+		# A sconce chamber with no prop-safe wall is a GALLERY: its frames hang on the walls and
+		# the builder skips the centre bench (same rule as the cistern re-deal below).
+		if prop_sides(nm).is_empty():
+			room_kinds[nm] = "gallery"
+			sealed_kind_overrides += 1
+			continue
+		if i == 0:
+			room_kinds[nm] = "chapel"
+		else:
+			room_kinds[nm] = cycle[(i - 1) % cycle.size()]
+		i += 1
+
+	var others: Array[String] = []
+	for nm in chamber_names:
+		if not room_kinds.has(nm):
+			others.append(nm)
+	_shuffle(others)
+	var entry_cycle := ["cells", "cistern", "scriptorium"]
+	var j := 0
+	var well_dealt := false
+	for nm in others:
+		# ⚠️ A CHAMBER WITH A DOORWAY IN EVERY WALL GETS THE ONE KIND THAT TOUCHES NO WALL
+		# (2026-09-12). Every other builder hugs a doorway-free "back" wall, and with none to
+		# choose `_back_side()` fell back to north — seed 606 put a scriptorium lectern squarely
+		# in Chamber12's north doorway (walk_dungeon: 1 blocked of 60). The cistern is water and
+		# a grate at the centre, collider-free.
+		if prop_sides(nm).is_empty():
+			room_kinds[nm] = "cistern"
+			sealed_kind_overrides += 1
+			continue
+		if not well_dealt:
+			room_kinds[nm] = "well"
+			well_dealt = true
+			continue
+		var r: Rect2i = _room_rect[nm]
+		var big: bool = mini(r.size.x, r.size.y) >= 2 and r.size.x * r.size.y >= 6
+		var k: String = entry_cycle[j % entry_cycle.size()]
+		j += 1
+		if k == "cells" and not big:
+			k = "cistern"
+		room_kinds[nm] = k
+	# The spawn and bed chambers are dealt by name above; the same four-door rule applies. The
+	# bed stands at its room's centre and the water sheet has no collider, so a flooded crypt
+	# is still a bed room.
+	# The spawn chamber follows the same rule. The BED chamber stays a crypt whatever its walls:
+	# the bed is the room, and `DungeonRooms._build_crypt` simply builds no sarcophagi there when
+	# no wall is prop-safe.
+	if prop_sides(spawn_room).is_empty() and room_kinds.get(spawn_room, "") != "cistern":
+		room_kinds[spawn_room] = "cistern"
+		sealed_kind_overrides += 1
+
+
+# ⚠️ THE WALLS A FLOOR PROP MAY HUG (2026-09-12). `free_sides()` says which walls carry no
+# doorway; this also drops a wall when a doorway in a PERPENDICULAR wall lies within
+# PROP_LANE of it — that doorway's inward line runs straight along the props (the bot stood
+# 130 s against a sarcophagus row in seed 101's crypt and a chapel's altar+pew in seed 202).
+# Props reach up to 2.4 m from their wall, plus a capsule: 3.0 m.
+const PROP_LANE := 3.0
+
+func prop_sides(room_name: String) -> Array:
+	if not _room_rect.has(room_name):
+		return []
+	var r: Rect2i = _room_rect[room_name]
+	var x0: float = (r.position.x - GRID * 0.5) * CELL
+	var x1: float = (r.position.x + r.size.x - GRID * 0.5) * CELL
+	var z0: float = (r.position.y - GRID * 0.5) * CELL
+	var z1: float = (r.position.y + r.size.y - GRID * 0.5) * CELL
+	var out: Array = []
+	for sd in free_sides(room_name):
 		var ok := true
-		for other in _adj.get(nm, []):
-			if matron_spawn_rooms.has(other):
+		for d in doorways:
+			var p: Vector2 = d["pos"]
+			var on_room: bool
+			if d["dir"] == "x":
+				on_room = p.y > z0 - 0.01 and p.y < z1 + 0.01 \
+					and (absf(p.x - x0) < 0.01 or absf(p.x - x1) < 0.01)
+			else:
+				on_room = p.x > x0 - 0.01 and p.x < x1 + 0.01 \
+					and (absf(p.y - z0) < 0.01 or absf(p.y - z1) < 0.01)
+			if not on_room:
+				continue
+			var dist: float
+			if absf(sd.x) > 0.5:
+				dist = absf(p.x - (x0 if sd.x < 0.0 else x1))
+			else:
+				dist = absf(p.y - (z0 if sd.y < 0.0 else z1))
+			if dist > 0.01 and dist < PROP_LANE:
 				ok = false
 				break
-		if ok and _room_cells[nm].size() >= 2:
-			trap_pool.append(nm)
-	_shuffle(trap_pool)
-	for i in range(mini(BEARTRAP_COUNT, trap_pool.size())):
-		beartrap_rooms.append(trap_pool[i])
-
-	_place_teach_alcove()
+		if ok:
+			out.append(sd)
+	return out
 
 
-# The Hollow One's teaching chamber: a SEALED alcove the player can see into through
-# a grate but cannot enter. It gets no doorway at all, which is what makes the
-# demonstration zero-risk — apparition.gd's teach=true contract, applied to a new
-# entity (§B4.3).
-func _place_teach_alcove() -> void:
-	var candidates: Array = []
-	for nm in corridor_names:
-		for c in _room_cells[nm]:
-			for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
-				var o: Vector2i = c + d
-				if o.x < 1 or o.y < 1 or o.x >= GRID - 1 or o.y >= GRID - 1:
-					continue
-				if _grid[o.y][o.x] != EMPTY:
-					continue
-				if not _alcove_clear(o):
-					continue
-				candidates.append([nm, o])
-	if candidates.is_empty():
-		return
-	var pick: Array = candidates[_content_rng.randi() % candidates.size()]
-	teach_corridor = pick[0]
-	var cell: Vector2i = pick[1]
-	teach_room = "Alcove"
-	_grid[cell.y][cell.x] = CHAMBER
-	_cell_room["%d,%d" % [cell.x, cell.y]] = teach_room
-	_room_cells[teach_room] = [cell] as Array[Vector2i]
-	_room_rect[teach_room] = Rect2i(cell.x, cell.y, 1, 1)
-	_adj[teach_room] = []
-	rooms.append({
-		"name": teach_room,
-		"pos": _cell_to_world(cell, Vector2i(1, 1)),
-		"size": Vector2(CELL, CELL),
-		"h": ROOM_H,
-	})
+func kind_of(room_name: String) -> String:
+	return room_kinds.get(room_name, "")
 
 
-# An alcove cell must not touch any other room except the one corridor it hangs off,
-# or its (doorway-free) walls would be shared with a space that expects a wall there.
-func _alcove_clear(c: Vector2i) -> bool:
-	var touching := 0
-	for d in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
-		var o: Vector2i = c + d
-		if o.x < 0 or o.y < 0 or o.x >= GRID or o.y >= GRID:
-			continue
-		if _grid[o.y][o.x] != EMPTY:
-			touching += 1
-	return touching == 1
+# Which room a world position is in ("" outside the lattice). The map and the entry-triggered
+# scares both need it; it is the inverse of _cell_to_world over `_cell_room`.
+func room_at(pos: Vector3) -> String:
+	var cx: int = int(floor(pos.x / CELL + GRID * 0.5))
+	var cy: int = int(floor(pos.z / CELL + GRID * 0.5))
+	if cx < 0 or cy < 0 or cx >= GRID or cy >= GRID:
+		return ""
+	return _cell_room.get("%d,%d" % [cx, cy], "")
 
 
 # ── Graph queries ───────────────────────────────────────────────────────────────

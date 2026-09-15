@@ -44,6 +44,25 @@ const SPARK_STEP := 1.0
 const SPARK_STEP_RANGE := 8.0
 const SPARK_KILL_DIST := 2.0
 
+# ⭐ NON-LETHAL MODE (2026-09-12 — THE NIGHTMARE is "hard to lose", the user's call). With
+# `lethal = false`, reaching the player is not a death: `caught` is emitted (the level answers with
+# a survivable face flash and its panic term) and the statue TOPPLES for good — the dud outcome,
+# arrived at the hard way. The spark-kill branch takes the same path. ⚠️ Defaults to true so the
+# Void's stalkers keep their contact kill (also the user's call, the same day).
+@export var lethal: bool = true
+signal caught
+
+# ⭐ A LEASH: a world-space XZ rect the body may never step out of (the dungeon's barred Cells —
+# a statue that is closer every time you look and can never leave). Zero size = no leash. It
+# clamps the ADVANCE step only; the catch still needs CONTACT_DIST, which a leashed statue
+# behind bars can never reach.
+@export var leash: Rect2 = Rect2()
+
+# ⭐ WATCH ONLY: freezes when watched and feeds gaze panic exactly as before, but never steps
+# (the Void's tile bridge: gaze pressure across the abyss, never a body floating over it).
+# Level-toggled; the stalk resumes the moment it is cleared.
+@export var watch_only: bool = false
+
 signal toppled
 
 var _fallen: bool = false
@@ -297,9 +316,18 @@ func _process(delta: float) -> void:
 		_lunge()
 		return
 
+	if watch_only:
+		_set_scrape(false)
+		_set_gait(Gait.DORMANT)
+		return  # held off the bridge by the level: it watches, it never steps
+
 	var dir := Vector3(_player.global_position.x - here.x, 0,
 		_player.global_position.z - here.z).normalized()
-	_body.global_position = here + dir * STALK_SPEED * delta
+	var next: Vector3 = here + dir * STALK_SPEED * delta
+	if leash.size != Vector2.ZERO:
+		next.x = clampf(next.x, leash.position.x, leash.end.x)
+		next.z = clampf(next.z, leash.position.y, leash.end.y)
+	_body.global_position = next
 	_body.rotation.y = atan2(dir.x, dir.z)
 	_set_scrape(true)   # advancing: the dry wooden drag is the tell
 	_set_gait(Gait.ADVANCING)
@@ -335,6 +363,9 @@ func _dismiss() -> void:
 
 
 func _lunge() -> void:
+	if not lethal:
+		_startle()
+		return
 	_fired = true
 	_set_scrape(false)
 	# The last thing you see is it coming at full tilt, not mid-shuffle.
@@ -342,6 +373,15 @@ func _lunge() -> void:
 		_anim.play(CreatureAnim.CLIP_CHARGE, 1.4, 0.05)
 	global_position = _camera.global_position - _camera.global_transform.basis.z * 0.3
 	Screamer.trigger()
+
+
+# The non-lethal catch: announce it (the level owns the flash and the panic), then fall over
+# for good. `_fired` stops the stalk; `_topple()` sets `_fallen` and halts the gait.
+func _startle() -> void:
+	_fired = true
+	_set_scrape(false)
+	caught.emit()
+	_topple()
 
 
 # ── THE NIGHTMARE additions (inert unless the matching @export is set) ──────────
@@ -414,6 +454,12 @@ func on_spark(spark_pos: Vector3) -> void:
 
 func has_fallen() -> bool:
 	return _fallen
+
+
+# ⭐ Wake without being seen (2026-09-12): the Crypt's lid slides and the statue inside is
+# already hunting. Same flag the first glance would have set; nothing else changes.
+func wake() -> void:
+	_awakened = true
 
 
 func is_active() -> bool:

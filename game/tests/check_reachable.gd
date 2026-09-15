@@ -82,6 +82,7 @@ const Scenes := preload("res://tests/lib/scenes.gd")
 # stops lying about a gap, and the lesson is the reason it is written down: when the fill
 # says "unreachable" and a human says "I walk through there", the honest next step is to
 # MEASURE the gap, not to loosen the grid until the complaint goes away.
+const PIN_SEED := 1          # one world per run, so a finding can be re-run (see _initialize)
 const STEP := 0.125
 const STEP_UP := 0.35       # CharacterBody3D cannot step up; only ramps climb
 # ⚠️ 1.0 m, and REACHABILITY IS NOT THE SAME AS RETURN: a walking player steps off a ledge
@@ -173,6 +174,7 @@ const CONFIG := {
 		"seeds": ["@player"],
 		"gates": {
 			"RosterSeal": "the welded personnel gate opens on the roster code (Gate 5)",
+			"DarkSeamPlug": "the Blackout doorway's wall plug is solid only while the torch is ON (Gate 7, R9 2026-09-16)",
 			"FungalBarrier": "the fungal mass dissolves when sprayed with vinegar (Gate 2)",
 			"ChoiceDoor_": "both vestibule doors swing open on E (Gate 1); which is black "
 				+ "is randomised per run, so the prefix opens the pair",
@@ -206,11 +208,10 @@ const CONFIG := {
 		# what is lost is one safe digit note and one trap note. Filed as cross-level X44 —
 		# and note that `autoplay_exit_reachable.gd` has no Void route either, so this is the
 		# first time anything walked it.
-		"ignore": {
-			"NoteVoid2": "unreachable pocket — cross-level X44, belongs to Level 8's own pass",
-			"TrapVoid1": "same pocket, same finding — X44",
-		},
-		"min_cells": 3000, "min_targets": 6,
+		# ⭐ X44 CLOSED 2026-09-12 (the rebuild): nothing is waived. Nine notes and two doors, the
+		# far five of them across the tile causeway.
+		"ignore": {},
+		"min_cells": 20000, "min_targets": 10,
 	},
 }
 
@@ -267,6 +268,10 @@ func _initialize() -> void:
 		print("REACHABLE FAIL: no scene matched %s" % _only)
 		quit(1)
 		return
+	# ⚠️ Pinned like the other eight scene guards (2026-09-12): unpinned, THE NIGHTMARE was a
+	# different dungeon on every run (50 / 51 / 53 interactables measured) and a red could not be
+	# reproduced. `Scenes.pin_rng` also writes the dungeon's seed snapshot, which is what pins it.
+	Scenes.pin_rng(PIN_SEED)
 	change_scene_to_file(_scenes[0]["path"])
 
 
@@ -313,6 +318,7 @@ func _process(delta: float) -> bool:
 				return _report()
 			_t = 0.0
 			_stage = "load"
+			Scenes.pin_rng(PIN_SEED)
 			change_scene_to_file(_scenes[_i]["path"])
 	return false
 

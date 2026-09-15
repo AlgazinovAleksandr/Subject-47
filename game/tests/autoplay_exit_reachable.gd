@@ -73,6 +73,16 @@ const ROUTES := [
 		"door": "ExitDoor",     # extra_lock'd until 7/7 sconces — but "can the ray
 								# SEE it" is a separate question from "does it open"
 	},
+	{
+		"scene": "res://scenes/level_3.tscn", "label": "Void",
+		# The exit sits behind the twist note at the far end of a 40 m complex; the
+		# back door is the one a walking body reaches without reading anything. The
+		# full spawn -> twist -> ExitDoor proof is walk_void.gd (2026-09-12).
+		"waypoints": [
+			Vector3(0, 0, -1.0), Vector3(0, 0, -2.6),
+		],
+		"door": "BackDoor",
+	},
 ]
 
 const FRAME_BUDGET := 1600      # per route, ~26 s of simulated walking

@@ -33,8 +33,20 @@ const TIME_SCALE := 8.0
 # RandomAmbient scare, while RandomAmbient fires every 18-35 s, so the condition was
 # almost never satisfiable and the run produced NO apparitions at all. That is a deleted
 # feature, and a purely informational test reported it as a tidy "0 in 400 s".
-const MIN_EXPECTED := 2
+# L1 (2026-09-15): the Lab has EXACTLY ONE apparition now — the taught HOLD 3 s after the first
+# breaker — and no director. So: none before the breaker, exactly one after it, and the gap
+# floor has nothing to measure here (it still guards the director's pacing where it runs).
+const MIN_EXPECTED := 1
+const MAX_EXPECTED := 1
 const MIN_ACCEPTABLE_GAP := 60.0   # must be rarer than the 60 s metronome it replaced
+
+# ⭐ 2026-09-13: NOTHING appears in the Lab before the keycard (the user's rule, after a
+# figure showed up mid-breaker-hunt). The first KEYCARD_AT game-seconds run with no keycard
+# and must see ZERO appearances; then the keycard is taken through the level's own hook and
+# the count below applies to the remainder (the scripted HOLD 8–16 s later, then the director).
+const KEYCARD_AT := 150.0
+var _keycard_given := false
+var _before_keycard := 0
 
 var _elapsed := 0.0
 var _scene: Node
@@ -73,7 +85,12 @@ func _process(delta: float) -> bool:
 		_scene = current_scene
 	if _scene == null:
 		return false
-		print("--- watching for %.0f s ---" % RUN_SECONDS)
+	if not _keycard_given and _elapsed >= KEYCARD_AT:
+		_keycard_given = true
+		_before_keycard = _seen.size()
+		if _scene.has_method("_on_breaker_flipped"):
+			_scene.call("_on_breaker_flipped", "Breaker_Exam1")
+		print("--- breaker 1 thrown at t=%.0f s (%d appearance(s) before it) ---" % [_elapsed, _before_keycard])
 
 	# An Apparition is the node carrying both of these signals; duck-typed, because
 	# naming the class in a SceneTree script compiles it before the autoloads exist.
@@ -126,6 +143,11 @@ func _report() -> void:
 		if lo < MIN_ACCEPTABLE_GAP:
 			_fail("shortest gap %.1f s is under %.0f s — no rarer than what it replaced"
 				% [lo, MIN_ACCEPTABLE_GAP])
+	if _before_keycard > 0:
+		_fail("%d apparition(s) appeared BEFORE the first breaker — the Lab must show none until then"
+			% _before_keycard)
+	if _seen.size() > MAX_EXPECTED:
+		_fail("%d apparitions in the Lab — L1 allows exactly one (no director here)" % _seen.size())
 	if _seen.size() < MIN_EXPECTED:
 		_fail("only %d apparition(s) in %.0f s — expected at least %d. A suppression rule "
 			% [_seen.size(), _elapsed, MIN_EXPECTED]

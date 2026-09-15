@@ -338,6 +338,190 @@ func _spawn_creature() -> void:
 	_creature.set_portals(ROOMS, DOORS)
 	_creature.staggered.connect(_on_creature_staggered)
 	_creature.recovered.connect(_on_creature_recovered)
+	_creature.death_override = _on_contact_death   # X1: the grab through the door
+
+
+# ⭐ X1 (2026-09-14, the user's pick: "grab through the door"). When Object 12 reaches you
+# while you are standing at a slam door — the place the level TEACHES you to stand — the
+# death is a grab: an arm comes through the gap, you are hauled to the leaf, the leaf slams
+# on the lens (the Screamer's black), then the funnel. Every other contact death is the
+# unchanged `Screamer.trigger()`. Zero new panic, no new rule; the death is the same death,
+# staged. ⚠️ `_on_contact_death()` is the creature's `death_override` and MUST end in
+# `Screamer.trigger()` on every path — the tests watch `_is_triggering`.
+const GRAB_DOOR_DIST := 1.5
+const GRAB_REACH_TIME := 0.35
+const GRAB_PULL_TIME := 0.3
+const GRAB_PULL_TO := 0.3       # m from the door plane the player ends at
+const GRAB_HAND_STOP := 0.35    # m from the lens the hand stops at
+const GRAB_ARM_LEN := 0.9
+var _grab_arm: Node3D = null
+
+
+func _on_contact_death() -> void:
+	var p := _player()
+	var door: SlamDoor = _nearest_slam_door(p.global_position, GRAB_DOOR_DIST) if p else null
+	if door == null or p == null or Screamer.is_lunging():
+		Screamer.trigger()
+		return
+	_grab_death(door, p)
+
+
+func _nearest_slam_door(pos: Vector3, within: float) -> SlamDoor:
+	var best: SlamDoor = null
+	var best_d: float = within
+	for d in _slam_doors:
+		if not is_instance_valid(d):
+			continue
+		var dp: Vector3 = (d as Node3D).global_position
+		var flat := Vector2(dp.x - pos.x, dp.z - pos.z).length()
+		if flat < best_d:
+			best_d = flat
+			best = d
+	return best
+
+
+func _grab_death(door: SlamDoor, p: CharacterBody3D) -> void:
+	if _grab_arm != null:
+		return
+	p.freeze_input()
+	p.velocity = Vector3(0, p.velocity.y, 0)
+	var n: Vector3 = (door as Node3D).global_transform.basis.z
+	n.y = 0.0
+	n = n.normalized() if n.length() > 0.01 else Vector3(0, 0, 1)
+	var plane: Vector3 = (door as Node3D).global_position
+	plane.y = p.global_position.y
+	var rel: Vector3 = p.global_position - plane
+	var side: float = 1.0 if rel.dot(n) >= 0.0 else -1.0
+	var cam := p.get_node_or_null("Camera3D") as Camera3D
+	var lens: Vector3 = cam.global_position if cam else p.global_position + Vector3(0, 1.6, 0)
+	# The arm starts BEHIND the leaf (the creature's side) and comes through the gap.
+	var start: Vector3 = plane - n * side * 0.6 + Vector3(0, 1.25, 0)
+	_grab_arm = _build_grab_arm()
+	add_child(_grab_arm)
+	_grab_arm.global_position = start
+	_grab_arm.look_at(lens, Vector3.UP)
+	HoldBreath.dip(get_tree(), GRAB_REACH_TIME + GRAB_PULL_TIME + 0.4)
+	p.turn_to_face(plane + Vector3(0, 1.3, 0), 0.25)
+	_play_at_pos("creature_growl_near", plane + Vector3(0, 1.4, 0), 4.0)
+	var to_hand: Vector3 = lens + (start - lens).normalized() * GRAB_HAND_STOP
+	var tw := create_tween()
+	tw.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_property(_grab_arm, "global_position", to_hand, GRAB_REACH_TIME)
+	tw.tween_callback(func() -> void:
+		if is_instance_valid(p):
+			p.jolt_camera(0.25, 0.3)
+		# The grip: from here the hand rides with the lens while the player is hauled.
+		if cam and is_instance_valid(_grab_arm):
+			var gt: Transform3D = _grab_arm.global_transform
+			_grab_arm.get_parent().remove_child(_grab_arm)
+			cam.add_child(_grab_arm)
+			_grab_arm.global_transform = gt
+	)
+	# The haul: the player root to the leaf, the arm keeping its grip on the lens.
+	var pull_to: Vector3 = plane + n * side * GRAB_PULL_TO
+	pull_to.y = p.global_position.y
+	tw.tween_property(p, "global_position", pull_to, GRAB_PULL_TIME).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_callback(func() -> void:
+		if is_instance_valid(door):
+			door.slam_shut()
+		_play_at_pos("door_slam", plane + Vector3(0, 1.1, 0), 6.0)
+		Screamer.trigger()
+	)
+
+
+func _build_grab_arm() -> Node3D:
+	var arm := Node3D.new()
+	arm.name = "GrabArm"
+	var mat := StandardMaterial3D.new()
+	# ⚠️ DARK. At 0.35 m from the lens the torch puts enormous irradiance on the surface;
+	# the creature's own tint (0.35, 0.4, 0.32) rendered as cream-white tubes. A grab is a
+	# black shape with red in it against the lit room, not a lit object.
+	mat.albedo_color = Color(0.06, 0.07, 0.05)
+	mat.roughness = 1.0
+	mat.metallic_specular = 0.0
+	mat.emission_enabled = true
+	mat.emission = CreatureObject12.EMISSION_TINT
+	mat.emission_energy_multiplier = 0.18
+	# forearm along -Z (the arm's forward), hand at the end
+	var fa := MeshInstance3D.new()
+	fa.name = "Forearm"
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.045
+	cm.bottom_radius = 0.06
+	cm.height = GRAB_ARM_LEN
+	fa.mesh = cm
+	fa.material_override = mat
+	fa.rotation.x = PI / 2.0
+	fa.position = Vector3(0, 0, GRAB_ARM_LEN * 0.5)
+	arm.add_child(fa)
+	var hand := MeshInstance3D.new()
+	hand.name = "Hand"
+	var hb := BoxMesh.new()
+	hb.size = Vector3(0.13, 0.035, 0.15)
+	hand.mesh = hb
+	hand.material_override = mat
+	hand.position = Vector3(0, 0, -0.02)
+	arm.add_child(hand)
+	# Fingers: splayed, two segments each, the distal one curling in toward the lens — a
+	# claw closing on the camera rather than four tubes seen end-on.
+	for i in range(4):
+		var spread: float = -0.55 + i * 0.36
+		var knuckle := Node3D.new()
+		knuckle.name = "Finger%d" % i
+		knuckle.position = Vector3(-0.05 + i * 0.033, 0.0, -0.07)
+		knuckle.rotation = Vector3(-0.35, 0.0, spread)
+		arm.add_child(knuckle)
+		var f := MeshInstance3D.new()
+		var fm := CylinderMesh.new()
+		fm.top_radius = 0.009
+		fm.bottom_radius = 0.012
+		fm.height = 0.09
+		f.mesh = fm
+		f.material_override = mat
+		f.rotation.x = PI / 2.0
+		f.position = Vector3(0, 0, -0.045)
+		knuckle.add_child(f)
+		var tip_pivot := Node3D.new()
+		tip_pivot.position = Vector3(0, 0, -0.09)
+		tip_pivot.rotation.x = 0.9
+		knuckle.add_child(tip_pivot)
+		var t := MeshInstance3D.new()
+		var tm2 := CylinderMesh.new()
+		tm2.top_radius = 0.007
+		tm2.bottom_radius = 0.009
+		tm2.height = 0.07
+		t.mesh = tm2
+		t.material_override = mat
+		t.rotation.x = PI / 2.0
+		t.position = Vector3(0, 0, -0.035)
+		tip_pivot.add_child(t)
+	var th := MeshInstance3D.new()
+	th.name = "Thumb"
+	var tm := CylinderMesh.new()
+	tm.top_radius = 0.01
+	tm.bottom_radius = 0.013
+	tm.height = 0.11
+	th.mesh = tm
+	th.material_override = mat
+	th.rotation = Vector3(PI / 2.0 + 0.2, 0, -0.9)
+	th.position = Vector3(0.085, 0.0, -0.04)
+	arm.add_child(th)
+	return arm
+
+
+func _play_at_pos(base_name: String, pos: Vector3, volume_db: float) -> void:
+	var stream := GameState.load_audio(base_name)
+	if not stream:
+		return
+	var pl := AudioStreamPlayer3D.new()
+	pl.stream = stream
+	pl.volume_db = volume_db
+	pl.max_db = 6.0
+	pl.unit_size = 8.0
+	add_child(pl)
+	pl.global_position = pos
+	pl.finished.connect(pl.queue_free)
+	pl.play()
 
 
 func _on_creature_staggered(duration: float) -> void:

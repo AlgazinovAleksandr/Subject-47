@@ -341,7 +341,7 @@ func _stage_stare_at_wall() -> void:
 	# Snapshot everything a mimic must not be able to spend.
 	var scene := current_scene
 	_before = {
-		"strikes": int(scene.get("_strikes")),
+		"condemned": bool(scene.get("_condemned")),
 		"gates": (scene.get("_gates") as Dictionary).duplicate(),
 		"held": String(scene.get("_held_bottle")),
 		"forfeited": bool(scene.get("_forfeited")),
@@ -360,9 +360,8 @@ func _stage_stare_at_wall() -> void:
 
 func _stage_touch_the_mimic() -> void:
 	var scene := current_scene
-	_ok("touching the mimic spent NO strike",
-		int(scene.get("_strikes")) == int(_before["strikes"]),
-		"%d -> %d" % [int(_before["strikes"]), int(scene.get("_strikes"))])
+	_ok("touching the mimic did NOT condemn (K2: the only penalty is death)",
+		bool(scene.get("_condemned")) == bool(_before["condemned"]) and not bool(scene.get("_condemned")))
 	var gates_now: Dictionary = scene.get("_gates")
 	var gates_before: Dictionary = _before["gates"]
 	var moved := 0
@@ -401,6 +400,12 @@ func _stage_after_reveal() -> void:
 		var d := c.global_position.distance_to(_player().global_position)
 		_ok("the figure is outside KILL_DIST from where the player is standing",
 			d >= kill, "%.2f m against KILL_DIST %.1f" % [d, kill])
+	# K2 (2026-09-14): in KONTUR its kill is the in-world lunge, and the figure it lunges
+	# with is a real RGBA cutout that exists.
+	var df := String(c.get("death_figure"))
+	_ok("K2: the mimic's death is the lunge (death_figure set)", df.ends_with("kontur_figure.png"), df)
+	_ok("K2: ...and the figure texture exists", df != "" and ResourceLoader.exists(df))
+	_ok("K2: the Screamer has the lunge entry point", root.get_node("/root/Screamer").has_method("trigger_with_lunge"))
 	_stage = 6
 
 
@@ -630,6 +635,8 @@ func _check_occupant_material(cell: Node3D) -> void:
 	var tex_lum := 1.0
 	if shared.albedo_texture:
 		var img := shared.albedo_texture.get_image()
+		if img != null and img.is_compressed():
+			img.decompress()   # textures import VRAM-compressed since 2026-09-13 (memory); get_pixel needs raw
 		if img:
 			img.resize(32, 32, Image.INTERPOLATE_BILINEAR)
 			var tot := 0.0

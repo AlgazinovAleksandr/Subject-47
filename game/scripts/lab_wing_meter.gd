@@ -90,6 +90,7 @@ func setup(rooms: Array, doors: Array, room_names: Array, target: Vector3,
 			_doors_of[name].append(idx)
 
 	_solve()
+	_solve_hops()
 	_build_ui()
 
 
@@ -189,10 +190,55 @@ func _room_at(p: Vector2) -> String:
 
 # ---------------------------------------------------------------- display
 
+## ⭐ 2026-09-13: THE METER ONLY CONFIRMS, IT NO LONGER GUIDES. The user's verdict was that
+## the path to the breaker was too simple; the bar was live across the whole wing and turned
+## the maze into "walk toward the warmer number". It is now hidden until the player is within
+## NEAR_HOPS rooms (doorway graph, never straight line) of the breaker's room — inside that,
+## the same Dijkstra reading as before; outside it, the beacon owns the bearing alone.
+const NEAR_HOPS := 3
+var _adj: Dictionary = {}           # room name -> Array[String]
+var _hops: Dictionary = {}          # room name -> int hops to _target_room
+
+
+func _solve_hops() -> void:
+	for name in _rooms:
+		_adj[name] = []
+	for i in range(_doors.size()):
+		var touching: Array = []
+		for name in _doors_of:
+			if (_doors_of[name] as Array).has(i):
+				touching.append(name)
+		for a in touching:
+			for b in touching:
+				if a != b and not (_adj[a] as Array).has(b):
+					(_adj[a] as Array).append(b)
+	_hops = { _target_room: 0 }
+	var queue: Array = [_target_room]
+	while not queue.is_empty():
+		var cur: String = queue.pop_front()
+		for nb in _adj.get(cur, []):
+			if not _hops.has(nb):
+				_hops[nb] = int(_hops[cur]) + 1
+				queue.append(nb)
+
+
+## Doorway hops from `pos`'s room to the breaker's room; -1 outside the wing / unreachable.
+func room_hops(pos: Vector3) -> int:
+	var room := _room_at(Vector2(pos.x, pos.z))
+	if room == "" or not _hops.has(room):
+		return -1
+	return int(_hops[room])
+
+
+func near_enough(pos: Vector3) -> bool:
+	var h := room_hops(pos)
+	return h >= 0 and h <= NEAR_HOPS
+
+
 func set_active(active: bool) -> void:
 	_active = active
 	if _root:
-		_root.visible = active
+		_root.visible = active   # 2026-09-14: live everywhere again (the user's call; near-only lasted one playtest)
 
 
 func is_active() -> bool:
@@ -253,6 +299,8 @@ func _build_ui() -> void:
 func tick(delta: float) -> void:
 	if not _active or not _bar or not is_instance_valid(_player):
 		return
+	# 2026-09-14: the near-only rule (2026-09-13) is GONE — the user: "it should be there from the
+	# beginning". `room_hops()` / `near_enough()` stay as a public API (tests, future hybrids).
 	var target := signal_strength(_player.global_position)
 	_shown = lerpf(_shown, target, clampf(EASE_RATE * delta, 0.0, 1.0))
 	var jitter := randf_range(-1.0, 1.0) * (JITTER_BASE + JITTER_GAIN * _shown)

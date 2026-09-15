@@ -18,6 +18,9 @@ extends SceneTree
 #                    positional tells, which is the ONE skill being tested.
 #   NO Apparition    a HOLD apparition kills you for fleeing, dropped into a level
 #                    built around walking away from a slow pursuer.
+#   NO instant death (2026-09-12) — the hunter's contact is non-lethal, every statue and
+#                    frame is non-lethal, the Hollow One and the beartraps are gone. The
+#                    panic bar is the only death; check_dungeon_hunter.gd drives the beats.
 #
 # Usage: Godot --headless --path game --script res://tests/check_dungeon_entities.gd
 
@@ -132,47 +135,85 @@ func _audit(s: int) -> void:
 	var appar := _count_script(_level, load("res://scripts/apparition_director.gd"))
 	_ok("seed %d: no ApparitionDirector" % s, appar == 0, "%d found" % appar)
 
-	# ── Entity placement (§B4.3, §B10) ─────────────────────────────────────────
-	# Sparking is MANDATORY to solve the Hollow One and LETHAL near a Still One, so
-	# they may never share a chamber. Textbook double jeopardy.
-	var clash := 0
-	for nm in gen.still_one_rooms:
-		if nm == gen.teach_room:
-			clash += 1
-	_ok("seed %d: no Still One in the Hollow One's alcove" % s, clash == 0)
+	# ── The cut entities are GONE, by script identity ──────────────────────────
+	var hollow := _count_script(_level, load("res://scripts/creature_hollow.gd"))
+	_ok("seed %d: no Hollow One in the tree (cut 2026-09-12)" % s, hollow == 0, "%d found" % hollow)
+	var traps := _count_script(_level, load("res://scripts/beartrap.gd"))
+	_ok("seed %d: no beartrap in the tree (cut 2026-09-12)" % s, traps == 0, "%d found" % traps)
 
-	# The spawn chamber, the bed chamber and every lit-sconce chamber hold nothing.
+	# The spawn chamber and the bed chamber hold no resident statue.
 	var bad := 0
 	if gen.still_one_rooms.has(gen.spawn_room):
 		bad += 1
 	if gen.still_one_rooms.has(gen.bed_room):
 		bad += 1
-	for spot in gen.sconce_spots:
-		if gen.still_one_rooms.has(spot["room"]):
-			bad += 1
-	_ok("seed %d: no entity in the spawn / bed / sconce chambers" % s, bad == 0,
-		"%d violations" % bad)
+	_ok("seed %d: no entity in the spawn / bed chambers" % s, bad == 0, "%d violations" % bad)
 
-	# A limp during a chase is the double-jeopardy shape, so no beartrap may sit in
-	# a corridor adjacent to a chamber the Matron can spawn in.
-	var trap_bad := 0
-	var adj: Dictionary = gen.adjacency()
-	for t in gen.beartrap_rooms:
-		for nb in adj.get(t, []):
-			if gen.matron_spawn_rooms.has(nb):
-				trap_bad += 1
-	_ok("seed %d: no beartrap next to a Matron spawn chamber" % s, trap_bad == 0,
-		"%d violations" % trap_bad)
+	# ── NOTHING KILLS (2026-09-12) ─────────────────────────────────────────────
+	var stalker_script := load("res://scripts/creature_stalker.gd")
+	var frame_script := load("res://scripts/weeping_frame.gd")
+	var lethal_statues := 0
+	var statues := 0
+	var lethal_frames := 0
+	var frames := 0
+	for n in _all_nodes(_level):
+		if n.get_script() == stalker_script:
+			statues += 1
+			if bool(n.get("lethal")):
+				lethal_statues += 1
+		elif n.get_script() == frame_script:
+			frames += 1
+			if bool(n.get("lethal")):
+				lethal_frames += 1
+	_ok("seed %d: every Still One is non-lethal" % s, statues > 0 and lethal_statues == 0,
+		"%d statues, %d lethal" % [statues, lethal_statues])
+	_ok("seed %d: every Weeping Frame is non-lethal" % s, frames > 0 and lethal_frames == 0,
+		"%d frames, %d lethal" % [frames, lethal_frames])
 
-	# ── The Matron is below the player's walk speed ────────────────────────────
+	# ── The hunter: the Parasite, non-lethal, below the player's walk speed ────
 	# ⚠️ THE resolution of the level's central design problem (§B1 rule 1). If this
 	# ever creeps above 4.0 the correct play becomes sprinting, which costs +6/s
 	# panic with decay suppressed — the exact double jeopardy the whole level was
 	# designed to avoid. Worth an assertion because it is one @export away.
-	var matron := _level.get_node_or_null("TheMatron")
-	if matron:
-		var cs: float = float(matron.get("chase_speed"))
-		_ok("seed %d: Matron chase speed %.1f is below the 4.0 walk" % [s, cs], cs < 4.0)
+	var hunter := _level.get_node_or_null("TheHunter")
+	_ok("seed %d: the hunter exists" % s, hunter != null)
+	if hunter:
+		var cs: float = float(hunter.get("chase_speed"))
+		_ok("seed %d: hunter chase speed %.1f is below the 4.0 walk" % [s, cs], cs < 4.0)
+		_ok("seed %d: the hunter's contact is NON-lethal" % s, not bool(hunter.get("lethal_contact")))
+		_ok("seed %d: the hunter wears the Parasite model" % s, str(hunter.get("model")) == "parasite")
+		var players: Array = []
+		_find_class(hunter, "AnimationPlayer", players)
+		_ok("seed %d: the hunter built its animated model (not the capsule fallback)" % s,
+			players.size() >= 1)
+	_ok("seed %d: no TheMatron node remains" % s, _level.get_node_or_null("TheMatron") == null)
+
+	# ── The hunter wakes at THREE sconces, through the shipping path ───────────
+	var scs: Array = _level.call("get_sconces")
+	var cand = _level.get("_candle")
+	if cand and scs.size() >= 3:
+		cand.set("burning", true)
+		for i in range(3):
+			_level.call("_on_sconce_interact", scs[i])
+		_ok("seed %d: three sconces arm the hunter's window" % s,
+			bool(_level.get("_matron_active_window")))
+
+	# ── The room archetypes were built ─────────────────────────────────────────
+	var handles: Dictionary = _level.call("room_handles")
+	_ok("seed %d: every chamber got its archetype props" % s,
+		handles.size() == (gen.chamber_names as Array).size(),
+		"%d handles for %d chambers" % [handles.size(), (gen.chamber_names as Array).size()])
+
+	# ── The map and its key ────────────────────────────────────────────────────
+	_ok("seed %d: the M map action exists" % s, InputMap.has_action("map"))
+	_ok("seed %d: the map UI is in the tree" % s, _level.call("get_map") != null)
+	_ok("seed %d: the folded plan is in the Antechamber" % s,
+		_level.get_node_or_null("MapPickup") != null)
+	var chase_bus := AudioServer.get_bus_index("DungeonChase")
+	_ok("seed %d: the chase bus exists (not the ducked Dungeon bus)" % s, chase_bus != -1)
+	var cue := _level.get_node_or_null("ChaseCue")
+	_ok("seed %d: the chase cue is on DungeonChase" % s,
+		cue != null and str(cue.get("bus")) == "DungeonChase")
 
 	# ── The audio bus exists and the heartbeat is NOT on it ────────────────────
 	# The silence only works if your own pulse survives the duck.
@@ -183,6 +224,20 @@ func _audit(s: int) -> void:
 		if hb != null:
 			_ok("seed %d: the heartbeat is NOT on the duckable bus" % s,
 				str(hb.bus) != "Dungeon", "bus=%s" % hb.bus)
+
+
+func _all_nodes(node: Node) -> Array:
+	var out: Array = [node]
+	for c in node.get_children():
+		out.append_array(_all_nodes(c))
+	return out
+
+
+func _find_class(node: Node, cls: String, out: Array) -> void:
+	if node.get_class() == cls:
+		out.append(node)
+	for c in node.get_children():
+		_find_class(c, cls, out)
 
 
 func _count_script(node: Node, script: Resource) -> int:
@@ -196,7 +251,7 @@ func _count_script(node: Node, script: Resource) -> int:
 
 func _report() -> bool:
 	# ⚠️ Sample-size assertion — a level that fails to parse must not report PASS.
-	if _checks < SEEDS.size() * 6:
+	if _checks < SEEDS.size() * 18:
 		print("  FAIL only %d checks ran — did dungeon.gd fail to load?" % _checks)
 		_fails += 1
 	print("  %d checks, %d failed" % [_checks, _fails])

@@ -296,6 +296,15 @@ var _monster_icon: Control
 var _patrol_icon: Control
 var _target_icon: Control
 var _target_seal: Control
+# H1b (2026-09-13, the user: "the glass should not cover the key — it should be a room leading
+# to the key; break the glass with the hammer, enter, collect the key"). The GLASS is now a
+# PANE ACROSS EVERY OPEN EDGE OF THE KEY'S CELL — the cell is a glass room. The panes are
+# solid to the icon (and to the monsters) until the hammer meets one; then all of them shatter
+# and the cell is open. `_is_won()` requires the glass broken AND the icon on the key.
+var _pane_rects: Array[Rect2] = []
+var _pane_nodes: Array[Control] = []
+var _glass_broken: bool = false
+const PANE_TOUCH := 4.0            # px of grace around a pane for the hammer contact test
 var _caption: Label
 var _counter_label: Label
 var _fragment_nodes: Array[Control] = []
@@ -391,6 +400,13 @@ func _process(delta: float) -> void:
 		return
 	if not _ui_open:
 		return
+	if _win_pending:
+		_win_t -= delta
+		if _win_t <= 0.0:
+			_win_pending = false
+			_close()
+			won.emit()
+		return
 
 	var p := _player()
 	var panic_ratio: float = p.get_panic_ratio() if p and p.has_method("get_panic_ratio") else 0.0
@@ -440,9 +456,17 @@ func _process(delta: float) -> void:
 
 	# Winning and being caught are the ONLY two things that retire a maze — see _instance_live.
 	if _is_won():
+		# H1: the hammer meets the glass — a shatter, the case cracked, WIN_HOLD of it, then out.
+		# The hold freezes the board (`_win_pending` short-circuits _process), so the hunter
+		# cannot catch you in the 0.4 s you have already won.
+		# H1b: the shatter already happened at the pane; this is the key coming off the floor.
+		_win_pending = true
+		_win_t = WIN_HOLD
 		_instance_live = false
-		_close()
-		won.emit()
+		if _target_icon:
+			var tw := _target_icon.create_tween()
+			tw.tween_property(_target_icon, "scale", Vector2(1.5, 1.5), WIN_HOLD * 0.6)
+			tw.parallel().tween_property(_target_icon, "modulate:a", 0.0, WIN_HOLD)
 		return
 	if dist_to_monster <= CATCH_RADIUS:
 		_instance_live = false
@@ -683,6 +707,13 @@ const FRAGMENT_RIM_PAD := 4.0
 const FRAGMENT_NOTCH := Color(0.02, 0.16, 0.05, 0.95)
 # The mark, while it is still shut.
 const TARGET_SEAL_COLOR := Color(0.05, 0.04, 0.06, 0.95)
+const GLASS_SEALED := Color(0.55, 0.70, 0.80, 0.62)   # H1: the pane while the hammer is out there
+const GLASS_LIVE := Color(0.75, 0.90, 1.00, 0.30)     # …and once it is in hand
+const WIN_HOLD := 0.4                                 # H1: the cracked case is shown this long
+const SHATTER_PATH := "res://assets/audio/level_3_corridor/glass_shatter.wav"
+var _shatter: AudioStreamPlayer = null
+var _win_pending: bool = false
+var _win_t: float = 0.0
 const SEAL_BAR_T := 5.0
 # ⚠️ Barely dimmed. The mark must still be FINDABLE while it is shut — see the seal in
 # _build_ui() for the screenshot that forced this from 0.55.
@@ -771,13 +802,15 @@ func _check_snares(p: Node) -> void:
 # nothing anywhere reaches the win by emitting `won`, which is a mistake this repo has shipped
 # before (a test drove `cleared.emit()` and passed for weeks on an uncompletable level).
 func _is_won() -> bool:
-	return _fragments.is_empty() and _player_pos.distance_to(_target_pos) <= WIN_RADIUS
+	return _fragments.is_empty() and _glass_broken \
+		and _player_pos.distance_to(_target_pos) <= WIN_RADIUS
 
 
 # No panic, no jolt, no fail state — see the FRAGMENT_* block for why this deliberately adds
 # nothing to the panic economy.
 func _check_fragments() -> void:
 	if _fragments.is_empty():
+		_check_glass()   # H1b: the hammer is in hand — is it against a pane?
 		return
 	for f in _fragments:
 		if f.distance_to(_player_pos) <= FRAGMENT_PICKUP_RADIUS:
@@ -890,6 +923,10 @@ func _rect_hits_wall(center: Vector2, half_extent: float) -> bool:
 	for wr in _wall_rects:
 		if r.intersects(wr):
 			return true
+	if not _glass_broken:
+		for pr in _pane_rects:
+			if r.intersects(pr):
+				return true
 	return false
 
 
@@ -961,6 +998,56 @@ func _generate_maze() -> void:
 	_place_monster(dist)
 	_place_patroller(dist)
 	_place_snares(dist)
+	_place_glass()
+
+
+# H1b: one pane per OPEN edge of the key's cell, so the cell is sealed whatever the braid did to
+# it (a braided cell can have two or three openings — every one is glazed, or the room leaks).
+func _place_glass() -> void:
+	_pane_rects.clear()
+	_glass_broken = false
+	var cell: Dictionary = _cells[_idx(_target_cell)]
+	var cx: float = _target_cell.x * CELL_SIZE
+	var cy: float = _target_cell.y * CELL_SIZE
+	var t := WALL_THICKNESS
+	if not cell["n"]:
+		_pane_rects.append(Rect2(cx - t / 2.0, cy - t / 2.0, CELL_SIZE + t, t))
+	if not cell["s"]:
+		_pane_rects.append(Rect2(cx - t / 2.0, cy + CELL_SIZE - t / 2.0, CELL_SIZE + t, t))
+	if not cell["w"]:
+		_pane_rects.append(Rect2(cx - t / 2.0, cy - t / 2.0, t, CELL_SIZE + t))
+	if not cell["e"]:
+		_pane_rects.append(Rect2(cx + CELL_SIZE - t / 2.0, cy - t / 2.0, t, CELL_SIZE + t))
+
+
+# The hammer meets the glass: every pane of the room goes at once (one sound, one moment), the
+# collision drops, and the key is reachable. Called from `_check_fragments()` so the shipping
+# tick AND the harnesses that drive that function hit it the same way.
+func _check_glass() -> void:
+	if _glass_broken or not _fragments.is_empty():
+		return
+	var half := Vector2(ICON_HALF_EXTENT, ICON_HALF_EXTENT)
+	var r := Rect2(_player_pos - half, half * 2.0)
+	for pr in _pane_rects:
+		if r.intersects(pr.grow(PANE_TOUCH)):
+			_break_glass()
+			return
+
+
+func _break_glass() -> void:
+	_glass_broken = true
+	if _shatter and _shatter.stream:
+		_shatter.play()
+	for n in _pane_nodes:
+		if not is_instance_valid(n):
+			continue
+		var tw := n.create_tween()
+		tw.tween_property(n, "modulate", Color(1.6, 1.6, 1.6, 1.0), 0.05)
+		tw.tween_property(n, "modulate", Color(1.0, 1.0, 1.0, 0.0), 0.35)
+	if _target_icon:
+		_target_icon.modulate = Color.WHITE
+	if _caption:
+		_caption.text = "The glass is gone. Take the key."
 
 
 # ⭐ BRAID THE MAZE — knock extra walls out so it has LOOPS (2026-08-15).
@@ -1416,30 +1503,22 @@ func _build_ui() -> void:
 	_counter_label.text = ""
 	_root.add_child(_counter_label)
 
-	_target_icon = _make_icon(TEX + "house_map_target_icon.png", Color(1.0, 0.85, 0.25))
-	# The seal — a dark X struck ACROSS the mark, not a lid over it.
-	#
-	# ⚠️ It was a filled disc at 78 % alpha over an icon dimmed to 0.55, and the screenshot is
-	# unambiguous: the mark rendered as a near-black blot on sepia parchment, indistinguishable
-	# from the map's own ink stains. The player could not see where they were going. A
-	# destination you cannot find is a worse problem than a destination you cannot use yet —
-	# "shut" has to be legible AS the mark, which means striking it through rather than
-	# covering it. Same rule the snares and fragments already follow: geometry, real contrast,
-	# and a silhouette that says what the state is.
-	_target_seal = Control.new()
-	_target_seal.name = "TargetSeal"
-	_target_seal.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_target_seal.size = Vector2(ICON_DISPLAY_SIZE, ICON_DISPLAY_SIZE)
-	for i in 2:
-		var bar := ColorRect.new()
-		bar.color = TARGET_SEAL_COLOR
-		bar.size = Vector2(ICON_HALF_EXTENT * 2.2, SEAL_BAR_T)
-		bar.pivot_offset = bar.size / 2.0
-		bar.position = Vector2(ICON_DISPLAY_SIZE, ICON_DISPLAY_SIZE) / 2.0 - bar.size / 2.0
-		bar.rotation = deg_to_rad(45.0 + 90.0 * float(i))
-		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_target_seal.add_child(bar)
-	_target_icon.add_child(_target_seal)
+	# H1 (2026-09-13, capture #5, the user's reading: "more like a glass door behind which is
+	# the key and to break the glass we need to collect the hammer"): the mark is a GLASS CASE
+	# WITH THE KEY IN IT and the piece to collect is a HAMMER. Same two stages, same numbers.
+	# H1b (2026-09-13): the mark is the KEY itself, lying in a glass ROOM — see `_place_glass()`.
+	# There is no case and no overlay on the icon any more; the glass is drawn on the board, on
+	# the cell's open edges, by `_rebuild_glass_visuals()`.
+	_target_icon = _make_icon(TEX + "house_map_key_icon.png", Color(1.0, 0.85, 0.25))
+	_target_seal = null
+	_shatter = AudioStreamPlayer.new()
+	_shatter.name = "GlassShatter"
+	_shatter.bus = "Master"
+	# ⚠️ By PATH, like CHASE_PATH: this script is instantiated by check_maze_gen.gd outside any
+	# scene, where the autoloads are not resolvable at compile time (2026-09-13, a hang).
+	if ResourceLoader.exists(SHATTER_PATH):
+		_shatter.stream = load(SHATTER_PATH)
+	add_child(_shatter)
 	_player_icon = _make_icon(TEX + "house_map_player_icon.png", Color(0.45, 0.85, 1.0))
 	_monster_icon = _make_icon(TEX + "house_map_monster_icon.png", Color(1.0, 0.25, 0.18))
 	# The patroller wears the same art in a different colour — it must read as "another one
@@ -1503,6 +1582,7 @@ func _make_icon(tex_path: String, marker_color: Color) -> Control:
 
 	if ResourceLoader.exists(tex_path):
 		var icon := TextureRect.new()
+		icon.name = "IconArt"
 		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		icon.size = Vector2(ICON_DISPLAY_SIZE, ICON_DISPLAY_SIZE)
 		icon.texture = load(tex_path)
@@ -1571,28 +1651,25 @@ func _make_fragment_visual(centre: Vector2) -> Control:
 	rim.position = mid - rim.size / 2.0
 	holder.add_child(rim)
 
-	# A square rotated 45° is a diamond whose half-DIAGONAL is the pickup radius, so the
-	# drawn shape touches the trigger circle rather than floating inside it.
-	var side: float = FRAGMENT_PICKUP_RADIUS * sqrt(2.0)
-	var fill := ColorRect.new()
+	# H1 (2026-09-13): the piece is a HAMMER — a green disc (the same fill the diamond wore,
+	# so the "collect this" colour is unchanged) carrying the hammer glyph in dark ink. The
+	# node names are kept: check_maze_traps.gd counts live pieces by "FragFill".
+	var fill := _disc(FRAGMENT_PICKUP_RADIUS * 2.0 - 4.0, FRAGMENT_FILL)
 	fill.name = "FragFill"
-	fill.color = FRAGMENT_FILL
-	fill.size = Vector2(side, side)
-	fill.pivot_offset = fill.size / 2.0
 	fill.position = mid - fill.size / 2.0
-	fill.rotation = deg_to_rad(45.0)
-	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	holder.add_child(fill)
-
-	var notch := ColorRect.new()
-	notch.name = "FragNotch"
-	notch.color = FRAGMENT_NOTCH
-	notch.size = Vector2(side * 0.62, 4.0)
-	notch.pivot_offset = notch.size / 2.0
-	notch.position = mid - notch.size / 2.0
-	notch.rotation = deg_to_rad(45.0)
-	notch.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	holder.add_child(notch)
+	var glyph_path := TEX + "house_map_hammer_icon.png"
+	if ResourceLoader.exists(glyph_path):
+		var glyph := TextureRect.new()
+		glyph.name = "FragNotch"
+		glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		glyph.size = Vector2(FRAGMENT_PICKUP_RADIUS, FRAGMENT_PICKUP_RADIUS) * 1.9
+		glyph.position = mid - glyph.size / 2.0
+		glyph.texture = load(glyph_path)
+		glyph.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		glyph.stretch_mode = TextureRect.STRETCH_SCALE
+		glyph.modulate = FRAGMENT_NOTCH
+		holder.add_child(glyph)
 	return holder
 
 
@@ -1611,26 +1688,28 @@ func _refresh_objective_ui() -> void:
 			# the mark is gated at all, and "0 / 1" states the rule where "find the piece"
 			# merely describes a task — the player has to understand that touching the mark
 			# early does nothing, or the seal reads as a bug.
-			_counter_label.text = "FRAGMENTS  %d / %d" % [got, total]
+			_counter_label.text = ("HAMMER  %d / %d" if total == 1 else "PIECES  %d / %d") % [got, total]
 			_counter_label.add_theme_color_override("font_color", Color(0.95, 0.92, 0.85))
 		else:
-			_counter_label.text = ("ALL %d RECOVERED — REACH THE MARK" % total) if total > 1 \
-				else "PIECE RECOVERED — REACH THE MARK"
+			_counter_label.text = ("ALL %d RECOVERED — BREAK THE GLASS" % total) if total > 1 \
+				else "HAMMER IN HAND — BREAK THE GLASS"
 			_counter_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.25))
 	if _caption:
 		if total == 0:
 			_caption.text = "Drag to the mark. Don't get caught."
 		elif left > 0:
-			_caption.text = ("The map is torn. Collect every piece, then reach the mark.") \
-				if total > 1 else "The map is torn. Find the missing piece, then reach the mark."
-		else:
-			_caption.text = "The mark is open. Get out."
+			_caption.text = ("The key is behind glass. Collect every piece, then break in.") \
+				if total > 1 else "The key is behind glass. Find the hammer, then break in."
+		elif not _glass_broken:
+			_caption.text = "You have the hammer. Break the glass."
 
 	# The mark is INERT until the last fragment is in hand, and it has to look it — a target
-	# you can touch with no effect reads as a bug, not as a rule.
-	if _target_seal:
-		_target_seal.visible = left > 0
-	if _target_icon:
+	# you can touch with no effect reads as a bug, not as a rule. H1: the glass stays (it is
+	# what the hammer is for); its TINT says whether the hammer is in hand.
+	for n in _pane_nodes:
+		if is_instance_valid(n) and not _glass_broken:
+			(n as ColorRect).color = GLASS_SEALED if left > 0 else GLASS_LIVE
+	if _target_icon and not _glass_broken:
 		_target_icon.modulate = TARGET_LOCKED_TINT if left > 0 else Color.WHITE
 
 	_rebuild_pips(total, got)
@@ -1679,6 +1758,31 @@ func _rebuild_pips(total: int, got: int) -> void:
 		_pip_nodes[i].add_theme_stylebox_override("panel", sb)
 
 
+func _rebuild_glass_visuals() -> void:
+	for n in _pane_nodes:
+		if is_instance_valid(n):
+			n.queue_free()
+	_pane_nodes.clear()
+	for pr in _pane_rects:
+		var pane := ColorRect.new()
+		pane.name = "GlassPane"
+		pane.color = GLASS_SEALED
+		pane.position = pr.position
+		pane.size = pr.size
+		pane.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_walls_container.add_child(pane)
+		_pane_nodes.append(pane)
+		# a glint along the pane so it reads as glass, not as a pale wall
+		var shine := ColorRect.new()
+		shine.color = Color(1.0, 1.0, 1.0, 0.7)
+		var horizontal := pr.size.x > pr.size.y
+		shine.size = Vector2(pr.size.x * 0.35, 2.0) if horizontal else Vector2(2.0, pr.size.y * 0.35)
+		shine.position = Vector2(pr.size.x * 0.12, pr.size.y * 0.5 - 1.0) if horizontal \
+			else Vector2(pr.size.x * 0.5 - 1.0, pr.size.y * 0.12)
+		shine.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pane.add_child(shine)
+
+
 func _rebuild_wall_visuals() -> void:
 	for w in _wall_nodes:
 		if is_instance_valid(w):
@@ -1692,6 +1796,7 @@ func _rebuild_wall_visuals() -> void:
 		rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_walls_container.add_child(rect)
 		_wall_nodes.append(rect)
+	_rebuild_glass_visuals()   # after the walls: the panes paint over the wall ends they abut
 
 
 func _update_visual_positions() -> void:

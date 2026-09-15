@@ -28,6 +28,7 @@ const PANEL_SIZE := Vector2(940, 560)
 const LIST_WIDTH := 300.0
 
 var is_open: bool = false
+var _kept_audio: Array = []
 
 var _root: Control
 var _list: ItemList
@@ -172,6 +173,7 @@ func open_journal() -> void:
 	is_open = true
 	_block_close = true       # the same frame's TAB must not close it again (Issue 3)
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	_kept_audio = AudioBuses.keep_playing_through_pause(get_tree().current_scene)  # before the pause (see note_ui.gd)
 	get_tree().paused = true
 	set_deferred("_block_close", false)
 
@@ -192,6 +194,8 @@ func _process(_delta: float) -> void:
 	# open but the tree is NOT paused, a screamer fired and owns the scene now — drop
 	# the overlay silently rather than survive the reload (Issue 9).
 	if is_open and not get_tree().paused:
+		AudioBuses.release_pause_exempt(_kept_audio)
+		_kept_audio = []
 		if _list and _list.has_focus():
 			_list.release_focus()
 		_root.visible = false
@@ -230,5 +234,7 @@ func _close() -> void:
 		_list.release_focus()
 	_root.visible = false
 	is_open = false
+	AudioBuses.release_pause_exempt(_kept_audio)
+	_kept_audio = []
 	get_tree().paused = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)

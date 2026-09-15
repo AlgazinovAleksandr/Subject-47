@@ -70,7 +70,7 @@ const VIEWPORT_W_MAX := 1536
 # 0.25 m (`tests/probe_mirror_cost.gd`): **53.00 m of the 320 m walk had a mirror rendering
 # at 14 m, 25.00 m at 7 m** — 16.5 % of the level down to 7.8 %, a 53 % reduction. Two
 # mirrors are never active at once at any radius down to 5 m, in either build.
-const ACTIVE_DIST := 7.0         # beyond this the mirror stops rendering entirely
+const ACTIVE_DIST := 4.0         # beyond this the mirror stops rendering entirely (R2 2026-09-16: 7 -> 4, the user: "slightly closer")
 const GLASS_TINT := Color(0.62, 0.66, 0.70)   # old silvered glass, never a clean white
 # Far plane. The default 4000 m against a near plane that is often under a metre wastes the
 # whole depth buffer on a 320 m level whose longest sightline is one 50 m segment.

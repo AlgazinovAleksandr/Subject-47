@@ -68,8 +68,11 @@ TESTS=(
   check_art_aspect            # ALL NINE levels: every texture is shown at its own aspect
   check_intro_sheet           # the covered body is a BODY and is smooth — rejected twice
   check_house_guest           # THE GUEST rearranges the House off-screen; the fridge is 10, once
+  check_house_lock            # H4 (2026-09-13): the correct code drops the lock and the door asks
+  check_house_fridge_chain    # H2 (2026-09-13): chained fridge, cutters under the bed, the digit on the head
   check_corridor_doors        # ajar doors never block the hall; a non-payoff telegraph is free
-  check_corridor_events       # runner's apparent size; the false 217 door; note facing; flash payload
+  check_corridor_events       # runner's apparent size; the false 217 door (key-gated); the bell key beat; note facing
+  check_cupboard_fallback     # C3: the seal takes the torch + scrawl, and the 45 s fallback releases a player who keeps moving
   check_corridor_clock        # the grandfather clock is a CASE with a swinging pendulum, still cursed at 1.0 (2026-09-10)
   check_prop_mounting         # ALL NINE levels: every flush wall prop is SEATED — the maximum
   check_mirror_frustum        # the glass frames itself: near-plane window == the quad, 1.00x
@@ -79,6 +82,7 @@ TESTS=(
   check_noclip_fall           # the fall, the blackout and the re-entry cap stay in formation
   check_bus_leak              # one level's audio duck must not follow you into the next
   check_corridor_repeats      # no sound in the Corridor is a loop; the score survives the hush
+  walk_corridor               # C1 (2026-09-13): 455 m and three shut-in spurs walked by the real player
   check_turn_mirror           # the turn mirrors reflect, and the figure is ONLY in the glass
   check_backrooms_seam        # zone 1 teaches its own verb: the seam's voice + a legible arrow
   check_sprawl_alcoves        # the Sprawl's 8 alcoves are OPEN and the shell has no hole
@@ -126,6 +130,7 @@ TESTS=(
   check_nook_figure           # the nook figure is clear of geometry AND in frame
   check_wing_meter            # the dark-wing meter measures PATH distance, not a beeline
   check_wing_markers          # Lab dark wing: every wing doorway carries dim, distance-faded strips; none outside (2026-09-10)
+  check_wing_beats            # L1.3-1.6 (2026-09-13): the presence, the laugh, the mid-search screamer, the 20 s
   check_open_then_read        # a prop opens BEFORE its note pauses the tree
   check_window                # the House window exists, is visible and faces the room
   check_fixtures              # ALL NINE levels: no fitting is over the 1.0 emission clamp
@@ -140,6 +145,8 @@ TESTS=(
   check_kontur_entities       # Object 12 is inert; the mimic costs nothing to look at and can spend nothing
   check_kontur_blackout       # the black door blows the lights, Object 12 charges the glass (0 panic), lights restore; charge inert pre-gate-1
   check_kontur_phones         # gate 6 = 3 phones: answer green, smash yellow/blue; blue panic; gate completion; only the ringing one charges
+  check_kontur_condemn        # K2 (2026-09-13): a wrong action is fatal after ~20 s of rising dread, no flash
+  check_kontur_figure_frame   # K4 (2026-09-13): the Blackout figure appears IN FRAME wherever the camera points when the torch goes off
   test_apparition             # HOLD rule: hold still lives, flee dies
   check_apparition_clearance  # BACKLOG #8 — never materialises inside geometry
   test_creature_object12      # BACKLOG #26 — blind is chase-only, 5-7 s
@@ -151,6 +158,13 @@ TESTS=(
   walk_kontur                 # KONTUR is completable and its gates are load-bearing
   walk_level6_breach          # Level 6 is winnable through the real interact path
   walk_dungeon                # THE NIGHTMARE: 7 sconces + the bed are reachable
+  check_dungeon_hunter        # THE NIGHTMARE (2026-09-12): NOTHING KILLS — statue/frame/hunter beats are survivable, cue rises with CHASE+LOS
+  check_dungeon_rooms         # THE NIGHTMARE: room archetypes built inside their rooms, doorways clear, the lair beat lands 2-4.5 m with LOS
+  check_dungeon_map           # THE NIGHTMARE: the found map — inert until taken, draws only rooms walked, never reads a position
+  check_gaze_decay            # Issue 196: a ScaryObject at intensity 0 (harmless/burnt frame) must not freeze panic decay
+  check_note_audio            # 2026-09-13: a note / the journal keep the level's audio playing through the pause; panic still frozen
+  walk_void                   # THE VOID (2026-09-12): spawn -> notes -> the loop sends you back, then stops -> the tiles -> twist -> exit, all through the ray
+  check_void                  # THE VOID: seam keeps heading+velocity, the bridge stalker never steps (with control), 6 lethal stalkers, 9 notes, snapshot, the fall
   check_reachable             # ALL NINE levels: can the player STAND where each prop is
   autoplay_exit_reachable     # every level's exit can be WALKED to and E'd on
   autoplay_house_route        # …and no House prop can SEAL a route by being opened

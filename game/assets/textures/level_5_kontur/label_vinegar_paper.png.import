@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://c7yyfewfg1bdx"
-path="res://.godot/imported/label_vinegar_paper.png-280eef4ec6a5fb369728520fd9322da5.ctex"
+path.s3tc="res://.godot/imported/label_vinegar_paper.png-280eef4ec6a5fb369728520fd9322da5.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_5_kontur/label_vinegar_paper.png"
-dest_files=["res://.godot/imported/label_vinegar_paper.png-280eef4ec6a5fb369728520fd9322da5.ctex"]
+dest_files=["res://.godot/imported/label_vinegar_paper.png-280eef4ec6a5fb369728520fd9322da5.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

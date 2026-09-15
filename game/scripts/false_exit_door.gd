@@ -116,6 +116,23 @@ func _ready() -> void:
 		add_child(face)
 
 
+# C4 (2026-09-15, the user's design): "Room 217 won't open until you have a key." The key is
+# served at the reception bell (`spur_bell.gd`); until it is in hand E on this leaf does nothing
+# but emit `refused` — the level toasts "It needs a key." — and the trap stays wound.
+signal refused
+
+@export var requires_key: bool = false
+var _has_key: bool = false
+
+
+func give_key() -> void:
+	_has_key = true
+
+
+func has_key() -> bool:
+	return _has_key
+
+
 # ⚠️ The opt-out, not merely a refusal. Once used there is no prompt and no target at all.
 func can_interact() -> bool:
 	return not _used
@@ -123,6 +140,9 @@ func can_interact() -> bool:
 
 func interact() -> void:
 	if _used:
+		return
+	if requires_key and not _has_key:
+		refused.emit()
 		return
 	_used = true
 	# ⚠️ The signal FIRST, synchronously, and then the swing. The level fires the flash on it,

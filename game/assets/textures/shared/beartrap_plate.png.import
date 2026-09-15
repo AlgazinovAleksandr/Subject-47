@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://c73xsaqp4sd24"
-path="res://.godot/imported/beartrap_plate.png-8d21f5a807a483939ceb510103f60e6e.ctex"
+path.s3tc="res://.godot/imported/beartrap_plate.png-8d21f5a807a483939ceb510103f60e6e.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/shared/beartrap_plate.png"
-dest_files=["res://.godot/imported/beartrap_plate.png-8d21f5a807a483939ceb510103f60e6e.ctex"]
+dest_files=["res://.godot/imported/beartrap_plate.png-8d21f5a807a483939ceb510103f60e6e.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

@@ -290,6 +290,8 @@ const PLATE_OFFSET := Vector2(-3.2, -1.2)   # from the Basin's centre
 const PLATE_YAW := 0.35
 
 var _plate: FloodPlate = null
+var _basin_lamp: OmniLight3D = null
+const POOL_TILE := "res://assets/textures/level_backrooms/flood_pool_tile.png"
 var _held_kinds: Array = []   # piece kinds in hand, not yet set (2026-09-10: kinds, not a count)
 var _taken := 0         # fragments lifted out of objects, ever
 var _plate_done := false
@@ -321,8 +323,110 @@ func _on_plate_complete() -> void:
 	if is_instance_valid(_real_seam):
 		_real_seam.set_armed(true)
 	_refresh_objective()
+	_relics_wake()
 	ScreenText.caption(get_tree(),
 		"The plate is whole.\nSomething in this wing has come open.", 4.5)
+
+
+# R6 (2026-09-16, the user's pick: "the relics wake"). The sixth piece is set and, one after
+# another: the candle lights itself, the bell rings on its own, the doll sits up toward you, the
+# lamp gutters, and a long door groan comes from the Sump. ZERO panic, no rule, nothing moves the
+# player — a channel, never a term.
+const WAKE_CANDLE_AT := 0.7
+const WAKE_BELL_AT := 1.6
+const WAKE_DOLL_AT := 2.5
+const WAKE_LAMP_AT := 3.3
+const WAKE_GROAN_AT := 4.6
+
+func _relics_wake() -> void:
+	if _plate == null:
+		return
+	var tree := get_tree()
+	tree.create_timer(WAKE_CANDLE_AT).timeout.connect(_wake_candle)
+	tree.create_timer(WAKE_BELL_AT).timeout.connect(_wake_bell)
+	tree.create_timer(WAKE_DOLL_AT).timeout.connect(_wake_doll)
+	tree.create_timer(WAKE_LAMP_AT).timeout.connect(_wake_lamp)
+	tree.create_timer(WAKE_GROAN_AT).timeout.connect(_wake_groan)
+
+
+func _wake_candle() -> void:
+	var c := _plate.set_piece("candle")
+	if c == null or not is_instance_valid(c):
+		return
+	var flame := MeshInstance3D.new()
+	flame.name = "WakeFlame"
+	var sm := SphereMesh.new()
+	sm.radius = 0.012
+	sm.height = 0.036
+	flame.mesh = sm
+	var fm := StandardMaterial3D.new()
+	fm.albedo_color = Color(1.0, 0.6, 0.2)
+	fm.emission_enabled = true
+	fm.emission = Color(1.0, 0.55, 0.15)
+	fm.emission_energy_multiplier = 0.9
+	flame.material_override = fm
+	flame.position = Vector3(0, 0.190, 0)
+	flame.scale = Vector3(0.1, 0.1, 0.1)
+	c.add_child(flame)
+	var light := OmniLight3D.new()
+	light.name = "WakeFlameLight"
+	light.light_color = Color(1.0, 0.62, 0.3)
+	light.light_energy = 0.0
+	light.omni_range = 1.8
+	light.position = Vector3(0, 0.22, 0)
+	c.add_child(light)
+	var tw := create_tween()
+	tw.tween_property(flame, "scale", Vector3.ONE, 0.5).set_trans(Tween.TRANS_BACK)
+	tw.parallel().tween_property(light, "light_energy", 0.9, 0.5)
+	_play("plate_ring", c.global_position, -6.0)
+
+
+func _wake_bell() -> void:
+	var b := _plate.set_piece("bell")
+	if b == null or not is_instance_valid(b):
+		return
+	_play("bell_ding", b.global_position + Vector3(0, 0.1, 0), 2.0)
+	var tw := create_tween()
+	for k in range(4):
+		tw.tween_property(b, "rotation:z", 0.22, 0.14)
+		tw.tween_property(b, "rotation:z", -0.22, 0.14)
+	tw.tween_property(b, "rotation:z", 0.0, 0.2)
+
+
+func _wake_doll() -> void:
+	var d := _plate.set_piece("doll")
+	if d == null or not is_instance_valid(d):
+		return
+	_play("floor_creak", d.global_position, -4.0)
+	var tw := create_tween()
+	tw.tween_property(d, "rotation:x", -1.15, 0.7).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+
+func _wake_lamp() -> void:
+	if _basin_lamp == null or not is_instance_valid(_basin_lamp):
+		return
+	var base: float = _basin_lamp.light_energy
+	var tw := create_tween()
+	for pair in [[0.05, 0.08], [base, 0.10], [0.0, 0.25], [base * 0.4, 0.12], [0.0, 0.35], [base, 0.5]]:
+		tw.tween_property(_basin_lamp, "light_energy", float(pair[0]), float(pair[1]))
+	_play("light_pop", _basin_lamp.global_position, -8.0)
+
+
+func _wake_groan() -> void:
+	var stream := GameState.load_audio("metal_creak")
+	if stream == null:
+		return
+	var a := AudioStreamPlayer3D.new()
+	a.name = "WakeGroan"
+	a.stream = stream
+	a.pitch_scale = 0.5
+	a.volume_db = 4.0
+	a.unit_size = 22.0
+	a.max_db = 3.0
+	add_child(a)
+	a.position = _real_seam.position if is_instance_valid(_real_seam) else Vector3(-10, 1.5, 21)
+	a.finished.connect(a.queue_free)
+	a.play()
 
 
 # One source of truth for the zone's objective line, so the entry announcement, every
@@ -358,7 +462,7 @@ func _on_plate_complete() -> void:
 func objective_text() -> String:
 	if _plate_done:
 		return "The way out does not show itself in the light"
-	return "Something in this wing is unfinished"
+	return "Someone down here kept relics of the ward."
 
 
 func _refresh_objective() -> void:
@@ -910,16 +1014,59 @@ func _build_pressure() -> void:
 
 	# The one dry place in the level: a raised platform in the Basin with a lamp.
 	# Recovery has to exist somewhere or the three-zone run is unsurvivable.
+	# R5 (2026-09-16, the user: "a weird looking swimming pool with dark blue water; it should not
+	# make a lot of sense, it is backrooms"): the island is a RAISED TILED POOL in a flooded room —
+	# a tiled deck (`DryPlatform` keeps its name; the guards key on it), a curb, dark still water
+	# 6 cm over the deck, a chrome ladder, a cold lamp, and a ramp up from the Descent side
+	# (a capsule has no step-up, so a 0.44 m edge is a wall). The CalmZone is unchanged.
 	var bc: Vector3 = _builder.room_center("Basin")
-	MazeKit.box(self, "DryPlatform", Vector3(bc.x, 0.22, bc.z),
-		Vector3(3.4, 0.44, 3.4),
-		MazeKit.make_material("", Vector2.ONE, Color(0.26, 0.25, 0.22)))
+	var tile := MazeKit.make_material(POOL_TILE, Vector2(2.2, 2.2), Color(0.20, 0.26, 0.25))
+	tile.roughness = 0.35
+	MazeKit.box(self, "DryPlatform", Vector3(bc.x, 0.22, bc.z), Vector3(4.4, 0.44, 4.4), tile)
+	# ⚠️ The ramp is on the EAST side, toward the EastRun doorway: on the Descent side it stood
+	# across that doorway's line and `check_reachable` lost the whole wing behind it.
+	for s in [-1.0, 1.0]:
+		MazeKit.box(self, "PoolCurbZ%d" % int(s), Vector3(bc.x, 0.50, bc.z + s * 2.075), Vector3(4.4, 0.12, 0.25), tile)
+	MazeKit.box(self, "PoolCurbX0", Vector3(bc.x - 2.075, 0.50, bc.z), Vector3(0.25, 0.12, 3.9), tile)
+	for s in [-1.0, 1.0]:   # the east curb has a gap for the ramp
+		MazeKit.box(self, "PoolCurbX1%s" % ("a" if s < 0 else "b"), Vector3(bc.x + 2.075, 0.50, bc.z + s * 1.325), Vector3(0.25, 0.12, 1.25), tile)
+	var ramp := MazeKit.box(self, "PoolRamp", Vector3(bc.x + 2.2 + 0.82, 0.19, bc.z), Vector3(1.8, 0.08, 1.4), tile)
+	ramp.rotation.z = -atan2(0.40, 1.75)
+	var water := MeshInstance3D.new()
+	water.name = "PoolWater"
+	var wq := QuadMesh.new()
+	wq.size = Vector2(3.8, 3.8)
+	water.mesh = wq
+	var wm := StandardMaterial3D.new()
+	wm.albedo_color = Color(0.02, 0.05, 0.16, 0.92)
+	wm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	wm.emission_enabled = true
+	wm.emission = Color(0.03, 0.08, 0.24)
+	wm.emission_energy_multiplier = 0.35
+	wm.roughness = 0.05
+	wm.metallic = 0.3
+	wm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	water.material_override = wm
+	water.rotation.x = -PI / 2.0
+	water.position = Vector3(bc.x, 0.50, bc.z)
+	add_child(water)
+	var chrome := MazeKit.make_material("", Vector2.ONE, Color(0.55, 0.58, 0.60))
+	chrome.metallic = 0.9
+	chrome.roughness = 0.25
+	for s in [-1.0, 1.0]:
+		var rail := MazeKit.box(self, "PoolLadderRail%s" % ("a" if s < 0 else "b"), Vector3(bc.x - 2.075, 0.95, bc.z + s * 0.22), Vector3(0.04, 0.9, 0.04), chrome)
+		rail.use_collision = false
+	for k in range(3):
+		var rung := MazeKit.box(self, "PoolLadderRung%d" % k, Vector3(bc.x - 2.075, 0.62 + k * 0.28, bc.z), Vector3(0.04, 0.04, 0.44), chrome)
+		rung.use_collision = false
 	var lamp := OmniLight3D.new()
-	lamp.light_color = Color(1.0, 0.86, 0.6)
+	lamp.name = "BasinLamp"
+	lamp.light_color = Color(0.72, 0.86, 1.0)
 	lamp.light_energy = 1.5
 	lamp.omni_range = 7.0
 	lamp.position = Vector3(bc.x, 2.2, bc.z)
 	add_child(lamp)
+	_basin_lamp = lamp
 	MazeKit.zone_box(self, CalmZone.new(), Vector3(bc.x, 1.2, bc.z),
 		Vector3(4.5, 2.4, 4.5), "FloodCalm")
 

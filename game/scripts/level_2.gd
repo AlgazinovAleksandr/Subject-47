@@ -83,6 +83,12 @@ const GUEST_CHILD_SPOT := Vector3(0.0, 0.0, 10.0)
 const CHILD_VOLUME_DB := 18.0        # "the scream should be much louder" (2026-07-29)
 # The cellar sequence, timed exactly as specified on the 2026-07-29 playtest.
 const CHILD_APPEAR_DELAY := 5.5      # dark first, then the child
+# H5 (2026-09-16, the user): a red WHERE AM I? while you are pinned in the dark — up at
+# CELLAR_WHERE_AT, held CELLAR_WHERE_HOLD, and GONE (0.6 in + hold + 1.4 out = 4.7 s) before the
+# doll at CHILD_APPEAR_DELAY. It must never share the screen with the figure.
+const CELLAR_WHERE_TEXT := "WHERE AM I?"
+const CELLAR_WHERE_AT := 0.7
+const CELLAR_WHERE_HOLD := 2.0
 const CHILD_HOLD := 3.0              # …and the lights come back this long after
 const CHILD_DIST := 3.2              # the FAR end of the ladder now (was the first try)
 # ⭐ 2026-09-10 — near-first (the user: *"the doll should appear very close to you"*). At 1.7 m a
@@ -92,6 +98,7 @@ const CHILD_NEAR := [1.7, 2.0, 2.4]  # ahead, tried in this order; then a fan at
 const CHILD_FAN_DEG := 25.0
 const CHILD_TURN_TIME := 0.45        # NOOK_TURN_TIME, the Lab's proven number
 const CHILD_DIP := 0.4               # Ambience silence under the scream
+const CHILD_SCREAM_LEAD := 0.3       # H3: the dip lands first; the scream 0.3 s into it
 # ⚠️ 1.25 -> 1.95 m ("the child should be way bigger"). Taller than a real child on purpose:
 # this is a jumpscare at three metres in a pitch-black cellar, not a figure seen across a
 # room, and at child height it read as small and far away rather than as on top of you.
@@ -142,6 +149,7 @@ var _forest_fired: bool = false
 # save_progress carries — a back-door return must not un-rearrange the house.
 var _music_box: CSGBox3D = null
 var _guest_child_done: bool = false
+var _child_armed_on_note: bool = false   # H4: the note's close is what starts the blackout
 var _child_dark: bool = false        # every lamp in the house is out while the child is here
 var _child_node: Watcher = null      # the figure during the cellar sequence
 var _painting_armed: bool = false    # milestone reached; falls when you look at it
@@ -159,12 +167,9 @@ var _cellar_gate: CellarGate
 var _has_cellar_key: bool = false
 var _map_solved: bool = false
 var _safe_1: Node3D
-var _safe_2: Node3D
 var _safe_notes_read: Array[String] = []   # by node name — a re-read must not double-count
 var _lock_lamp_on: bool = false
 var _lock_lamp_gain: float = 0.0   # 0..1, tweened by _light_the_lock(); see _drive_lights()
-var _apparition: Apparition
-var _apparition_fired: bool = false
 var _tv_card: Label3D
 var _tv_card_clock: float = 12.0   # time until the test card next surfaces
 var _tv_card_hold: float = 0.0     # time the card stays legible
@@ -190,7 +195,6 @@ func _ready() -> void:
 	_spawn_music_box()
 	_spawn_room_props()
 	_spawn_events()
-	_spawn_apparition()
 	_spawn_apparition_director()
 	_start_ambience()
 	_boost_ambient(DARK_AMBIENT)
@@ -327,7 +331,6 @@ func save_progress() -> Dictionary:
 		"has_cellar_key": _has_cellar_key,
 		"cellar_open": is_instance_valid(_cellar_gate) and bool(_cellar_gate.get("_opened")),
 		"code_correct": GameState.level2_code_correct,
-		"apparition_fired": _apparition_fired,
 		"forest_fired": _forest_fired,
 		# ⚠️ SCARY.md P6's explicit warning: "register moved props in save_progress() so a
 		# back-door return does not un-move them." One int covers all four stages because
@@ -341,6 +344,9 @@ func save_progress() -> Dictionary:
 		# rule KONTUR's gate ledger had to learn the hard way (Issues 141/142).
 		"safe_notes": _safe_notes_read.duplicate(),
 		"lock_lamp": _lock_lamp_on,
+		# H2: the chain and the cutters travel together with the digit (SafeNote_Head above).
+		"fridge_chained": bool(get_node("Fridge").call("is_chained")) if get_node_or_null("Fridge") else true,
+		"cutters_held": _cutters_held,
 	}
 
 
@@ -348,7 +354,6 @@ func _restore_progress() -> void:
 	var data := GameState.get_level_progress(2)
 	if data.is_empty():
 		return
-	_apparition_fired = bool(data.get("apparition_fired", false))
 	_forest_fired = bool(data.get("forest_fired", false))
 	GameState.level2_code_correct = bool(data.get("code_correct", false))
 
@@ -358,6 +363,19 @@ func _restore_progress() -> void:
 	_safe_notes_read.clear()
 	for k in data.get("safe_notes", []):
 		_safe_notes_read.append(String(k))
+	# H2: state, never the event — no chain_drop sting, no pickup toast.
+	if bool(data.get("cutters_held", false)):
+		_cutters_held = true
+		if is_instance_valid(_cutters):
+			_cutters.queue_free()
+			_cutters = null
+	var fr := get_node_or_null("Fridge")
+	if fr and not bool(data.get("fridge_chained", true)):
+		fr.call("mark_unchained")
+		if _cutters_held:
+			_cutters_held = true   # spent on the chain; the line is clear
+	elif _cutters_held:
+		GameState.set_carried("BOLT CUTTERS")
 	if bool(data.get("lock_lamp", false)):
 		_lock_lamp_on = true
 		# ⚠️ AND THE GAIN, or a restored house arrives with the lamp at zero and never fades up:
@@ -602,9 +620,9 @@ func _spawn_notes() -> void:
 	# Three safe notes — one digit each (code 472). The third is in the cellar.
 	_safe_1 = _make_note(_builder.wall_point("LivingRoom", Vector2(-1, 0), 1.4, 0.1), PI / 2.0,
 		"The first number is scratched by the door frame. It is 4.", false, "SafeNote_Living")
-	_safe_2 = _make_note(_builder.wall_point("Bedroom", Vector2(0, 1), 1.4, 0.1), PI,
-		"I checked everywhere. The second number must be 7. I'm sure of it.\n\nI'm sure.", false,
-		"SafeNote_Bedroom")
+	# H2 (2026-09-13): the second digit is no longer a page on the Bedroom wall — it is written
+	# on the forehead of the head in the chained fridge (see _tick_head_digit). The user: "one
+	# number is hard to get — while the others are just there".
 	# The cellar note is THE GUEST's last trigger: reading it is the deepest point of the
 	# route, so the walk back up is the longest single stretch the player will make with
 	# their back to the whole house.
@@ -620,7 +638,9 @@ func _spawn_notes() -> void:
 		"Third digit — the one she always used — 2.\n\nDon't forget. Don't forget. Don't forget.",
 		false, "SafeNote_Cellar")
 	if cellar_note:
-		cellar_note.read.connect(func() -> void: _advance_guest(4))
+		cellar_note.read.connect(func() -> void:
+			_advance_guest(4)
+			_arm_child_on_note_close())
 
 	# ⚠️ THERE WAS NO NOTE COUNTER BEFORE THIS (2026-09-03). `_spawn_notes()` discarded two of the
 	# three safe notes' return values and only the cellar one's `read` signal was ever wired;
@@ -629,7 +649,7 @@ func _spawn_notes() -> void:
 	# is three connections and an int.
 	# ⚠️ Connected to `read`, which fires on OPEN. Reading-to-the-end is a mechanic reserved for
 	# TRAP notes; requiring it here would make the lights depend on surviving something.
-	for n in [_safe_1, _safe_2, cellar_note]:
+	for n in [_safe_1, cellar_note]:
 		if n:
 			n.read.connect(_on_safe_note_read.bind(n))
 	# Two trap notes (read-to-die).
@@ -693,9 +713,13 @@ func _spawn_lock_and_doors() -> void:
 	# the door's own face quad (at local z=0.079) so it doesn't z-fight and is
 	# the first thing the interact raycast hits.
 	var lock := StaticBody3D.new()
+	lock.name = "ExitLock"
 	lock.set_script(_LOCK_SCRIPT)
 	lock.position = Vector3(0.0, -0.35, 0.1)
 	exit.add_child(lock)
+	lock.connect("unlocked", _on_exit_lock_unlocked.bind(lock))
+	if GameState.level2_code_correct:
+		lock.queue_free()   # resume path: a code already entered means a lock already on the floor
 
 	# Artwork on a QuadMesh (CLAUDE.md rule — a BoxMesh crops instead of showing
 	# the whole texture). house_lock_transparent.png has a real alpha channel (no
@@ -732,6 +756,29 @@ func _spawn_lock_and_doors() -> void:
 
 	var back := _make_door("BackDoor", false, true)
 	back.position = Vector3(0, 1.225, -2.85)
+
+
+# H4 (2026-09-13, capture #10, the user's design): the lock FALLS off the door and is gone, then
+# the door asks. `unlocked` is emitted while the dial UI still has the tree paused, and the lock
+# inherits the pause, so the whole beat rides one Tween on the lock: it starts the frame the UI
+# closes (Issue 58's shape, on purpose — the fall is what the player sees the UI close onto).
+# Zero panic; the scrawl is a question, not a rule.
+const LOCK_FALL := 0.9                     # metres, to the floor at the foot of the door
+const LOCK_SCRAWL := "ARE YOU SURE YOU WANT TO GO IN THERE?"
+func _on_exit_lock_unlocked(lock: Node3D) -> void:
+	if not is_instance_valid(lock):
+		return
+	# The interact ray must not find a falling lock (E would reopen the dials).
+	lock.set("collision_layer", 0)
+	var tw := lock.create_tween()
+	tw.tween_callback(func() -> void: _play_at("lock_drop", lock.global_position, 2.0))
+	tw.tween_property(lock, "position:y", lock.position.y - LOCK_FALL, 0.55) \
+		.set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(lock, "rotation:z", deg_to_rad(28.0), 0.4)
+	tw.tween_interval(0.05)
+	tw.tween_callback(func() -> void: ScreenText.scrawl(get_tree(), LOCK_SCRAWL, 3.0))
+	tw.tween_interval(0.6)
+	tw.tween_callback(lock.queue_free)
 
 
 func _make_door(door_name: String, advances: bool, goes_back: bool) -> StaticBody3D:
@@ -1010,10 +1057,12 @@ func _spawn_cellar_props() -> void:
 	# ramp. A scrawl rather than a caption: this is the experiment's voice, the same register
 	# as the intro's "IT WAS ONLY A DREAM." and the KONTUR banishment line, and it matches the
 	# blood-red text on the shelf so the two read as one thing.
+	# H4 (2026-09-16, the user: "you need to be stuck in this level after you read the note"):
+	# the blackout no longer fires here at the ramp's foot — it fires when the cellar NOTE is
+	# closed (`_arm_child_on_note_close`), deep in the room, with the player pinned there.
 	_spawn_event(Vector3(cx, floor_y + 0.9, cz + 2.9), Vector3(3.0, 2.4, 1.6),
 		func() -> void:
-			ScreenText.scrawl(get_tree(), CELLAR_HINT, CELLAR_CAPTION_TIME)
-			_begin_cellar_blackout())
+			ScreenText.scrawl(get_tree(), CELLAR_HINT, CELLAR_CAPTION_TIME))
 
 	# ⚠️ NO corner Watcher down here any more, and do not add one back.
 	#
@@ -1077,6 +1126,7 @@ func _furnish_kitchen(kc: Vector3) -> void:
 	fridge.position = Vector3(7.9, 0.0, kc.z + 0.9)
 	fridge.rotation.y = -PI / 2.0     # its door faces -x, into the room
 	fridge.opened.connect(_on_fridge_opened)
+	fridge.chain_tried.connect(_on_fridge_chain_tried)   # H2
 	add_child(fridge)
 
 
@@ -1306,6 +1356,7 @@ func _spawn_room_props() -> void:
 	# is on the west.
 	var bd: Vector3 = _builder.room_center("Bedroom")
 	_build_bed(Vector3(bd.x - 1.6, 0.0, bd.z), Vector2(2.0, 1.4))
+	_spawn_cutters(Vector3(bd.x - 1.6, 0.0, bd.z), 2.0)   # H2
 	var drawing := TEX + "child_drawing.png"
 	if ResourceLoader.exists(drawing):
 		_make_cursed_body(_builder.wall_point("Bedroom", Vector2(0, -1), 1.5, 0.06),
@@ -1798,6 +1849,19 @@ func _drop_painting(animate: bool) -> void:
 		pl.jolt_camera(0.05, 0.3)
 
 
+# H4: the note is OPEN when `read` fires (it fires on open); the beat waits for the page to
+# come down, then takes the lights and pins the player where they stand — at the note.
+func _arm_child_on_note_close() -> void:
+	if _guest_child_done or _child_armed_on_note:
+		return
+	_child_armed_on_note = true
+	var nu := get_node_or_null("/root/NoteUI")
+	if nu == null or not nu.has_signal("closed"):
+		_begin_cellar_blackout()
+		return
+	nu.connect("closed", func() -> void: _begin_cellar_blackout(), CONNECT_ONE_SHOT)
+
+
 func _begin_cellar_blackout() -> void:
 	if _guest_child_done:
 		return
@@ -1808,6 +1872,18 @@ func _begin_cellar_blackout() -> void:
 	if pl:
 		pl.force_flashlight_off()
 		pl.set_smiler_active(true)
+		# H2 (2026-09-16, the user: "avoid the situation when the player can escape the cellar
+		# before he even sees the doll — block the player's movement for several seconds"): the
+		# blackout PINS you where you stand, in the dark, until the child has come and gone.
+		# Velocity zeroed by hand (Issue 49); `_end_cellar_blackout` releases it.
+		pl.velocity.x = 0.0
+		pl.velocity.z = 0.0
+		pl.freeze_input()
+		_child_frozen = true
+	get_tree().create_timer(CELLAR_WHERE_AT).timeout.connect(func() -> void:
+		if _child_dark and is_inside_tree():
+			# at the BOTTOM: the ramp-foot hint (CELLAR_HINT, 4 s) can still be up in the centre
+			ScreenText.scrawl(get_tree(), CELLAR_WHERE_TEXT, CELLAR_WHERE_HOLD, 54, true))
 	get_tree().create_timer(CHILD_APPEAR_DELAY).timeout.connect(_cellar_child_appear)
 
 
@@ -1849,7 +1925,8 @@ func _can_show_child() -> bool:
 	if get_tree().paused:
 		return false
 	var pl := _player()
-	if pl and pl.has_method("is_input_frozen") and pl.is_input_frozen():
+	# H2: OUR own pin (the blackout) is not a reason to wait — a beartrap's or a note's is.
+	if pl and pl.has_method("is_input_frozen") and pl.is_input_frozen() and not _child_frozen:
 		return false
 	return true
 
@@ -1976,7 +2053,13 @@ func _end_cellar_blackout() -> void:
 # VERY loud, by request. The figure itself has no rules, no collider and costs no panic, so
 # sound and darkness are the only two channels this thing has.
 func _spawn_guest_child() -> void:
-	var s := GameState.load_audio("childe_scream")
+	# H4 (2026-09-16, the user: "make the doll sound the same as baba yaga, the default
+	# jumpscare sound for the House") — `screamer_house`, the level's own fatal sting. It sits
+	# at full scale already, so the +18 dB the re-mastered child scream needed is not applied.
+	var s := GameState.load_audio("screamer_house")
+	var baba: bool = s != null
+	if not s:
+		s = GameState.load_audio("childe_scream")
 	if not s:
 		s = GameState.load_audio("guest_child")
 	if not s:
@@ -1986,8 +2069,8 @@ func _spawn_guest_child() -> void:
 	var p := AudioStreamPlayer3D.new()
 	p.name = "GuestChildAudio"
 	p.stream = s
-	p.volume_db = CHILD_VOLUME_DB
-	p.max_db = 24.0            # default is 3; the gain above is clamped without this
+	p.volume_db = 0.0 if baba else CHILD_VOLUME_DB
+	p.max_db = 6.0 if baba else 24.0   # default is 3; the gain above is clamped without this
 	p.unit_size = 18.0
 	p.bus = AudioBuses.AMBIENCE
 	# At the figure if there is one, otherwise at the player — the scream must never be
@@ -1996,7 +2079,12 @@ func _spawn_guest_child() -> void:
 		if is_instance_valid(_child_node) else _player().global_position
 	add_child(p)
 	p.finished.connect(p.queue_free)
-	p.play()
+	# H3 (2026-09-13, capture #6: "more loud"): the file is re-mastered to the project's loud
+	# target and the Ambience dip already fired with the figure; the scream now LEADS by nothing
+	# and LANDS 0.3 s into that silence, so it arrives into a hole rather than over the bed.
+	var tw := p.create_tween()
+	tw.tween_interval(CHILD_SCREAM_LEAD)
+	tw.tween_callback(p.play)
 
 
 # `target_or_delta` is an ABSOLUTE position for props being relocated across the house, and
@@ -2045,31 +2133,10 @@ func _on_cellar_gate_used() -> void:
 
 
 # ---------------------------------------------------------------- apparition
-
-func _spawn_apparition() -> void:
-	# A "hold your nerve" apparition that appears as you descend into the cellar.
-	# Not a teaching encounter — it was taught in the Lab — so sprinting is fatal.
-	_apparition = Apparition.spawn(self, Apparition.Rule.HOLD, Vector3.ZERO, false) as Apparition
-	_spawn_event(Vector3(5, CELLAR_Y + 1.5, -2.0), Vector3(2.5, CELLAR_H, 1.5), _trigger_apparition)
-
-
-func _trigger_apparition() -> void:
-	if _apparition_fired or not _apparition:
-		return
-	_apparition_fired = true
-	# Playtest instrumentation only (2026-08-16). Only `ApparitionDirector._fire()` ever wrote
-	# a DebugLog note, so the House's OWN scripted HOLD encounter left no trace at all: across
-	# two full sessions (~880 s of play) the question "did it ever fire?" was unanswerable from
-	# the log, and both logged apparitions turned out to be the director's. Two lines; makes
-	# the next log decisive either way.
-	var _dbga := get_node_or_null("/root/DebugLog")
-	if _dbga:
-		var _pl := _player()
-		_dbga.note("HOUSE scripted apparition armed, player at %s" % [
-			_pl.global_position if _pl else Vector3.ZERO])
-	# Fatal — unless this is somehow the player's first HOLD encounter, which the
-	# global ledger in ApparitionDirector.arm() decides.
-	ApparitionDirector.arm(_apparition)
+#
+# H2 (2026-09-16, the user: "block the creature from appearing at the doll level"): the cellar's
+# scripted HOLD apparition is GONE — on the 2026-09-15 run it appeared 5 s before the child and
+# spent the beat. The ApparitionDirector's random one (RANDOM_APPARITIONS) stays, upstairs.
 
 
 # ---------------------------------------------------------------- events
@@ -2192,6 +2259,8 @@ func _start_ambience() -> void:
 func _process(delta: float) -> void:
 	_tick_forest()
 	_tick_timers(delta)
+	_tick_head_digit(delta)
+	_tick_cutters()
 	_drive_lights()
 	_tick_tv_card(delta)
 	_tick_overhead(delta)
@@ -2283,11 +2352,90 @@ func _on_safe_note_read(n: Node) -> void:
 		push_warning("level_2: a safe note has no stable name ('%s') — the lock lamp counter "
 			% key + "keys on it and will not survive a resume. See _make_note().")
 		return
+	_mark_safe_note(key)
+
+
+# One of the three digits has been learned (a page opened, or the head's forehead read).
+func _mark_safe_note(key: String) -> void:
 	if _safe_notes_read.has(key):
 		return
 	_safe_notes_read.append(key)
 	if _safe_notes_read.size() >= SAFE_NOTES_TOTAL:
 		_light_the_lock()
+
+
+# H2: the digit on the head. Read by LOOKING — within HEAD_READ_DIST, the camera on it, for
+# HEAD_READ_TIME accumulated — after the fridge is open. Archived to the journal as text.
+const HEAD_READ_DIST := 2.2
+const HEAD_READ_TIME := 1.0
+const HEAD_READ_DOT := 0.94
+const HEAD_NOTE_TEXT := "On its forehead, in something dark: 7."
+var _head_read_t: float = 0.0
+func _tick_head_digit(delta: float) -> void:
+	if _safe_notes_read.has("SafeNote_Head"):
+		return
+	var fridge := get_node_or_null("Fridge")
+	if fridge == null or not bool(fridge.call("is_open")):
+		return
+	var p := _player()
+	if p == null:
+		return
+	var cam := p.get_node_or_null("Camera3D") as Camera3D
+	if cam == null:
+		return
+	var head: Vector3 = fridge.call("thing_position")
+	var to: Vector3 = head - cam.global_position
+	if to.length() > HEAD_READ_DIST or (-cam.global_transform.basis.z).dot(to.normalized()) < HEAD_READ_DOT:
+		return
+	_head_read_t += delta
+	if _head_read_t < HEAD_READ_TIME:
+		return
+	_mark_safe_note("SafeNote_Head")
+	GameState.record_note(HEAD_NOTE_TEXT, 2)
+	ScreenText.caption(get_tree(), HEAD_NOTE_TEXT, 3.0)
+
+
+# H2: the bolt cutters show only with the torch aimed at the floor from near the bed's foot.
+const CUTTERS_PITCH_DEG := -30.0
+const CUTTERS_DIST := 3.2
+var _cutters: Node3D = null
+var _cutters_held: bool = false
+func _tick_cutters() -> void:
+	if _cutters == null or not is_instance_valid(_cutters):
+		return
+	var p := _player()
+	if p == null:
+		return
+	var cam := p.get_node_or_null("Camera3D") as Camera3D
+	if cam == null:
+		return
+	var near: bool = Vector2(_cutters.global_position.x - p.global_position.x,
+		_cutters.global_position.z - p.global_position.z).length() <= CUTTERS_DIST
+	_cutters.visible = near and cam.rotation.x <= deg_to_rad(CUTTERS_PITCH_DEG) and p.is_flashlight_on()
+
+
+func _spawn_cutters(bed_base: Vector3, bed_len: float) -> void:
+	_cutters = BoltCutters.new()
+	_cutters.name = "BoltCutters"
+	# Half under the foot of the bed, handles out — the bed runs along +x from its base.
+	_cutters.position = Vector3(bed_base.x + bed_len / 2.0 - 0.02, 0.0, bed_base.z + 0.15)
+	_cutters.visible = false
+	_cutters.picked_up.connect(_on_cutters_taken)
+	add_child(_cutters)
+
+
+func _on_cutters_taken() -> void:
+	_cutters_held = true
+	_cutters = null
+	GameState.set_carried("BOLT CUTTERS")
+
+
+func _on_fridge_chain_tried() -> void:
+	var fridge := get_node_or_null("Fridge")
+	if fridge == null or not _cutters_held:
+		return
+	fridge.call("unchain")
+	GameState.set_carried("")
 
 
 func _light_the_lock() -> void:

@@ -5696,3 +5696,308 @@ bar filled 14 s into the level. The clock is now a 3D case (`grandfather_clock.g
 `CLOCK_INTENSITY` is **1.0, unchanged, on the user's explicit call** after being shown that log:
 *"3D clock, keep 1.0"*. Recorded here so the next session that sees an early Corridor death does
 not "fix" it. `check_corridor_clock.gd` asserts the value with the note.
+
+## Issue 186 — The Void's Room B was sealed by two of its own walls
+
+`RoomAWallR` and `RoomBWallFront` met with no doorway between them, so a safe note, a trap note
+and `CreatureB` sat in a pocket no route reached (V-T1: nearest standing cell 4.79 m away). It
+survived for the life of the level because nothing walked it — `autoplay_exit_reachable.gd` had
+no Void row and there was no `walk_void.gd`. Fixed by the 2026-09-12 rebuild on `RoomBuilder`
+(15 abutting rooms, 14 doorways); `check_reachable.gd` now asserts 11/11 with no ignore list.
+
+## Issue 187 — The Void had no shell, and the player could photograph the sky
+
+142 rays from 48 standable points left the level (V-T2): the old ring of four rooms met at eight
+~2 × 2 m junction gaps open to the procedural sky. The rebuilt level measures **202 points, 0
+escaping**, including the floating-tile hall, whose abyss is a walled pit INSIDE the room footprint
+(floor at −8, four black walls, the fall trigger at −4) rather than an open drop.
+
+## Issue 188 — THE NIGHTMARE had six independent instant-death paths and a 0/6 bot win rate
+
+Matron contact · Still One lunge · a spark within 2 m of an awake Still One · Hollow One contact ·
+3 s of gaze at a painting after 5 sconces · beartrap panic (15 + 40 > 50). A clean geometry walk
+took 82 s against a 12–15 min design target, and with the roster live six seeds produced 0 wins.
+The user's decision (D1–D3): the panic bar is the ONLY death. `check_dungeon_hunter.gd` greps both
+level scripts for `Screamer.trigger(` and drives each former death path live.
+
+## Issue 189 — Sparking was mandatory for one entity and fatal beside another
+
+The Hollow One could only be SEEN by sparking, and a spark within 2 m of an awake Still One killed.
+Two rules on one key, in the dark, with no way to know which applies. The Hollow One is cut (D3);
+the spark stays and still wakes statues, which are now non-lethal.
+
+## Issue 190 — A chase cue on a ducked bus is a cue nobody hears
+
+The hunter's presence ducks the runtime `"Dungeon"` bus to −24 dB for the whole wave. Putting the
+new `parasite_chase` cue and the hunter's voice on that bus would have ducked them with the
+ambience they are meant to cut through. They live on a new runtime bus **`"DungeonChase"`**
+(`AudioBuses.ensure`), nested under `Ambience` so `HoldBreath.dip()` before the sting still reaches
+them, never under `"Dungeon"`. `check_dungeon_hunter.gd` asserts the bus.
+
+## Issue 191 — Rooms must ABUT: a Morgue a metre short sealed the Void's far wing
+
+`Morgue` was authored at x −18..−10 against a tile hall ending at −9. `RoomBuilder` cuts a doorway
+only through walls whose plane the doorway lies on, so the hall's wall was cut and the Morgue's
+own wall a metre away stayed whole: five interactables unreachable, `check_reachable`'s fill
+stopping at the hall's west pad while every ray and capsule query at the doorway passed. Moved to
+x −17..−9 (rooms on an integer grid, `# x a..b z a..b` on every row so abutment can be eyeballed);
+`check_doorways.gd` now has the table and would say so.
+
+## Issue 192 — Headless walkers budgeted RENDER frames and timed out on a loaded machine
+
+`walk_dungeon.gd` and `autoplay_dungeon.gd` counted `_process` frames while the body moves 60
+times a second. Headless idle frames are uncapped: on a loaded machine that was 4–5 frames per
+physics tick, so a 700-frame hop became ~2.5 s of walking and no 21 m corridor leg fit. Both now
+count `Engine.get_physics_frames()`.
+
+## Issue 193 — A chamber with a doorway in every wall stood a lectern in one of them
+
+Every room builder but the cistern's hugs a doorway-free "back" wall, and with none to choose
+`_back_side()` fell back to north. Seed 606: `Lectern_Chamber12` 0.8 m inside the north doorway
+(`walk_dungeon`: 1 blocked of 60). **And the second head of it, found by the bot**: a doorway in a
+PERPENDICULAR wall within 3 m of the back wall sends its inward line straight along the props —
+130 s against a sarcophagus row (seed 101) and a chapel's altar + pew (seed 202). So the rule is
+`DungeonGen.prop_sides()` (doorway-free AND no side doorway within `PROP_LANE` 3.0 m), and
+`_deal_kinds()` re-deals any chamber with none: entry chambers and the spawn → `cistern`, sconce
+chambers → a bench-less `gallery`, the bed chamber stays a crypt with **no sarcophagi**. Counted
+(`sealed_kind_overrides`: 520 chambers over 200 seeds, ~2.6 per dungeon) and asserted by
+`check_dungeon_gen.gd`.
+
+## Issue 194 — A doorway "commit point" aimed at the next room's centre runs through the jamb
+
+Both dungeon walkers stepped 2 m past each doorway TOWARD the next room's centre. For a door near
+a room corner that is a diagonal through the wall stub: seed 101's (4.5, 9) → (2.6, 8.4) crossed
+x 3.0..3.4 and the walker pushed into the corner for ever — the bot for thousands of simulated
+seconds with the hunter catching it on repeat. Commit points now go along the doorway's own
+normal. ⚠️ And the one-retry rule was bookkept as a single int, so two adjacent stalls retried each
+other in a loop: "21 legs timed out" on seed 101 was three. Per-leg dictionary now.
+
+## Issue 195 — Mixamo root motion lived on the hips' local Y, and the strip only read X/Z
+
+`merge_creature_glb.py` measured hips x/z drift as flat and the Parasite still slid 2.1 m per walk
+cycle in Godot: the forward motion is on the hips node's local Y (the armature is rotated). The
+linear strip now runs on all three axes and prints the implied m/s (walk 1.497, run 2.829), which
+are the anchors for `CreatureAnim.MODELS["parasite"].speeds`.
+
+
+## Issue 196 — Looking at a HARMLESS painting froze your panic bar
+
+`player.gd:_update_panic()` took the gaze branch for ANY `ScaryObject` under the ray and only the
+`else` branch decays — so an object at `scare_intensity` 0.0 (THE NIGHTMARE's Weeping Frames below
+three sconces, and every burnt-out frame after) stopped panic healing without adding anything. It
+had been latent since the frames shipped with a 0 tier and became load-bearing the day nothing else
+in the level could kill: the four-seed bot held 38 % for 30 s with no entity present, no dark zone
+and no sprint, then died at 90 %. The gaze branch now requires `scare_intensity > 0.0`.
+`check_gaze_decay.gd` stares at a real frame through the shipping ray at 0 (decays) and at 1.0
+(climbs). ⚠️ The general shape: a branch that is entered by TYPE and priced by VALUE silently turns
+"free" into "frozen".
+
+## Issue 197 — A note pauses the tree and the level goes silent
+
+`NoteUI.show_note()` / `JournalUI.open_journal()` set `get_tree().paused = true`, and every
+`PROCESS_MODE_INHERIT` stream player in the level stops with it — the House's bed, the Backrooms
+score, KONTUR's cell hum, all of them. The user's call (2026-09-13): keep the sound, keep the
+panic frozen. `AudioBuses.keep_playing_through_pause(scene)` flips every PLAYING player to
+`PROCESS_MODE_ALWAYS` and `release_pause_exempt()` puts them back. ⚠️ It must run BEFORE
+`paused = true` — once the tree is paused a player's `playing` already reads false and the sweep
+finds nothing (the first build found 0 of 5). ⚠️ And the release must not assign a freed player
+to a typed `Node` var: a one-shot that finished under the page throws before `is_instance_valid`
+can run (`check_house_guest.gd` caught it). `check_note_audio.gd`.
+
+## Issue 198 — KONTUR's real blackout door was a HOLE, and holes show under a torch
+
+Gate 7's "real seam" was a glowing marker hidden while the torch is on — but the doorway behind it
+is a real `RoomBuilder` opening, so with the beam on the player saw a door-shaped gap in a lit tiled
+wall (capture #23, 2026-09-13). The opening now wears a plug of the wall's own triplanar tile
+(`DarkSeamPlug`, no collider, exactly the opening's size — a 1 cm undersize showed the jambs as two
+lit lines) while the torch is on and the gate is unpassed. Rendered both ways from mid-room.
+
+## Issue 199 — `look_at()` on the player body pitches the capsule through the wall behind it
+
+A screenshot harness posed the player with `_p.look_at(target)`; with a target above eye level the
+whole body tilted and the camera, 1.65 m up the tilted axis, swung 0.5 m BACKWARDS through the wall
+the player stood beside — every frame from that pose was black, and it read as "the figure does
+not render". Pose with `ai_look_at()` (yaws the body, pitches the camera). Cost an hour.
+
+## Issue 200 — A lit wing went straight back to black once the power was on
+
+`level_1.gd:_drive_lights()` only substituted `WING_LIT_ENERGY` for a wing lamp when `_power_on`
+was false; wing lamps spawn at base 0.0 (`NO_LAMP_ROOMS`), so a wing lit AFTER the power was
+restored — the order `check_lab_locker.gd` uses, and a legitimate play order — was driven back to
+0 on the next frame. Latent for as long as the wing beat took 5 s; the 20 s beat made the test
+wait long enough to see it. `base = maxf(base, WING_LIT_ENERGY)` whatever the power says.
+
+## Issue 201 — The shell control deleted a wall the ray only grazed
+
+`check_shell_sealed.gd`'s generic control deletes an outside wall in front of a standable point
+and requires the sweep to see out. With the Lab wing doubled, one sample chose a ray that met the
+nook's north wall 0.1 m from its end; with the wall gone the same ray clipped the east wall's corner
+and the control reported "still stopped" on a perfectly sealed room. The control now rejects hits
+within 0.6 m of the slab's ends, and rejects any box under 2 m tall (a breaker panel is not a wall).
+
+## Issue 202 — A relaunch destroyed the playtest evidence (2026-09-13)
+`DebugLog` opened `user://playtest_log.txt` with `FileAccess.WRITE` on every start, so relaunching the
+game after macOS killed it overwrote the crashed run's log — and every J-note the user had typed —
+with three lines of main-menu. Godot's own per-run log (`logs/godot<ts>.log`) keeps only the last
+five files, and the headless test runs made while investigating pushed the crashed run's copy out
+too. Only the numbered capture PNGs survived, and only because the run had not been relaunched
+twice. Fix: `_rotate_previous_session()` moves the previous log and capture folder aside under a
+timestamp before a session opens its own, and `_say()` flushes every line so an OS kill cannot take
+the buffered tail. **Never relaunch over evidence**: read the log first, then launch.
+
+## Issue 203 — macOS killed the game for memory in the dungeon (2026-09-13)
+An 8 GB machine, the editor open seven hours, and the game rendering 3D at the display's NATIVE
+5120×2880. Measured with `tests/probe_memory.gd` (Godot's own monitors, 3024×1898 built-in panel):
+renderer memory in the dungeon **577 MB**, of which textures 359 MB — because **194 of the
+project's 212 textures were imported uncompressed** (`compress/mode=0`: 4 bytes per texel plus
+mipmaps; the dungeon's 2400×1792 screamers and paintings were 22 MB each, 1.5 GB if everything
+loaded). Two fixes: every texture import switched to VRAM compression (`compress/mode=2`), and
+`GameState._fit_render_to_display()` sets `scaling_3d_scale` 0.5 on HiDPI displays (the UI stays
+sharp under `canvas_items` stretch). After: dungeon **295 MB**, Lab 510 → 302, Corridor 304.
+⚠️ A compressed texture's `Image.get_pixel()` throws "Can't get_pixel() on compressed image" —
+every test that reads texture pixels (`check_kontur_signs`, `check_backrooms_seam`,
+`check_corridor_events`, `check_kontur_entities`, `check_lab_hint`, `check_backrooms_occupants`,
+`probe_mirror_motion`) and `kontur.gd`'s alpha probe now call `decompress()` after `get_image()`.
+
+## Issue 204 — Turn smoothing on a routed creature arcs into the jamb (2026-09-13)
+Giving Object 12 / the Parasite an eased yaw (`TURN_RATE_DEG`) and walking it along the eased
+heading put the body on a curve the router never checked: `probe_breach_router_sweep.gd` went from
+0 to **22 clipped traversals of 1520 (1.4 %)**. The convexity argument that keeps the router inside
+the walls holds only for the straight line to the doorway centre, so the BODY moves along `dir` and
+only the MESH turns (speed eases while the heading is far off). A second regression hid in the new
+plane-based arrival: "within `PORTAL_ARRIVE` of the doorway plane" is true a metre off-centre beside
+the jamb, and a line from there to the next doorway cuts it — arrival also requires being inside the
+opening laterally (`half_w − 0.3`). Sweep: **0 clipped** again.
+
+## Issue 205 — Two doorways closer than 2×BRIDGE_PAD z-fight their own floor bridges (2026-09-13)
+`RoomBuilder` sinks a `BRIDGE_PAD` 1.3 m floor bridge under every doorway. A connector room with
+doorways 0.8 m (PlantDrop) or 2.0 m (VaultNeck) apart therefore had two bridges overlapping with
+coincident (sunk) top faces, reported by `check_wall_overlap` as anonymous `@CSGBox3D` pairs.
+Either space the doorways ≥ 2.6 m apart along the same axis, or offset them laterally so the
+bridges (which are doorway-WIDTH wide) cannot overlap — VaultNeck's two doorways are 2.8 m apart in
+x for exactly this reason.
+
+## Issue 206 — The fork's return leg had a 1.5 m hole in its floor (2026-09-13)
+`corridor.gd:_build_forks()` builds the loop's three legs on synthetic segments. Leg A's `p0` is the
+hall's wall FACE, so its boxes run `T .. LA − W/2 − T` (to the corner); leg C's `p0` is the far
+CORNER CENTRE and runs back to that same face, so its boxes must run to `LA − T` — the first build
+copied A's arithmetic and stopped 1.5 m short, leaving no floor inside the door. `walk_corridor`
+fell through it (y −20 by the next second) and then, because a non-sprung spur re-armed its own
+wait, looped at the next spur until the time budget ran out — two bugs that read as one "stalled".
+`tests/probe_forks.gd` (floor rays along the loop) found the hole in one run; the walker only said
+"stalled". **When a walker stalls, print its y** — a body under the floor is not a wall.
+
+## Issue 207 — The Lab's HOLD apparition latched "fired" on an abort, and its deadline paused with the tree (2026-09-14)
+The user's second run never saw the teaching apparition. `Apparition.appear()` aborted silently when
+no spot fitted (the morgue, at the keycard), and `_trigger_apparition` had already set
+`_apparition_fired` and `GameState.apparition_taught` — so the survivable one was "taught" without
+ever appearing and every later HOLD was lethal. Worse, the 30 s deadline ran on `_process` delta,
+and the J-capture pauses the tree, so a player taking notes pushed the deadline out indefinitely.
+Fix: `appear() -> bool` (logs the abort), `ApparitionDirector.arm()` returns it and latches the
+ledger only on true, the Lab retries with a fresh `Apparition.spawn` every 0.25 s on abort, and the
+deadline is on `Time.get_ticks_msec()`. `check_lab_apparition_timing` has a control that fills the
+room so the first attempt must abort, then requires a retry to appear and the flag to latch then.
+**A one-shot flag must be set by the event, never by the attempt.**
+
+## Issue 208 — An unshaded billboard is invisible in a room with no light (2026-09-14)
+The wing screamer (`wing_monster.png` on a `DoorLunger`) fired and nobody saw it: an UNSHADED
+material renders at its texture's own values, and that cutout is ~12 % grey — against the Lab wing
+at ambient 0.0 with the torch locked off, the centre of the frame measured **0.0006** luminance at
+the lunge. `apparition.gd`'s figure reads in the same dark because it carries its albedo as EMISSION
+at 1.6; `DoorLunger.set_glow()` gives every lunger the same knob, plus `add_light()` for the walls
+around it: **0.109** at the lunge afterwards (`screenshot_wing_screamer.gd`). The same knob is what
+makes `Screamer.trigger_with_lunge()` legible in KONTUR's Soviet dark. Off by default — the Manager
+and the false-door figure stand in lit corridors.
+
+## Issue 209 — A corridor corner distance matches two segments, so a cutter at a corner cuts twice (2026-09-14)
+`PATH_2D`'s corner at d = 320 is the END of one segment and the START of the next; a mouth cutter
+keyed on "the box containing d = 320" found both and opened a hole in the wrong leg. The corner
+branches use `at = corner + 0.001` on the OUTGOING leg (the same idiom the side passages use for the
+end wall) so the qualifier is the segment, never the distance. **Every corner belongs to two
+segments; a distance is not a location there.** Related, same session: the Screamer's lunge
+placement rays cannot see KONTUR's switchboard desk because it has NO collider (so E reaches the
+phones on it) — the yellow-phone call passes `ahead = 1.0` to stand on the player's side of it, and
+the render harness had to stand the player on the room side too. Rays only see what collides; a
+level that removes a collider on purpose must place its own figures.
+
+## Issue 210 — A flag set inside a beat is one frame late for the loop that already ran (2026-09-14)
+KONTUR's condemn finale sets `_condemn_dark` from `_tick_condemn_beats()`, which runs AFTER the lamp
+loop in the same `_process`; the lamps were therefore lit for one frame with the flag true, and
+`check_kontur_condemn`'s "every lamp is 0 while dark" sampled exactly that frame. The beat zeroes
+the lamps itself now, and the loop holds them. **When a state change must be visible the same frame,
+apply it where it is decided, not where it is polled.**
+
+## Issue 211 — Every corridor bend had a T×T pinhole at its outer corner (2026-09-14)
+`corridor.gd:_build_geometry()` starts a segment's walls at `lo = -W/2` (the corner's inner face)
+and ends the previous segment's walls at `hi = len + W/2` (the same face), so the 0.3 × 0.3 m
+column at the bend's OUTER corner belonged to neither leg. Nine corners, nine pinholes, visible
+only to a ray on the exact diagonal — `check_shell_sealed` grazed the 275 corner within 0.1 m and
+never fired through one — until the 365 branch mouth removed the wall beside one and a real 0.3 m
+hole opened (six escaping rays from the hall near the 380 fork, out through the corner at (−5, 190)). The outer wall of a bend now starts
+at `lo − T` and ABUTS the incoming leg's wall end; the attaching side is overridden to `lo + W` as
+before, so nothing overlaps. **A corner's outer square is covered by nobody unless somebody is told
+to cover it** — the same shape as Issue 92's alcove backs.
+
+## Issue 212 — The blind room handed the torch back with `unlock_flashlight()`, which leaves it off (2026-09-14)
+`blind_room.gd` sealed with `lock_flashlight()` and released with `unlock_flashlight()` — the pair
+`player.gd` documents, six lines above it, as *not enough for a temporary blackout*: the unlock
+clears the flag and the light stays `visible = false`, so a player walked out of the blind room
+in the dark until they pressed F. Issue 174 (`hiding_spot.gd`) was the identical mistake seven
+days earlier. `force_flashlight_off()` / `restore_flashlight()` now. Found by `walk_corridor`'s
+"the torch is back" — which had been green while the walker took a different route through the
+level, and went red the moment the loop-back leg was made to work. **A scripted blackout uses the
+force/restore pair; lock/unlock is for a torch the player must not touch for a while.**
+
+## Issue 213 — "I got stuck" in the cupboard: the fallback clock does not run while a J-capture is typed (2026-09-15)
+The user sat sealed in the Corridor's cupboard for 88 s of wall clock (`CUPBOARD sealed` at 658.65,
+session end at 750.24) and the 45 s fallback never released them. No script error, and
+`check_cupboard_fallback.gd` — written for this — drives the exact path (sealed, moving the whole
+time, torch on) and releases at FALLBACK_S every run. The log has the answer: both captures #5 and #6
+were typed INSIDE that window, and `DebugLog` pauses the tree for the whole of a capture
+(`get_tree().paused = true` until the note is submitted). `SpurCupboard._process` sums `delta`, which
+is zero while paused, so two long notes (~55 s of the 88) left the fallback roughly ten seconds
+short. Not a defect in the beat; a defect in what the beat ASKED — the user had the torch on and
+did not know the rule, so the 8 s stillness release could never fire either. C3 removes the ask:
+the seal now takes the torch (`force_flashlight_off`/`restore_flashlight`, Issue 212's pair) and
+scrawls **DON'T MOVE. DON'T BREATHE.**, so standing there is the obvious thing and the 8 s clock does
+the work. **A wall-clock reading of a delta-summed timer is wrong by every pause in it — check the
+capture timestamps before calling a timer broken.**
+
+## Issue 214 — The House cellar apparition aborted once and was never retried (2026-09-15)
+`level_2.gd:_trigger_apparition()` set `_apparition_fired = true` and called
+`ApparitionDirector.arm()` without reading its return: the 2026-09-14 log shows
+`APPARITION aborted (no clear spot)` in the cellar and no second attempt, so the House had no
+apparition that run. The Lab had the identical shape fixed on 2026-09-14 (Issue 207,
+`appear() -> bool`); the House was not carried across. It now latches only on `arm()` returning
+true, otherwise respawns the figure and re-polls every 0.25 s for up to 20 s (`_tick_apparition_retry`,
+refused while paused / a note is open). **When a fix teaches a function to report failure, grep every
+caller — the second caller is where the bug lives now.**
+
+## Issue 215 — The blackout doorway's wall plug was a picture, so the gate passed through it (2026-09-16)
+K5 (Issue 198's fix) plugged KONTUR's real Blackout doorway with a wall-textured `CSGBox3D` while
+the torch is on — `use_collision = false`, "visual only, so the way through stays walkable". The
+gate-7 pass trigger sits 1 m BEHIND that plug, so a player who walked at the wall with the torch
+on went straight through the picture and passed the gate without ever turning the light off
+(capture #8, `GATE PASSED — dark` 23 s before `FLASHLIGHT OFF`). The plug now toggles
+`use_collision` with `visible`: a wall you can see is a wall you bump into. `walk_kontur` asserts
+it is solid lit and gone dark. **A prop that HIDES an opening must also CLOSE it, or the opening
+is still the answer.**
+
+## Issue 216 — Changing scene from inside a glitch wall's body_entered freed colliders mid-physics (2026-09-16)
+`GlitchWall._on_body` → `touched` → `advance_level()` / `_enter_zone()` ran synchronously inside
+the physics callback; Godot refused with *Removing a CollisionObject node during a physics
+callback is not allowed*. All three seam consumers in `backrooms.gd` now `call_deferred` the
+transition. Harmless in practice (the engine only warned) but it is the shape of a crash on a
+build with stricter checks.
+
+## Issue 217 — The wing payoff skipped its figure wherever the player had walked to (2026-09-16)
+`level_1.gd`'s nook beat armed a WATCH 20 s after the breaker; by then the player had walked
+~10 m out of BreakerNook, the watch fired at once (3 m from the anchor is true everywhere out
+there), and `_place_nook_figure()`'s ladder of nook-relative marks found nothing in a 2.2 m
+corridor — its honest failure mode ("skip the picture, keep the sting") is exactly what the
+user reported: *"I did not see the jumpscare, I just heard it."* And nothing logged the skip.
+Now the breathing cuts, a second of silence, and the figure is placed by a ray fan off the
+player's own corridor (the wing screamer's method, Issue 208) — never non-finite — glows,
+lunges, and the log carries its distance and room. **A beat whose placement can fail needs a
+placement that cannot, and a log line either way.**
+

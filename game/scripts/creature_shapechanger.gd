@@ -77,6 +77,10 @@ const REVEAL_FADE := 0.35
 signal revealed
 
 @export var disguised: bool = false
+# K2 (2026-09-14): when set, the kill is `Screamer.trigger_with_lunge(death_figure)` — a figure
+# in the world lunging to the lens before the funnel. KONTUR sets it; empty keeps the plain
+# `Screamer.trigger()`, so the Void and anything else is byte-identical.
+@export var death_figure: String = ""
 ## Where the figure is standing once the disguise drops. Set by the level, validated by
 ## the level with rays (Issue 40 — an outward fan cannot detect "inside a wall").
 @export var reveal_mark: Vector3 = Vector3.ZERO
@@ -207,4 +211,7 @@ func _process(_delta: float) -> void:
 			return
 	if _player.global_position.distance_to(global_position) < KILL_DIST:
 		_fired = true
-		Screamer.trigger()
+		if death_figure != "":
+			Screamer.trigger_with_lunge(death_figure, 1.6, 0.5, 0.25)
+		else:
+			Screamer.trigger()

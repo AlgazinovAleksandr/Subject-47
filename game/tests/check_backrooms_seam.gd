@@ -337,6 +337,8 @@ func _image(path: String) -> Image:
 		return null
 	var img: Image = tex.get_image()
 	if img != null and img.is_compressed():
+		img.decompress()   # textures import VRAM-compressed since 2026-09-13 (memory); get_pixel needs raw
+	if img != null and img.is_compressed():
 		if img.decompress() != OK:
 			return null
 	return img
@@ -502,8 +504,19 @@ func _marks() -> void:
 			continue
 		# It quotes the Lab's TRIAL 4 whiteboard on purpose, and that is the hint the user
 		# asked twice to be made clearer. If the wording drifts, the link is gone.
-		_ok("%s: it says NO DOOR, echoing the Lab whiteboard" % id,
-			lbl.text.contains("NO DOOR"), lbl.text.replace("\n", " / "))
+		# B2 (2026-09-13): the caps carry the user's line, the utility room the other.
+		# B1 (2026-09-14): the CORRECT arm carries the verb (NO DOOR / WALK INTO IT); the others
+		# keep their own words.
+		var correct := String(_scene.get("_correct"))
+		if id == correct:
+			_ok("%s: the correct arm says NO DOOR / WALK INTO IT" % id,
+				lbl.text.contains("WALK INTO IT"), lbl.text.replace("\n", " / "))
+		elif id == "N":
+			_ok("%s: the glitch wall says YOU ARE HERE FOR A REASON" % id,
+				lbl.text.contains("FOR A REASON"), lbl.text.replace("\n", " / "))
+		else:
+			_ok("%s: the cap says EASY TO GET IN / IMPOSSIBLE TO GET OUT" % id,
+				lbl.text.contains("IMPOSSIBLE TO GET OUT"), lbl.text.replace("\n", " / "))
 		# Unshaded Label3D, so `modulate` is its final colour — it must be DARK against
 		# wallpaper, never a glowing sign (Issue 33).
 		var lum: float = 0.2126 * lbl.modulate.r + 0.7152 * lbl.modulate.g \
@@ -521,6 +534,18 @@ func _marks() -> void:
 	# — `_ok` is only ever reached inside the loop body past the null guard.
 	_ok("all three scrawls were measured", _scrawls_measured == 3,
 		"%d of 3" % _scrawls_measured)
+	# B2: the caps' line is read ONCE — the first loop-back takes both cap scrawls down and
+	# leaves the glitch wall's. Wired from `_on_loopback` (asserted off the source, since driving
+	# the real loop-back teleports the player out from under the rest of this test).
+	_scene.call("_spend_cap_scrawls")
+	await create_timer(0.1).timeout
+	_ok("B2: after the first loop-back the two cap scrawls are gone",
+		_scene.get_node_or_null("SeamScrawlE") == null and _scene.get_node_or_null("SeamScrawlW") == null)
+	_ok("B2: …and the utility-room scrawl stays", _scene.get_node_or_null("SeamScrawlN") != null)
+	var src := FileAccess.get_file_as_string("res://scripts/backrooms.gd")
+	var lb := src.find("func _on_loopback(")
+	var body := src.substr(lb, src.find("\nfunc ", lb + 10) - lb) if lb >= 0 else ""
+	_ok("B2: _on_loopback spends the cap scrawls", body.contains("_spend_cap_scrawls()"))
 
 
 # ------------------------------------------------------------------------ the third turn

@@ -3,19 +3,20 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://ciqtl5dujc6xy"
-path="res://.godot/imported/fungal_mass.png-5d8579019e7facaaa378b82881d0af97.ctex"
+path.s3tc="res://.godot/imported/fungal_mass.png-5d8579019e7facaaa378b82881d0af97.s3tc.ctex"
 metadata={
-"vram_texture": false
+"imported_formats": ["s3tc_bptc"],
+"vram_texture": true
 }
 
 [deps]
 
 source_file="res://assets/textures/level_5_kontur/fungal_mass.png"
-dest_files=["res://.godot/imported/fungal_mass.png-5d8579019e7facaaa378b82881d0af97.ctex"]
+dest_files=["res://.godot/imported/fungal_mass.png-5d8579019e7facaaa378b82881d0af97.s3tc.ctex"]
 
 [params]
 
-compress/mode=0
+compress/mode=2
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0

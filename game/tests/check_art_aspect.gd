@@ -167,7 +167,9 @@ const CONFIG := {
 		# at all — its notes are untextured `BoxMesh` pages and its creatures are GLB models —
 		# so this guard measures nothing there. Filed in backlogs/08-void.md rather than
 		# papered over; `min_samples` 0 with a printed warning is the honest reading.
-		"min_samples": 0, "deferred": {},
+		# 2026-09-12: the fragments carry the Void's first artwork — two gurney pads, the
+		# child's drawing and the dead monitor, all on QuadMeshes sized from their textures.
+		"min_samples": 3, "deferred": {},
 	},
 }
 

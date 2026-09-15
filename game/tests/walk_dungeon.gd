@@ -52,7 +52,7 @@ var _objectives := 0
 var _total_frames := 0
 var _capped := false
 var _neutralised := 0
-var _retry_leg := -1
+var _retried: Dictionary = {}    # leg index -> already backed up once for it
 
 
 func _ok(label: String, cond: bool, detail: String = "") -> void:
@@ -109,6 +109,10 @@ func _process(_delta: float) -> bool:
 			_fails += 1
 			return _report()
 		if _mode == 0:
+			# ⚠️ Entities out first (2026-09-12): the Still Ones live in the rooms' niches and
+			# sarcophagi now and a statue's capsule can stand across a doorway line at eye
+			# height. This pass is about PROPS and door blockers, so measure without them.
+			_neutralise_entities()
 			_ray_pass(_pending_seed)
 			return _next_seed()
 		_begin_walk()
@@ -133,11 +137,15 @@ func _ray_pass(s: int) -> void:
 	for d in _gen.doorways:
 		var p: Vector2 = d["pos"]
 		var n: Vector3 = Vector3(1, 0, 0) if d["dir"] == "x" else Vector3(0, 0, 1)
-		var mid := Vector3(p.x, 1.6, p.y)
-		var q := PhysicsRayQueryParameters3D.create(mid - n * 1.7, mid + n * 1.7)
-		q.collision_mask = 1
-		if not space.intersect_ray(q).is_empty():
-			blocked_doors += 1
+		# ⚠️ Eye AND knee height (2026-09-12): a sarcophagus across a doorway's approach is
+		# invisible to the eye ray and stalls the walker every time.
+		for hy in [1.6, 0.5]:
+			var mid := Vector3(p.x, hy, p.y)
+			var q := PhysicsRayQueryParameters3D.create(mid - n * 1.7, mid + n * 1.7)
+			q.collision_mask = 1
+			if not space.intersect_ray(q).is_empty():
+				blocked_doors += 1
+				break
 
 	# Every sconce must sit on a wall that is NOT a doorway, and must be reachable
 	# from inside its own chamber. wall_point() returns the wall CENTRE, which is
@@ -157,6 +165,13 @@ func _ray_pass(s: int) -> void:
 
 # ── Walk pass: drive the real player body through the whole objective route ─────
 func _begin_walk() -> void:
+	_retried = {}
+	_stalls = 0
+	_leg = 0
+	_hop_frames = 0
+	_total_frames = 0
+	_capped = false
+	_last_phys = -1
 	var p := _level.get_node_or_null("Player") as CharacterBody3D
 	if p == null:
 		_ok("player exists", false)
@@ -195,11 +210,21 @@ func _begin_walk() -> void:
 				# and the next leg then aims diagonally at a room centre through
 				# solid masonry and stalls. Stepping through first is what makes the
 				# straight-line steering viable in a room graph.
-				var n := next_c - door
-				n.y = 0.0
+				# ⚠️ ALONG THE DOORWAY'S NORMAL, never toward the next room's centre (2026-09-12).
+				# Aimed at the centre, the commit point for a door near a room corner runs
+				# DIAGONALLY through the jamb — seed 101's Chamber0 -> Hall18 door at (4.5, 9)
+				# with Hall18's centre at (0, 7.5) put it at (2.6, 8.4), i.e. through the wall
+				# stub at x 3.0..3.4, and the walker pushed into that corner for ever.
+				var n := _door_normal(door, next_c)
 				if n.length() > 0.01:
-					_route.append(door + n.normalized() * 2.0)
-			_route.append(next_c)
+					_route.append(door + n * 2.0)
+			# ⚠️ No room-CENTRE waypoint for pass-through rooms (2026-09-12): the archetypes put
+			# props in the rooms, and a bot that must stand on the centre of a room with a well
+			# in it stalls for ever (measured: 21 legs on seed 101). The commit point plus the
+			# next doorway is the door-to-door line a player actually walks. Objective rooms
+			# still get their own objective point below.
+			if i == hops.size() - 1:
+				_route.append(next_c)
 		at = target
 	_objectives = objectives.size()
 	_leg = 0
@@ -222,12 +247,28 @@ func _begin_walk() -> void:
 #
 # Entity BEHAVIOUR is covered where it belongs: check_dungeon_entities.gd for the
 # §B10 placement rules, test_creature_object12.gd for the Matron's state machine.
+# The unit vector through doorway `door` toward `toward` (the axis the doorway's own
+# "dir" names, signed by which side `toward` lies on).
+func _door_normal(door: Vector3, toward: Vector3) -> Vector3:
+	var axis := Vector3.ZERO
+	for d in _gen.doorways:
+		var p: Vector2 = d["pos"]
+		if absf(p.x - door.x) < 0.01 and absf(p.y - door.z) < 0.01:
+			axis = Vector3(1, 0, 0) if d["dir"] == "x" else Vector3(0, 0, 1)
+			break
+	if axis == Vector3.ZERO:
+		var n := toward - door
+		n.y = 0.0
+		return n.normalized() if n.length() > 0.01 else Vector3.ZERO
+	var sgn: float = 1.0 if (toward - door).dot(axis) >= 0.0 else -1.0
+	return axis * sgn
+
+
 func _neutralise_entities() -> void:
 	var removed := 0
 	for child in _level.get_children():
 		var n: String = child.name
-		if n.begins_with("StillOne_") or n.begins_with("Trap_") \
-				or n == "TheChild" or n == "TheMatron" or n == "TheHollowOne" \
+		if n.begins_with("StillOne_") or n == "TheChild" or n == "TheHunter" \
 				or n == "TheKneelingMan":
 			_level.remove_child(child)
 			child.queue_free()
@@ -235,10 +276,21 @@ func _neutralise_entities() -> void:
 	_neutralised = removed
 
 
+var _last_phys := -1
+
+
 func _tick_walk() -> bool:
 	if _auto == null or _leg >= _route.size():
 		return _finish_walk()
-	_total_frames += 1
+	# ⚠️ BUDGETS COUNT PHYSICS TICKS, NOT RENDER FRAMES (2026-09-12). Headless, `_process`
+	# runs at whatever rate the machine allows while the body moves 60 times a second; on a
+	# loaded machine that was 4-5 render frames per tick and a 700-frame hop budget became
+	# ~2.5 s of movement, which no 21 m corridor leg fits. 700 ticks is 11.7 s whatever the
+	# machine is doing.
+	var pf := Engine.get_physics_frames()
+	var ticks: int = 1 if _last_phys < 0 else maxi(0, pf - _last_phys)
+	_last_phys = pf
+	_total_frames += ticks
 	if _total_frames > WALK_FRAME_CAP:
 		_capped = true
 		return _finish_walk()
@@ -254,7 +306,7 @@ func _tick_walk() -> bool:
 		return false
 
 	_auto.step_toward(target)
-	_hop_frames += 1
+	_hop_frames += ticks
 	if _hop_frames > FRAMES_PER_HOP:
 		# ⚠️ ONE RETRY, by backing up to the previous waypoint first.
 		# AutoPlayer steers in a straight line with no pathfinding, so it can wedge
@@ -264,8 +316,11 @@ func _tick_walk() -> bool:
 		# imperfect: measured, the same pinned seed stalled 2 legs on one run and 0
 		# on the next with nothing about the level changed.
 		# A leg that fails twice is a real finding and is counted as a stall.
-		if _retry_leg != _leg:
-			_retry_leg = _leg
+		# ⚠️ Per-LEG bookkeeping (2026-09-12). A single "last retried leg" int let two adjacent
+		# stalls retry each other for ever: 40 fails -> back to 39 -> 39 fails (retry slot says
+		# 40) -> back to 38 ... and the run reported 21 timed-out legs that were three.
+		if not _retried.has(_leg):
+			_retried[_leg] = true
 			_leg = maxi(0, _leg - 1)
 			_hop_frames = 0
 			_auto.reset_stuck()

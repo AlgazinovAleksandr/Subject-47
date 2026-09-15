@@ -153,6 +153,17 @@ func _process(delta: float) -> bool:
 		# player straight THROUGH it — a facing test that passes and proves nothing.
 		_face(mp + approach * (active * 0.6), mp + approach * 60.0)
 		_scene.call("_tick_mirror_wake", m, _player.global_position)
+		if bool(m.get("hidden", false)):
+			# R2: the HIDDEN mirror appears whichever way you face — the corner turns you into
+			# it — and it must be a real appearance: frame and glass were absent before.
+			_ok("mirror @%s (hidden): appears inside the gate even at your back" % str(mp.round()),
+				_wake_players() == before + 1 and bool(m.woke))
+			_ok("mirror @%s (hidden): the frame and the glass are on the wall now" % str(mp.round()),
+				(m.get("body") as Node3D).visible and (m.get("frame") as Node3D).visible)
+			_ok("mirror @%s (hidden): the cue costs no panic" % str(mp.round()),
+				_player.get_panic_ratio() < 0.001)
+			tested += 1
+			continue
 		_ok("mirror @%s: silent when it is behind you" % str(mp.round()),
 			_wake_players() == before and not bool(m.woke))
 
@@ -201,8 +212,10 @@ func _process(delta: float) -> bool:
 	# between the wake and the sting. Asserted as a gap, with a ratio floor kept as a second
 	# guard against someone shrinking the sting instead.
 	var sting: float = float(cs.get("TURN_MIRROR_SCARE_DIST"))
+	# R2 (2026-09-16, the user: "slightly closer"): ACTIVE_DIST is 4 now, so the gap is 2 m —
+	# half a second of walking, still a beat before the sting rather than layered on it.
 	_ok("the wake cue and the 2 m sting are separate beats",
-		active - sting >= 4.0 and active >= sting * 3.0,
+		active - sting >= 1.5 and active >= sting * 1.5,
 		"gap %.1f m (%.1f m vs %.1f m)" % [active - sting, active, sting])
 	_ok("the wake cue's facing gate is a real cone",
 		float(cs.get("MIRROR_WAKE_FACING")) > 0.0 and float(cs.get("MIRROR_WAKE_FACING")) < 1.0,

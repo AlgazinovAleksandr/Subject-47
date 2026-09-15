@@ -296,6 +296,8 @@ func _check_notice(scene: Node, player: CharacterBody3D, cam: Camera3D,
 	if tex == null:
 		return
 	var img := tex.get_image()
+	if img != null and img.is_compressed():
+		img.decompress()   # textures import VRAM-compressed since 2026-09-13 (memory); get_pixel needs raw
 
 	# ⚠️ THE MIRROR OF THE EIGHT SIGNS' ASSERTION. Every gate notice must carry a censor
 	# bar; this one must not. It withholds nothing, and that visible difference is what
@@ -457,7 +459,10 @@ func _sign_plates(scene: Node) -> Array:
 			var tex: Texture2D = (mat as StandardMaterial3D).albedo_texture
 			if tex == null or not tex.resource_path.get_file().begins_with("kontur_sign_"):
 				continue
-			out.append([c, gc, tex.get_image()])
+			var simg := tex.get_image()
+			if simg.is_compressed():
+				simg.decompress()
+			out.append([c, gc, simg])
 			break
 	return out
 

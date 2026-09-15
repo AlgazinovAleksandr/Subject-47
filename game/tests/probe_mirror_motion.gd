@@ -74,6 +74,8 @@ func _sample(vp: SubViewport) -> void:
 	if tex == null:
 		return
 	var img := tex.get_image()
+	if img != null and img.is_compressed():
+		img.decompress()   # textures import VRAM-compressed since 2026-09-13 (memory); get_pixel needs raw
 	if img == null or img.get_width() == 0:
 		return
 	# Downsample hard: this runs every frame and only the aggregate matters.
