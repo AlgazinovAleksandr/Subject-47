@@ -188,6 +188,7 @@ var _gates := {
 # Gate 7 state: [MeshInstance3D, is_real]
 var _dark_seams: Array = []
 var _dark_plug: CSGBox3D = null   # K5 (2026-09-13): the real doorway wears WALL while the torch is on
+var _plug_state: int = -1         # R9: last applied plug state (-1 = never), so the tick writes on change only
 
 # Gate 8 state. _airlock_t is time-in-zone, driving the marker's oscillation phase.
 var _airlock_t: float = 0.0
@@ -1906,7 +1907,7 @@ func _spawn_gate7_dark() -> void:
 			plug.name = "DarkSeamPlug"
 			plug.size = Vector3(1.6, 2.98, 0.2)   # exactly the opening: a 1 cm slit showed the jambs as two lit lines
 			plug.position = Vector3(x, 1.505, 60.0)
-			plug.use_collision = false
+			plug.use_collision = true   # R9: WALL while lit (toggled with `visible` in _update_dark_seams)
 			plug.material = _mat(TEX + "kontur_facility_wall.png", 0.4, Color(0.62, 0.66, 0.62))
 			add_child(plug)
 			_dark_plug = plug
@@ -3292,7 +3293,9 @@ func _on_archive_keycard_taken() -> void:
 	_archive_keycard = null
 	if is_instance_valid(_archive_gate):
 		_archive_gate.locked_message = "TRANSIT DOOR — KEYCARD ACCEPTED. PRESS E."
-	_notice("Security keycard recovered. The transit door will take it.", Color(0.6, 0.9, 0.6))
+	# R8 (2026-09-16): the KeyItem's own label sits dead centre, so this one goes to the LOWER
+	# caption slot in another colour — two texts on top of each other were unreadable.
+	ScreenText.caption(get_tree(), "The transit door will take it.", 3.0, Color(0.85, 0.72, 0.45))
 
 
 func _on_archive_gate_used() -> void:
@@ -3633,4 +3636,15 @@ func _update_dark_seams() -> void:
 			marker.visible = (not lit) if entry[1] else lit
 	# K5: the real doorway is WALL under the beam (and open for good once the gate is passed).
 	if _dark_plug != null and is_instance_valid(_dark_plug):
-		_dark_plug.visible = lit and not bool(_gates.get("dark", false))
+		var plugged: bool = lit and not bool(_gates.get("dark", false))
+		# R9 (2026-09-16, capture #8: "I could walk into the door before I turned off the
+		# flashlight"): a wall you can walk through is a doorway with a picture on it. Solid
+		# while lit — the gate's own trigger sits behind it and used to fire anyway.
+		# ⚠️ Written on TRANSITIONS only: a per-frame write would undo `check_reachable`'s
+		# gate-opening (it disables the collider once and fills), and a state that changes
+		# only when the torch changes is the same thing to the player.
+		var state: int = 1 if plugged else 0
+		if state != _plug_state:
+			_plug_state = state
+			_dark_plug.visible = plugged
+			_dark_plug.use_collision = plugged

@@ -46,7 +46,10 @@ const APPEAR_DIST_MAX := 3.0
 # 0.71 s is still a rush. SCARY.md §8.11's shape (never punish a reaction to a scare you could not
 # have seen coming). Chosen over "no grace" and "1.5 s" by the user.
 const STARTLE_GRACE := 0.7
-const ARRIVAL_STING_DEFAULT := "all_levels_screamer"
+# L2 (2026-09-15, the user: "this will be the sound for the shared screamer across all levels"):
+# `apparition_snarl` is the ARRIVAL of every HOLD apparition. The rush therefore takes the
+# shared screamer (`_play_sting`), since the two moments cannot share one file.
+const ARRIVAL_STING_DEFAULT := "apparition_snarl"
 const HOLD_TIME := 6.0       # seconds of nerve (no flee) before it fades — long enough to read
 const DREAD_RATE := 3.0      # panic/s while it stands there — the climb to endure
 const FADE_IN := 0.6
@@ -670,7 +673,7 @@ func _play_arrival_sting(delay: float) -> void:
 # starts doing the work instead.
 # ⚠️ NO `pitch_scale`. The 1.4 existed only to make a door creak sound like something alive.
 func _play_sting() -> void:
-	var stream := GameState.load_audio("apparition_snarl")
+	var stream := GameState.load_audio("all_levels_screamer")   # L2: the snarl is the arrival now
 	if not stream:
 		stream = GameState.load_audio("apparition_drone")
 	if not stream:

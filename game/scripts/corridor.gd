@@ -36,15 +36,15 @@ const PATH_2D: Array[Vector2] = [
 # wait:
 #   "note"   — a page on the end wall ("You are not the first to take this experiment"); at the
 #              second bar a shadow crosses the strip of light under the door.
-#   "plea"   — the whispering room: the voice behind the end wall RISES with every bar you force,
-#              and stops mid-word at the third, as a wet hand-print appears on the inside of the door.
-#   "mirror" — a mirror on the end wall. While you push, something stands behind you in the
-#              glass, between you and the door. It is gone when the door gives.
+#   "bell"   — C4 (2026-09-15, the user's design): a reception desk. E rings, every light dies
+#              for SpurBell.BLACKOUT_S, and when they return the ROOM 217 KEY lies by the bell —
+#              the only thing that opens the false 217 at the next corner. The door never shuts.
+#   "cupboard" — C3: a slatted cupboard seals; the Manager walks past; hold still, torch taken.
 # Zero panic in all three. SPUR_SHUT_TIME is the FALLBACK — the door's own batter clock — for a
-# player who never pushes.
+# player who never pushes (the note spur only).
 const SIDE_PASSAGES := [
 	{ "at": 105.0, "side": -1.0, "len": 14.0, "whisper": false, "kind": "note" },
-	{ "at": 245.0, "side": 1.0, "len": 16.0, "whisper": true, "kind": "bell" },
+	{ "at": 208.0, "side": -1.0, "len": 16.0, "whisper": false, "kind": "bell" },   # C4 (2026-09-15): the key is served here, 22 m BEFORE door 217
 	{ "at": 330.0, "side": -1.0, "len": 12.0, "whisper": false, "kind": "cupboard" },
 ]
 # ⭐ 2026-09-14 (BACKLOG_Sep_14 C2/C3, the user: "always pressing Space is boring"): the "plea"
@@ -279,7 +279,9 @@ const MIRROR_STARE_PITCH := Vector2(0.72, 1.35)
 #     the lights-out event and the four beartraps in the 145-172 m dark stretch. They come out
 #     of the dark and there is a red-lit doorway at the end of the hall. The promise is what
 #     pulls them through the traps, and it is a lie.
-const FALSE_DOOR_DIST := 185.0
+# C4 (2026-09-15): 185 -> 230, the corner AFTER the reception bell (208). The door needs the key
+# the bell serves (`FalseExitDoor.requires_key`), so it has to come after it — no backtracking.
+const FALSE_DOOR_DIST := 230.0
 const FALSE_DOOR_TEX := TEX_DIR + "hotel_door_217.png"
 # ⭐⭐ THE THING COMES OUT OF THE DOOR NOW (2026-09-10, the user's replay: *"regenerate the image
 # of the jumpscare behind the fake door. And maybe make it look more natural — like something
@@ -535,7 +537,19 @@ const DOOR_SLAM_LEAD := 22.0       # metres past the ajar door before it slams
 const BREAK_DOOR_AT := 124.0
 const BREAK_DOOR_SIDE := -1.0
 const BREAK_DOOR_DEG := 14.0
+const BREAK_FIGURE_PAST := 2.0     # C1: metres past the door it stands, on the centreline
+# C6 (2026-09-16, capture #5: "this should look exactly like a place you can enter"): the door is
+# a DOUBLE door (two AjarDoor leaves, 2 x WIDTH = 1.94 m) standing open into a real bedroom
+# BREAK_ROOM_W x BREAK_ROOM_D behind the wall — a bed, a wardrobe, a window with nothing outside.
+# Both leaves slam at BREAK_FIGURE_GONE_M, before you can get in.
+const CLOSET_DEPTH := 2.2          # C7: the service closet at the cupboard spur's end
+const CLOSET_OPEN_DEG := 100.0     # its door stands open OUT into the spur — a door you can see, and one that never sweeps the closet
+const BREAK_ROOM_W := 3.0
+const BREAK_ROOM_D := 3.0
+const BREAK_OPEN_DEG := 78.0       # the leaves swing INTO the room, so AjarDoor.AJAR_MAX_DEG's hall limit does not apply
+const BREAK_FIGURE_GONE_M := 4.0   # C1: it is gone, and the door slams, at this distance
 var _break_door: Node3D = null
+var _break_door2: Node3D = null    # C6: the right-hand leaf
 var _break_figure: Node = null
 var _break_spawned: bool = false
 var _break_done: bool = false
@@ -552,7 +566,7 @@ const DOOR_VIEW_DOT := 0.35        # above this the player is looking at it; do 
 # delivers the Manager. That keeps the shape of the beat — you learn the sound means
 # something is coming, you are wrong once, and then you are right — which is the whole
 # point of P4, while the instrument is heard twice instead of five times.
-const TELEGRAPH_AT: Array[float] = [240.0, 277.0]   # C1: just past the 230 and 275 corners, >= 55 m after the false door
+const TELEGRAPH_AT: Array[float] = [283.0, 298.0]   # C4: door 217 is at 230 now, so both sit >= 50 m after it (was 240/277)
 const TELEGRAPH_PAYOFF_DELAY := 0.9
 
 # The last stretch goes silent (P5's spatial cousin) instead of staying merely quiet.
@@ -590,7 +604,17 @@ func save_progress() -> Dictionary:
 		# record in the level that the player fell for it, which is why the restore path opens
 		# the leaf rather than merely disabling it.
 		"false_door_used": _false_door != null and _false_door.is_used(),
+		# C4: the bell's key — served and/or held — comes back with the door it opens.
+		"bell_rung": _bell_beat() != null and bool(_bell_beat().call("is_rung")),
+		"bell_key_taken": _bell_beat() != null and bool(_bell_beat().call("has_key")),
 	}
+
+
+func _bell_beat() -> Node:
+	for e in _spurs:
+		if String(e["kind"]) == "bell" and is_instance_valid(e.get("bell")):
+			return e["bell"]
+	return null
 
 
 func _place_player() -> void:
@@ -614,6 +638,13 @@ func _place_player() -> void:
 		_turn_mirrors[i]["flashes"] = bool(flags[i])
 	if bool(data.get("false_door_used", false)) and _false_door != null:
 		_false_door.set_used_instantly()
+	if bool(data.get("bell_rung", false)) and _bell_beat() != null:
+		var taken := bool(data.get("bell_key_taken", false))
+		_bell_beat().call("restore", true, taken)
+		if taken and _false_door != null:
+			_false_door.give_key()
+			if not _false_door.is_used():
+				GameState.set_carried(SpurBell.KEY_LABEL)
 
 
 func _process(delta: float) -> void:
@@ -680,9 +711,13 @@ func _tick_mirror_wake(m: Dictionary, pp: Vector3) -> void:
 	# is supposed to be announcing.
 	if Vector2(pp.x - mp.x, pp.z - mp.z).length() > MirrorSurface.ACTIVE_DIST:
 		return
-	if _facing_dot(mp) < MIRROR_WAKE_FACING:
+	# R2: the hidden mirror APPEARS at this distance whichever way you face (the corner turns
+	# you into it anyway); the ordinary one still needs to be ahead of you to make its noise.
+	if not bool(m.get("hidden", false)) and _facing_dot(mp) < MIRROR_WAKE_FACING:
 		return
 	m.woke = true
+	if bool(m.get("hidden", false)):
+		_set_mirror_present(m.get("body"), m.get("frame"), true)
 	_play_on(self, "mirror_wake", mp, MIRROR_WAKE_DB, MIRROR_WAKE_MAX_DB)
 
 
@@ -936,23 +971,25 @@ func _build_geometry() -> void:
 				# C1: subtract every side-passage mouth on this segment and side, so the wall is
 				# emitted as one box per remaining interval.
 				var intervals: Array = [[wa, wb]]
-				var mouths: Array = []
+				var mouths: Array = []   # [at, side, half-width]
 				for sp in SIDE_PASSAGES:
-					mouths.append([float(sp["at"]), float(sp["side"])])
+					mouths.append([float(sp["at"]), float(sp["side"]), W / 2.0])
 				for fk in FORKS:   # C2: two mouths per fork — out and back in
-					mouths.append([float(fk["at"]), float(fk["side"])])
-					mouths.append([float(fk["at"]) + float(fk["across"]), float(fk["side"])])
+					mouths.append([float(fk["at"]), float(fk["side"]), W / 2.0])
+					mouths.append([float(fk["at"]) + float(fk["across"]), float(fk["side"]), W / 2.0])
 				for cb in CORNER_BRANCHES:   # C4: the facing wall at a corner, on the OUTGOING leg only
 					var cm := _corner_branch_mouth(float(cb["corner"]))
 					if int(cm["seg"]) == i:
-						mouths.append([float(cm["at"]), float(cm["side"])])
+						mouths.append([float(cm["at"]), float(cm["side"]), W / 2.0])
+				mouths.append([BREAK_DOOR_AT, BREAK_DOOR_SIDE, AjarDoor.WIDTH])   # C6: the bedroom's double door
 				for mo in mouths:
 					if signf(float(mo[1])) != signf(side):
 						continue
 					var at_local: float = float(mo[0]) - float(seg.start_d)
 					if at_local < 0.0 or at_local > float(seg.len):
 						continue
-					var cut := [at_local - W / 2.0, at_local + W / 2.0]
+					var half: float = float(mo[2])
+					var cut := [at_local - half, at_local + half]
 					var next: Array = []
 					for iv in intervals:
 						if cut[1] <= iv[0] or cut[0] >= iv[1]:
@@ -976,6 +1013,85 @@ func _build_geometry() -> void:
 		if i == _segments.size() - 1:
 			_corridor_box("EndCapWall", seg, hi, hi + T, 0.0, W + 2.0 * T, H / 2.0, H + 2.0 * T, _wall_mat)
 	_build_spurs()
+	_build_break_room()
+
+
+# C6: the bedroom behind the 124 door. Built like a spur on a synthetic segment whose p0 is the
+# wall's inner face and whose dir points out through it; the slabs start at T because the hall's
+# own floor/ceiling already cover the wall's thickness under the opening (Issue 20), and the
+# hall wall itself (cut only 2 x AjarDoor.WIDTH wide) is the room's front wall either side of
+# the doors. Parts, no emission, nothing on the line from the doors to the back wall.
+func _build_break_room() -> void:
+	var pt := _path_point(BREAK_DOOR_AT)
+	var n2 := Vector2(pt.side.x, pt.side.z) * BREAK_DOOR_SIDE
+	var p0: Vector2 = Vector2(pt.pos.x, pt.pos.z) + n2 * (W / 2.0)
+	var seg := { "p0": p0, "dir": n2, "len": BREAK_ROOM_D + T, "start_d": 0.0 }
+	var D: float = BREAK_ROOM_D + T
+	var RW: float = BREAK_ROOM_W
+	_corridor_box("BreakRoomFloor", seg, T, D, 0.0, RW + 2.0 * T, -T / 2.0, T, _floor_mat)
+	_corridor_box("BreakRoomCeil", seg, T, D, 0.0, RW + 2.0 * T, H + T / 2.0, T, _ceil_mat)
+	_corridor_box("BreakRoomWallL", seg, T, D, (RW + T) / 2.0, T, H / 2.0, H + 2.0 * T, _wall_mat)
+	_corridor_box("BreakRoomWallR", seg, T, D, -(RW + T) / 2.0, T, H / 2.0, H + 2.0 * T, _wall_mat)
+	_corridor_box("BreakRoomWallBack", seg, D, D + T, 0.0, RW + 2.0 * T, H / 2.0, H + 2.0 * T, _wall_mat)
+	var dir3 := Vector3(n2.x, 0.0, n2.y)
+	var lat3 := Vector3(-n2.y, 0.0, n2.x)
+	var mouth := Vector3(p0.x, 0.0, p0.y)
+	var yaw: float = atan2(dir3.x, dir3.z)
+	var wood := _make_mat(TEX_DIR + "clock_walnut.png", Vector3(0.8, 0.8, 0.8), Color(0.16, 0.11, 0.06))
+	var linen := _make_mat("res://assets/textures/intro/sheet_linen.png", Vector3(2.0, 2.0, 2.0), Color(0.42, 0.40, 0.36))
+	linen.albedo_color = Color(0.40, 0.38, 0.34)
+	# the bed along the left wall, head to the back
+	var bed := Node3D.new()
+	bed.name = "BreakRoomBed"
+	bed.position = mouth + dir3 * (T + 1.75) + lat3 * (RW / 2.0 - 0.55)
+	bed.rotation.y = yaw
+	add_child(bed)
+	for part in [["Frame", Vector3(0.95, 0.30, 2.0), Vector3(0, 0.15, 0), wood],
+			["Mattress", Vector3(0.85, 0.16, 1.9), Vector3(0, 0.38, 0), linen],
+			["Head", Vector3(0.95, 0.9, 0.06), Vector3(0, 0.45, 1.0), wood],
+			["Pillow", Vector3(0.6, 0.10, 0.35), Vector3(0, 0.51, 0.7), linen]]:
+		var b := CSGBox3D.new()
+		b.name = String(part[0])
+		b.size = part[1]
+		b.position = part[2]
+		b.material = part[3]
+		b.use_collision = part[0] == "Frame"
+		bed.add_child(b)
+	# the wardrobe against the right wall, near the back
+	var ward := CSGBox3D.new()
+	ward.name = "BreakRoomWardrobe"
+	ward.size = Vector3(1.1, 2.05, 0.55)
+	ward.position = mouth + dir3 * (T + 2.2) - lat3 * (RW / 2.0 - 0.30) + Vector3(0, 1.025, 0)
+	ward.rotation.y = yaw
+	ward.material = wood
+	ward.use_collision = true
+	add_child(ward)
+	# the window on the back wall: a black pane in a wooden frame, nothing outside
+	var win_c: Vector3 = mouth + dir3 * (D - 0.04) + Vector3(0, 1.6, 0)
+	var pane := MeshInstance3D.new()
+	pane.name = "BreakRoomWindow"
+	var pq := QuadMesh.new()
+	pq.size = Vector2(1.0, 1.2)
+	pane.mesh = pq
+	var pm := StandardMaterial3D.new()
+	pm.albedo_color = Color(0.01, 0.01, 0.015)
+	pm.roughness = 0.45   # dull: a sharp torch highlight on the pane read as a light OUTSIDE
+	pm.metallic = 0.15
+	pane.material_override = pm
+	pane.position = win_c
+	pane.rotation.y = yaw + PI   # -z toward the room
+	add_child(pane)
+	for bar in [[Vector3(1.1, 0.06, 0.05), Vector3(0, 0.63, 0)], [Vector3(1.1, 0.06, 0.05), Vector3(0, -0.63, 0)],
+			[Vector3(0.06, 1.2, 0.05), Vector3(0.53, 0, 0)], [Vector3(0.06, 1.2, 0.05), Vector3(-0.53, 0, 0)],
+			[Vector3(0.04, 1.2, 0.04), Vector3(0, 0, 0)]]:
+		var fb := CSGBox3D.new()
+		fb.size = bar[0]
+		var off: Vector3 = bar[1]
+		fb.position = win_c - dir3 * 0.06 + lat3 * off.x + Vector3(0, off.y, 0)   # 3.5 cm clear of the pane (check_wall_overlap's 2 cm)
+		fb.rotation.y = yaw
+		fb.material = wood
+		fb.use_collision = false
+		add_child(fb)
 	_build_forks()
 	_build_corner_branches()
 
@@ -1154,12 +1270,6 @@ func _dress_bell_spur(entry: Dictionary, end_face: Vector3, back: Vector3) -> vo
 	col.position = Vector3(0, 0.08, 0)
 	bell.add_child(col)
 	# a "RING FOR SERVICE" plate on the desk front, and the beat itself
-	var beat := SpurBell.new()
-	beat.name = "Spur%dBellBeat" % i
-	add_child(beat)
-	beat.setup(self, entry["door"], desk_c + Vector3(0, 0.98, 0), entry["mouth"], dir3)
-	bell.set("beat", beat)
-	entry["bell"] = beat
 	# the spur's lamp for this one is the desk lamp: a warm omni over the desk
 	var lamp := OmniLight3D.new()
 	lamp.name = "Spur%dDeskLamp" % i
@@ -1168,96 +1278,165 @@ func _dress_bell_spur(entry: Dictionary, end_face: Vector3, back: Vector3) -> vo
 	lamp.omni_range = 4.0
 	lamp.position = desk_c + Vector3(0, 2.0, 0)
 	add_child(lamp)
+	# C4: the beat — ring, blackout, the 217 key beside the bell. The mouth door is never closed.
+	var beat := SpurBell.new()
+	beat.name = "Spur%dBellBeat" % i
+	add_child(beat)
+	beat.setup(self, i, desk_c + Vector3(0, 0.98, 0), bell.position, entry["mouth"], dir3, lamp, entry["torch"])
+	beat.key_taken.connect(_on_bell_key_taken)
+	bell.set("beat", beat)
+	entry["bell"] = beat
 
 
 # C3: the linen cupboard at the spur's end — two sides, a shelf, a slatted door hinged open
 # toward the spur, a mirror on the back wall (the end wall), and the Area3D that seals it.
 func _dress_cupboard_spur(entry: Dictionary, end_face: Vector3, back: Vector3) -> void:
+	# C7 (2026-09-16, capture #2: "it looks like a small window, and through that window you
+	# see the other room. I want it to look like an actual door so that you think you can go
+	# there, but instead you get trapped"). The slatted cupboard and its mirror are GONE. The
+	# spur's last CLOSET_DEPTH metres are a SERVICE CLOSET behind a partition with a real hotel
+	# door standing open in it; step through and the door slams and locks (`spur_cupboard.gd`),
+	# the strip of light under it is the only light left, and the Manager's shadow crosses it
+	# as he passes. Same rules as before: still + torch off HOLD_S releases, move or light the
+	# torch and he stops outside and growls, FALLBACK_S opens it whatever you did. Zero panic.
 	var i: int = int(entry["index"])
 	var dir3: Vector3 = entry["dir"]
 	var lat3: Vector3 = entry["lat"]
-	var wood := _make_mat(TEX_DIR + "clock_walnut.png", Vector3(0.6, 0.6, 0.6), Color(0.13, 0.09, 0.05))
-	var cw := 1.1      # interior width
-	var cd := 0.8      # interior depth
-	var ch := 2.3
-	var yaw: float = atan2(back.x, back.z)      # local +z = toward the mouth (the door's face)
+	var mouth: Vector3 = entry["mouth"]
+	var L: float = float(entry["len"])
+	var cd: float = CLOSET_DEPTH
+	var pp: float = L - cd - T            # the partition spans pp .. pp + T along the spur
+	var seg := { "p0": Vector2(mouth.x, mouth.z), "dir": Vector2(dir3.x, dir3.z), "len": L, "start_d": 0.0 }
+	var dw: float = AjarDoor.WIDTH
+	var side_w: float = (W - dw) / 2.0
+	_corridor_box("Spur%dClosetWallA" % i, seg, pp, pp + T, (dw + side_w) / 2.0, side_w, H / 2.0, H, _wall_mat)
+	_corridor_box("Spur%dClosetWallB" % i, seg, pp, pp + T, -(dw + side_w) / 2.0, side_w, H / 2.0, H, _wall_mat)
+	_corridor_box("Spur%dClosetLintel" % i, seg, pp, pp + T, 0.0, dw, (AjarDoor.HEIGHT + H) / 2.0, H - AjarDoor.HEIGHT, _wall_mat)
+	var yaw_in: float = atan2(dir3.x, dir3.z)          # local +z = dir3 (deeper into the spur)
 	var root := Node3D.new()
-	root.name = "Spur%dCupboard" % i
-	root.position = end_face + back * (cd / 2.0)
-	root.rotation.y = yaw
+	root.name = "Spur%dCupboard" % i                    # the closet's centre; tests stand here to be sealed
+	root.position = mouth + dir3 * (pp + T + cd / 2.0)
+	root.rotation.y = yaw_in
 	add_child(root)
-	for part in [["CupSideL", Vector3(0.05, ch, cd), Vector3(-(cw / 2.0 + 0.025), ch / 2.0, 0)],
-			["CupSideR", Vector3(0.05, ch, cd), Vector3(cw / 2.0 + 0.025, ch / 2.0, 0)],
-			["CupTop", Vector3(cw + 0.1, 0.05, cd), Vector3(0, ch + 0.025, 0)],
-			["CupShelf", Vector3(cw, 0.03, cd * 0.5), Vector3(0, 1.95, -cd * 0.25)]]:
+	# the door: an AjarDoor leaf in the partition, hinged on one jamb, its face toward the mouth,
+	# standing open CLOSET_OPEN_DEG into the closet (nearly flat against the partition's inside)
+	var face_centre: Vector3 = mouth + dir3 * (pp + T / 2.0 + AjarDoor.THICK / 2.0) + Vector3(0, 0, 0)
+	var facing: Vector3 = -dir3                          # +z toward the mouth
+	var xf := Transform3D(Basis(Vector3.UP, atan2(facing.x, facing.z)), face_centre)
+	var door := AjarDoor.build(self, xf.translated_local(Vector3(-dw / 2.0, 0.0, 0.0)), TEX_DIR + "hotel_door_leaf.png")
+	door.name = "Spur%dClosetDoor" % i
+	# ⚠️ Outward (into the spur), not into the closet: a leaf that opened INTO the closet was
+	# hidden behind the partition from the spur (no door to see) and its re-opening swing after
+	# the release shoved the player into the partition wall (the walker stalled there twice).
+	door.swing_sign = -1.0
+	door.swing_ajar(CLOSET_OPEN_DEG, 0.01, 170.0)
+	var frame_xf := xf.translated_local(Vector3(0.0, AjarDoor.HEIGHT / 2.0, 0.0))   # the panel's CENTRE, not its sill
+	_spawn_frame_bars(frame_xf, Vector2(dw, AjarDoor.HEIGHT), "ClosetFrame_%d" % i, Color(0.055, 0.047, 0.038), FRAME_BEAD, FRAME_PROUD, false)
+	# the strip of light under the door, on the closet side (unshaded: it IS the light)
+	var strip := MeshInstance3D.new()
+	strip.name = "Spur%dClosetStrip" % i
+	var sq := QuadMesh.new()
+	sq.size = Vector2(dw - 0.06, 0.10)
+	strip.mesh = sq
+	var sm := StandardMaterial3D.new()
+	sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	sm.albedo_color = Color(0.95, 0.80, 0.55)
+	sm.emission_enabled = true
+	sm.emission = Color(0.95, 0.80, 0.55)
+	sm.emission_energy_multiplier = 1.0
+	strip.set_surface_override_material(0, sm)
+	var threshold: Vector3 = mouth + dir3 * (pp + T + 0.03)
+	strip.transform = Transform3D(Basis(Vector3.UP, yaw_in), threshold + Vector3(0, 0.06, 0))
+	add_child(strip)
+	# the closet: shelves of linen on the end wall, a chair in the corner, a bucket
+	var wood := _make_mat(TEX_DIR + "clock_walnut.png", Vector3(0.8, 0.8, 0.8), Color(0.16, 0.11, 0.06))
+	var linen := _make_mat("res://assets/textures/intro/sheet_linen.png", Vector3(2.0, 2.0, 2.0), Color(0.42, 0.40, 0.36))
+	linen.albedo_color = Color(0.42, 0.40, 0.36)
+	var iron := _make_mat("res://assets/textures/shared/rusted_iron.png", Vector3(1.5, 1.5, 1.5), Color(0.18, 0.16, 0.14))
+	var rack := Node3D.new()
+	rack.name = "Spur%dClosetRack" % i
+	rack.position = end_face + back * 0.26
+	rack.rotation.y = yaw_in
+	add_child(rack)
+	for xx in [-0.75, 0.75]:
+		for zz in [-0.2, 0.2]:
+			var post := CSGBox3D.new()
+			post.size = Vector3(0.05, 2.0, 0.05)
+			post.position = Vector3(xx, 1.0, zz)
+			post.material = wood
+			post.use_collision = false
+			rack.add_child(post)
+	var rack_body := CSGBox3D.new()
+	rack_body.size = Vector3(1.6, 2.0, 0.5)
+	rack_body.position = Vector3(0, 1.0, 0)
+	rack_body.material = wood
+	rack_body.visible = false
+	rack_body.use_collision = true
+	rack.add_child(rack_body)
+	for k in range(3):
+		var shelf := CSGBox3D.new()
+		shelf.size = Vector3(1.6, 0.03, 0.5)
+		shelf.position = Vector3(0, 0.4 + k * 0.6, 0)
+		shelf.material = wood
+		shelf.use_collision = false
+		rack.add_child(shelf)
+		for j in range(2):
+			var stack := CSGBox3D.new()
+			stack.size = Vector3(0.55, 0.10 + 0.05 * float((k + j) % 3), 0.40)
+			stack.position = Vector3(-0.4 + j * 0.8, 0.4 + k * 0.6 + 0.015 + stack.size.y / 2.0, 0)
+			stack.material = linen
+			stack.use_collision = false
+			rack.add_child(stack)
+	var chair := Node3D.new()
+	chair.name = "Spur%dClosetChair" % i
+	chair.position = mouth + dir3 * (pp + T + 0.55) - lat3 * (W / 2.0 - 0.45)
+	chair.rotation.y = yaw_in + 0.6
+	add_child(chair)
+	for part in [["Seat", Vector3(0.44, 0.04, 0.44), Vector3(0, 0.45, 0)], ["Back", Vector3(0.44, 0.5, 0.04), Vector3(0, 0.72, -0.2)]]:
 		var b := CSGBox3D.new()
-		b.name = String(part[0])
 		b.size = part[1]
 		b.position = part[2]
-		b.use_collision = true
 		b.material = wood
-		root.add_child(b)
-	# the slatted door: a hinge at the left front edge, seven slats with gaps
-	var hinge := Node3D.new()
-	hinge.name = "CupHinge"
-	hinge.position = Vector3(-cw / 2.0, 0, cd / 2.0)
-	root.add_child(hinge)
-	for k in 7:
-		var slat := CSGBox3D.new()
-		slat.name = "CupSlat%d" % k
-		slat.size = Vector3(cw, 0.16, 0.03)
-		slat.position = Vector3(cw / 2.0, 0.3 + k * 0.3, 0)
-		slat.use_collision = false
-		slat.material = wood
-		hinge.add_child(slat)
-	var stile := CSGBox3D.new()
-	stile.name = "CupStile"
-	stile.size = Vector3(0.05, ch, 0.04)
-	stile.position = Vector3(cw - 0.025, ch / 2.0, 0)
-	stile.use_collision = false
-	stile.material = wood
-	hinge.add_child(stile)
-	# the shut door is solid: a body on the hinge, enabled only while shut (spur_cupboard.gd)
-	var body := StaticBody3D.new()
-	body.name = "CupDoorBody"
-	var bcol := CollisionShape3D.new()
-	var bsh := BoxShape3D.new()
-	bsh.size = Vector3(cw, ch, 0.06)
-	bcol.shape = bsh
-	bcol.position = Vector3(cw / 2.0, ch / 2.0, 0)
-	body.add_child(bcol)
-	hinge.add_child(body)
-	var open_deg := -105.0
-	hinge.rotation.y = deg_to_rad(open_deg)
-	# the mirror on the back wall (the end wall), inside
-	var mx := Transform3D(Basis(Vector3.UP, atan2(back.x, back.z)), end_face + Vector3(0, 1.45, 0))   # end_face is already WALL_INSET off the cap
-	var quad := _spawn_quad(mx, Vector2(0.7, 1.3), TEX_DIR + "mirror.png")
-	if quad:
-		quad.name = "Spur%dCupboardMirror" % i
-		MirrorSurface.attach(quad)
-		_spawn_frame_bars(mx, Vector2(0.7, 1.3), "MirrorFrame_Cup%d" % i, Color(0.085, 0.070, 0.042), 0.04, 0.06)
-		entry["mirror"] = quad
+		b.use_collision = false
+		chair.add_child(b)
+	for xx in [-0.19, 0.19]:
+		for zz in [-0.19, 0.19]:
+			var leg := CSGBox3D.new()
+			leg.size = Vector3(0.04, 0.45, 0.04)
+			leg.position = Vector3(xx, 0.225, zz)
+			leg.material = wood
+			leg.use_collision = false
+			chair.add_child(leg)
+	var pail := CSGCylinder3D.new()
+	pail.name = "Spur%dClosetPail" % i
+	pail.radius = 0.16
+	pail.height = 0.3
+	pail.position = mouth + dir3 * (pp + T + 0.5) + lat3 * (W / 2.0 - 0.4) + Vector3(0, 0.15, 0)
+	pail.material = iron
+	pail.use_collision = false
+	add_child(pail)
 	# the beat
 	var beat := SpurCupboard.new()
 	beat.name = "Spur%dCupboardBeat" % i
 	add_child(beat)
-	var mouth: Vector3 = entry["mouth"]
-	var L: float = float(entry["len"])
-	var walk_from: Vector3 = mouth + dir3 * 1.0 - lat3 * (W / 2.0 - 0.7)
-	var walk_to: Vector3 = end_face - dir3 * (cd + 1.2) + lat3 * (W / 2.0 - 0.7)
-	beat.setup(hinge, open_deg, walk_from, walk_to, MANAGER_FIGURE_PATH, 2.0)
-	beat.sealed.connect(func() -> void: bcol.disabled = false)
-	beat.released.connect(func(_r: String) -> void: bcol.disabled = true)
-	bcol.disabled = true
+	# He starts 6 m short of the door so the pass (and the shadow) land inside HOLD_S — from the
+	# mouth at 0.9 m/s the 8 s stillness release came first and the shadow never crossed.
+	var walk_from: Vector3 = mouth + dir3 * maxf(1.0, pp - 6.0) - lat3 * (W / 2.0 - 0.7)
+	var walk_to: Vector3 = mouth + dir3 * (pp - 0.6) + lat3 * (W / 2.0 - 0.7)
+	beat.setup(door, CLOSET_OPEN_DEG, walk_from, walk_to, MANAGER_FIGURE_PATH, 2.0)
+	beat.set_threshold(threshold, dir3, lat3)
 	entry["cupboard"] = beat
-	# the Area3D inside: stepping in seals it
+	# the Area3D inside the closet: stepping through the door seals it behind you
 	var area := Area3D.new()
 	area.name = "Spur%dCupboardArea" % i
 	var acol := CollisionShape3D.new()
 	var ash := BoxShape3D.new()
-	ash.size = Vector3(cw * 0.8, ch, cd * 0.6)
+	# ⚠️ Deeper than the door's swing: a seal that fires while the player is still IN the
+	# doorway slams the leaf into their capsule and shoves them into the partition (the walker
+	# stalled there once). The volume starts 0.55 m past the partition's inner face.
+	ash.size = Vector3(1.6, H, cd - 1.2)
 	acol.shape = ash
-	acol.position = Vector3(0, ch / 2.0, -cd * 0.1)
+	acol.position = Vector3(0, H / 2.0, 0.45)
 	area.add_child(acol)
 	root.add_child(area)
 	area.body_entered.connect(func(b: Node) -> void:
@@ -1489,11 +1668,13 @@ func _tick_break_door() -> void:
 	if _break_done or _break_door == null or _player == null:
 		return
 	var d: float = _nearest_path_distance(_player.global_position)
-	if not _break_spawned and d > BREAK_DOOR_AT - 12.0 and d < BREAK_DOOR_AT - 1.0:
+	if not _break_spawned and d > BREAK_DOOR_AT - 14.0 and d < BREAK_DOOR_AT - 4.0:
 		_break_spawned = true
-		var pt := _path_point(BREAK_DOOR_AT)
-		var into: Vector3 = (pt.side as Vector3) * BREAK_DOOR_SIDE
-		var spot: Vector3 = pt.pos + into * (W / 2.0 - 0.3) + (pt.dir as Vector3) * 0.25
+		# C1 (2026-09-15, capture #3: "in the middle of the way, not half stuck in the wall"):
+		# it stands on the hall's CENTRELINE, BREAK_FIGURE_PAST past the door, as if it had just
+		# stepped out. At BREAK_FIGURE_GONE_M it is gone the frame you get there and the door slams.
+		var pt := _path_point(BREAK_DOOR_AT + BREAK_FIGURE_PAST)
+		var spot: Vector3 = pt.pos
 		spot.y = 0.0
 		# A DoorLunger billboard, not a Watcher: it stands IN the doorway's gap, 0.3 m off the
 		# wall plane, and Watcher.spawn()'s 0.9 m clearance fan refuses that by construction.
@@ -1502,15 +1683,19 @@ func _tick_break_door() -> void:
 		w.name = "BreakDoorFigure"
 		w.appear(0.01)
 		_break_figure = w
-		if _break_door.has_method("swing_ajar"):
-			_break_door.call("swing_ajar", BREAK_DOOR_DEG, 0.01)   # already ajar when you first see it
-	elif _break_spawned and d > BREAK_DOOR_AT + 3.0:
+		for leaf in [_break_door, _break_door2]:
+			if is_instance_valid(leaf) and leaf.has_method("swing_ajar"):
+				leaf.call("swing_ajar", BREAK_OPEN_DEG, 0.01, 90.0)   # both standing open when you first see it
+	elif _break_spawned and (d > BREAK_DOOR_AT + BREAK_FIGURE_PAST - 0.5 or (is_instance_valid(_break_figure)
+			and _player.global_position.distance_to((_break_figure as Node3D).global_position) <= BREAK_FIGURE_GONE_M)):
 		_break_done = true
 		if is_instance_valid(_break_figure):
 			_break_figure.queue_free()
 		_break_figure = null
-		if is_instance_valid(_break_door) and _break_door.has_method("slam"):
-			_break_door.call("slam")
+		for leaf in [_break_door, _break_door2]:
+			if is_instance_valid(leaf) and leaf.has_method("slam"):
+				leaf.call("slam")
+		_play_at("door_slam", _path_point(BREAK_DOOR_AT).pos + Vector3(0, 1.2, 0), 2.0)
 
 
 func spurs() -> Array:
@@ -1707,14 +1892,27 @@ func _build_blind_room(entry: Dictionary, seg: Dictionary, room_len: float, floo
 	map_light.position = centre + Vector3(0, 2.4, 0)
 	add_child(map_light)
 	# the lever, far-left corner (left = -lat3 for someone walking in)
+	# R1 (2026-09-16, the user: "the lever floats and doesn't look cool"): it is SEATED now — an
+	# iron switch cabinet on the stone wall (3 cm clear of the face, never coplanar) with the
+	# handle coming out of its front. The cabinet's collider knocks "metal".
 	var lever := StaticBody3D.new()
 	lever.name = "Blind%dLever" % i
 	lever.set_script(_BLIND_LEVER_SCRIPT)
-	lever.position = mouth + dir3 * (a0 + R - 0.4) - lat3 * (R / 2.0 - 0.5) + Vector3(0, 1.1, 0)
+	lever.position = mouth + dir3 * (a0 + R - 0.22) - lat3 * (R / 2.0 - 0.5) + Vector3(0, 1.1, 0)
+	lever.rotation.y = atan2(dir3.x, dir3.z)     # local +z = dir3 (into the stone wall); the handle on -z faces the room
 	add_child(lever)
-	var lm := _make_mat("", Vector3.ONE, Color(0.35, 0.3, 0.2))
+	var iron := _make_mat("res://assets/textures/shared/rusted_iron.png", Vector3(1.5, 1.5, 1.5), Color(0.18, 0.16, 0.14))
+	var cab := CSGBox3D.new()
+	cab.name = "Blind%dCabinet" % i
+	cab.size = Vector3(0.56, 0.78, 0.16)
+	cab.position = Vector3(0, 0.0, 0.11)     # back face 3 cm off the stone wall
+	cab.material = iron
+	cab.use_collision = true
+	lever.add_child(cab)
+	var lm := _make_mat("", Vector3.ONE, Color(0.30, 0.26, 0.18))
 	var plate := CSGBox3D.new()
-	plate.size = Vector3(0.24, 0.5, 0.06)
+	plate.size = Vector3(0.24, 0.5, 0.04)
+	plate.position = Vector3(0, 0.0, 0.01)
 	plate.material = lm
 	plate.use_collision = false
 	lever.add_child(plate)
@@ -1725,6 +1923,7 @@ func _build_blind_room(entry: Dictionary, seg: Dictionary, room_len: float, floo
 	arm.material = _make_mat("", Vector3.ONE, Color(0.5, 0.1, 0.08))
 	arm.use_collision = false
 	lever.add_child(arm)
+	_dress_blind_room(i, mouth, dir3, lat3, a0, R, iron)
 	var lcol := CollisionShape3D.new()
 	var lsh := BoxShape3D.new()
 	lsh.size = Vector3(0.5, 0.7, 0.5)
@@ -1737,7 +1936,9 @@ func _build_blind_room(entry: Dictionary, seg: Dictionary, room_len: float, floo
 	room.position = centre
 	room.setup(gate, map_quad, map_light, lever, {
 		"Blind%dWallWood" % i: "wood", "Blind%dWallWood2" % i: "wood", "Blind%dWallStone" % i: "stone",
-		"Blind%dWallMetalA" % i: "metal", "Blind%dWallMetalB" % i: "metal", "Slab": "metal"})
+		"Blind%dWallMetalA" % i: "metal", "Blind%dWallMetalB" % i: "metal", "Slab": "metal",
+		# R1: the furniture answers a bump too — felt in the dark, like the walls
+		"Blind%dLever" % i: "metal", "Blind%dBoiler" % i: "metal", "Blind%dRack" % i: "wood", "Blind%dCart" % i: "wood"})
 	lever.set("room", room)
 	entry["room"] = room
 	# stepping past the mouth seals it
@@ -1753,6 +1954,181 @@ func _build_blind_room(entry: Dictionary, seg: Dictionary, room_len: float, floo
 	area.body_entered.connect(func(b: Node) -> void:
 		if b.is_in_group("player"):
 			room.seal())
+
+
+# R1 (2026-09-16): the blind room was an empty wood-panelled square with a floating lever — the
+# user: "just the empty room, nothing else… figure out how to make it better". It is the hotel's
+# LINEN ROOM now, at the end of a service branch: a boiler with its flue in the far-right corner,
+# a linen rack along the left wall with folded sheets on it, a laundry cart mid-room, a mop
+# bucket by the mouth and a dead bulb on a cord in the middle. Parts and existing textures (Issue
+# 35: silhouette carries a prop); no emission (this room is felt, not seen); nothing on the line
+# from the mouth to the lever; the three big pieces carry colliders so a bump in the dark knocks.
+func _dress_blind_room(i: int, mouth: Vector3, dir3: Vector3, lat3: Vector3, a0: float, R: float, iron: Material) -> void:
+	var wood := _make_mat(TEX_DIR + "clock_walnut.png", Vector3(0.8, 0.8, 0.8), Color(0.16, 0.11, 0.06))
+	var linen := _make_mat("res://assets/textures/intro/sheet_linen.png", Vector3(2.0, 2.0, 2.0), Color(0.42, 0.40, 0.36))
+	linen.albedo_color = Color(0.42, 0.40, 0.36)   # grey, damp: near-white albedo is the brightest paint here (Issue 63)
+	var canvas := _make_mat("res://assets/textures/intro/sheet_linen.png", Vector3(1.2, 1.2, 1.2), Color(0.30, 0.28, 0.22))
+	canvas.albedo_color = Color(0.26, 0.24, 0.19)   # a canvas bag, darker than the sheets in it
+	var yaw: float = atan2(dir3.x, dir3.z)
+	# --- the boiler: a riveted tank on a plinth, a flue up into the ceiling, far-RIGHT corner
+	var boiler := Node3D.new()
+	boiler.name = "Blind%dBoiler" % i
+	boiler.position = mouth + dir3 * (a0 + R - 0.75) + lat3 * (R / 2.0 - 0.75)
+	boiler.rotation.y = yaw
+	add_child(boiler)
+	var tank := CSGCylinder3D.new()
+	tank.name = "Tank"
+	tank.radius = 0.42
+	tank.height = 1.7
+	tank.position = Vector3(0, 1.05, 0)
+	tank.material = iron
+	tank.use_collision = true
+	boiler.add_child(tank)
+	var plinth := CSGBox3D.new()
+	plinth.size = Vector3(1.0, 0.2, 1.0)
+	plinth.position = Vector3(0, 0.1, 0)
+	plinth.material = iron
+	plinth.use_collision = false
+	boiler.add_child(plinth)
+	var flue := CSGCylinder3D.new()
+	flue.radius = 0.09
+	flue.height = H - 1.9
+	flue.position = Vector3(0, 1.9 + (H - 1.9) / 2.0, 0)
+	flue.material = iron
+	flue.use_collision = false
+	boiler.add_child(flue)
+	var gauge := CSGCylinder3D.new()
+	gauge.radius = 0.07
+	gauge.height = 0.03
+	gauge.rotation.x = PI / 2.0
+	gauge.position = Vector3(0, 1.3, -0.43)
+	gauge.material = _make_mat("", Vector3.ONE, Color(0.75, 0.72, 0.6))
+	gauge.use_collision = false
+	boiler.add_child(gauge)
+	# --- the linen rack against the LEFT wall, clear of the lever's corner
+	var rack := Node3D.new()
+	rack.name = "Blind%dRack" % i
+	rack.position = mouth + dir3 * (a0 + 2.2) - lat3 * (R / 2.0 - 0.32)
+	rack.rotation.y = yaw
+	add_child(rack)
+	var rack_body := CSGBox3D.new()      # the collider volume, invisible: a box the bumps read as wood
+	rack_body.name = "Body"
+	rack_body.size = Vector3(0.5, 2.0, 2.4)
+	rack_body.position = Vector3(0, 1.0, 0)
+	rack_body.material = wood
+	rack_body.visible = false
+	rack_body.use_collision = true
+	rack.add_child(rack_body)
+	for zx in [-1.15, 1.15]:
+		for xx in [-0.22, 0.22]:
+			var post := CSGBox3D.new()
+			post.size = Vector3(0.05, 2.0, 0.05)
+			post.position = Vector3(xx, 1.0, zx)
+			post.material = wood
+			post.use_collision = false
+			rack.add_child(post)
+	for k in range(3):
+		var shelf := CSGBox3D.new()
+		shelf.size = Vector3(0.5, 0.03, 2.4)
+		shelf.position = Vector3(0, 0.35 + k * 0.6, 0)
+		shelf.material = wood
+		shelf.use_collision = false
+		rack.add_child(shelf)
+		# folded sheets: three stacks per shelf, uneven heights
+		for j in range(3):
+			var stack := CSGBox3D.new()
+			stack.size = Vector3(0.40, 0.10 + 0.05 * float((k + j) % 3), 0.55)
+			stack.position = Vector3(0, 0.35 + k * 0.6 + 0.015 + stack.size.y / 2.0, -0.75 + j * 0.75)
+			stack.material = linen
+			stack.use_collision = false
+			rack.add_child(stack)
+	# --- the laundry cart, mid-room to the right of the walking line
+	var cart := Node3D.new()
+	cart.name = "Blind%dCart" % i
+	cart.position = mouth + dir3 * (a0 + 3.1) + lat3 * 1.3
+	cart.rotation.y = yaw + 0.35
+	add_child(cart)
+	var bag := CSGBox3D.new()
+	bag.name = "Bag"
+	bag.size = Vector3(0.7, 0.75, 1.0)
+	bag.position = Vector3(0, 0.55, 0)
+	bag.material = canvas
+	bag.use_collision = true
+	cart.add_child(bag)
+	var heap := CSGBox3D.new()
+	heap.size = Vector3(0.6, 0.18, 0.9)
+	heap.position = Vector3(0, 0.98, 0)
+	heap.material = linen
+	heap.use_collision = false
+	cart.add_child(heap)
+	for zx in [-0.5, 0.5]:
+		var bar := CSGBox3D.new()
+		bar.size = Vector3(0.76, 0.04, 0.04)
+		bar.position = Vector3(0, 0.95, zx)
+		bar.material = iron
+		bar.use_collision = false
+		cart.add_child(bar)
+		for xx in [-0.33, 0.33]:
+			var leg := CSGBox3D.new()
+			leg.size = Vector3(0.04, 0.95, 0.04)
+			leg.position = Vector3(xx, 0.475, zx)
+			leg.material = iron
+			leg.use_collision = false
+			cart.add_child(leg)
+			var wheel := CSGCylinder3D.new()
+			wheel.radius = 0.06
+			wheel.height = 0.04
+			wheel.rotation.z = PI / 2.0
+			wheel.position = Vector3(xx, 0.06, zx)
+			wheel.material = iron
+			wheel.use_collision = false
+			cart.add_child(wheel)
+	# --- a mop in a bucket by the mouth, right-hand side
+	var bucket := Node3D.new()
+	bucket.name = "Blind%dBucket" % i
+	bucket.position = mouth + dir3 * (a0 + 0.7) + lat3 * (W / 2.0 + 0.6)
+	add_child(bucket)
+	var pail := CSGCylinder3D.new()
+	pail.radius = 0.17
+	pail.height = 0.3
+	pail.position = Vector3(0, 0.15, 0)
+	pail.material = iron
+	pail.use_collision = false
+	bucket.add_child(pail)
+	var handle := CSGCylinder3D.new()
+	handle.radius = 0.014
+	handle.height = 1.4
+	handle.position = Vector3(0.1, 0.85, 0)
+	handle.rotation.z = -0.22
+	handle.material = wood
+	handle.use_collision = false
+	bucket.add_child(handle)
+	# --- a dead bulb on a cord over the middle of the room
+	var cord := CSGCylinder3D.new()
+	cord.name = "Blind%dCord" % i
+	cord.radius = 0.008
+	cord.height = 0.8
+	cord.position = mouth + dir3 * (a0 + R / 2.0) + Vector3(0, H - 0.4, 0)
+	cord.material = _make_mat("", Vector3.ONE, Color(0.05, 0.05, 0.05))
+	cord.use_collision = false
+	add_child(cord)
+	var shade := CSGCylinder3D.new()
+	shade.name = "Blind%dShade" % i
+	shade.radius = 0.16
+	shade.height = 0.12
+	shade.cone = true
+	shade.position = mouth + dir3 * (a0 + R / 2.0) + Vector3(0, H - 0.86, 0)
+	shade.rotation.x = PI
+	shade.material = iron
+	shade.use_collision = false
+	add_child(shade)
+	var bulb := CSGSphere3D.new()
+	bulb.name = "Blind%dBulb" % i
+	bulb.radius = 0.05
+	bulb.position = mouth + dir3 * (a0 + R / 2.0) + Vector3(0, H - 0.94, 0)
+	bulb.material = _make_mat("", Vector3.ONE, Color(0.35, 0.33, 0.28))
+	bulb.use_collision = false
+	add_child(bulb)
 
 
 # The loop is three legs of boxes on synthetic segments, every box ABUTTING its neighbour (never
@@ -2049,12 +2425,22 @@ func _spawn_grandfather_clock() -> void:
 	# the SEVENTH, at BREAK_DOOR_AT, is already ajar when you arrive and something stands in its
 	# gap — a Watcher just inside the leaf's plane, visible only from the far side of the hall
 	# (the leaf hides it from the near side), and gone once you are past. Zero panic.
-	var bx := _panel_transform(BREAK_DOOR_AT, BREAK_DOOR_SIDE, 0.0, WALL_INSET) \
-		.translated_local(Vector3(-AjarDoor.WIDTH / 2.0, 0.0, 0.0))
-	var bd := AjarDoor.build(self, bx, TEX_DIR + "hotel_door_leaf.png")
-	bd.name = "AjarDoor_break"
-	_spawn_door_frame(BREAK_DOOR_AT, BREAK_DOOR_SIDE, AjarDoor.WIDTH, AjarDoor.HEIGHT, "AjarFrame_break")
-	_break_door = bd   # swung ajar as the player approaches (see _tick_break_door)
+	# C6 (2026-09-16): TWO leaves on one 1.94 m opening (the wall is cut behind them, see
+	# _build_break_room). The left leaf hangs on the left jamb; the right one is the same leaf
+	# rotated PI about its own hinge and shifted THICK so it still lies on the corridor side of
+	# the wall plane, with the opposite swing sign so both open INTO the room.
+	var centre := _panel_transform(BREAK_DOOR_AT, BREAK_DOOR_SIDE, 0.0, WALL_INSET)
+	var bl := AjarDoor.build(self, centre.translated_local(Vector3(-AjarDoor.WIDTH, 0.0, 0.0)), TEX_DIR + "hotel_door_leaf.png")
+	bl.name = "AjarDoor_break"
+	bl.swing_sign = 1.0
+	var br_x := centre.translated_local(Vector3(AjarDoor.WIDTH, 0.0, AjarDoor.THICK))
+	br_x.basis = br_x.basis * Basis(Vector3.UP, PI)
+	var brt := AjarDoor.build(self, br_x, TEX_DIR + "hotel_door_leaf.png")
+	brt.name = "AjarDoor_break2"
+	brt.swing_sign = -1.0
+	_spawn_door_frame(BREAK_DOOR_AT, BREAK_DOOR_SIDE, 2.0 * AjarDoor.WIDTH, AjarDoor.HEIGHT, "AjarFrame_break")
+	_break_door = bl    # swung open as the player approaches (see _tick_break_door)
+	_break_door2 = brt
 
 
 # Transform flush against the wall at `dist` on `side`, quad facing inward.
@@ -2190,10 +2576,32 @@ func _spawn_turn_mirror(corner_dist: float, intensity: float) -> void:
 	# `flashes` is decided in _pick_silent_mirror(), which is now a no-op at two mirrors —
 	# see the ⚠️ there. `woke` is the appearance cue's one-shot; `fired` is the 2 m
 	# flash's. Two different beats, two different flags, deliberately not merged.
+	# R2 (2026-09-16, the user: "make the second mirror hidden — before you are close you have
+	# no idea the mirror is there… it will appear exactly where it is now, out of nowhere"): the
+	# LAST mirror does not exist — no frame, no glass, no gaze collider — until the player is
+	# inside ACTIVE_DIST, when `_tick_mirror_wake` reveals it with the wake sound.
+	var hidden: bool = is_equal_approx(corner_dist, float((TURN_MIRRORS[TURN_MIRRORS.size() - 1] as Array)[0]))
+	var body: Node3D = quad.get_parent() as Node3D if quad else null
+	var frame: Node3D = get_node_or_null("MirrorFrame_%d" % int(corner_dist)) as Node3D
+	if hidden:
+		_set_mirror_present(body, frame, false)
 	_turn_mirrors.append({
-		"pos": pos, "fired": false, "flashes": true, "woke": false,
+		"pos": pos, "fired": false, "flashes": true, "woke": false, "hidden": hidden,
+		"body": body, "frame": frame,
 		"stare": 0.0, "stare_player": _spawn_stare_emitter(pos, int(corner_dist)),
 	})
+
+
+# R2: a hidden mirror is absent, not merely invisible — its gaze collider is disabled too, so
+# it cannot charge panic or answer a ray while there is nothing on the wall.
+func _set_mirror_present(body: Node3D, frame: Node3D, on: bool) -> void:
+	if is_instance_valid(body):
+		body.visible = on
+		for c in body.get_children():
+			if c is CollisionShape3D:
+				(c as CollisionShape3D).disabled = not on
+	if is_instance_valid(frame):
+		frame.visible = on
 
 
 # The per-mirror stare loop. Built stopped; `_tick_mirror_stare()` starts and rides it.
@@ -2633,6 +3041,8 @@ func _spawn_false_exit_door() -> void:
 	var hinge := centre
 	hinge.origin = centre.origin - centre.basis.x * (w / 2.0) - Vector3(0, FalseExitDoor.HEIGHT / 2.0, 0)
 	_false_door.global_transform = hinge
+	_false_door.requires_key = true          # C4: the bell's key opens it, nothing else
+	_false_door.refused.connect(_on_false_door_refused)
 	_false_door.opened.connect(_on_false_door_opened)
 
 	# The architrave, in the blood-red exit livery. ⚠️ Sibling, never a child: the leaf
@@ -2664,7 +3074,19 @@ var _lunge_watch_t := -1.0      # < 0: the camera is not pinned
 var _lunge_reaim := 0.0
 
 
+func _on_false_door_refused() -> void:
+	ScreenText.toast(get_tree(), "It needs a key.", Color(0.85, 0.8, 0.7), 1.8)
+
+
+func _on_bell_key_taken() -> void:
+	if _false_door != null:
+		_false_door.give_key()
+
+
 func _on_false_door_opened() -> void:
+	# C4: the key is spent on the lie.
+	if GameState.carried_item == SpurBell.KEY_LABEL:
+		GameState.set_carried("")
 	# t = 0 (E). The world goes quiet first — the sting lands in a hole, which is where its
 	# loudness actually comes from (`screamer.gd:flash_scare()`'s pre-silence, longer here).
 	HoldBreath.dip(get_tree(), FALSE_DOOR_SILENCE)

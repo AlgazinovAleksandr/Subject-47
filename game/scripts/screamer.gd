@@ -148,9 +148,16 @@ func _freeze_player() -> void:
 # being added to it, so the time from death to reload does not move.
 const BLACK_HOLD := 0.2
 
-func trigger(image_override: String = "") -> void:
+# `with_image` false (R7, 2026-09-16, the user: "only the running animation accompanied by the
+# scream, we do not need the static image following after it"): the lunge deaths cut to black
+# and restart with no fullscreen picture — the figure at arm's length WAS the picture.
+func trigger(image_override: String = "", with_image: bool = true) -> void:
 	if _is_triggering:
 		return
+	# K3 (2026-09-16, capture #6 again): while a lunge is in progress ANY death is the lunge —
+	# the condemn bar's own `add_panic()` death raced the figure and brought the picture back.
+	if _lunging:
+		with_image = false
 	_is_triggering = true
 	_log_death()
 	get_tree().paused = false
@@ -159,7 +166,7 @@ func trigger(image_override: String = "") -> void:
 	_apply_level_av()
 	if image_override != "" and ResourceLoader.exists(image_override):
 		_screamer_image.texture = load(image_override)
-	await _black_then_scream()
+	await _black_then_scream(with_image)
 	_suppress_sting = false
 	await get_tree().create_timer(maxf(0.0, RESTART_DELAY - BLACK_HOLD)).timeout
 	_black_panel.visible = false
@@ -175,12 +182,12 @@ func trigger(image_override: String = "") -> void:
 # reload that follows regardless, so a dip interrupted by the scene change cannot leak.
 # ⚠️ The timer is `process_always` — `trigger()` unpauses the tree, but `trigger_to_menu()` can
 # be reached from a paused NoteUI, and a paused SceneTreeTimer here would hang on black forever.
-func _black_then_scream() -> void:
+func _black_then_scream(with_image: bool = true) -> void:
 	_screamer_image.visible = false
 	_black_panel.visible = true
 	HoldBreath.dip(get_tree(), PRE_SCARE_SILENCE)
 	await get_tree().create_timer(BLACK_HOLD, true, false, true).timeout
-	_screamer_image.visible = true
+	_screamer_image.visible = with_image
 	if _audio.stream and not _suppress_sting:
 		_audio.play()
 
@@ -267,12 +274,12 @@ func trigger_with_lunge(tex_path: String, ahead: float = 2.2, reach: float = 0.5
 		p.call("turn_to_face", spot + Vector3(0, 1.2, 0), LUNGE_TURN)
 	l.lunged.connect(func() -> void:
 		_lunging = false
-		trigger(image_override)
+		trigger(image_override, false)   # R7: no static picture after the lunge
 	)
 	await get_tree().create_timer(LUNGE_TURN, true).timeout   # scales with time_scale, like the tween
 	if not is_instance_valid(l):
 		_lunging = false
-		trigger(image_override)
+		trigger(image_override, false)
 		return
 	var dir_to: Vector3 = (l.global_position - p.global_position)
 	dir_to.y = 0.0
@@ -284,7 +291,7 @@ func trigger_with_lunge(tex_path: String, ahead: float = 2.2, reach: float = 0.5
 	await get_tree().create_timer(time + 0.6, true).timeout
 	if _lunging:
 		_lunging = false
-		trigger(image_override)
+		trigger(image_override, false)
 
 
 # image_override lets a caller force a specific fatal image regardless of the

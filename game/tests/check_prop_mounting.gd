@@ -114,7 +114,17 @@ const CONFIG := {
 		# which meant the first legitimate prop removal — the 230 m turn mirror, on the user's
 		# request — put a correct level one prop from a red test. The floor exists to catch a
 		# scene that builds NOTHING, so it sits a couple below the real count.
-		"min_props": 28, "min_free": 0, "filed": {},
+		"min_props": 28, "min_free": 0,
+		# C6 (2026-09-16): the 124 double door stands in a real OPENING onto the bedroom behind
+		# it — there is no wall behind the leaves by design. The frame is measured instead.
+		"filed": {
+			"AjarDoor_break": "C6: hung in the cut doorway of the bedroom, nothing behind it by design",
+			"AjarDoor_break2": "C6: the right-hand leaf of the same double door",
+			"Spur2ClosetDoor": "C7: hung in the closet partition's opening, nothing behind it by design",
+			"Spur2ClosetStrip": "C7: the strip of light under the closet door, at the sill of the opening",
+			"ClosetFrame_2": "C7: the architrave round that opening — proud of a partition with a hole in it",
+		},
+		"min_filed": 4,
 	},
 	"SCENE_BACKROOMS": {"min_props": 6, "min_free": 2, "filed": {}},
 	"SCENE_KONTUR": {"min_props": 12, "min_free": 3, "filed": {}, "seeds": [7]},

@@ -139,11 +139,10 @@ func _process(_delta: float) -> bool:
 		7:
 			if _f == 30:
 				_shoot("2_bell_rung_desk")
-			if _f == 80:
-				_shoot("3_bell_steps_behind")
-			if _f == 200:
-				_shoot("4_bell_card")
-				_p.call("restore_flashlight")
+			if _f == 130:
+				_shoot("3_bell_blackout")
+			if _f == 420:
+				_shoot("4_bell_key")
 				_step = 5
 		8:
 			if _f == 60:

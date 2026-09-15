@@ -27,7 +27,9 @@ const _KEYCARD_SCRIPT := preload("res://scripts/keycard.gd")
 # switch: it shipped `true` and IS the random-monster feature the design documents
 # describe. Calling it DEBUG invited every future session to assume it was off in
 # release and to reason about the game as if this creature didn't exist.
-const RANDOM_APPARITIONS := true
+# L1 (2026-09-15, the user): the taught HOLD apparition is the ONLY apparition in the Lab — no
+# director here. Other levels keep theirs.
+const RANDOM_APPARITIONS := false
 
 const BLACKOUT_DURATION := 1.6
 const KEYCARD_PANIC := 8.0
@@ -95,7 +97,8 @@ var _beacons: Array[AudioStreamPlayer3D] = []
 # starts a scripted, SURVIVABLE scare on a timer.
 var _nook_scare_done: bool = false
 var _nook_breath: AudioStreamPlayer3D = null
-var _nook_figure: Node3D = null
+var _nook_figure: DoorLunger = null
+var _nook_revealed: bool = false
 var _nook_figure_mat: StandardMaterial3D = null
 var _nook_zone: Area3D = null
 var _nook_watch: bool = false          # armed after the breathing; see _tick_nook_watch
@@ -406,8 +409,8 @@ func _restore_progress() -> void:
 			b.set_already_flipped()
 			_flipped_breakers[id] = true
 			_breakers_flipped += 1
-	if GameState.has_keycard:
-		_arm_apparition_after_keycard()   # L2: a restored keycard is a taken keycard
+	if _breakers_flipped > 0:
+		_arm_apparition("restored breaker")   # L1: a restored breaker is a thrown breaker
 	if bool(data.get("locker_unlocked", false)) and is_instance_valid(_locker):
 		_locker.unlocked = true
 	if bool(data.get("locker_moved", false)) and is_instance_valid(_locker):
@@ -842,6 +845,8 @@ func _on_breaker_flipped(id: String = "") -> void:
 	if id != "" and not _flipped_breakers.has(id):
 		_flipped_breakers[id] = true
 	_breakers_flipped += 1
+	if _breakers_flipped == 1:
+		_arm_apparition("breaker 1")   # L1: the taught HOLD, 3 s from now
 	# Each throw lifts the emergency glow a little.
 	for entry in _lights:
 		if entry[1] > 0.0:
@@ -1493,13 +1498,13 @@ func _make_door(door_name: String, advances: bool, goes_back: bool) -> StaticBod
 #
 # The trigger volume is deleted. It arms on a clock instead, and the window is randomised so two
 # runs do not agree.
-const APPARITION_AT := Vector2(8.0, 16.0)    # L2: seconds AFTER THE KEYCARD, randf_range of these
+const APPARITION_AT := Vector2(3.0, 3.0)     # L1 (2026-09-15): 3 s AFTER THE FIRST BREAKER (was 8–16 after the keycard)
 const APPARITION_POLL := 0.25
 # ⚠️ THE HARD DEADLINE. Past this the fairness gates below are dropped and it fires anyway. The
 # beat teaches a rule the player is killed by later (the House cellar, the Backrooms Flood), so
 # it may be DELAYED but must never be CANCELLED — `apparition_director.gd:OVERDUE_AFTER` makes
 # exactly the same trade for exactly the same reason.
-const APPARITION_DEADLINE := 30.0            # L2: after the keycard; the wing refusal outlives it
+const APPARITION_DEADLINE := 30.0            # after breaker 1; the wing refusal outlives it
 var _apparition_armed: bool = false
 
 var _apparition_due: float = 0.0
@@ -1511,7 +1516,7 @@ func _spawn_apparition() -> void:
 	# not kills.
 	_apparition = Apparition.spawn(self, Apparition.Rule.HOLD, Vector3.ZERO, true) as Apparition
 	# L2 (2026-09-13, capture #2, the user's call): NOT on a clock from the level start any more —
-	# it arms from `on_keycard_taken()` (see `_arm_apparition_after_keycard`).
+	# it arms from the FIRST breaker (see `_arm_apparition`, L1 2026-09-15).
 	_apparition_due = INF
 
 
@@ -1539,8 +1544,11 @@ func _tick_apparition(delta: float) -> void:
 	_trigger_apparition()
 
 
-# L2: the HOLD apparition's clock starts when the keycard is taken.
-func _arm_apparition_after_keycard() -> void:
+# L1 (2026-09-15): the HOLD apparition's clock starts at the FIRST breaker the player throws
+# (whichever of the three). It used to arm from the keycard (2026-09-13) and before that from
+# the level start; the user's capture #1/#2: "it will appear after I turn the first light
+# switcher on — 3 seconds later, and it will be the only time it appears in the lab".
+func _arm_apparition(reason: String) -> void:
 	if _apparition_armed or _apparition_fired:
 		return
 	_apparition_armed = true
@@ -1549,7 +1557,7 @@ func _arm_apparition_after_keycard() -> void:
 	_apparition_due = randf_range(APPARITION_AT.x, APPARITION_AT.y)
 	var dbg := get_node_or_null("/root/DebugLog")
 	if dbg and dbg.has_method("note"):
-		dbg.note("LAB scripted apparition armed (keycard), due in %.1f s" % _apparition_due)
+		dbg.note("LAB scripted apparition armed (%s), due in %.1f s" % [reason, _apparition_due])
 
 
 var _apparition_wall_ms: int = 0
@@ -1878,6 +1886,18 @@ const NOOK_WATCH_TIMEOUT := 6.0         # if they never walk away, fire anyway
 const NOOK_MIN_FRAMING := 2.2           # never materialise closer than this to the player
 const NOOK_FIG_CLEAR := 0.85            # half the billboard's width, plus a margin
 const NOOK_SILENCE := 0.6              # the bed ducks as the scream lands — screamer.gd's own value
+# W1 (2026-09-16): the breathing cuts, silence, then the lunge. The figure is placed off the
+# player's own corridor at these distances (nearest first), lunges to NOOK_LUNGE_DIST, holds,
+# flees. NOOK_GLOW/light: the wing screamer's (Issue 208).
+const NOOK_SILENCE_GAP := 1.0
+const NOOK_LUNGE_FROM: Array[float] = [2.4, 3.0, 1.9, 1.5, 3.6]
+const NOOK_LUNGE_DIST := 0.65
+const NOOK_LUNGE_TIME := 0.25
+const NOOK_LUNGE_HOLD := 0.4
+const NOOK_GLOW := 1.6
+const NOOK_LIGHT_RANGE := 5.0
+const NOOK_LIGHT_ENERGY := 1.4
+const NOOK_FIGURE_HEIGHT := 2.3
 const NOOK_FAN_RAYS := 16               # ⚠️ 16, not 8: at 45 degrees every ray flies clean
                                         # through a DOORWAY while the billboard's edges are
                                         # buried in the jambs (apparition.gd's lesson)
@@ -1922,10 +1942,14 @@ func _on_nook_breaker_flipped() -> void:
 	# breathing has had its 5 s, the reveal waits for the player to be far enough from the
 	# figure's mark to frame it (they leave the breaker to walk out; that is the moment),
 	# with NOOK_WATCH_TIMEOUT as the backstop for a player who never moves at all.
-	get_tree().create_timer(NOOK_SCARE_DELAY).timeout.connect(func() -> void:
-		_nook_watch = true
-		_nook_watch_elapsed = 0.0
-	)
+	# W1 (2026-09-16, the user: "I didn't see this jump scare, I just heard it… make it even more
+	# sudden and even more creepy"). The WATCH is gone: it fired wherever the player had walked
+	# to in the 20 s and the room-relative ladder failed there, so the sting played and the
+	# picture was skipped (the 2026-09-15 log, 10 m from the nook). Now: the breathing CUTS DEAD,
+	# NOOK_SILENCE_GAP of nothing, and then it is in front of you — placed by rays along the
+	# corridor you are actually in (`_place_nook_figure`, never non-finite), glowing, pinned,
+	# lunging. `_nook_watch` stays declared (a test prints it) and is never armed.
+	get_tree().create_timer(NOOK_SCARE_DELAY).timeout.connect(_nook_breath_cut)
 
 
 # Keeps the breathing pinned just behind the player's head, so it follows if they
@@ -1974,288 +1998,163 @@ func _nook_anchor() -> Vector3:
 	return Vector3(c.x + NOOK_ANCHOR_FROM_CENTRE, 0.0, c.z)
 
 
-func _nook_reveal() -> void:
+func _nook_breath_cut() -> void:
 	if not is_inside_tree():
+		return
+	if is_instance_valid(_nook_breath):
+		if _nook_breath.finished.is_connected(_nook_breath.play):
+			_nook_breath.finished.disconnect(_nook_breath.play)
+		_nook_breath.stop()
+		_nook_breath.queue_free()
+	_nook_breath = null
+	var dbg := get_node_or_null("/root/DebugLog")
+	if dbg and dbg.has_method("note"):
+		dbg.note("NOOK breathing stops — %.1f s of silence" % NOOK_SILENCE_GAP)
+	get_tree().create_timer(NOOK_SILENCE_GAP).timeout.connect(_nook_reveal)
+
+
+func _nook_reveal() -> void:
+	if not is_inside_tree() or _nook_revealed:
 		return
 	var p := _player()
 	if not p:
 		return
-
+	_nook_revealed = true
 	var spot := _place_nook_figure(p)
-	var have_figure: bool = spot.is_finite()
-	if have_figure:
-		_build_nook_figure(spot)
-	else:
-		# Nothing fitted. Keep the sting, drop the picture — a skipped figure beats one
-		# embedded in a wall (apparition.gd:appear() reaches the same conclusion). Aim the
-		# sound and the turn at the mark anyway, so the beat still has a direction.
-		spot = _nook_anchor()
-
-	# ⚠️ Zero the horizontal velocity BEFORE freezing. `_apply_movement()` early-returns on
-	# `_input_frozen` but `_physics_process` still calls `move_and_slide()`, so a frozen
-	# player carries the last un-frozen frame's velocity and coasts — Issue 49, measured at
-	# 9.16 m of travel in a beartrap that read "TRAPPED". At a 4 m/s walk this freeze would
-	# have slid them ~3 m through the figure they are being turned to look at.
+	var cam := p.get_node_or_null("Camera3D") as Camera3D
+	var eye: Vector3 = cam.global_position if cam else p.global_position + Vector3(0, 1.6, 0)
+	_build_nook_figure(spot)
+	# ⚠️ Zero the horizontal velocity BEFORE freezing (Issue 49): `_physics_process` still calls
+	# `move_and_slide()` on a frozen player, and a walker would coast through the figure.
 	p.velocity.x = 0.0
 	p.velocity.z = 0.0
 	p.freeze_input()
 	p.turn_to_face(spot + Vector3(0, 1.35, 0), NOOK_TURN_TIME)
-	# The scream LEADS: the ear gets the bearing before the head arrives.
-	# ⚠️ AND THE WORLD IS TAKEN AWAY UNDER IT. The emitter is already at its `max_db` ceiling at
-	# this range and the file peaks at 0.00 dBFS, so gain is not available — contrast is. This is
-	# `screamer.gd`'s own pre-scare silence applied to a beat that never had one; fire-and-forget,
-	# never awaited, or the scream would arrive after the duck instead of into it.
-	HoldBreath.dip(get_tree(), NOOK_SILENCE)
+	# The scream LEADS, into a silenced room — the emitter is at its ceiling at this range and
+	# the file peaks at 0 dBFS, so contrast is the only loudness left (screamer.gd's own trick).
+	HoldBreath.dip(get_tree(), NOOK_TURN_TIME + NOOK_LUNGE_TIME + NOOK_LUNGE_HOLD + 0.5)
 	_play_at("nook_scream", spot + Vector3(0, 1.5, 0), -2.0)
 	p.jolt_camera(0.08, 0.4)
+	if is_instance_valid(_nook_figure):
+		_nook_figure.appear(0.05)
+	var to_player := Vector3(eye.x - spot.x, 0.0, eye.z - spot.z).normalized()
+	var feet := Vector3(eye.x, 0.0, eye.z) - to_player * NOOK_LUNGE_DIST
+	var dbg := get_node_or_null("/root/DebugLog")
+	if dbg and dbg.has_method("note"):
+		dbg.note("NOOK REVEAL — figure at %.2f m (spot %s, player %s, room %s)" % [
+			p.global_position.distance_to(spot), spot, p.global_position, _room_name_at(spot)])
+	if is_instance_valid(_nook_figure):
+		_nook_figure.lunged.connect(_on_nook_lunged)
+	get_tree().create_timer(NOOK_TURN_TIME, false).timeout.connect(func() -> void:
+		if is_instance_valid(_nook_figure):
+			_nook_figure.lunge_to(feet, NOOK_LUNGE_TIME))
+	# The lights come up on a fixed schedule whatever the tweens do — a beat that never
+	# resolves is a player standing in the dark with no torch.
+	get_tree().create_timer(NOOK_TURN_TIME + NOOK_LUNGE_TIME + NOOK_LUNGE_HOLD + NOOK_FLASH_HOLD, false).timeout.connect(_nook_cleanup)
 
-	# A single arc-flare. The figure is UNSHADED, so it cannot be lit by this light —
-	# unshaded materials ignore lights entirely, and the static room lamps here cast no
-	# shadows. Its alpha is driven instead, and the flare exists to throw the surrounding
-	# walls into relief so the moment reads as a burst, not a fade-in.
-	#
-	# ⚠️ The flare and the alpha both start at NOOK_REVEAL_AT, i.e. when the camera turn
-	# LANDS. The reveal window is only ~0.33 s end to end (0.06 in, NOOK_REVEAL_TIME held,
-	# 0.12 out) and NOOK_REVEAL_TIME is deliberately unchanged, so the window has to be
-	# spent pointing the right way rather than widened.
-	get_tree().create_timer(NOOK_REVEAL_AT).timeout.connect(func() -> void:
-		if not is_inside_tree():
-			return
-		var flare := OmniLight3D.new()
-		flare.position = spot + Vector3(0, 1.6, 0)
-		flare.light_color = Color(0.8, 0.88, 1.0)
-		flare.light_energy = 0.0
-		flare.omni_range = 6.0
-		add_child(flare)
 
-		var ft := create_tween()
-		ft.tween_property(flare, "light_energy", 4.0, 0.02)
-		ft.tween_property(flare, "light_energy", 1.2, 0.05)
-		ft.tween_property(flare, "light_energy", 3.0, 0.02)
-		ft.tween_property(flare, "light_energy", 0.0, NOOK_REVEAL_TIME)
-		ft.finished.connect(flare.queue_free)
-
-		if _nook_figure_mat:
-			var at := create_tween()
-			at.tween_property(_nook_figure_mat, "albedo_color:a", 1.0, 0.06)
-			at.tween_interval(NOOK_FIGURE_HOLD)
-			at.tween_property(_nook_figure_mat, "albedo_color:a", 0.0, 0.25)
-	)
-
-	# ⭐ NO FULLSCREEN FACE SINCE 2026-09-13 (capture #002: the player read `lab_nook_face.png`
-	# as "the creature shared across levels, before I collected the keycard"). The user's rule:
-	# nothing fullscreen in the Lab until the keycard is in hand. The in-world figure, the
-	# turned camera, the positional scream and the panic stay; the picture that used to cover
-	# the 0.30 s after the reveal is gone, so the figure now HOLDS for NOOK_FIGURE_HOLD instead
-	# of NOOK_REVEAL_TIME — with nothing landing on top of it, a 0.15 s glimpse is a glitch.
-	get_tree().create_timer(NOOK_FLASH_AT).timeout.connect(func() -> void:
-		if not is_inside_tree():
-			return
-		_play_at(NOOK_FLASH_AUDIO, _player().global_position if _player() else spot, -6.0)
+func _on_nook_lunged() -> void:
+	var p := _player()
+	if p:
+		_play_at(NOOK_FLASH_AUDIO, p.global_position, -6.0)
+		p.add_panic(NOOK_SCARE_PANIC)
+		p.jolt_camera(0.2, 0.45)
+	get_tree().create_timer(NOOK_LUNGE_HOLD, false).timeout.connect(func() -> void:
 		var pl := _player()
 		if pl:
-			pl.add_panic(NOOK_SCARE_PANIC)
-			# Control comes back as the figure fades, never later. A scripted turn that
-			# outlives its own beat is a player standing in the dark pressing keys.
-			pl.unfreeze_input()
-	)
-
-	# The lights come up on the old schedule — the sting's tail is still going, which is the
-	# point: you can see the way out while it is still screaming at you.
-	get_tree().create_timer(NOOK_FLASH_AT + NOOK_FLASH_HOLD).timeout.connect(_nook_cleanup)
+			pl.unfreeze_input()   # control comes back as it goes, never later
+		if is_instance_valid(_nook_figure) and pl:
+			var here: Vector3 = _nook_figure.global_position
+			var away := Vector3(here.x - pl.global_position.x, 0.0, here.z - pl.global_position.z)
+			away = away.normalized() if away.length() > 0.01 else Vector3(1, 0, 0)
+			_nook_figure.flee_to(here + away * 6.0, 6.0, 2.5))
 
 
-# Where the figure stands. A short list of KNOWN marks in BreakerNook, best first, each one
-# proven by rays before it is used — never a heading fanned off wherever the player's nose
-# happens to be pointing, and never an unvalidated fallback.
-#
-# Returns a non-finite Vector3 when nothing fits, which _nook_reveal() reads as "skip the
-# picture, keep the sting". That is the only honest failure mode: the previous version's
-# fallback put a 1.5 m-wide billboard 1.5 m directly behind the player's head with no check
-# of any kind, which is how you end up inside a wall in a corridor 2.2 m wide.
+# W1: where the figure stands — ALWAYS somewhere. The wing screamer's method (Issue 208): a
+# fan of headings off the camera, ahead first, at NOOK_LUNGE_FROM distances, each candidate
+# inside a room of the wing, with line of sight from the eye and a 16-ray clearance fan at
+# the billboard's half-width; the last resort is straight ahead at 1.9 m (the sting still
+# lands; the figure may clip). The old ladder of designed marks returned non-finite when
+# nothing fitted, and "nothing fitted" is what the 2026-09-15 run got 10 m from the nook.
 func _place_nook_figure(p: CharacterBody3D) -> Vector3:
 	var cam := p.get_node_or_null("Camera3D") as Camera3D
 	var eye: Vector3 = cam.global_position if cam else p.global_position + Vector3(0, 1.6, 0)
-	var anchor := _nook_anchor()
-	var c: Vector3 = _builder.room_center("BreakerNook")
-	# The way they CAME, derived from the geometry (player -> breaker) and never from the
-	# camera. A player who walked out during the 5 s of breathing is somewhere along
-	# SouthHall; the mark in BreakerNook is then behind a wall and no longer usable, and the
-	# honest substitute is the same idea one room along — standing in the route they just
-	# walked, between them and the dark they came out of.
-	# ⚠️⚠️ `back` FLIPS SIDES WHEN YOU ARE STANDING AT THE BREAKER, AND IT USED TO POINT INTO THE
-	# WALL (fixed 2026-09-07, found by `autoplay_lab_nook.gd`'s stand-still run).
-	#
-	# It was defined as `anchor - player`, i.e. "toward the designed mark", which reads as "the
-	# way they came" only while they are some distance away. The anchor sits 1.25 m EAST of the
-	# breaker, so a player who threw the lever and did not move is within ~1.7 m of it and may be
-	# on EITHER side — and standing east of it makes `back` point WEST, straight at the west wall
-	# the breaker is mounted on. Every player-relative mark then lands outside the room,
-	# `_clamp_into_room()` pulls them all back onto the same clamped x, they all fail
-	# `NOOK_MIN_FRAMING`, and so do both world marks (which are closer still). Measured: the
-	# stand-still branch produced NO FIGURE AT ALL — the sting fired into an empty corridor.
-	#
-	# ⚠️ AND THAT IS THE BRANCH THE DESIGN EXPECTS. The beat is five seconds of breathing behind
-	# your head; standing still and listening is the intended response, and it was the one that
-	# lost the picture.
-	#
-	# Inside the nook, "the way out" is unambiguous and geometric: away from the breaker, which is
-	# bolted to the west wall. Outside it, the old definition is right. `_nook_breaker_pos()` is
-	# derived from the same `wall_point()` call that places the panel, so the two cannot drift.
-	var back := _nook_anchor() - p.global_position
-	back.y = 0.0
-	if p.global_position.distance_to(_nook_anchor()) < NOOK_MIN_FRAMING:
-		back = p.global_position - _nook_breaker_pos()
-		back.y = 0.0
-	back = back.normalized() if back.length() > 0.001 else Vector3(1, 0, 0)
-
-	# ⭐⭐ NEAR MARKS FIRST — THE LADDER USED TO PUT THE FIGURE AS FAR AWAY AS IT COULD
-	# (reordered 2026-09-07, from the user's *"the creature in the dark corridor appears a bit too
-	# far away - let's make it closer"*).
-	#
-	# ⚠️ THE OLD ORDER TRIED `anchor` FIRST, AND THE TRIGGER GUARANTEES THE ANCHOR IS FAR. The
-	# reveal fires from `_tick_nook_watch()` once the player is `NOOK_TRIGGER_DIST` 3.0 m from the
-	# anchor — so candidate one was, by construction, never closer than 3 m, and usually much
-	# further: `_nook_watch` is armed by a `SceneTreeTimer` 5 s AFTER the flip, and 5 s at the
-	# player's 4.0 m/s walk is up to 20 m. `far_enough` is therefore true on the very first tick
-	# and the figure lands wherever they got to. The 3.0 threshold essentially never binds.
-	#
-	# ⚠️ AND THIS IS THE VOLUME FIX TOO, WHICH IS WHY NO GAIN MOVED. `nook_scream` is positional AT
-	# the figure through `_play_at()` (`unit_size 8.0`, `max_db 6.0`, `volume_db -2.0`), so its
-	# delivered level is a function of the distance this ladder chooses. Measured, decoded and
-	# clamped as the mixer will (`nook_scream` loudest-300 ms -3.71 dBFS):
-	#
-	#     at 20 m   -3.71 + min(-2 + 20*log10(8/20),  6) = -13.67 dBFS
-	#     at  2.6 m -3.71 + min(-2 + 20*log10(8/2.6), 6) =  +2.29 dBFS
-	#
-	# **+16 dB, from placement alone.** There is no gain left to add: the emitter is already
-	# pinned to its `max_db` ceiling inside 4 m and the file peaks at 0.00 dBFS under a Master
-	# limiter at -0.5. Raising `max_db` would only lean harder on that limiter.
-	#
-	# ⚠️ `NOOK_TRIGGER_DIST` IS THE USER'S OWN NUMBER AND IS NOT MOVED, nor is the 5 s of
-	# breathing that precedes it — that delay is the beat. What changed is only where the figure
-	# stands once the beat fires, which is framing, not difficulty.
-	#
-	# ⚠️ The world marks are KEPT as the tail of the ladder, not deleted: a player who threw the
-	# breaker and walked out through a doorway can leave every player-relative mark inside a wall,
-	# and `_figure_fits()` will reject them. Falling back to the designed mark beats no figure.
-	# Screen height for the 2.3 m billboard, for scale: ~70 % at 2.4 m, ~51 % at 3.5 m, ~30 % at 6 m.
-	var candidates: Array[Vector3] = [
-		p.global_position + back * 2.4,
-		p.global_position + back * 2.8,
-		p.global_position + back.rotated(Vector3.UP, deg_to_rad(25.0)) * 2.6,
-		p.global_position + back.rotated(Vector3.UP, deg_to_rad(-25.0)) * 2.6,
-		p.global_position + back * 3.4,
-		# ⚠️ AND THE OPPOSITE DIRECTION, before giving up on player-relative marks entirely. A
-		# player in a corner can have every mark on one side clipped into masonry, and a figure
-		# 2.6 m the other way is far better than the sting firing at nothing.
-		p.global_position - back * 2.6,
-		p.global_position - back * 3.2,
-		anchor,                                              # the designed mark, now a fallback
-		Vector3(c.x, 0.0, c.z),                              # mid-room, last resort
-	]
-	for raw in candidates:
-		# Pull it off the walls before testing, rather than testing and failing: a 1.5 m
-		# billboard on the axis a player happens to be walking can sit 0.4 m from the side
-		# of a 2.4 m corridor, and the fan below would (correctly) reject a perfectly good
-		# spot that just needed centring.
-		var spot := _clamp_into_room(raw)
-		if p.global_position.distance_to(spot) < NOOK_MIN_FRAMING:
-			continue
-		if _figure_fits(spot, eye, p):
-			return spot
-	return Vector3(INF, INF, INF)
-
-
-# Pull a point far enough inside whichever ROOMS cell contains it that a NOOK_FIG_CLEAR
-# billboard fits either side of it. Returns the point unchanged when it is in no room (the
-# ray fan then rejects it, which is the correct outcome).
-func _clamp_into_room(p: Vector3) -> Vector3:
-	var margin := NOOK_FIG_CLEAR + 0.15
-	for r in ROOMS:
-		var pos: Vector2 = r["pos"]
-		var half: Vector2 = r["size"] * 0.5
-		if absf(p.x - pos.x) > half.x or absf(p.z - pos.y) > half.y:
-			continue
-		var out := p
-		if half.x > margin:
-			out.x = clampf(p.x, pos.x - half.x + margin, pos.x + half.x - margin)
-		else:
-			out.x = pos.x
-		if half.y > margin:
-			out.z = clampf(p.z, pos.y - half.y + margin, pos.y + half.y - margin)
-		else:
-			out.z = pos.y
-		return out
-	return p
-
-
-# Rays only (Issue 40 — an intersect_shape query against CSG reports NOTHING when it lies
-# wholly inside the slab, so it silently approves exactly the case this rejects).
-#
-#   1. line of sight from the player's eye to the figure's chest. This also catches "the
-#      point is inside a wall", because the segment must cross the slab's near face.
-#   2. head room above the mark.
-#   3. a NOOK_FAN_RAYS horizontal fan at chest height, each ray NOOK_FIG_CLEAR long.
-func _figure_fits(spot: Vector3, eye: Vector3, p: CharacterBody3D) -> bool:
+	var fwd: Vector3 = -cam.global_transform.basis.z if cam else -p.global_transform.basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3(1, 0, 0)
 	var space := get_world_3d().direct_space_state
-	var chest := spot + Vector3(0, 1.35, 0)
-	var exclude := [p.get_rid()]
+	var los_only := Vector3(INF, INF, INF)
+	var los_best := -1.0
+	for deg in [0.0, 25.0, -25.0, 50.0, -50.0, 180.0, 140.0, -140.0, 90.0, -90.0, 70.0, -70.0, 110.0, -110.0]:
+		var dir := fwd.rotated(Vector3.UP, deg_to_rad(deg))
+		for dist in NOOK_LUNGE_FROM:
+			var cand: Vector3 = p.global_position + dir * dist
+			cand.y = 0.0
+			if _room_name_at(cand) == "":
+				continue
+			var q := PhysicsRayQueryParameters3D.create(eye, cand + Vector3(0, 1.0, 0))
+			q.exclude = [p.get_rid()]
+			q.collision_mask = 1
+			if not space.intersect_ray(q).is_empty():
+				continue
+			if _nook_spot_clear(cand):
+				return cand
+			# remember the roomiest LOS-clear spot for the fallback (a corner pose may have none clear)
+			var room_here := _nook_spot_room(cand)
+			if room_here > los_best:
+				los_best = room_here
+				los_only = cand
+	if los_only.x != INF:
+		return los_only
+	var last: Vector3 = p.global_position + fwd * 1.9
+	last.y = 0.0
+	return last
 
-	var los := PhysicsRayQueryParameters3D.create(eye, chest)
-	los.exclude = exclude
-	if not space.intersect_ray(los).is_empty():
-		return false
 
-	var head := PhysicsRayQueryParameters3D.create(chest, spot + Vector3(0, 2.45, 0))
-	head.exclude = exclude
-	if not space.intersect_ray(head).is_empty():
-		return false
+# The nearest wall in the 16-ray fan, for choosing the roomiest fallback.
+func _nook_spot_room(cand: Vector3) -> float:
+	var space := get_world_3d().direct_space_state
+	var origin := cand + Vector3(0, 1.0, 0)
+	var best := NOOK_FIG_CLEAR
+	for k in range(NOOK_FAN_RAYS):
+		var ang := TAU * float(k) / float(NOOK_FAN_RAYS)
+		var to := origin + Vector3(cos(ang), 0.0, sin(ang)) * NOOK_FIG_CLEAR
+		var q := PhysicsRayQueryParameters3D.create(origin, to)
+		q.collision_mask = 1
+		var hit := space.intersect_ray(q)
+		if hit:
+			best = minf(best, origin.distance_to(hit.position))
+	return best
 
-	for i in range(NOOK_FAN_RAYS):
-		var a := TAU * float(i) / float(NOOK_FAN_RAYS)
-		var dir := Vector3(cos(a), 0.0, sin(a))
-		var q := PhysicsRayQueryParameters3D.create(chest, chest + dir * NOOK_FIG_CLEAR)
-		q.exclude = exclude
+
+# The 16-ray fan at NOOK_FIG_CLEAR (Issue 40: rays, never intersect_shape — a shape query
+# wholly inside a CSG slab reports nothing) plus a head-room ray.
+func _nook_spot_clear(cand: Vector3) -> bool:
+	var space := get_world_3d().direct_space_state
+	var origin := cand + Vector3(0, 1.0, 0)
+	for k in range(NOOK_FAN_RAYS):
+		var ang := TAU * float(k) / float(NOOK_FAN_RAYS)
+		var to := origin + Vector3(cos(ang), 0.0, sin(ang)) * NOOK_FIG_CLEAR
+		var q := PhysicsRayQueryParameters3D.create(origin, to)
+		q.collision_mask = 1
 		if not space.intersect_ray(q).is_empty():
 			return false
-	return true
+	var up := PhysicsRayQueryParameters3D.create(origin, origin + Vector3(0, 1.4, 0))
+	up.collision_mask = 1
+	return space.intersect_ray(up).is_empty()
 
 
 func _build_nook_figure(spot: Vector3) -> void:
-	_nook_figure = Node3D.new()
-	_nook_figure.name = "NookFigure"
-	_nook_figure.position = spot
-	add_child(_nook_figure)
-
-	var quad := MeshInstance3D.new()
-	var qm := QuadMesh.new()
-	qm.size = Vector2(1.5, 2.3)
-	quad.mesh = qm
-	quad.position.y = 1.15
-
-	var mat := StandardMaterial3D.new()
-	# ⚠️ Must be a transparent PNG. A figure on an opaque background billboards as a
-	# solid rectangle floating in the dark — the bug that shipped once as
-	# apparition_figure.jpg. lab_nook_figure.png is RGBA and 75% transparent.
+	# W1: a glowing `DoorLunger` (the wing screamer's figure class) — the torch is locked off
+	# in the wing and an unlit cutout on black was invisible. `appear()` brings the alpha up.
 	var tex_path := TEX + "lab_nook_figure.png"
 	if not ResourceLoader.exists(tex_path):
 		tex_path = TEX + "apparition_figure.png"
-	if ResourceLoader.exists(tex_path):
-		var tex := load(tex_path)
-		mat.albedo_texture = tex
-		mat.emission_enabled = true
-		mat.emission_texture = tex
-		mat.emission_energy_multiplier = 1.2
-	else:
-		mat.albedo_color = Color(0.75, 0.75, 0.72)
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
-	mat.albedo_color.a = 0.0   # invisible until the flare drives it
-	quad.set_surface_override_material(0, mat)
-	_nook_figure_mat = mat
-	_nook_figure.add_child(quad)
+	_nook_figure = DoorLunger.build(self, spot, tex_path, NOOK_FIGURE_HEIGHT)
+	_nook_figure.name = "NookFigure"
+	_nook_figure.set_glow(NOOK_GLOW)
+	_nook_figure.add_light(NOOK_LIGHT_RANGE, NOOK_LIGHT_ENERGY)
+	_nook_figure_mat = null
 
 
 func _nook_cleanup() -> void:
@@ -2468,7 +2367,6 @@ func _random_room_point(y: float) -> Vector3:
 
 # Keycard pickup feedback (called by keycard.gd via current_scene).
 func on_keycard_taken() -> void:
-	_arm_apparition_after_keycard()   # L2
 	if _apparition_director and _apparition_director.has_method("note_external_fire"):
 		_apparition_director.note_external_fire()   # the scripted HOLD goes first (2026-09-13)
 	_blackout_timer = BLACKOUT_DURATION

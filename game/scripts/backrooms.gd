@@ -95,7 +95,11 @@ const ROUND_NOTE_TEXT := """You did it. You are back at the same crossing — it
 Follow the arrows pointing DOWN. Three down turns, taken in a row, will tear the seam. Miss one and the room starts you over.
 
 And if the lights die and something smiles at the end of the hall — kill your light. Stand still. Do not run. Let it pass."""
-const VERB_SCRAWL := "NO DOOR.\nWALK INTO IT."   # on the CORRECT arm's surface, every round
+const VERB_SCRAWL := "NO DOOR.\nWALK INTO IT."   # on the CORRECT arm's surface, round 1
+# R4 (2026-09-16, the user: "only the first message like this… the first must always say there is
+# no door"). One line per round on the CORRECT arm; a wrong turn resets the counter and the
+# first line comes back, because the player is at the first wall again.
+const ROUND_SCRAWLS := ["NO DOOR.\nWALK INTO IT.", "IT IS NOT A COINCIDENCE.", "YOU ARE HERE FOR A REASON."]
 
 @onready var _player: CharacterBody3D = $Player
 
@@ -125,6 +129,9 @@ func _ready() -> void:
 	# Backrooms-only player rules: the maze forbids rest, and something walks behind you.
 	_player.enable_standstill_panic()
 	_player.enable_footstep_echo()
+	# R3 (2026-09-16, the user's call after dying to the Smiler 9 s in with the torch on by
+	# default): you ARRIVE in the dark. F still works — the light is a choice down here.
+	_player.flashlight.visible = false
 
 	_assign_round()
 	_spawn_back_door()
@@ -248,7 +255,11 @@ func _build_later_zones() -> void:
 	# a Backrooms room is unfinished.
 	_zone2.set("_level_lights", _all_lights)
 	_zone2.build(ZONE2_ORIGIN)
-	_zone2.cleared.connect(func() -> void: _enter_zone(3))
+	# R10 (2026-09-16, Issue 216): a seam is touched from a physics callback — the level change
+	# must be deferred out of the physics step or the engine refuses to free the
+	# CollisionObjects. `_deferred_if_physics` keeps the direct call for the tests, which drive
+	# these paths from an idle frame and read the result on the next line.
+	_zone2.cleared.connect(func() -> void: _deferred_if_physics(_enter_zone.bind(3)))
 	_zone2.mistake.connect(_on_zone_mistake.bind(2))
 	# THE BOX IN THE DARK (B-R3). ⚠️ The jolt is PRESENTATION and costs nothing: the zone
 	# fires a survivable `flash_scare` and adds no panic, and whether that scare should
@@ -267,7 +278,14 @@ func _build_later_zones() -> void:
 	_zone3.name = "ZoneFlood"
 	add_child(_zone3)
 	_zone3.build(ZONE3_ORIGIN, _player)
-	_zone3.cleared.connect(func() -> void: GameState.advance_level())  # -> KONTUR
+	_zone3.cleared.connect(func() -> void: _deferred_if_physics(GameState.advance_level))  # -> KONTUR (R10)
+
+
+func _deferred_if_physics(f: Callable) -> void:
+	if Engine.is_in_physics_frame():
+		f.call_deferred()
+	else:
+		f.call()
 	_zone3.mistake.connect(_on_zone_mistake.bind(3))
 
 
@@ -608,7 +626,7 @@ func _on_exit_reached(body: Node3D) -> void:
 		# progress meter that never completes reads as a bug, not as a reward.
 		_counter = TURNS_TO_WIN
 		_show_progress()
-		_enter_zone(2)   # zone 1 cleared — the descent continues, it doesn't end
+		_deferred_if_physics(_enter_zone.bind(2))   # zone 1 cleared — the descent continues (R10)
 	else:
 		_wrong_turn()
 
@@ -731,7 +749,7 @@ func _assign_round() -> void:
 		if lbl == null:
 			continue
 		if id == _correct:
-			lbl.text = VERB_SCRAWL
+			lbl.text = ROUND_SCRAWLS[clampi(_counter, 0, ROUND_SCRAWLS.size() - 1)]
 		else:
 			lbl.text = CAP_SCRAWL if id != "N" else EXIT_SCRAWL
 	# ...and the second page appears in the hub from the second round on.

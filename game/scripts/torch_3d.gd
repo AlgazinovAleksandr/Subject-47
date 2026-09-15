@@ -91,6 +91,27 @@ func extinguish() -> void:
 			child.queue_free()
 
 
+# C4 (2026-09-15): the reception bell's blackout puts the spur torch out and brings it back.
+# Only a torch BUILT lit can relight — `_build()` skips the flame, light and sanctuary for an
+# unlit one, and a dead Zone-C panel is meant to stay dead.
+func relight() -> void:
+	if lit or _light == null:
+		return
+	lit = true
+	if _flame:
+		_flame.visible = true
+	var tween := create_tween()
+	tween.tween_property(_light, "light_energy", 1.3, 0.35)
+	var zone: Area3D = _CALM_ZONE.new()
+	var col := CollisionShape3D.new()
+	var sphere := SphereShape3D.new()
+	sphere.radius = calm_radius
+	col.shape = sphere
+	zone.add_child(col)
+	add_child(zone)
+	set_process(true)
+
+
 func _process(delta: float) -> void:
 	if not _light:
 		return

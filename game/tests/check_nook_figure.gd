@@ -167,9 +167,13 @@ func _do_grid() -> void:
 	# ⚠️ Assert the sample size. A run that measured nothing and printed PASS is a documented
 	# failure mode in this repo, not a hypothetical one.
 	_ok("sampled enough poses", _poses.size() >= MIN_POSES, "%d poses" % _poses.size())
-	_ok("a figure was actually placed in most of them", placed >= _poses.size() / 2,
+	# W1 (2026-09-16): placement NEVER skips — a skipped figure is the "heard it, never saw it"
+	# report. Every pose gets a spot.
+	_ok("a figure was placed in EVERY pose", placed == _poses.size() and skipped == 0,
 		"%d placed, %d skipped" % [placed, skipped])
-	_ok("EVERY placed figure is clear by an independent ray fan", bad == 0,
+	# W1: placement never skips, so a pose jammed in a corner takes the ROOMIEST spot rather
+	# than none — a few of those may brush the fan. Tolerated at 5 %, printed, never silent.
+	_ok("placed figures are clear by an independent ray fan (<= 5 %% tolerated for corner poses)", bad * 20 <= placed,
 		"%d bad of %d placed%s" % [bad, placed, ("   e.g. " + first_bad) if first_bad != "" else ""])
 	# Not an assertion — the number the fix exists for. This is the fraction that would have
 	# been on screen with no help at all, i.e. the old lottery.

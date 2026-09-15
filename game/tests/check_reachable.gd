@@ -174,6 +174,7 @@ const CONFIG := {
 		"seeds": ["@player"],
 		"gates": {
 			"RosterSeal": "the welded personnel gate opens on the roster code (Gate 5)",
+			"DarkSeamPlug": "the Blackout doorway's wall plug is solid only while the torch is ON (Gate 7, R9 2026-09-16)",
 			"FungalBarrier": "the fungal mass dissolves when sprayed with vinegar (Gate 2)",
 			"ChoiceDoor_": "both vestibule doors swing open on E (Gate 1); which is black "
 				+ "is randomised per run, so the prefix opens the pair",

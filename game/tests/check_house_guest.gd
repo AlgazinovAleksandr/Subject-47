@@ -384,8 +384,11 @@ func _process(delta: float) -> bool:
 			_ok("H3: the Ambience dip is fired BEFORE the scream is spawned",
 				body.find("HoldBreath.dip(") >= 0 and body.find("HoldBreath.dip(") < body.find("_spawn_guest_child()"))
 			var sp := _scene.get_node_or_null("GuestChildAudio") as AudioStreamPlayer3D
-			_ok("H3: the scream emitter exists at the figure with the loud ceiling",
-				sp != null and sp.max_db >= 24.0 and sp.stream != null)
+			# H4 (2026-09-16): the scream is the House's own `screamer_house` (baba yaga), at
+			# full scale already, so its ceiling is 6 dB rather than the +18/24 the old file needed.
+			_ok("H4: the scream emitter exists at the figure and it is the House screamer",
+				sp != null and sp.max_db >= 6.0 and sp.stream != null
+				and sp.stream.resource_path.get_file().begins_with("screamer_house"))
 			_ok("H3: the scream leads the dip by nothing — it lands into it",
 				float(_scene.get("CHILD_SCREAM_LEAD")) > 0.0 and float(_scene.get("CHILD_SCREAM_LEAD")) < float(_scene.get("CHILD_DIP")))
 			# The two properties that keep it free.

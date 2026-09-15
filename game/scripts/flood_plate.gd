@@ -412,6 +412,15 @@ func set_kinds() -> Array:
 	return out
 
 
+## R6: the altar's own copy of a set piece (null while that slot is empty) — the wake beat
+## animates the pieces where they lie.
+func set_piece(kind: String) -> Node3D:
+	var slot: int = SLOT_KINDS.find(kind)
+	if slot < 0 or not _slot_filled[slot]:
+		return null
+	return _set_pieces[slot]
+
+
 func slot_filled(kind: String) -> bool:
 	var slot: int = SLOT_KINDS.find(kind)
 	return slot >= 0 and _slot_filled[slot]

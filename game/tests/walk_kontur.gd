@@ -175,10 +175,11 @@ func _dark_room_inverts() -> void:
 	_ok("real seam hidden with the light ON", real_hidden)
 	_ok("decoys visible with the light ON", decoy_shown)
 	# K5 (2026-09-13): under the beam the real DOORWAY is plugged with wall (the hole itself was the
-	# tell, capture #23) — and the plug is visual only, so the way through stays walkable.
+	# tell, capture #23). R9 (2026-09-16, capture #8 "I could walk into the door before I turned
+	# off the flashlight"): the plug is SOLID while lit, and opens with the torch off.
 	var plug: CSGBox3D = _scene.get("_dark_plug")
 	_ok("K5: the real doorway wears a wall plug with the light ON", plug != null and plug.visible)
-	_ok("K5: the plug has no collider", plug != null and not plug.use_collision)
+	_ok("R9: the plug is SOLID while the light is on", plug != null and plug.use_collision)
 	if plug:
 		var wall_mat = null
 		for c in _scene.get_children():

@@ -252,6 +252,18 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
   × `uv1_scale`, because the note deliberately UV-crops a square, black-backed source)
 
 **Level 1 — The Lab (institutional wing)** — rebuilt procedurally (Session 10)
+- ⭐⭐ **2026-09-16 (`BACKLOG_Sep_16b.md` W1, Issue 217):** the dark-wing payoff is **breathing
+  cuts → 1 s silence → the figure at arm's length**: `_nook_breath_cut` → `_nook_reveal` builds a
+  glowing `DoorLunger` "NookFigure" placed by `_place_nook_figure` (a ray fan off the player's
+  own corridor, ALWAYS finite), pins and turns the camera, scream over a `HoldBreath` dip, lunges
+  to `NOOK_LUNGE_DIST` 0.65, holds 0.4 s, +20, flees as the wing lights. The watch and the
+  3 m trigger are gone (the user's redesign); the log records distance and room.
+- ⭐⭐ **2026-09-15 (`BACKLOG_Sep_15.md` L1, the user's design):** the taught HOLD apparition
+  appears **3 s after the FIRST breaker** (`_arm_apparition("breaker 1")` from `_on_breaker_flipped`,
+  `APPARITION_AT` (3, 3), the retry idiom of Issue 207 kept, camera brought to it if needed) and it
+  is **the ONLY apparition in the Lab**: `RANDOM_APPARITIONS = false`, no keycard arming, no
+  director. `count_apparitions` asserts exactly one appearance; `check_lab_apparition_timing`
+  asserts nothing before the first breaker.
 - ⭐⭐ **2026-09-13 (evening playtest, `BACKLOG_Sep_13b.md` L1/L2):** **nothing fullscreen before
   the keycard** — the nook payoff keeps its turned-camera figure, scream and +20 but the
   `lab_nook_face.png` flash is GONE (the figure holds `NOOK_FIGURE_HOLD` 0.6 s instead), and the
@@ -407,6 +419,18 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
 - Win: restore power → take keycard from the morgue → exit door (`KEYCARD`). Fail: trigger object, apparition rush (if you sprint), or panic bar fills
 
 **Level 2 — The House (abandoned domestic interior)** — rebuilt procedurally (Session 10)
+- ⭐ **2026-09-16 (H4, `BACKLOG_Sep_16c.md`):** the cellar child fires when the **cellar NOTE is
+  closed** (`_arm_child_on_note_close`, a one-shot on `NoteUI.closed`), pinning the player at the
+  note; the ramp's foot keeps only the scrawl. Its scream is **`screamer_house`** (baba yaga, the
+  user's call) at 0 dB / `max_db` 6. **H5:** a red **WHERE AM I?** scrawl at `CELLAR_WHERE_AT` 0.7 s,
+  held 2 s, faded by 4.7 s — timed to be GONE before the doll at 5.5 s.
+- ⭐ **2026-09-16 (H2/H3):** the cellar's scripted HOLD apparition is **deleted** (it spent the
+  doll 5 s early); the director's random one stays upstairs. The cellar blackout **pins the
+  player** (`_begin_cellar_blackout` freezes; `_can_show_child` ignores that pin) until the child
+  has appeared. "Collect the key." uses the lower caption slot.
+- ⭐ **2026-09-15 (H1, Issue 214):** the cellar apparition **retries on an abort** — latches only
+  when `ApparitionDirector.arm()` returns true, else respawns and re-polls every 0.25 s for 20 s
+  (`_tick_apparition_retry`, refused while paused / a note is open).
 - ⭐⭐ **2026-09-13 (H1b):** the map's glass is a **ROOM**: `_place_glass()` glazes every open edge of
   the key's cell (`_pane_rects`, solid to the icon and the monsters until `_break_glass()`); the mark
   is `house_map_key_icon.png` and the hammer icon was redrawn upright (`tools/make_map_icons.py`).
@@ -657,6 +681,34 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
 - **Lock penalty**: each wrong combination = harsh buzz (`lock_buzz.wav`) + 10 panic — brute-forcing the lock is itself a fail path
 
 **Level 3 — The Corridor (haunted hotel hallway)** — inspired by *The Corridor* (2012)
+- ⭐ **2026-09-16 (C7):** the 330 spur's slatted cupboard and mirror are **gone** (the mirror read
+  as a window onto another room). The spur ends in a partition with a **real hotel door standing
+  open onto a service closet** (`Spur2ClosetDoor`, an `AjarDoor` at 150° into the closet; rack,
+  chair, pail); stepping in slams it, the **strip of light under the door** is all that is left
+  and the Manager's **shadow crosses it** (`spur_cupboard.gd:_shadow_cross`). Rules unchanged.
+- ⭐ **2026-09-16 (C6):** the 124 door is a **double door onto a real bedroom** (`_build_break_room`:
+  bed, wardrobe, black window; the wall cut 2 × `AjarDoor.WIDTH`; `AjarDoor.swing_sign` and a swing
+  limit so both leaves open INTO the room); both slam at `BREAK_FIGURE_GONE_M`.
+- ⭐ **2026-09-16 (`BACKLOG_Sep_16.md` R1/R2):** the blind room is the hotel's **LINEN ROOM**
+  (`_dress_blind_room`: the lever seated in an iron cabinet on the stone wall, a boiler with a
+  flue, a linen rack, a laundry cart, a mop bucket, a dead bulb — the three big pieces knock
+  metal/wood when bumped in the dark); `MirrorSurface.ACTIVE_DIST` is **4 m** (was 7) and the
+  **410 mirror does not exist until then** (`_set_mirror_present`: no frame, no glass, no gaze
+  collider) — it appears with the wake noise whichever way you face.
+- ⭐⭐ **2026-09-15 (`BACKLOG_Sep_15.md` C1–C4, the user's 2026-09-14 run):** **C1** the 124 door
+  figure stands on the hall's **centreline 2 m past the door** (`BREAK_FIGURE_PAST`; it was half in
+  the wall) and is gone + the door slams at `BREAK_FIGURE_GONE_M` 4 m. **C2** the Manager is a
+  **decayed 1920s concierge** (flux, green-screened, `tools/cutout_green.py --exposure 0.95`; v1 in
+  `assets_src/textures/superseded/`), cutout stats asserted. **C3** the cupboard seal **takes the
+  torch** (force/restore pair) and scrawls **DON'T MOVE. DON'T BREATHE.**; `check_cupboard_fallback`
+  proves the 45 s fallback (the 88 s "stuck" was the J-capture pause, Issue 213). **C4 (the user's
+  own design)**: the bell spur is at **208 (side −1)**, the false **room 217 is at the 230 corner**
+  and **`FalseExitDoor.requires_key`** — E without the key only toasts *It needs a key.*; ring the
+  bell and every light dies for `SpurBell.BLACKOUT_S` 4.5 s (desk lamp, spur torch, YOUR torch,
+  footsteps up the spur), then the **217 key** (`KeyItem` + `key_tag_217.png`, `tools/make_key_tag.py`)
+  lies beside the bell; taking it (`GameState.carried_item`) unlocks the door, which spends it. The
+  nook's door **never closes**; the 245 whisper voice is gone; `TELEGRAPH_AT` [283, 298]. Zero panic
+  in all of it. `check_corridor_events` C4/C3/C5, `walk_corridor`, `screenshot_sep15.gd`.
 - ⭐⭐ **2026-09-13 (C1/C2):** the three spurs are **three different shut-ins** with a Space-mash
   escape (`spur_escape.gd`, three bars, `SlamDoor.force_open()`, fallback `SPUR_SHUT_TIME` 20 s):
   "note" (a page on the end wall, a light strip under the shut door and a shadow crossing it at bar
@@ -763,6 +815,13 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
 - Prop textures (`clock/mirror/torch/carpet.png`) share the same baked wallpaper+wainscot background as `wall.png` and are applied as full-height wall panels. ⚠️ Five of them are still stretched 1.20–1.67× and that is a **deferred art pass**, listed by name with its reason in `check_art_aspect.gd`'s Corridor row — which asserts its own size, so a new stretch cannot hide behind an entry written for a different one
 
 **Level 4 — The Backrooms (liminal mono-yellow maze)** — `backrooms.gd` + `backrooms.tscn`
+- ⭐ **2026-09-16 (`BACKLOG_Sep_16.md` R3–R6, R10):** you **arrive with the torch OFF** (F works;
+  the Smiler killed the user 9 s in with the default-on torch); the correct arm's scrawl is
+  **per round** (`ROUND_SCRAWLS`: NO DOOR / IT IS NOT A COINCIDENCE / YOU ARE HERE FOR A REASON);
+  the Flood's calm island is a **raised tiled swimming pool with dark blue water** (deck
+  `DryPlatform`, curbs, a ramp from the Descent side, a chrome ladder, a cold lamp) and setting
+  the sixth relic makes **the relics wake** (`_relics_wake`: candle, bell, doll, lamp gutter, a
+  groan from the Sump; zero panic). Seam transitions are deferred (Issue 216).
 - ⭐ **2026-09-13 (B1/F1):** the crate sting plays **as the lunge starts** (`_start_the_lunge`), not
   on `lunged`; the Flood board reads **SIX RELICS OF THE WARD. / RETURN THEM TO ME.** and the
   pre-completion objective is *Someone down here kept relics of the ward.*
@@ -1240,6 +1299,11 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
   read-to-end phone call → panic bar fills
 
 **Level 5 — KONTUR ("Object 12")** — `kontur.gd` + `kontur.tscn`
+- ⭐ **2026-09-16 (K3):** `Screamer.trigger()` drops the picture for ANY death that lands while a
+  lunge is in progress (the condemn bar's own death raced the lunge and showed it).
+- ⭐ **2026-09-16 (R7–R9):** every `trigger_with_lunge` death ends in **black, no static image**
+  (`Screamer.trigger(_, with_image=false)`); the archive keycard's notice uses the lower caption
+  slot; the Blackout plug is **solid while lit** (Issue 215).
 - ⭐⭐ **2026-09-13 (K1–K4):** the hammer is **parts lying on the bench** (`kontur_hammer.png`
   retired); the cell's front is an **open barred face** (eight Ø30 mm bars off the centre line,
   rails, a gate section with a lock; no leaf, no port — the sightline sweep still sees all 23
@@ -2049,6 +2113,9 @@ Final door loads back to the intro room — **corrupted** (`_corrupt_room()` in 
 - ⚠️ `player.freeze_input()` is not cosmetic: the mouse is captured and `CutscenePlayer` is opaque, so without it the player walks blind around the ward for ten seconds with footsteps playing
 
 ### Random Apparition (the "monster" — `apparition.gd`, Session 10)
+- ⭐ **2026-09-15 (L2, the user's call): `apparition_snarl.ogg` (user-supplied) is the ARRIVAL sting
+  of every HOLD apparition** (`ARRIVAL_STING_DEFAULT`); the fatal rush plays `all_levels_screamer`
+  (my call, flagged). The 2026-09-07 paragraph below that puts the snarl on the rush is history.
 A reusable figure that materialises at a scripted-but-randomised moment and tests the player's
 **response**, not their reflexes. `Apparition.spawn(parent, rule, pos, teach)` returns the right
 node for one of three rules:
@@ -2302,7 +2369,7 @@ for. ⚠️ `RefCounted`, deliberately not a Node — every one of these creatur
 | `breaker.gd` | `class_name Breaker` (Session 10) — Lab power switch; `interact()` flips once + emits `flipped` + clunk (`breaker_throw`). The panel is **never** emissive (Issue 33); `@export var glows: bool = true` now gates only the lever indicator at `INDICATOR_EMISSION = 0.12` — set `false` for BreakerNook's breaker so it stays genuinely invisible in the dark. **2026-08-16:** the state colour moved off the handle onto a **recessed pilot lamp** (a dark bezel standing proud with the lens sunk ~2 cm inside it, so it only shows its colour to someone roughly in front of it) and the handle became dark moulded plastic with a collar — captures #3/#4 photographed a saturated red block glued onto a photographic panel. Also gained `@export blocked` + `unblock()` + `can_interact()`: while blocked the breaker is COMPLETELY inert, and that — not the locker standing in front of it — is what gates the Records panel (Issue 57) |
 | `living_mirror.gd` | `class_name LivingMirror` (Session 10) — one-way mirror; ⭐ `emission_scale` (2026-09-07, additive, default 1.0) halves the figure's 0.5 emission in the Lab and the House only — an unshaded figure at 0.5 in a room at ambient 0.0 is a lantern with a face on it, and this prop's premise is a shape you catch out of the corner of your eye; a figure shows in the glass only when the player is NOT looking head-on (`LOOK_DOT=0.8`) + gaze panic (ScaryObject). **Seeds `body.global_transform = global_transform`** — without it the ScaryObject-chained collider sits at the world origin (an invisible wall; the bug fixed in Session 10). ⚠️ **`fit_to_art` (2026-08-17) sizes both quads from their own artwork and DEFAULTS TO FALSE.** The glass art is a 1.250-aspect landscape observation window and the mesh was a 0.667 portrait quad — a **1.874× stretch**, in all three levels that use this prop, plus 1.141× on the figure. Only `backrooms_zone2.gd` opts in: turning it on is a visible change (portrait → landscape at the same diagonal, 1.2000×1.8000 → 1.7994×1.4400) and the Lab and House are closed levels. Their halves are D11 in `backlogs/04-backrooms.md`; each is one line. ⚠️ Do not make it the default without taking that decision — the fix is correct in all three, the question is when |
 | `kontur.gd` | Level 5 — KONTUR. Builds the 13-room spine via `RoomBuilder`, the Soviet→facility skins, the level-wide `DreadZone` (the no-decay economy), all **eight** gates + their printed redacted signs, the Perëkozhnik's disguise, Object 12's containment cell, the Recovery Archive, the Cyrillic stencils, props and doors. Owns the strike counter (`_strike()`), the `_gates` ledger + `_refresh_exit()` (the exit stays sealed until all eight pass), `_forfeit()`, `_open_the_void()`/`_check_void_fall()`/`_banish()` (the wrong door drops you a level), and — since 2026-08-18 — `_preload_snapshot()` / `_reopen_passed_gates()`, which are what stop a back-door return re-rolling the answers or rebuilding a seal that can never be opened again (Issues 141/142) |
-| `screen_text.gd` | `class_name ScreenText` — shared transient on-screen text: `toast()` / `caption()` / `scrawl()` (blood-red, slightly rotated — the project has no handwriting font, so the tilt does the work). Replaces five hand-rolled CanvasLayer+Label helpers. ⚠️ Always parents to the tree root and cleans up via a **connected**, never awaited, tween — an awaited timer dies with the node that started it (Issue 6) |
+| `screen_text.gd` | `class_name ScreenText` — shared transient on-screen text: `toast()` / `caption()` / `scrawl()` (blood-red, slightly rotated; `scrawl(..., bottom = true)` puts it in a band above the caption slot — the House cellar's WHERE AM I? uses it because the ramp-foot NIGHTMARE hint can still hold the centre, and two centred scrawls print on top of each other, 2026-09-16 — the project has no handwriting font, so the tilt does the work). Replaces five hand-rolled CanvasLayer+Label helpers. ⚠️ Always parents to the tree root and cleans up via a **connected**, never awaited, tween — an awaited timer dies with the node that started it (Issue 6) |
 | `audio_buses.gd` | ⭐ **A HARD LIMITER ON MASTER since 2026-09-03** (`ensure_master_limiter()`), the FIRST `AudioEffect` this project has ever had — `grep -rn "AudioEffect" game/scripts/` returned zero before it. Every sting plays at a hard-coded 0 dB, several files peak at exactly 0.0 dBFS, nine more were re-mastered UP toward that ceiling, and a fatal screamer is the one moment the heartbeat, the bed and a one-shot are all loudest at once; summed, that clipped the output device, which sounds like a broken speaker rather than a loud scream. ⚠️ **It is added IDEMPOTENTLY** — `reset_all()` runs on every level load, so an unguarded `add_bus_effect` would stack one limiter per level; `check_scare_loudness.gd` asserts exactly one survives repeated calls. ⚠️ **`reset_all()` runs on EVERY level load** (`GameState.start_current_level()`, 2026-08-15). AudioServer buses are process-global and survive `change_scene_to_file`; `ensure()` early-returns without touching a volume; and every per-level bed nests under `Ambience`. So one level that ducks a bus and forgets to restore it silences **every level after it for the rest of the session**. That is not hypothetical: `corridor.gd:_tick_hush()` pulled `Ambience` to −40 dB at 296 m with no restore, which is why the Backrooms had no music when entered from the Corridor but did when loaded directly. `check_bus_leak.gd` drives the real transition and asserts the arrival. `ensure_music_bus()` is the escape hatch for a SCORE that must survive a duck — sent to Master, not nested. `class_name AudioBuses` (2026-07-28) — the minimal runtime bus layout: `Master → Ambience` (duckable) and `Master → Body` (heartbeat + footsteps, **NEVER ducked**). `ensure_core()` is called from `GameState._ready()`, so both exist before any scene. ⚠️ **Per-level bed buses NEST under `Ambience`** (`backrooms.gd`, `dungeon.gd`), so a level's own `SilenceZone` duck and a global `HoldBreath` dip compose instead of competing. Deliberately NOT `SCARY.md` §4.1's five-bus `.tres` — the project has never had bus config in `project.godot` and this follows the existing runtime pattern |
 | `hold_breath.gd` | `class_name HoldBreath` (SCARY.md P5) — `HoldBreath.dip(tree, hold)` ducks `Ambience` to −30 dB, holds, restores. Wired as a **0.6 s pre-duck inside `screamer.gd:flash_scare()`**, which improves every survivable scare in the game at once. ⚠️ Fire-and-forget, never awaited — awaiting would delay the image by the whole dip. One dip per bus at a time (`static _active`), `PROCESS_MODE_ALWAYS`, and restores in `_exit_tree()` |
 | `watcher.gd` | `class_name Watcher` (SCARY.md P3) — a distant motionless figure with **no rules at all**: no `ScaryObject`, no collider, no kill radius, no `Screamer`, no fail state, **no emission**. `spawn(parent, pos, tex, vanish_within, require_los, height, tint)`. Used by the Corridor doorway, the House cellar and the Sprawl's Congregation. ⚠️ Clearance by **rays only** (Issue 40). ⚠️ `require_los=false` is for `congregation.gd` ONLY — the LOS ray is also what catches "inside a wall", so it may only be dropped by a caller whose candidates cannot be inside geometry. ⚠️ **`figure_tint` (2026-08-17) is ADDITIVE and defaults to white**, i.e. every existing caller renders byte-identically. It exists because the header's own premise — "a dark shape OCCLUDING a lit surface" — is a **constant albedo against a variable background** and inverts wherever the ground is darker than 44/255; measured in the Sprawl the "shadow" was lighter than the floor (cross-level X36). It is a tint, never an emission |
@@ -2325,7 +2392,7 @@ for. ⚠️ `RefCounted`, deliberately not a Node — every one of these creatur
 | `kontur_mailbox.gd` | `class_name KonturMailbox` — KONTUR Landing's mailbox. **Rebuilt 2026-07-25** (capture #4) from one box + a photo decal into a real 12-slot bank: the old art had the wallpaper baked into its background, so the prop's own texture depicted the wall behind it and could never read as 3D (Issue 35). `kontur.gd:_spawn_mailbox()` now builds carcass/plinth/top-overhang, a divider+shelf grid and twelve numbered slot doors with handles and card holders, all flat-tinted and untextured — the `intro_room.gd:_build_wheelchair()` precedent. **Only slot 12 opens**: the level hands the script a `door_hinge`, and the first `interact()` swings it before `NoteUI.show_note(hint_text)`, so the note reads as having come out of the box. ⚠️ **That was false until 2026-08-16** — the tween was started and the note shown on the next line, and `show_note()` PAUSES THE TREE, so the Tween never got a frame and the door swung only once the player closed the note (measured: hinge at **0.0°** when the note appeared; **105° of 105** after the fix). The note now fires from the tween's `finished`. ISSUES_SOLUTIONS **Issue 58**. ⚠️ The slot is also **STIFF** now (the user's call): `PRESSES_NEEDED = 3` — two tugs that groan and shift the door a few degrees before it springs back, then one that gives. No bar, no timer, **no fail state**; `LightSwitch.presses_needed`'s idiom, not `lab_locker.gd`'s tug-of-war. A rapid second press must COUNT, so the stick tween is killed and restarted rather than the input being swallowed |
 | `house_map_prop.gd` | `class_name HouseMap` — the Bathroom's folded map prop, on a stool built from parts (`_build_stool`, 2026-08-16 — it was one flat grey cube, and it is the frame the "Collect the key." payoff is delivered in; Issue 35); `interact()` opens its child `MazeChaseUI`, `signal won`, owns the catch consequence (`jolt_camera` + `add_panic(CATCH_PANIC)`) and a `_solved` one-shot guard, same division of labor as `key_item.gd`/`kontur_mailbox.gd` |
 | `maze_chase_ui.gd` | `class_name MazeChaseUI` — the House map-and-chase minigame itself (**16×9 BRAIDED** randomized-DFS maze, BFS target/monster placement, drag physics, wall-slide collision, panic drip, two monsters, snares, a looping chase track). ⚠️ **TWO-STAGE since 2026-08-16**: collect the fragment(s), then reach the mark, which is inert until then — `_place_fragments()` places them on a **monotone-outward** tour (never backtracking, never in a dead end) and validates its length into `TOUR_BAND`, and `_place_patroller()` bands the second monster off `_route_cells`, which now means the whole tour; `_is_won()` is the only win predicate. `CanvasLayer` + `PROCESS_MODE_ALWAYS` + `get_tree().paused`, same convention as `combination_lock.gd`/`note_ui.gd`; `signal won` / `signal caught`. See the House level write-up above for full mechanics |
-| `RandomAmbient` | `scripts/random_ambient.gd` | ⚠️ **`set_once_per_type(true)` caps each event to once per level — OPT-IN, and only the Corridor uses it** (2026-08-15). At ~300 m the Corridor is the longest walk in the game, so an 18-35 s metronome cycled the same three sounds many times over ("too many repeating sounds… falling painting"). Opt-in because this autoload is global and the other levels are balanced against the repeat. **Global ambient-scare metronome, and a real part of every level's panic budget.** `register_player(p)` (each level calls it in `_ready()`), then every `MIN_INTERVAL`-`MAX_INTERVAL` seconds it plays one of `floor_creak`/`painting_fall`/`half_scream` at a random point within 4 m of the player and adds **5 / 8 / 12 panic** respectively. ⚠️ Was **5-10 s** until 2026-07-26 — a scare every ~7 s forever, in all eight levels, with `half_scream` alone worth 24% of `PANIC_MAX`. Two playtest logs were wall-to-wall with the resulting spikes and the player read it as a creature repeatedly appearing beside them. Now **18-35 s**. It is GLOBAL: retuning it changes ambient pressure everywhere at once, so check here first when a level's difficulty shifts for no local reason |
+| `RandomAmbient` | `scripts/random_ambient.gd` | ⚠️ **X0 (2026-09-15): `_play_near_player` null-guards `current_scene` and the player** — it threw `add_child on null` at the House transition once per run.  **`set_once_per_type(true)` caps each event to once per level — OPT-IN, and only the Corridor uses it** (2026-08-15). At ~300 m the Corridor is the longest walk in the game, so an 18-35 s metronome cycled the same three sounds many times over ("too many repeating sounds… falling painting"). Opt-in because this autoload is global and the other levels are balanced against the repeat. **Global ambient-scare metronome, and a real part of every level's panic budget.** `register_player(p)` (each level calls it in `_ready()`), then every `MIN_INTERVAL`-`MAX_INTERVAL` seconds it plays one of `floor_creak`/`painting_fall`/`half_scream` at a random point within 4 m of the player and adds **5 / 8 / 12 panic** respectively. ⚠️ Was **5-10 s** until 2026-07-26 — a scare every ~7 s forever, in all eight levels, with `half_scream` alone worth 24% of `PANIC_MAX`. Two playtest logs were wall-to-wall with the resulting spikes and the player read it as a creature repeatedly appearing beside them. Now **18-35 s**. It is GLOBAL: retuning it changes ambient pressure everywhere at once, so check here first when a level's difficulty shifts for no local reason |
 | `DebugLog` | `scripts/debug_log.gd` | Playtest instrumentation. Writes `user://playtest_log.txt`; polls position/panic/flashlight every `POLL` (0.5 s) and logs panic only when it moves more than 18 points between samples — so a slow ramp never appears and every logged jump is a real spike. `J` (`debug_capture`) saves a screenshot plus a typed note. `record_death()` is called directly from `Screamer.trigger()` || `bottle_item.gd` | `class_name BottleItem` — KONTUR Gate 2. Self-building glass bottle + label quad; `@export kind/label_path`, `signal taken(kind)`. Layer 2 / mask 0 like `note.gd` so the shelf line isn't walkable-into |
 | `fungal_barrier.gd` | `class_name FungalBarrier` — KONTUR Gate 2. The O-41 mass sealing a doorway; `setup(size, tex)`, `signal sprayed`, `dissolve()` (drops the collider FIRST, then tweens, so the player is never trapped mid-tween) |
 | `offering_pedestal.gd` | `class_name OfferingPedestal` — KONTUR Gate 3. Lit pedestal with a hovering bait keycard; `signal taken` on `interact()`. Abstaining is scored by the level's exit sensor, not here |

@@ -35,13 +35,14 @@ static func toast(tree: SceneTree, text: String, color: Color = Color(1, 1, 1),
 
 
 # A subtitle low on the screen, for spoken lines.
-static func caption(tree: SceneTree, text: String, seconds: float = 4.0) -> void:
+static func caption(tree: SceneTree, text: String, seconds: float = 4.0,
+		color: Color = Color(0.82, 0.84, 0.78)) -> void:
 	var canvas := _layer(tree)
 	var lbl := Label.new()
 	lbl.text = text
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.add_theme_font_size_override("font_size", 20)
-	lbl.add_theme_color_override("font_color", Color(0.82, 0.84, 0.78))
+	lbl.add_theme_color_override("font_color", color)
 	_outline(lbl)
 	lbl.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	lbl.offset_top = -140.0
@@ -53,14 +54,21 @@ static func caption(tree: SceneTree, text: String, seconds: float = 4.0) -> void
 # Blood-red, hand-daubed, slightly crooked. Used where the game speaks to the player
 # rather than the fiction speaking to Subject 47: the banishment accusation, and the
 # escort corridor's lie.
+# `bottom` (H5b, 2026-09-16): a scrawl that must not share the centre with another one lands
+# in a band above the caption slot instead — two centred scrawls printed on top of each other.
 static func scrawl(tree: SceneTree, text: String, seconds: float = 5.0,
-		font_size: int = 54) -> void:
+		font_size: int = 54, bottom: bool = false) -> void:
 	var canvas := _layer(tree)
 	var lbl := Label.new()
 	lbl.text = text
 	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	if bottom:
+		lbl.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+		lbl.offset_top = -300.0
+		lbl.offset_bottom = -170.0
+	else:
+		lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	lbl.add_theme_color_override("font_color", BLOOD)
 	lbl.add_theme_font_size_override("font_size", font_size)
 	lbl.add_theme_constant_override("line_spacing", 14)

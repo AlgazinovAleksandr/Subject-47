@@ -143,11 +143,16 @@ func _process(delta: float) -> bool:
 			if kind3 == "bell":
 				var beat: Node = _scene.get_node_or_null("Spur%dBellBeat" % int(e3["index"]))
 				if beat != null and bool(beat.call("is_done")):
-					_ok("spur %d (bell): the steps arrived and the door gave" % int(e3["index"]), not bool((e3["door"] as Node).get("_closed")))
-					_ok("spur %d (bell): the guest's card is on the desk (never turned round)" % int(e3["index"]), _scene.get_node_or_null("BellCard") != null)
+					# C4: the lights came back, the key is on the desk, take it
+					_ok("spur %d (bell): the lights came back and the torch is yours again" % int(e3["index"]), bool(_p.call("is_flashlight_on")))
+					_ok("spur %d (bell): the door never closed" % int(e3["index"]), not bool((e3["door"] as Node).get("_closed")))
+					var key := _scene.get_node_or_null("Spur%dKey" % int(e3["index"]))
+					_ok("spur %d (bell): the 217 key is on the desk" % int(e3["index"]), key != null)
+					if key != null:
+						(key as Node).call("interact")
+					_ok("spur %d (bell): E takes it — carrying the room key" % int(e3["index"]), String(root.get_node("/root/GameState").get("carried_item")).contains("217"))
 					_mash_spur = null
 					_wait_until = -1.0
-					_p.call("restore_flashlight")
 					_leg += 1
 					return false
 				return false
@@ -249,11 +254,11 @@ func _process(delta: float) -> bool:
 				bool(fc["opened"]) and not bool((fc["door"] as Node).get("_closed")))
 		var e = _route[_leg].get("wait_spur", null)
 		if e != null and String(e["kind"]) == "bell":
-			# C2: ring, keep facing the desk, wait for the steps to arrive — the card outcome.
+			# C4: ring, wait through the blackout for the key.
 			var bell: Node3D = _scene.get_node("Spur%dBell" % int(e["index"]))
 			_p.call("ai_look_at", bell.global_position)
 			(bell as Node).call("interact")
-			_ok("spur %d (bell): the bell rings and shuts the door" % int(e["index"]), bool((e["door"] as Node).get("_closed")))
+			_ok("spur %d (bell): the bell rings and the door stays OPEN" % int(e["index"]), not bool((e["door"] as Node).get("_closed")))
 			_mash_spur = e
 			_shut_at = _t
 			_shut_seen += 1

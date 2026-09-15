@@ -71,7 +71,8 @@ TESTS=(
   check_house_lock            # H4 (2026-09-13): the correct code drops the lock and the door asks
   check_house_fridge_chain    # H2 (2026-09-13): chained fridge, cutters under the bed, the digit on the head
   check_corridor_doors        # ajar doors never block the hall; a non-payoff telegraph is free
-  check_corridor_events       # runner's apparent size; the false 217 door; note facing; flash payload
+  check_corridor_events       # runner's apparent size; the false 217 door (key-gated); the bell key beat; note facing
+  check_cupboard_fallback     # C3: the seal takes the torch + scrawl, and the 45 s fallback releases a player who keeps moving
   check_corridor_clock        # the grandfather clock is a CASE with a swinging pendulum, still cursed at 1.0 (2026-09-10)
   check_prop_mounting         # ALL NINE levels: every flush wall prop is SEATED — the maximum
   check_mirror_frustum        # the glass frames itself: near-plane window == the quad, 1.00x

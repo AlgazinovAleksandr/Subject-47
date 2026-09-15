@@ -5947,3 +5947,57 @@ days earlier. `force_flashlight_off()` / `restore_flashlight()` now. Found by `w
 "the torch is back" — which had been green while the walker took a different route through the
 level, and went red the moment the loop-back leg was made to work. **A scripted blackout uses the
 force/restore pair; lock/unlock is for a torch the player must not touch for a while.**
+
+## Issue 213 — "I got stuck" in the cupboard: the fallback clock does not run while a J-capture is typed (2026-09-15)
+The user sat sealed in the Corridor's cupboard for 88 s of wall clock (`CUPBOARD sealed` at 658.65,
+session end at 750.24) and the 45 s fallback never released them. No script error, and
+`check_cupboard_fallback.gd` — written for this — drives the exact path (sealed, moving the whole
+time, torch on) and releases at FALLBACK_S every run. The log has the answer: both captures #5 and #6
+were typed INSIDE that window, and `DebugLog` pauses the tree for the whole of a capture
+(`get_tree().paused = true` until the note is submitted). `SpurCupboard._process` sums `delta`, which
+is zero while paused, so two long notes (~55 s of the 88) left the fallback roughly ten seconds
+short. Not a defect in the beat; a defect in what the beat ASKED — the user had the torch on and
+did not know the rule, so the 8 s stillness release could never fire either. C3 removes the ask:
+the seal now takes the torch (`force_flashlight_off`/`restore_flashlight`, Issue 212's pair) and
+scrawls **DON'T MOVE. DON'T BREATHE.**, so standing there is the obvious thing and the 8 s clock does
+the work. **A wall-clock reading of a delta-summed timer is wrong by every pause in it — check the
+capture timestamps before calling a timer broken.**
+
+## Issue 214 — The House cellar apparition aborted once and was never retried (2026-09-15)
+`level_2.gd:_trigger_apparition()` set `_apparition_fired = true` and called
+`ApparitionDirector.arm()` without reading its return: the 2026-09-14 log shows
+`APPARITION aborted (no clear spot)` in the cellar and no second attempt, so the House had no
+apparition that run. The Lab had the identical shape fixed on 2026-09-14 (Issue 207,
+`appear() -> bool`); the House was not carried across. It now latches only on `arm()` returning
+true, otherwise respawns the figure and re-polls every 0.25 s for up to 20 s (`_tick_apparition_retry`,
+refused while paused / a note is open). **When a fix teaches a function to report failure, grep every
+caller — the second caller is where the bug lives now.**
+
+## Issue 215 — The blackout doorway's wall plug was a picture, so the gate passed through it (2026-09-16)
+K5 (Issue 198's fix) plugged KONTUR's real Blackout doorway with a wall-textured `CSGBox3D` while
+the torch is on — `use_collision = false`, "visual only, so the way through stays walkable". The
+gate-7 pass trigger sits 1 m BEHIND that plug, so a player who walked at the wall with the torch
+on went straight through the picture and passed the gate without ever turning the light off
+(capture #8, `GATE PASSED — dark` 23 s before `FLASHLIGHT OFF`). The plug now toggles
+`use_collision` with `visible`: a wall you can see is a wall you bump into. `walk_kontur` asserts
+it is solid lit and gone dark. **A prop that HIDES an opening must also CLOSE it, or the opening
+is still the answer.**
+
+## Issue 216 — Changing scene from inside a glitch wall's body_entered freed colliders mid-physics (2026-09-16)
+`GlitchWall._on_body` → `touched` → `advance_level()` / `_enter_zone()` ran synchronously inside
+the physics callback; Godot refused with *Removing a CollisionObject node during a physics
+callback is not allowed*. All three seam consumers in `backrooms.gd` now `call_deferred` the
+transition. Harmless in practice (the engine only warned) but it is the shape of a crash on a
+build with stricter checks.
+
+## Issue 217 — The wing payoff skipped its figure wherever the player had walked to (2026-09-16)
+`level_1.gd`'s nook beat armed a WATCH 20 s after the breaker; by then the player had walked
+~10 m out of BreakerNook, the watch fired at once (3 m from the anchor is true everywhere out
+there), and `_place_nook_figure()`'s ladder of nook-relative marks found nothing in a 2.2 m
+corridor — its honest failure mode ("skip the picture, keep the sting") is exactly what the
+user reported: *"I did not see the jumpscare, I just heard it."* And nothing logged the skip.
+Now the breathing cuts, a second of silence, and the figure is placed by a ray fan off the
+player's own corridor (the wing screamer's method, Issue 208) — never non-finite — glows,
+lunges, and the log carries its distance and room. **A beat whose placement can fail needs a
+placement that cannot, and a log line either way.**
+

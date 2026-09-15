@@ -68,6 +68,10 @@ func _process(_delta: float) -> bool:
 	var safe: Array[Node] = []
 	var traps: Array[Node] = []
 	var note_script: GDScript = load("res://scripts/note.gd")
+	# H4 (2026-09-16): reading the CELLAR note arms the doll beat on the note's close, which pins
+	# the player — and the journal refuses to open while pinned. This test is about the journal,
+	# so the child beat is marked spent before any note is read.
+	current_scene.set("_guest_child_done", true)
 	_walk(current_scene, note_script, safe, traps)
 	_ok("found safe notes", safe.size() >= 2, "%d" % safe.size())   # H2 (2026-09-13): the Bedroom page became the digit on the fridge head
 	_ok("found trap notes", traps.size() >= 1, "%d" % traps.size())

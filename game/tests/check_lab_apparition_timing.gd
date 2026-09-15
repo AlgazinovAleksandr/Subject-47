@@ -68,9 +68,9 @@ func _process(delta: float) -> bool:
 				near_spawn += 1
 		_ok("no trigger volume sits near the Lab spawn", near_spawn == 0, "%d" % near_spawn)
 		_ok("the apparition exists (it was delayed, not deleted)", current_scene.get("_apparition") != null)
-		_ok("it is NOT armed before the keycard", not bool(current_scene.get("_apparition_armed")))
+		_ok("it is NOT armed before the first breaker", not bool(current_scene.get("_apparition_armed")))
 		var at: Vector2 = current_scene.get("APPARITION_AT")
-		_ok("the window is a RANGE, not a constant", at.x < at.y, str(at))
+		_ok("the window is 3 s after breaker 1 (L1, 2026-09-15)", is_equal_approx(at.x, 3.0) and is_equal_approx(at.y, 3.0), str(at))
 		# The wing refusal, with a control. Junction is the wing's first decision point.
 		var p: Node3D = current_scene.get_node("Player")
 		var home: Vector3 = p.global_position
@@ -87,16 +87,16 @@ func _process(delta: float) -> bool:
 	match _phase:
 		0:
 			if bool(_level.get("_apparition_fired")):
-				_ok("nothing fires before the keycard", false, "fired at %.1f s with no keycard" % _t)
+				_ok("nothing fires before the first breaker", false, "fired at %.1f s with no breaker" % _t)
 				_finish()
 				return true
 			if _t >= WAIT_BEFORE_KEYCARD:
-				_ok("nothing fired in %.0f s without the keycard" % WAIT_BEFORE_KEYCARD, true)
-				_level.call("on_keycard_taken")
-				_ok("the keycard arms it", bool(_level.get("_apparition_armed")))
+				_ok("nothing fired in %.0f s without a breaker" % WAIT_BEFORE_KEYCARD, true)
+				_level.call("_on_breaker_flipped", "Breaker_Exam1")
+				_ok("the FIRST breaker arms it", bool(_level.get("_apparition_armed")))
 				var due: float = float(_level.get("_apparition_due"))
 				var at: Vector2 = _level.get("APPARITION_AT")
-				_ok("the window opens %.0f–%.0f s after the pickup" % [at.x, at.y],
+				_ok("the window opens %.0f–%.0f s after the breaker" % [at.x, at.y],
 					due >= at.x and due <= at.y, "due %.1f" % due)
 				_t = 0.0
 				_phase = 1
@@ -105,13 +105,13 @@ func _process(delta: float) -> bool:
 				_fired_at = float(_level.get("_apparition_clock"))
 				var at: Vector2 = _level.get("APPARITION_AT")
 				_ok("it fires, and not before the window opens", _fired_at >= at.x - 0.5,
-					"fired %.1f s after the keycard" % _fired_at)
+					"fired %.1f s after the breaker" % _fired_at)
 				_ok("…and by the deadline", _fired_at <= float(_level.get("APPARITION_DEADLINE")) + 1.0,
 					"deadline %.0f" % float(_level.get("APPARITION_DEADLINE")))
 				_finish()
 				return true
 			if _t > float(_level.get("APPARITION_DEADLINE")) + 12.0:
-				_ok("it fires at all after the keycard", false, "nothing after %.0f s" % _t)
+				_ok("it fires at all after the breaker", false, "nothing after %.0f s" % _t)
 				_finish()
 				return true
 	return false

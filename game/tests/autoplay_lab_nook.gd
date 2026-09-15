@@ -43,7 +43,7 @@ const STYLES := ["walk_out", "stand_still"]
 # What "close enough" means. The billboard is 2.3 m tall, so at 2.4 m it fills ~70 % of screen
 # height, at 3.5 m ~51 %, at 6 m ~30 %. NOOK_MIN_FRAMING is 2.2, so nothing can beat that.
 const WANT_MAX := 4.2
-const WANT_MIN := 2.1
+const WANT_MIN := 1.5   # W1 (2026-09-16): it appears 1.5-3.6 m out and LUNGES to 0.65 — the appearance distance no longer carries the beat
 
 var _fails := 0
 var _checks := 0

@@ -262,20 +262,41 @@ func _process(delta: float) -> bool:
 				_stage = 50
 				_t = 0.0
 		50:
-			# C2: ring, then TURN ROUND at once — the steps must stop and the door give, no card.
+			# C4 (2026-09-15, the user's design): ring → the lights die for BLACKOUT_S → they come
+			# back and the 217 key is beside the bell → E takes it → it is what opens door 217.
+			# The mouth door NEVER closes. Zero panic throughout.
 			var beat: Node = _scene.get_node_or_null("Spur1BellBeat")
+			var lamp := _scene.get_node_or_null("Spur1DeskLamp") as OmniLight3D
+			# ⚠️ Never name `SpurBell` here: a SceneTree script compiles before the autoloads exist,
+			# so a class it depends on that mentions `GameState` fails to compile with it.
+			var bcs: Dictionary = (beat.get_script() as GDScript).get_script_constant_map() if beat != null else {}
+			var after: float = float(bcs.get("BLACKOUT_AFTER", 1.2))
+			var dark: float = float(bcs.get("BLACKOUT_S", 4.5))
 			if _t > 0.3 and not _bell_rung:
 				_bell_rung = true
-				_ok("C2: ringing the bell shuts the door behind you", bool((_bell_door as Node).get("_closed")))
-				_ok("C2: ...and the steps are coming", beat != null and beat.get_node_or_null("BellSteps") != null)
+				_ok("C4: ringing the bell does NOT shut the door behind you", not bool((_bell_door as Node).get("_closed")))
+				_ok("C4: ...and no key yet", _scene.get_node_or_null("Spur1Key") == null)
 				_panic_before_bell = _player.get_panic_ratio()
-			if _t > 2.0 and _bell_rung and not _bell_turned:
+			if _t > after + 0.5 and not _bell_turned:
 				_bell_turned = true
-				_player.call("ai_look_at", (_bell_mouth as Vector3) + Vector3(0, 1.4, 0))   # turn round
-			if _t > 3.0:
-				_ok("C2: turning round ends it — the door gives", not bool((_bell_door as Node).get("_closed")))
-				_ok("C2: ...with NO card on the desk (you looked)", _scene.get_node_or_null("BellCard") == null)
-				_ok("C2: ...and it cost nothing", _player.get_panic_ratio() <= _panic_before_bell + 0.005)
+				_ok("C4: %.1f s after the ding the lights are OUT" % after, beat != null and bool(beat.call("is_dark")))
+				_ok("C4: ...the desk lamp is dead", lamp != null and lamp.light_energy < 0.05, "%.2f" % (lamp.light_energy if lamp else -1.0))
+				_ok("C4: ...your own torch is taken", not bool(_player.call("is_flashlight_on")) and bool(_player.get("_flashlight_locked")))
+				_ok("C4: ...something is walking up the spur in the dark", beat != null and beat.get_node_or_null("BellSteps") != null)
+				_ok("C4: ...and still no key", _scene.get_node_or_null("Spur1Key") == null)
+			if _t > after + dark + 0.6:
+				var key := _scene.get_node_or_null("Spur1Key")
+				_ok("C4: the lights come back", beat != null and bool(beat.call("is_done")) and not bool(beat.call("is_dark"))
+					and lamp != null and lamp.light_energy > 0.5 and bool(_player.call("is_flashlight_on")))
+				_ok("C4: ...and the 217 key is lying beside the bell", key != null
+					and (key as Node3D).global_position.distance_to((_scene.get_node("Spur1Bell") as Node3D).global_position) < 0.4)
+				_ok("C4: ...the walker is gone", beat != null and beat.get_node_or_null("BellSteps") == null)
+				_ok("C4: ...the door STILL never closed", not bool((_bell_door as Node).get("_closed")))
+				if key != null:
+					(key as Node).call("interact")
+					_ok("C4: E takes the key and you carry it", bool(beat.call("has_key")) and String(root.get_node("/root/GameState").get("carried_item")).contains("217"))
+					_ok("C4: ...which unlocks door 217", _door != null and bool(_door.call("has_key")))
+				_ok("C4: ...and all of it cost nothing", _player.get_panic_ratio() <= _panic_before_bell + 0.005)
 				_c3_cupboard_start()
 				_stage = 51
 				_t = 0.0
@@ -284,21 +305,31 @@ func _process(delta: float) -> bool:
 			if _t > 0.5 and not _cup_checked:
 				_cup_checked = true
 				_ok("C3: stepping into the cupboard seals it", cb != null and bool(cb.call("is_sealed")))
+				_ok("C7: ...the door has slammed shut behind you", not bool(_scene.get_node("Spur2ClosetDoor").call("is_ajar")))
 				_ok("C3: ...and the Manager is walking the spur", _scene.get_node_or_null("CupboardFigure") != null)
-				_player.call("force_flashlight_off")
-			# light the torch for a moment at t 1.5-2.5 (the shut slats stop a walk, so the torch is
-			# the breach the test can make): the figure must PAUSE and the stillness clock reset
+				# C3 (2026-09-15): the seal TAKES the torch and SAYS the rule — the user sat in here
+				# with the torch on for 88 s: "how do I get away from here?"
+				_ok("C3: the seal takes your torch (F is locked)", not bool(_player.call("is_flashlight_on")) and bool(_player.get("_flashlight_locked")))
+				var said := false
+				for n in _descendants(root):
+					if n is Label and String((n as Label).text).contains("MOVE"):
+						said = true
+				_ok("C3: ...and the scrawl says DON'T MOVE", said)
+			# A breach at t 1.5-2.5: the slats stop a walk headless and F is locked, so the torch is
+			# lit on the raw node — the state the beat READS — to exercise the pause + clock reset.
 			if _t > 1.5 and _t < 2.5 and not _cup_torch_on:
 				_cup_torch_on = true
-				_player.call("restore_flashlight")
+				(_player.get("flashlight") as Node3D).visible = true
 			elif _t >= 2.5 and not _cup_move_checked:
 				_cup_move_checked = true
 				var fig := _scene.get_node_or_null("CupboardFigure")
-				_ok("C3: lighting the torch stops it outside the slats", fig != null and not bool(fig.call("is_walking")))
+				_ok("C3: a lit torch stops it outside the slats", fig != null and not bool(fig.call("is_walking")))
 				_ok("C3: ...and resets the stillness clock", float(cb.call("still_time")) < 1.0, "%.2f" % float(cb.call("still_time")))
-				_player.call("force_flashlight_off")
+				(_player.get("flashlight") as Node3D).visible = false
 			if _t > 12.5:
 				_ok("C3: holding still (torch off) for HOLD_S releases you", bool(cb.call("is_released")), "%.1f s still" % float(cb.call("still_time")))
+				_ok("C3: ...and gives the torch back", not bool(_player.get("_flashlight_locked")))
+				_ok("C7: ...and the door is open again", bool(_scene.get_node("Spur2ClosetDoor").call("is_ajar")))
 				_ok("C3: ...for free", _player.get_panic_ratio() <= _panic_before_cup + 0.005, "%.3f -> %.3f" % [_panic_before_cup, _player.get_panic_ratio()])
 				_c1_manager_start()
 				_stage = 6
@@ -481,8 +512,10 @@ func _c1_spacing() -> void:
 	_ok("C1: three spurs were built, each with a door and a torch (only the note spur has a trap)", spurs.size() == 3
 		and spurs.all(func(e): return is_instance_valid(e["door"]) and is_instance_valid(e["torch"]))
 		and is_instance_valid((spurs[0] as Dictionary)["trap"]))
-	_ok("C1: the whispering room has its voice", _scene.get_node_or_null("Spur1Plea") != null
-		and (_scene.get_node("Spur1Plea") as AudioStreamPlayer3D).playing)
+	# C4 (2026-09-15): the bell spur moved to 208 and lost the whisper — it is silent until rung.
+	_ok("C4: no spur whispers any more (the bell nook is silent until rung)", _scene.get_node_or_null("Spur1Plea") == null)
+	_ok("C4: the bell spur sits BEFORE door 217 (the key is served first, no backtracking)",
+		float(((cs["SIDE_PASSAGES"] as Array)[1] as Dictionary)["at"]) < float(cs["FALSE_DOOR_DIST"]))
 	# 2026-09-13: three DIFFERENT spurs (the user: "they need to present something different").
 	var kinds: Array = []
 	for e in spurs:
@@ -495,9 +528,12 @@ func _c1_spacing() -> void:
 		and _scene.get_node_or_null("Spur1Bell") != null and _scene.get_node("Spur1Bell").has_method("interact")
 		and String(_scene.get_node("Spur1Bell").call("prompt_text")).contains("ring"))
 	_ok("C2: ...and no trap volume (the bell springs it, not arriving)", _scene.get_node_or_null("Spur1Trap") == null)
-	_ok("C3: the cupboard spur has a slatted cupboard with a mirror inside", _scene.get_node_or_null("Spur2Cupboard") != null
-		and _scene.get_node("Spur2Cupboard").get_node_or_null("CupHinge") != null
-		and _scene.get_node_or_null("Spur2CupboardMirror") != null)
+	# C7 (2026-09-16): a service CLOSET behind a real door (the slats and the mirror are gone —
+	# the mirror read as a window onto another room).
+	_ok("C7: the cupboard spur ends in a closet behind a real hotel door", _scene.get_node_or_null("Spur2Cupboard") != null
+		and _scene.get_node_or_null("Spur2ClosetDoor") != null and bool(_scene.get_node("Spur2ClosetDoor").call("is_ajar"))
+		and _scene.get_node_or_null("Spur2ClosetStrip") != null)
+	_ok("C7: ...and no mirror in it any more", _scene.get_node_or_null("Spur2CupboardMirror") == null)
 	_ok("C3: ...and no trap volume either", _scene.get_node_or_null("Spur2Trap") == null)
 	_ok("C1: only the note spur keeps the Space-mash", (spurs[0] as Dictionary)["kind"] == "note")
 	# C4 (2026-09-14): two corner branches, a footprint trail into each, a loop-back and a blind room.
@@ -532,10 +568,30 @@ func _c1_spacing() -> void:
 		_player.global_position = (_scene.call("_path_point", bat - 6.0) as Dictionary)["pos"] + Vector3(0, 0.1, 0)
 		_scene.call("_tick_break_door")
 		_ok("C5: approaching it swings it ajar", bool(bdoor.call("is_ajar")))
-		_ok("C5: ...with a figure standing in its gap", _scene.get_node_or_null("BreakDoorFigure") != null)
-		_player.global_position = (_scene.call("_path_point", bat + 5.0) as Dictionary)["pos"] + Vector3(0, 0.1, 0)
+		# C6 (2026-09-16): a DOUBLE door onto a real room — the second leaf opens with it, and a
+		# ray through the doorway travels into the bedroom instead of hitting wallpaper.
+		var bdoor2 := _scene.get_node_or_null("AjarDoor_break2")
+		_ok("C6: the second leaf exists and opens with the first", bdoor2 != null and bool(bdoor2.call("is_ajar")))
+		var pt0: Dictionary = _scene.call("_path_point", bat)
+		var side_v: Vector3 = (pt0["side"] as Vector3) * float(_scene.get("BREAK_DOOR_SIDE"))
+		var from: Vector3 = (pt0["pos"] as Vector3) + Vector3(0, 1.2, 0)
+		var q := PhysicsRayQueryParameters3D.create(from, from + side_v * 8.0)
+		q.collision_mask = 1
+		var hit := _player.get_world_3d().direct_space_state.intersect_ray(q)
+		var depth: float = from.distance_to(hit.position) if hit else 99.0
+		_ok("C6: there is a ROOM behind the doors (%.2f m to the back wall)" % depth, depth > 1.5 + 2.5 and depth < 1.5 + 4.0)
+		_ok("C6: ...with a bed in it", _scene.get_node_or_null("BreakRoomBed") != null)
+		var fig := _scene.get_node_or_null("BreakDoorFigure") as Node3D
+		_ok("C5: ...with a figure standing in the hall", fig != null)
+		if fig:
+			var fp: Dictionary = _scene.call("_path_point", bat + float(_scene.get("BREAK_FIGURE_PAST")))
+			var off := Vector2(fig.global_position.x - (fp["pos"] as Vector3).x, fig.global_position.z - (fp["pos"] as Vector3).z).length()
+			_ok("C5: ...in the MIDDLE of the way, 2 m past the door (%.2f m off the centreline)" % off, off < 0.3)
+		# walk up to it: within BREAK_FIGURE_GONE_M it is gone and the door is shut
+		_player.global_position = (_scene.call("_path_point", bat + 0.5) as Dictionary)["pos"] + Vector3(0, 0.1, 0)
 		_scene.call("_tick_break_door")
-		_ok("C5: past it, the beat is done and the figure is gone", bool(_scene.get("_break_done")))
+		_ok("C5: at arm's reach the beat is done and the figure is gone", bool(_scene.get("_break_done")))
+		_ok("C6: ...and BOTH leaves slam shut", not bool(bdoor.call("is_ajar")) and (bdoor2 == null or not bool(bdoor2.call("is_ajar"))))
 		_player.global_position = keep
 	# C2 (2026-09-13): two forks, each a loop with a shut door, a note and a dead torch; zero panic.
 	var forks: Array = _scene.call("forks")
@@ -713,6 +769,20 @@ func _false_door_open() -> void:
 		"%.2f m away, target %s"
 			% [_player.global_position.distance_to(_door.global_position),
 				str(_player.call("ai_interact_target"))])
+	# C4 (2026-09-15): without the bell's key E does nothing — no swing, no figure, no panic.
+	_ok("C4: it requires the key", bool(_door.get("requires_key")) and not bool(_door.call("has_key")))
+	_player.call("ai_interact")
+	_ok("C4: E without the key does not open it", not bool(_door.call("is_used")) and is_zero_approx(_door.rotation.y - _door_rest_y())
+		and _find(_scene, "DoorLunger") == null)
+	_ok("C4: ...and costs nothing", is_equal_approx(_player.get_panic_ratio(), _panic_before))
+	var toast := false
+	for n in _descendants(root):
+		if n is Label and String((n as Label).text).contains("needs a key"):
+			toast = true
+	_ok("C4: ...and it says so (\"It needs a key.\")", toast)
+	_ok("C4: ...and still answers E afterwards", bool(_door.call("can_interact")))
+	# the bell served it — the C4 stage later proves the handoff through the beat itself
+	_door.call("give_key")
 	_player.call("ai_interact")
 	# ⚠️ The spike is measured as a PEAK over the following frames (`_false_door_watch`), not
 	# here: since 2026-09-10 it lands with the lunge, FALSE_DOOR_LUNGE_AT after E. Panic decays
@@ -946,6 +1016,17 @@ func _false_door_payload() -> void:
 		"%.2f %% above 0.90 sRGB" % fig.hot)
 	_ok("...but still legible — not a black cut-out", fig.p99 >= 40.0,
 		"p99 luminance %.1f of 255" % fig.p99)
+
+	# ---- THE MANAGER (C2, 2026-09-15: "should look more creepy... regenerate the image"). A
+	# green-screened flux generation keyed by `tools/cutout_green.py`; the same cutout rules.
+	var mgr := _cutout_stats("res://assets/textures/level_3_corridor/manager_figure.png")
+	_ok("C2: the Manager's texture loaded", mgr.n > 0, "%d opaque pixels sampled" % mgr.n)
+	if mgr.n > 0:
+		_ok("C2: ...a real RGBA cutout with a figure in it", mgr.has_alpha and mgr.coverage > 0.15
+			and mgr.coverage < 0.85, "alpha=%s, %.0f %% opaque" % [mgr.has_alpha, mgr.coverage * 100.0])
+		_ok("C2: ...dark enough for the hall", mgr.mean <= 115.0, "opaque-pixel mean %.1f of 255" % mgr.mean)
+		_ok("C2: ...no blown-out pixels", mgr.hot <= 1.0, "%.2f %% above 0.90 sRGB" % mgr.hot)
+		_ok("C2: ...and legible", mgr.p99 >= 40.0, "p99 luminance %.1f of 255" % mgr.p99)
 
 
 # Mean / p99 / hot % over the OPAQUE pixels of an RGBA cutout, plus its alpha coverage.

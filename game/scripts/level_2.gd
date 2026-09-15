@@ -83,6 +83,12 @@ const GUEST_CHILD_SPOT := Vector3(0.0, 0.0, 10.0)
 const CHILD_VOLUME_DB := 18.0        # "the scream should be much louder" (2026-07-29)
 # The cellar sequence, timed exactly as specified on the 2026-07-29 playtest.
 const CHILD_APPEAR_DELAY := 5.5      # dark first, then the child
+# H5 (2026-09-16, the user): a red WHERE AM I? while you are pinned in the dark — up at
+# CELLAR_WHERE_AT, held CELLAR_WHERE_HOLD, and GONE (0.6 in + hold + 1.4 out = 4.7 s) before the
+# doll at CHILD_APPEAR_DELAY. It must never share the screen with the figure.
+const CELLAR_WHERE_TEXT := "WHERE AM I?"
+const CELLAR_WHERE_AT := 0.7
+const CELLAR_WHERE_HOLD := 2.0
 const CHILD_HOLD := 3.0              # …and the lights come back this long after
 const CHILD_DIST := 3.2              # the FAR end of the ladder now (was the first try)
 # ⭐ 2026-09-10 — near-first (the user: *"the doll should appear very close to you"*). At 1.7 m a
@@ -143,6 +149,7 @@ var _forest_fired: bool = false
 # save_progress carries — a back-door return must not un-rearrange the house.
 var _music_box: CSGBox3D = null
 var _guest_child_done: bool = false
+var _child_armed_on_note: bool = false   # H4: the note's close is what starts the blackout
 var _child_dark: bool = false        # every lamp in the house is out while the child is here
 var _child_node: Watcher = null      # the figure during the cellar sequence
 var _painting_armed: bool = false    # milestone reached; falls when you look at it
@@ -163,8 +170,6 @@ var _safe_1: Node3D
 var _safe_notes_read: Array[String] = []   # by node name — a re-read must not double-count
 var _lock_lamp_on: bool = false
 var _lock_lamp_gain: float = 0.0   # 0..1, tweened by _light_the_lock(); see _drive_lights()
-var _apparition: Apparition
-var _apparition_fired: bool = false
 var _tv_card: Label3D
 var _tv_card_clock: float = 12.0   # time until the test card next surfaces
 var _tv_card_hold: float = 0.0     # time the card stays legible
@@ -190,7 +195,6 @@ func _ready() -> void:
 	_spawn_music_box()
 	_spawn_room_props()
 	_spawn_events()
-	_spawn_apparition()
 	_spawn_apparition_director()
 	_start_ambience()
 	_boost_ambient(DARK_AMBIENT)
@@ -327,7 +331,6 @@ func save_progress() -> Dictionary:
 		"has_cellar_key": _has_cellar_key,
 		"cellar_open": is_instance_valid(_cellar_gate) and bool(_cellar_gate.get("_opened")),
 		"code_correct": GameState.level2_code_correct,
-		"apparition_fired": _apparition_fired,
 		"forest_fired": _forest_fired,
 		# ⚠️ SCARY.md P6's explicit warning: "register moved props in save_progress() so a
 		# back-door return does not un-move them." One int covers all four stages because
@@ -351,7 +354,6 @@ func _restore_progress() -> void:
 	var data := GameState.get_level_progress(2)
 	if data.is_empty():
 		return
-	_apparition_fired = bool(data.get("apparition_fired", false))
 	_forest_fired = bool(data.get("forest_fired", false))
 	GameState.level2_code_correct = bool(data.get("code_correct", false))
 
@@ -636,7 +638,9 @@ func _spawn_notes() -> void:
 		"Third digit — the one she always used — 2.\n\nDon't forget. Don't forget. Don't forget.",
 		false, "SafeNote_Cellar")
 	if cellar_note:
-		cellar_note.read.connect(func() -> void: _advance_guest(4))
+		cellar_note.read.connect(func() -> void:
+			_advance_guest(4)
+			_arm_child_on_note_close())
 
 	# ⚠️ THERE WAS NO NOTE COUNTER BEFORE THIS (2026-09-03). `_spawn_notes()` discarded two of the
 	# three safe notes' return values and only the cellar one's `read` signal was ever wired;
@@ -1053,10 +1057,12 @@ func _spawn_cellar_props() -> void:
 	# ramp. A scrawl rather than a caption: this is the experiment's voice, the same register
 	# as the intro's "IT WAS ONLY A DREAM." and the KONTUR banishment line, and it matches the
 	# blood-red text on the shelf so the two read as one thing.
+	# H4 (2026-09-16, the user: "you need to be stuck in this level after you read the note"):
+	# the blackout no longer fires here at the ramp's foot — it fires when the cellar NOTE is
+	# closed (`_arm_child_on_note_close`), deep in the room, with the player pinned there.
 	_spawn_event(Vector3(cx, floor_y + 0.9, cz + 2.9), Vector3(3.0, 2.4, 1.6),
 		func() -> void:
-			ScreenText.scrawl(get_tree(), CELLAR_HINT, CELLAR_CAPTION_TIME)
-			_begin_cellar_blackout())
+			ScreenText.scrawl(get_tree(), CELLAR_HINT, CELLAR_CAPTION_TIME))
 
 	# ⚠️ NO corner Watcher down here any more, and do not add one back.
 	#
@@ -1843,6 +1849,19 @@ func _drop_painting(animate: bool) -> void:
 		pl.jolt_camera(0.05, 0.3)
 
 
+# H4: the note is OPEN when `read` fires (it fires on open); the beat waits for the page to
+# come down, then takes the lights and pins the player where they stand — at the note.
+func _arm_child_on_note_close() -> void:
+	if _guest_child_done or _child_armed_on_note:
+		return
+	_child_armed_on_note = true
+	var nu := get_node_or_null("/root/NoteUI")
+	if nu == null or not nu.has_signal("closed"):
+		_begin_cellar_blackout()
+		return
+	nu.connect("closed", func() -> void: _begin_cellar_blackout(), CONNECT_ONE_SHOT)
+
+
 func _begin_cellar_blackout() -> void:
 	if _guest_child_done:
 		return
@@ -1853,6 +1872,18 @@ func _begin_cellar_blackout() -> void:
 	if pl:
 		pl.force_flashlight_off()
 		pl.set_smiler_active(true)
+		# H2 (2026-09-16, the user: "avoid the situation when the player can escape the cellar
+		# before he even sees the doll — block the player's movement for several seconds"): the
+		# blackout PINS you where you stand, in the dark, until the child has come and gone.
+		# Velocity zeroed by hand (Issue 49); `_end_cellar_blackout` releases it.
+		pl.velocity.x = 0.0
+		pl.velocity.z = 0.0
+		pl.freeze_input()
+		_child_frozen = true
+	get_tree().create_timer(CELLAR_WHERE_AT).timeout.connect(func() -> void:
+		if _child_dark and is_inside_tree():
+			# at the BOTTOM: the ramp-foot hint (CELLAR_HINT, 4 s) can still be up in the centre
+			ScreenText.scrawl(get_tree(), CELLAR_WHERE_TEXT, CELLAR_WHERE_HOLD, 54, true))
 	get_tree().create_timer(CHILD_APPEAR_DELAY).timeout.connect(_cellar_child_appear)
 
 
@@ -1894,7 +1925,8 @@ func _can_show_child() -> bool:
 	if get_tree().paused:
 		return false
 	var pl := _player()
-	if pl and pl.has_method("is_input_frozen") and pl.is_input_frozen():
+	# H2: OUR own pin (the blackout) is not a reason to wait — a beartrap's or a note's is.
+	if pl and pl.has_method("is_input_frozen") and pl.is_input_frozen() and not _child_frozen:
 		return false
 	return true
 
@@ -2021,7 +2053,13 @@ func _end_cellar_blackout() -> void:
 # VERY loud, by request. The figure itself has no rules, no collider and costs no panic, so
 # sound and darkness are the only two channels this thing has.
 func _spawn_guest_child() -> void:
-	var s := GameState.load_audio("childe_scream")
+	# H4 (2026-09-16, the user: "make the doll sound the same as baba yaga, the default
+	# jumpscare sound for the House") — `screamer_house`, the level's own fatal sting. It sits
+	# at full scale already, so the +18 dB the re-mastered child scream needed is not applied.
+	var s := GameState.load_audio("screamer_house")
+	var baba: bool = s != null
+	if not s:
+		s = GameState.load_audio("childe_scream")
 	if not s:
 		s = GameState.load_audio("guest_child")
 	if not s:
@@ -2031,8 +2069,8 @@ func _spawn_guest_child() -> void:
 	var p := AudioStreamPlayer3D.new()
 	p.name = "GuestChildAudio"
 	p.stream = s
-	p.volume_db = CHILD_VOLUME_DB
-	p.max_db = 24.0            # default is 3; the gain above is clamped without this
+	p.volume_db = 0.0 if baba else CHILD_VOLUME_DB
+	p.max_db = 6.0 if baba else 24.0   # default is 3; the gain above is clamped without this
 	p.unit_size = 18.0
 	p.bus = AudioBuses.AMBIENCE
 	# At the figure if there is one, otherwise at the player — the scream must never be
@@ -2095,31 +2133,10 @@ func _on_cellar_gate_used() -> void:
 
 
 # ---------------------------------------------------------------- apparition
-
-func _spawn_apparition() -> void:
-	# A "hold your nerve" apparition that appears as you descend into the cellar.
-	# Not a teaching encounter — it was taught in the Lab — so sprinting is fatal.
-	_apparition = Apparition.spawn(self, Apparition.Rule.HOLD, Vector3.ZERO, false) as Apparition
-	_spawn_event(Vector3(5, CELLAR_Y + 1.5, -2.0), Vector3(2.5, CELLAR_H, 1.5), _trigger_apparition)
-
-
-func _trigger_apparition() -> void:
-	if _apparition_fired or not _apparition:
-		return
-	_apparition_fired = true
-	# Playtest instrumentation only (2026-08-16). Only `ApparitionDirector._fire()` ever wrote
-	# a DebugLog note, so the House's OWN scripted HOLD encounter left no trace at all: across
-	# two full sessions (~880 s of play) the question "did it ever fire?" was unanswerable from
-	# the log, and both logged apparitions turned out to be the director's. Two lines; makes
-	# the next log decisive either way.
-	var _dbga := get_node_or_null("/root/DebugLog")
-	if _dbga:
-		var _pl := _player()
-		_dbga.note("HOUSE scripted apparition armed, player at %s" % [
-			_pl.global_position if _pl else Vector3.ZERO])
-	# Fatal — unless this is somehow the player's first HOLD encounter, which the
-	# global ledger in ApparitionDirector.arm() decides.
-	ApparitionDirector.arm(_apparition)
+#
+# H2 (2026-09-16, the user: "block the creature from appearing at the doll level"): the cellar's
+# scripted HOLD apparition is GONE — on the 2026-09-15 run it appeared 5 s before the child and
+# spent the beat. The ApparitionDirector's random one (RANDOM_APPARITIONS) stays, upstairs.
 
 
 # ---------------------------------------------------------------- events

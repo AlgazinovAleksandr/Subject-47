@@ -102,10 +102,12 @@ func _process(delta: float) -> bool:
 			# before any of this session's changes.)
 			# ArchiveGate (A5): the transit door is SUPPOSED to seal the Archive→Switchboard
 			# doorway until the player finds the hidden keycard — a shut gate, not a stray prop.
+			# DarkSeamPlug (R9, 2026-09-16, Issue 215): gate 7's real doorway is WALL while the
+			# torch is on — the probe runs lit, so the plug is a gate here, not a stray prop.
 			var is_gate: bool = nm == "FungalBarrier" \
 				or nm.begins_with("ChoiceDoor_") \
 				or nm == "RosterSeal" or nm == "AirlockSeal" \
-				or nm == "ArchiveGate"
+				or nm == "ArchiveGate" or nm == "DarkSeamPlug"
 			print("  %s %s  <- %s" % ["GATE(ok)  " if is_gate else "BLOCKED   ", d[3], nm])
 			if not is_gate:
 				_fails += 1
