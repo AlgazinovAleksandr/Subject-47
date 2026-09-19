@@ -7,16 +7,16 @@
 A reusable figure that materialises at a scripted-but-randomised moment and tests the player's
 **response**, not their reflexes. `Apparition.spawn(parent, rule, pos, teach)` returns the right
 node for one of three rules:
-- `RULE_HOLD` (the new flagship): on `appear()` it fades in ~7 m ahead, where the player is
+- `RULE_HOLD` (the new flagship): on `appear()` it fades in 1.8–3.0 m ahead, where the player is
   already looking, with a low drone, and adds steady dread. **Survive by NOT fleeing** for
-  `HOLD_TIME` (4 s) → it fades; **flee and it rushes** → fatal `Screamer.trigger()` (or, in
+  `HOLD_TIME` (6 s) → it fades; **flee and it rushes** → fatal `Screamer.trigger()` (or, in
   teach mode, a survivable `flash_scare`). Fleeing (`_is_fleeing()`, Session 11) = `is_sprinting()`
   **OR** backing away — the horizontal distance growing past `_spawn_dist + FLEE_MARGIN` (0.7 m).
   Turning the camera while holding your ground never trips it (fair; matches "stand still until it
   fades"). Enforces "Walk. Do not run." — the Lab briefing note states the rule.
   ⭐⭐ **CLOSE, LOUD, WITH A STARTLE GRACE (2026-09-10, capture #2, the user's choice: ALL HOLD
   apparitions).** `APPEAR_DIST_MIN 1.8` / `MAX 3.0` (was 2.5 / 7.0); every arrival plays
-  `arrival_sting` (default `all_levels_screamer`, an `AudioStreamPlayer3D` "ArrivalSting" at 0 dB /
+  `arrival_sting` (default `apparition_snarl`, an `AudioStreamPlayer3D` "ArrivalSting" at 0 dB /
   `max_db` 6 / unit 8, fired at t = 0 or at `TURN_TIME * 0.55` when the camera is being turned)
   inside the drone's 0.6 s pre-dip; KONTUR's gate 7 no longer overrides `appear_audio`. And
   **`STARTLE_GRACE` 0.7 s**: `_is_fleeing()` is not evaluated for the first 0.7 s after arrival and
@@ -25,22 +25,6 @@ node for one of three rules:
   the grace → survived; at 1.0 s → rushed) and `check_apparition_framing.gd` (distance in
   `[MIN_DIST − 0.05, √(MAX² + nudge²) + 0.05]`, the sting playing). The next paragraph's 2.5 / 7.0
   are the old numbers.
-  ⚠️ **Distance is RANDOMISED per appearance** (BACKLOG #10): `APPEAR_DIST_MIN 2.5` ..
-    `APPEAR_DIST_MAX 7.0`, replacing a single fixed value (7.0, then 4.0). A fixed distance
-    frames every appearance identically, so the second one is never a surprise.
-    `FLEE_MARGIN` is therefore **proportional** — `maxf(0.7, _spawn_dist * 0.2)` — because a
-    flat 0.7 m is a 10% allowance at 7 m and a 28% allowance at 2.5 m, and an instinctive
-    half-step back from something that appeared on top of you would otherwise be a death.
-    Sprinting is still an instant fail at any distance, so the rule itself is untouched; only
-    the flinch is forgiven
-- ⚠️⚠️ **BUG_FIX.md 3.3 WAS APPLIED TO THE WRONG FUNCTION, AND THIS ENTRY DESCRIBED THE INTENDED
-  STATE FOR MONTHS (corrected 2026-09-07, Issue 168).** The purpose-made `apparition_snarl` was
-  commissioned for the rush and wired into `_play_drone()` — the APPEARANCE — while `_play_sting()`
-  kept the House's door creak. Measured: appearance `apparition_snarl` at **−2.39 dBFS** loudest-300
-  ms, fatal rush `creak` at **−34.40**. *The telegraph before a lunge that kills you was 32 dB
-  quieter than the thing it telegraphs.* They are now on the events they were made for, which is
-  also the right signal: a HOLD apparition is survived by standing your ground, and a snarl on
-  arrival argues for the flight that kills you.
 - ⚠️ **`max_db` WAS THE BINDING CONSTRAINT AND NOBODY HAD LOOKED.** Godot clamps
   `volume_db + attenuation` to `max_db`, default **3.0**, and `unit_size 10` reaches +12.0 dB at
   2.5 m — so the emitter was pinned to +3 at every distance under 7.1 m and `volume_db` did nothing
@@ -174,4 +158,66 @@ door in the entry cap, returning to the Corridor.
 **The notes journal** is the cheaper half of the same problem — see the `JournalUI` autoload row.
 Most players who want to go back want one sentence from one note, and TAB gives them that
 without moving.
+
+## DECISIONS & GOTCHAS
+
+⚠️ **Dated ⭐ entries live at the TOP of each section, not here.** They carry the *current* state
+and override the older prose beneath them. Use this section only for passages that no longer
+describe the shipped systems — moved here verbatim, never rewritten.
+
+### Superseded (moved out of the sections above verbatim, 2026-09-19 audit)
+
+**1. The 2.5 – 7.0 m appearance range.** Superseded 2026-09-10 by `APPEAR_DIST_MIN 1.8` /
+`APPEAR_DIST_MAX 3.0` (live in `apparition.gd`), which the ⭐⭐ **CLOSE, LOUD, WITH A STARTLE
+GRACE** entry above records — that entry's closing line, *"The next paragraph's 2.5 / 7.0 are the
+old numbers"*, now points here rather than at the paragraph below it. The randomisation itself is
+still live (`randf_range(APPEAR_DIST_MIN, APPEAR_DIST_MAX)`), and so is the proportional flee
+margin — `maxf(FLEE_MARGIN 0.7, _spawn_dist * FLEE_MARGIN_FRACTION 0.2)` — but at 1.8–3.0 m the
+0.7 m floor always wins, so the proportional term no longer changes any outcome. Kept for the
+reasoning about why a fixed distance was the problem.
+
+  ⚠️ **Distance is RANDOMISED per appearance** (BACKLOG #10): `APPEAR_DIST_MIN 2.5` ..
+    `APPEAR_DIST_MAX 7.0`, replacing a single fixed value (7.0, then 4.0). A fixed distance
+    frames every appearance identically, so the second one is never a surprise.
+    `FLEE_MARGIN` is therefore **proportional** — `maxf(0.7, _spawn_dist * 0.2)` — because a
+    flat 0.7 m is a 10% allowance at 7 m and a 28% allowance at 2.5 m, and an instinctive
+    half-step back from something that appeared on top of you would otherwise be a death.
+    Sprinting is still an instant fail at any distance, so the rule itself is untouched; only
+    the flinch is forgiven
+
+**2. The snarl on the RUSH (2026-09-07, Issue 168).** Superseded 2026-09-15 (L2, the user's call)
+and already flagged as history by the ⭐ entry at the top of the Random Apparition section:
+`ARRIVAL_STING_DEFAULT` is `apparition_snarl` and `_play_sting()` loads `all_levels_screamer`, so
+the snarl is the ARRIVAL and the shared screamer is the fatal rush — the exact opposite of what
+this entry left standing. Its measurements are why the pair was ever swapped, and its last sentence
+is now the argument for `STARTLE_GRACE` rather than against a snarl on arrival.
+
+- ⚠️⚠️ **BUG_FIX.md 3.3 WAS APPLIED TO THE WRONG FUNCTION, AND THIS ENTRY DESCRIBED THE INTENDED
+  STATE FOR MONTHS (corrected 2026-09-07, Issue 168).** The purpose-made `apparition_snarl` was
+  commissioned for the rush and wired into `_play_drone()` — the APPEARANCE — while `_play_sting()`
+  kept the House's door creak. Measured: appearance `apparition_snarl` at **−2.39 dBFS** loudest-300
+  ms, fatal rush `creak` at **−34.40**. *The telegraph before a lunge that kills you was 32 dB
+  quieter than the thing it telegraphs.* They are now on the events they were made for, which is
+  also the right signal: a HOLD apparition is survived by standing your ground, and a snarl on
+  arrival argues for the flight that kills you.
+
+## NEEDS A PLAYTEST
+
+- ⚠️ **The House cellar no longer hosts a scripted HOLD apparition** (`level_2.gd` H2, 2026-09-16:
+  *"block the creature from appearing at the doll level"*), so the **Fairness rule** bullet's
+  *"the House reuses a non-teach one in the cellar"* and the `ApparitionDirector` bullet's *"All
+  four scripted encounters (Lab corridor, House cellar, Backrooms Flood x2)"* are both stale — the
+  scripted sites are now the Lab corridor and the Flood's two. Left as written rather than
+  reworded; confirm on a play that the Lab still teaches HOLD before anything lethal can fire, and
+  fix the count when the House's own spec records the removal.
+- ⚠️ **The Corridor now builds an `ApparitionDirector` of its own** (`corridor.gd:_spawn_director`),
+  so the director is no longer added by `level_1.gd`/`level_2.gd`/`kontur.gd` alone. Play the
+  Corridor end to end and confirm a random apparition there does not collide with the Manager or
+  the bell/blackout beats before the list is rewritten.
+- The arrival sting at 1.8–3.0 m is the loudest thing in the game and the flee window is 0.7 s.
+  Play a HOLD apparition in the Lab and in the Flood and confirm the reflex step back is still
+  forgiven and the decision to run still kills.
+- `apparition.gd`'s figure is `screamers/shared_screamer_showing_up`, not `apparition_figure`
+  (`FIG_BASE`); look at it in the dark and confirm it still reads as a cutout rather than a
+  rectangle before the last bullet's file name is changed.
 

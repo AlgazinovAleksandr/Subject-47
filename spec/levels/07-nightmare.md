@@ -12,6 +12,14 @@
 ## SPEC
 
 **Level 7 — THE NIGHTMARE (the dungeon)** — `dungeon.gd` + `dungeon_gen.gd` + `dungeon_rooms.gd` + `dungeon_map_ui.gd` + `dungeon.tscn`
+- ⭐ **2026-09-13 (D1/D2):** candles **carry 6, 8 caches, a lit sconce refunds one**
+  (`_on_sconce_interact`); the hunter's yaw is **eased at `TURN_RATE_DEG`** while the body keeps the
+  routed line, rooms have hysteresis across shared planes (`_steer_room`), and doorway arrival is
+  along the doorway's normal AND inside its opening (Issue 204). Router sweep 0 clipped; bot 3/3.
+⭐⭐ **REDESIGNED 2026-09-12 ON THE USER'S VERDICT *"very simple to get killed"* — it is now HARD TO
+LOSE and easy to get scared.** The decisions (D1–D8) are locked in `DUNGEON_NIGHTMARES.md`'s
+"Deviations" section; that file's Part B is otherwise still the design, and this is the shipped
+summary. **Not yet hand-played after the redesign.**
 - ⚠️ **NOTHING IN THIS LEVEL KILLS. The panic bar is the only death** (D1). `check_dungeon_hunter.gd`
   greps `dungeon.gd` and `dungeon_rooms.gd` for `Screamer.trigger(` and drives every former death path
   live. Before this the level had six independent instant deaths and a six-seed bot run won 0
@@ -59,10 +67,12 @@
   the generator's room rects for `rooms_seen` only, lit sconces as amber discs, **never the player**
   (`check_dungeon_map.gd` greps the script for position reads). Closes under a screamer/pause.
 - **The candle replaces the flashlight** (`candle.gd`): `kill_flashlight()` at entry; 60 s per candle,
-  carry 4, `OmniLight3D` range 4.5, energy/attenuation 2.2/1.4 (the spec's 1.0/2.4 rendered black).
+  carry 6, `OmniLight3D` range 4.5, energy/attenuation 2.2/1.4 (the spec's 1.0/2.4 rendered black).
   **F** lights / blows out (blowing BANKS the remainder); **C** sparks free with a 1.2 s after-dip.
 - **Darkness without fog** (§B7): black background, ambient 0.045, a 4.5 m light. Do not add a
   depth-fade shader.
+- ⭐ The silence is still the tell: the hunter's spawn ducks the `"Dungeon"` bus and
+  `set_no_decay(true)` — panic HOLDS, all the pressure is in what you do. Sprinting still deafens you.
 - ⚠️ §B10's bans stand where they still apply and `check_dungeon_entities.gd` asserts them with a
   live `DarkZone` control: no `DarkZone`, no `DreadZone`, no `enable_standstill_panic()`, no
   `RandomAmbient`, no `ApparitionDirector`, no time limit — and now also no `CreatureHollow`, no
@@ -72,6 +82,9 @@
 - `save_progress()`: `layout_seed`, `content_seed`, `sconces_lit`, `candles_held`, `in_dungeon`,
   **`map_found`, `rooms_seen`, `scares_fired`**. Seeds are RESTORED, never re-rolled; restored sconces
   are lit without firing their scares.
+- ⭐ Waking is a video (`dungeon_wake.ogv`, `_after_blackout()`); going under keeps its 1.6 s fade.
+  Both fades on the clip are added in post; the join is matched by LUMINANCE, measured — see
+  `tests/screenshot_wake_cutscene.gd`.
 - **Tests**: `check_dungeon_gen` (200 seeds) · `check_dungeon_entities` · `walk_dungeon` (8 seeds'
   ray passes at eye AND knee height, 2 seeds walked door to door — commit points along the doorway's
   NORMAL, Issue 194) · `check_dungeon_hunter` · `check_dungeon_rooms` · `check_dungeon_map` ·
@@ -81,26 +94,48 @@
 - Win: light all seven sconces, sleep in the bed, leave by the Antechamber door. Fail: the panic bar
   filling. That is the whole list.
 
+## NEEDS A PLAYTEST
+
+⚠️ **THE NIGHTMARE HAS NEVER BEEN HAND-PLAYED SINCE THE 2026-09-12 REDESIGN.** The level was rebuilt
+that day on the user's verdict *"very simple to get killed"* (D1–D8) and retuned again on 2026-09-13
+(candles 4 → 6, caches 4 → 8, the sconce refund, the eased hunter yaw). Everything in SPEC above is
+verified by headless guards and bot runs — `check_dungeon_gen` (200 seeds), `check_dungeon_entities`,
+`check_dungeon_hunter`, `check_dungeon_rooms`, `check_dungeon_map`, `walk_dungeon`, `autoplay_dungeon`
+— and none of it has been confirmed by a human at the controls.
+
+Open for the first hand playtest:
+- **Hard to lose, still frightening?** Six instant deaths were removed and the panic bar is now the only
+  death. Nobody has felt whether that reads as sustained dread or as toothless.
+- **The light budget after D1.** 6 carried + 8 caches + 7 sconce refunds against a 12–15 minute night
+  is a measured budget, never a played one.
+- **The catch** (`CATCH_PANIC` 20, in-world, no fullscreen flash): three catches without recovery fill
+  the bar. Does a pursuer that cannot kill still read as a threat?
+- **The found map (D8).** Whether players find it on the Antechamber's candle rack at all, and whether a
+  map that never draws the player is orientation or frustration.
+- **The wake video** (`dungeon_wake.ogv`): the join is matched by measured luminance, not by an eye.
+
+⚠️ The dungeon is different every load — pin a seed with `-- --dungeon-seed N` so any capture is
+reproducible. ⚠️ The rule that must survive every report: **NOTHING IN THIS LEVEL KILLS**; the panic
+bar is the only death (D1). A request for a fatal entity goes back to the user, not into the code.
 
 ## DECISIONS & GOTCHAS
 
-Dated change entries, newest first — why the level is the way it is, what was measured, what was
-tried and rejected. ⚠️ Anything marked **DELIBERATE** or **the user's call** must not be
-re-litigated without asking.
+⚠️ **Dated ⭐ entries live at the TOP of SPEC, not here.** They carry the level's *current* state and
+override the older prose beneath them — that is how `CLAUDE.md` was written, and why entries say
+things like *"every paragraph below that says 320 m is history"*.
 
-⚠️ `⚠️` gotchas that describe *current* behaviour stay inline in **SPEC** above: in this codebase
-the rule and its reason are usually one sentence, and splitting them would break the sentence.
+⚠️ **The top-to-bottom order is NOT strictly newest-first.** Measured 2026-09-19: `01-lab.md`'s
+2026-09-13 entry sits *above* the 2026-09-14 entry that reverts it, and `04-backrooms.md:302` sits
+*below* the same-day entry that supersedes it. **Read the dates; where they tie, read the code.**
 
-- ⭐ **2026-09-13 (D1/D2):** candles **carry 6, 8 caches, a lit sconce refunds one**
-  (`_on_sconce_interact`); the hunter's yaw is **eased at `TURN_RATE_DEG`** while the body keeps the
-  routed line, rooms have hysteresis across shared planes (`_steer_room`), and doorway arrival is
-  along the doorway's normal AND inside its opening (Issue 204). Router sweep 0 clipped; bot 3/3.
-⭐⭐ **REDESIGNED 2026-09-12 ON THE USER'S VERDICT *"very simple to get killed"* — it is now HARD TO
-LOSE and easy to get scared.** The decisions (D1–D8) are locked in `DUNGEON_NIGHTMARES.md`'s
-"Deviations" section; that file's Part B is otherwise still the design, and this is the shipped
-summary. **Not yet hand-played after the redesign.**
-- ⭐ The silence is still the tell: the hunter's spawn ducks the `"Dungeon"` bus and
-  `set_no_decay(true)` — panic HOLDS, all the pressure is in what you do. Sprinting still deafens you.
-- ⭐ Waking is a video (`dungeon_wake.ogv`, `_after_blackout()`); going under keeps its 1.6 s fade.
-  Both fades on the clip are added in post; the join is matched by LUMINANCE, measured — see
-  `tests/screenshot_wake_cutscene.gd`.
+Use this section only for rationale that leaves **no trace** in the level — something tried and
+abandoned. Anything describing what the level *is* belongs in SPEC.
+
+### Superseded claims — the 2026-09-19 spec audit
+
+⚠️ **"carry 4" (candle bullet) → superseded 2026-09-13 by D1's carry 6.** The candle bullet in SPEC
+said `carry 4` while the ⭐ 2026-09-13 entry above it already said 6; `candle.gd:36` is the truth
+(`CARRY_CAP := 6`, raised from four on capture #014 *"four candles are not enough"*, alongside the
+caches going from four to eight in `dungeon_gen.gd:48` and the sconce refund in
+`dungeon.gd:_on_sconce_interact`). The number was corrected in place because the rest of that bullet is
+current — the sixty-second burn, the 4.5 m light range and the 2.2/1.4 energy/attenuation all hold.

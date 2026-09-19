@@ -84,11 +84,16 @@ for ln in original.splitlines():
         forgiven += 1
         continue
     missing.append(s)
-ck(not missing, f"{len(missing)} source lines lost "
-                f"(first: {missing[0][:90] if missing else ''!r})")
-ck(forgiven == ALLOWED_REWRITES,
-   f"deliberate-rewrite allowlist matched {forgiven} lines, expected {ALLOWED_REWRITES} "
-   f"- update REWRITTEN with a reason, do not widen it silently")
+# ⚠️ RETIRED 2026-09-19, deliberately — this was the MIGRATION's line-survival check, and
+# the migration it verified is committed and green (198 checks). The spec AUDIT that followed
+# removes superseded lines ON PURPOSE (A1: collapse SPEC to current state), so this check now
+# reports the audit's intended deletions as losses. Content accounting from here belongs to
+# `tools/check_spec_audit.py`, which diffs against a pre-audit snapshot and classifies every
+# changed line as EXCISION / CORRECTION / NEW PROSE.
+# Kept as a REPORT rather than deleted, so the migration remains re-verifiable against an
+# original CLAUDE.md if one is ever passed in.
+print(f"  (migration line-survival: {len(missing)} lines since removed by the spec audit, "
+      f"{forgiven} deliberate rewrites — reported, not asserted; see check_spec_audit.py)")
 
 # ---- 2. marker audit ---------------------------------------------------
 for ch, name in (("⚠", "warning"), ("⭐", "star")):
@@ -136,6 +141,37 @@ if os.path.exists(n7):
     t = open(n7, encoding="utf-8").read()
     ck("spec/design/DUNGEON_NIGHTMARES.md" in t,
        "07-nightmare.md does not point at DUNGEON_NIGHTMARES.md")
+
+
+# ---- 9. the index's hard constraints (A8, 2026-09-19) -----------------
+# Two kinds, and the difference matters:
+#   RESIDENT — a safety rule that must load in EVERY session, so it lives in CLAUDE.md
+#              and deliberately NOT in a lazily-loaded spec.
+#   IN-SPEC  — a per-level claim the index makes; it must still appear in that spec, or
+#              the index and the spec have drifted apart again.
+RESIDENT = [
+    "one chase level in twelve",
+    "Do not add a third pursuer",
+    "SPEC-FIRST",
+]
+for phrase in RESIDENT:
+    ck(phrase.lower() in new_claude.lower(),
+       f"CLAUDE.md lost a RESIDENT safety rule: {phrase!r}")
+
+IN_SPEC = {
+    "spec/levels/00-intro.md":     ["UNLOSEABLE"],
+    "spec/levels/01-lab.md":       ["PRE_POWER_LIT"],
+    "spec/levels/03-corridor.md":  ["CLOCK_INTENSITY", "FALSE_DOOR_PANIC"],
+    "spec/levels/05-kontur.md":    ["RESTORED"],
+    "spec/levels/07-nightmare.md": ["NOTHING IN THIS LEVEL KILLS"],
+}
+for path, phrases in IN_SPEC.items():
+    full = os.path.join(REPO, path)
+    if not ck(os.path.exists(full), f"missing spec {path}"):
+        continue
+    t = open(full, encoding="utf-8").read().lower()
+    for ph in phrases:
+        ck(ph.lower() in t, f"{path} lost the hard constraint {ph!r} the index claims for it")
 
 print(f"\nsource: {src}")
 print(f"original {len(original):>7} ch   new CLAUDE.md {len(new_claude):>6} ch "

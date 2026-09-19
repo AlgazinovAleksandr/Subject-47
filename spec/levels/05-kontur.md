@@ -5,6 +5,53 @@
 ## SPEC
 
 **Level 5 — KONTUR ("Object 12")** — `kontur.gd` + `kontur.tscn`
+- ⭐ **2026-09-16 (K3):** `Screamer.trigger()` drops the picture for ANY death that lands while a
+  lunge is in progress (the condemn bar's own death raced the lunge and showed it).
+- ⭐ **2026-09-16 (R7–R9):** every `trigger_with_lunge` death ends in **black, no static image**
+  (`Screamer.trigger(_, with_image=false)`); the archive keycard's notice uses the lower caption
+  slot; the Blackout plug is **solid while lit** (Issue 215).
+- ⭐⭐ **2026-09-13 (K1–K4):** the hammer is **parts lying on the bench** (`kontur_hammer.png`
+  retired); the cell's front is an **open barred face** (eight Ø30 mm bars off the centre line,
+  rails, a gate section with a lock; no leaf, no port — the sightline sweep still sees all 23
+  headings); the **condemn sentence is staged** (`_tick_condemn_beats`: whisper + roll → edge
+  `Watcher`s that vanish when looked at + `kontur_condemn_bed` → black/red cuts quickening → a figure
+  at arm's length → the bar kills; `condemn_beats()` is the test surface); the Blackout figure is
+  **placed where the camera points** (`_place_blackout_figure`, frustum-first fan, `turn_to_face`
+  fallback; `check_kontur_figure_frame`).
+- ⭐⭐ **IN-WORLD DEATHS SINCE 2026-09-14 (`BACKLOG_Sep_14.md` K1–K2, the user's design).**
+  `Screamer.trigger_with_lunge(tex, ahead, reach, time)`: the player is pinned and turned, a glowing
+  `DoorLunger` (`kontur_figure.png`, keyed by `tools/cutout_black.py`) stands `ahead` metres away
+  (rays at eye AND waist height, short of any wall), lunges to `reach` with the level's own sting AT
+  it, then `trigger()` runs unchanged with the 2D sting suppressed — the funnel and every test on
+  `_is_triggering` are untouched. The **yellow phone** (`ahead` 1.0 — the desk has no collider,
+  Issue 209) and the **Perëkozhnik** (`death_figure` export, KONTUR only) use it; the **condemn
+  finale** at `CONDEMN_FINAL_AT` 18 s kills every lamp and the torch, holds `CONDEMN_DARK_HOLD` 2 s,
+  brings them back with the figure `CONDEMN_FINAL_AHEAD` 1.5 m ahead and lunges to black, the bar
+  held at `CONDEMN_HOLD_RATIO` so the lunge is the death (Issue 210). The cell wears **bars on the
+  WEST face too** (K1: seven Ø30 mm bars at −0.58…0.62, none on the occupant's line, a 0.1 m shift
+  off the south-west sightline diagonal); `_port_panels`/`PORT_*` dead code is gone. Guards:
+  `check_kontur_condemn`, `check_kontur_phones` (yellow → lunge → funnel), `check_kontur_entities`,
+  `screenshot_kontur_lunge.gd`.
+- ⭐⭐ **A WRONG ACTION IS FATAL SINCE 2026-09-13 (`BACKLOG_Sep_13.md` K2, the user's design).**
+  `_strike()` → `_condemn()`: the red sentence **YOU'VE DONE SOMETHING WRONG. YOU WILL PAY FOR
+  IT.**, decay pinned, panic on an ease-in curve to `PANIC_MAX` at `CONDEMN_TIME` 20 s (the bar's
+  own screamer kills), lamps red, a rising drone (`kontur_condemn.wav`). The 2D flash,
+  `STRIKE_PANIC`, `_strikes` and the Archive's "N OF 3 LOGGED" are GONE — every "three strikes"
+  sentence below is history. ⚠️ Gate 8's MISTIMED catch is one of the callers and is therefore
+  fatal too (reported to the user). Also: the containment cell has a **barred gate** on its
+  front (K1; no grid behind the glass — each attempt blinded a sightline heading), the Blackout
+  figure stands 2.6 m past the doorway at a pale tint (K3), the phones' prompt names both keys
+  (K4, `prompt_text()`), and the real seam is plugged with wall under the torch (K5, Issue 198).
+  `check_kontur_condemn.gd`.
+- ⭐⭐ **FIRST HAND PLAYTEST + REWORK (2026-09-09), the user's verdict "not scary, not packed."** Full
+  evidence and decisions in `backlogs/05-kontur.md` §3a/§3b. The scary half: opening the black door
+  **blows every light but the torch** (`_begin_cell_blackout`, restored at the Kitchen) and **Object 12
+  charges the glass** as you pass in the dark (`ContainmentCell.charge`, zero panic, cannot kill). The
+  packed half: **Gate 6 is now three phones** (see below), **the vinegar is hidden behind a tear-away
+  notice** (Gate 2 below), a **PA tannoy** runs on a timetable (`_tick_pa`, zero panic, no answers), a
+  **figure stands in the gate-7 dark** visible only torch-off (`_make_dark_figure`). Guards:
+  `check_kontur_blackout.gd`, `check_kontur_phones.gd`. Everything added charges **zero panic** except
+  the phone gate's unchanged pressure and the blue-phone hallucination.
 - **The level whose answers are not inside it.** **Eight** gates, each a *different verb*, each
   answered by a hint planted in an earlier level. A player who explored reads straight through; one
   who rushed must guess, and guesses cost panic they cannot get back. Built procedurally by
@@ -41,6 +88,18 @@
       irrelevant, only the width and the character count bind. At 1.70 m wide, "ELSEWHERE." (10)
       gives 17.1 px at the spawn; "YOU WERE BRIEFED" (16) would have given 12.6 and been unreadable
       from exactly where it is meant to be read
+- ⭐ **THE SOVIET HALF IS DARK (2026-09-03, the user's call, D2).** `DARK_AMBIENT` 0.02 and the
+  nine lamps from Landing to Switchboard at `SOVIET_DARK` 0.0. ⚠️ **THE SOVIET HALF ONLY** — the
+  clinical Airlock/Escort/Terminus wing keeps every lamp, and that limit was taken deliberately
+  with the user rather than as a half-measure: Gate 7's entire puzzle is that the Blackout room is
+  the room with no lamp, which stops being a place in a level where nothing is lit, and
+  `_ev_escort_begins()` needs lamps to kill as you commit to the escort corridor. The darkness
+  therefore runs exactly to the Blackout, which is where the visual arc already changes register.
+  ⚠️ Every `Label3D` in the level is now `shaded = true` and the Gate 6 hammer is
+  `SHADING_MODE_PER_PIXEL`: `Label3D` is UNSHADED by default, so with the torch off the stencils,
+  the mailbox slot numbers and the Archive lot cards were the only things on screen, floating in a
+  black room. ⚠️ **ONE exception**: Gate 3's offering pedestal keeps its 1.1-energy glow, because a
+  bait keycard on an unlit pedestal is not bait — asserted by parent name in `check_darkness.gd`.
 - ⚠️ **The PassageA/B `DarkZone` is GONE** (D4) — it sat under the level-wide `DreadZone`, i.e.
   **+5/s with no way down**, in a corridor the player now has no way to cross unlit. Issue 18, and
   the same argument this file already makes for why Gate 7 has never had one.
@@ -71,8 +130,7 @@
   poison / water**; poison a new `vial` silhouette + `label_poison_paper.png`); the vinegar is behind a
   **tear-away KONTUR notice** (`WallSheet`) near the barrier — E tears it off and the vinegar is on the
   ledge behind, no hint. A player who never tries the notice must guess and pay a strike. Save/restore
-  carries `vinegar_revealed`. The old shelf text follows: three bottles (vinegar /
-  bleach / water) on the kitchen shelf, and a fungal mass sealing the way on. Vinegar dissolves it
+  carries `vinegar_revealed`. The barrier is a fungal mass sealing the way on. Vinegar dissolves it
   (canon: acetic acid retards O-41); a wrong bottle is **consumed**, so a bad guess costs a walk back
   as well as a strike. Hint: the **House TV** static resolves into a KONTUR test card every ~16–26 s
   - ⚠️ **THE THREE BOTTLES WERE THE SAME CYLINDER WITH A 1.733× SQUASHED WORD ON AN OPAQUE BACKDROP**
@@ -124,23 +182,12 @@
   BLUE = a despairing voice + panic to ~90% + a hallucination (camera roll, edge `Watcher`s, whisper),
   survivable and one-shot, and it STILL must be smashed; answering GREEN = a colleague's voice giving
   the Breach quest obliquely, and it resolves. **Smashing green loses the hint, no strike.** The mimic
-  stays a 4th, COLOURLESS, never-ringing phone. The colour rule is a **memo in Records**
-  (`PHONE_MEMO_TEXT`, a real `note.gd`, archived). Voices by `tools/make_kontur_voice.py`
+  stays a 4th, COLOURLESS, never-ringing phone. The colour rule is **one memo per colour, spread one
+  per room** (`PHONE_NOTE_GREEN` in the Passage / `PHONE_NOTE_YELLOW` in the Kitchen /
+  `PHONE_NOTE_BLUE` in Records, real `note.gd` pages, archived). Voices by `tools/make_kontur_voice.py`
   (`phone_green_voice` / `phone_blue_voice`). Guard: `check_kontur_phones.gd`. ⚠️ `rotary_phone.gd`'s
   `interact()` SPLITS on `open_note`: the Backrooms keeps its read-to-die lock; KONTUR's phones emit
-  and the level decides. The old single-phone text follows as history:
-- **(superseded) Gate 6 — THE PHONE** (`rotary_phone.gd`, *destroy* — was *ignore* until **BUG_FIX.md 4.5**): a
-  phone rings for a whole room's length in the Switchboard. Answering still **forfeits the run**
-  instantly, unchanged. What changed: simply not answering is no longer enough — while the phone
-  rings unresolved, `_tick_phone_pressure()` drains `PHONE_PRESSURE_RATE=4.5`/s panic on anyone within
-  `PHONE_PRESSURE_RANGE=7 m` of it, and KONTUR's floor-wide DreadZone cancels decay exactly everywhere,
-  so that pressure only ever accumulates. The fix is a **Hammer** (`KeyItem`-pattern pickup, billboard
-  QuadMesh from `kontur_hammer.png`) planted in Landing near the level entrance; carrying it flips
-  `RotaryPhone.smashable = true`, and `interact()` then calls `_smash()` instead of answering — stops
-  the ring for good and fires `smashed` → `_pass_gate("phone")`. A diegetic note by the desk
-  ("THESE PHONES... IF YOU CAN'T ANSWER IT, BREAK IT") explains why a hammer is the answer. Hint: the
-  **Backrooms** phone is a read-to-die trap. `RotaryPhone` gained `smashable`/`smashed`/`_smash()`,
-  defaulting off so Backrooms' own phone (the only other caller) is unaffected
+  and the level decides.
 - **Gate 7 — THE BLACKOUT** (*unlight*): an unlit room with three door seams on the far wall. The real
   one is visible **only with the flashlight OFF**; the two that glow under the beam are painted on and
   cost a strike. ⚠️ **No `DarkZone` here** — a room solved by turning the light off must not also tax
@@ -154,9 +201,7 @@
   on the same wall meter: a marker oscillates across a fixed track (`AIRLOCK_MARKER_PERIOD=2 s` per
   full sweep) and pressing **E** while it's inside the lit target band (`AIRLOCK_TARGET_WIDTH=35%` of
   the track, centred) counts as a catch; `AIRLOCK_CATCHES_NEEDED=3` in a row passes the gate. A miss
-  calls the level's normal `_strike()` — a full `STRIKE_PANIC=18` that counts toward the 3-strike
-  limit — `⚠️ DELIBERATE`, confirmed with the user, who understood 3 mistimed catches alone could end
-  the run before choosing this over a softer custom penalty. This still **inverts** the Backrooms rule
+  calls the level's normal `_strike()`. This still **inverts** the Backrooms rule
   that standing still raises panic, and no earlier level hints at any of it — so unlike every other
   gate it still has to **teach itself**, now via the visible track + marker instead of a fill bar
 - **Gate 4 — THE ESCORT** (`escort_gate.gd`, *camera discipline*): 26 m with the lights dead behind you.
@@ -181,8 +226,7 @@
 - **Fail economy (unique to this level)**: the whole floor is one `DreadZone` (sized to span z −4…98 —
   a short zone silently stops applying partway down the spine). `DREAD_DECAY_RATE` and
   `DREAD_PANIC_RATE` are both 2.0/s in `player.gd`, so they **cancel exactly** — panic never drains
-  here. Each wrong answer is `flash_scare(kontur_flash.png)` + jolt + `STRIKE_PANIC=18`. Three strikes
-  = 54 > `PANIC_MAX` (50), so `add_panic()` fires the fatal screamer on its own. **There is no bespoke
+  here. **There is no bespoke
   death path in `kontur.gd`**, and no `player.gd` changes were needed for any of it
 - **Redacted signs** (`_make_sign`): each gate's rule is stated on a wall plate with the operative word
   replaced by a censor bar, so a player who missed the hints gets the shape of the question but not the
@@ -214,129 +258,20 @@
   (Issue 11). `wall_point()` now clamps to a 3 cm minimum clearance itself (Issue 26), so 0.16 is
   still the house style but no call site can get it wrong. Props needing depth behind them —
   `LivingMirror` hangs its figure 0.05 behind the glass — need **0.22**
-- **Cyrillic signage and hazard stencils** (`_spawn_stencils`, `_spawn_floor_markings`, 2026-08-18):
-  every room on the spine carries a stencilled Russian designation high on a wall (`Л-1 ЛЕСТНИЦА`,
-  `У-5 УЧЁТ`, `Ш-9 ШЛЮЗ` …) and the three thresholds where the protocol changes its mind about you
-  carry painted hazard bands on the floor. ⚠️ **Paint, not signs** — dark-tinted `Label3D`s and unlit
-  ochre quads, so they cannot be confused with the eight NOTICES, which are the level's only actual
-  help. ⚠️ `FLOOR_MARK_Y` is **0.03**, the Corridor's own `FLOOR_DECAL_Y`: 0.02 sits exactly on
-  `check_wall_overlap.gd`'s 2 cm minimum and `AABB.has_point()` includes its boundary, which is how
-  every flat decal in the Corridor got reported the first time that guard was pointed at it.
-  ⚠️ **Not one of them says anything about a gate** — a stencil that hinted would put an answer inside
-  a level whose whole premise is that the answers are somewhere else
-- **Objectives never state an answer** — `GameState.set_objective()` runs in protocol register
-  ("PROTOCOL 4-B — PROCEED TO THE MARKED EXIT", "DECONTAMINATION REQUIRED", …)
-- ⚠️ **THE LEVEL'S RANDOMISATIONS ARE RESTORED, NEVER RE-ROLLED — AND SO IS THE WORLD THE LEDGER
-  DESCRIBES** (K-T6 + K-B1, fixed 2026-08-18, ISSUES_SOLUTIONS **141**/**142**). `save_progress()` had
-  written `"dark_x"` since the day the snapshot was added and **nothing ever read it back**, while the
-  gate-1 colour was not saved at all — so a back-door return restored the eight-gate ledger and
-  re-rolled the answers underneath it, which is the exact failure this file already warned about.
-  `_preload_snapshot()` now runs as the FIRST line of `_ready()`, before `_build_geometry()` and
-  `_spawn_gate1_doors()` consume the dice; it restores `dark_x`, `gate1_black_east` and `mimic_site`,
-  and warns rather than silently re-rolling if it meets an older snapshot
-  - ⚠️ **AND `_reopen_passed_gates()` IS THE HALF THAT MATTERED MORE.** `_ready()` rebuilds every
-    physical seal on every load and `_restore_progress()` restored only the ledger. Three of those
-    seals stand across the spine, and `AirlockSeal` is **unrecoverable by construction**:
-    `_tick_airlock()` opens with `if _gates["airlock"] … return`, so the one path that can free it is
-    switched off by the flag the restore just set. A player who cleared gate 8, walked back for a note
-    and returned was **walled in at z=66 with the exit 32 m beyond it** — a soft-lock reachable by
-    using a door the game provides. The restore now opens the black door
-    (`ChoiceDoor.open_instantly()`), dissolves the barrier, frees the roster seal, frees the airlock
-    seal and its whole marker widget, and silences the phone (`RotaryPhone.mark_smashed()` — both
-    methods additive and default-preserving; the Backrooms' two phones never call it)
-  - ⚠️ The general rule this encodes: **a ledger and the world it describes must be restored together**,
-    and the test is not "does the flag come back" but "having come back, can the player still finish".
-    `check_kontur_resume.gd` drives a real advance→go_back cycle with a DIFFERENT seed pinned before
-    the return, passes gates 1 and 2 through the shipping `ai_interact()` ray, and carries two
-    permanent controls. With the fix disabled it goes red ten ways
-- Win: **all eight** gates → exit door → The Breach. Fail: three strikes, the Perëkozhnik, a forfeited
-  run, or the wrong door (which banishes rather than kills)
-
-
-## DECISIONS & GOTCHAS
-
-Dated change entries, newest first — why the level is the way it is, what was measured, what was
-tried and rejected. ⚠️ Anything marked **DELIBERATE** or **the user's call** must not be
-re-litigated without asking.
-
-⚠️ `⚠️` gotchas that describe *current* behaviour stay inline in **SPEC** above: in this codebase
-the rule and its reason are usually one sentence, and splitting them would break the sentence.
-
-- ⭐ **2026-09-16 (K3):** `Screamer.trigger()` drops the picture for ANY death that lands while a
-  lunge is in progress (the condemn bar's own death raced the lunge and showed it).
-- ⭐ **2026-09-16 (R7–R9):** every `trigger_with_lunge` death ends in **black, no static image**
-  (`Screamer.trigger(_, with_image=false)`); the archive keycard's notice uses the lower caption
-  slot; the Blackout plug is **solid while lit** (Issue 215).
-- ⭐⭐ **2026-09-13 (K1–K4):** the hammer is **parts lying on the bench** (`kontur_hammer.png`
-  retired); the cell's front is an **open barred face** (eight Ø30 mm bars off the centre line,
-  rails, a gate section with a lock; no leaf, no port — the sightline sweep still sees all 23
-  headings); the **condemn sentence is staged** (`_tick_condemn_beats`: whisper + roll → edge
-  `Watcher`s that vanish when looked at + `kontur_condemn_bed` → black/red cuts quickening → a figure
-  at arm's length → the bar kills; `condemn_beats()` is the test surface); the Blackout figure is
-  **placed where the camera points** (`_place_blackout_figure`, frustum-first fan, `turn_to_face`
-  fallback; `check_kontur_figure_frame`).
-- ⭐⭐ **IN-WORLD DEATHS SINCE 2026-09-14 (`BACKLOG_Sep_14.md` K1–K2, the user's design).**
-  `Screamer.trigger_with_lunge(tex, ahead, reach, time)`: the player is pinned and turned, a glowing
-  `DoorLunger` (`kontur_figure.png`, keyed by `tools/cutout_black.py`) stands `ahead` metres away
-  (rays at eye AND waist height, short of any wall), lunges to `reach` with the level's own sting AT
-  it, then `trigger()` runs unchanged with the 2D sting suppressed — the funnel and every test on
-  `_is_triggering` are untouched. The **yellow phone** (`ahead` 1.0 — the desk has no collider,
-  Issue 209) and the **Perëkozhnik** (`death_figure` export, KONTUR only) use it; the **condemn
-  finale** at `CONDEMN_FINAL_AT` 18 s kills every lamp and the torch, holds `CONDEMN_DARK_HOLD` 2 s,
-  brings them back with the figure `CONDEMN_FINAL_AHEAD` 1.5 m ahead and lunges to black, the bar
-  held at `CONDEMN_HOLD_RATIO` so the lunge is the death (Issue 210). The cell wears **bars on the
-  WEST face too** (K1: seven Ø30 mm bars at −0.58…0.62, none on the occupant's line, a 0.1 m shift
-  off the south-west sightline diagonal); `_port_panels`/`PORT_*` dead code is gone. Guards:
-  `check_kontur_condemn`, `check_kontur_phones` (yellow → lunge → funnel), `check_kontur_entities`,
-  `screenshot_kontur_lunge.gd`.
-- ⭐⭐ **A WRONG ACTION IS FATAL SINCE 2026-09-13 (`BACKLOG_Sep_13.md` K2, the user's design).**
-  `_strike()` → `_condemn()`: the red sentence **YOU'VE DONE SOMETHING WRONG. YOU WILL PAY FOR
-  IT.**, decay pinned, panic on an ease-in curve to `PANIC_MAX` at `CONDEMN_TIME` 20 s (the bar's
-  own screamer kills), lamps red, a rising drone (`kontur_condemn.wav`). The 2D flash,
-  `STRIKE_PANIC`, `_strikes` and the Archive's "N OF 3 LOGGED" are GONE — every "three strikes"
-  sentence below is history. ⚠️ Gate 8's MISTIMED catch is one of the callers and is therefore
-  fatal too (reported to the user). Also: the containment cell has a **barred gate** on its
-  front (K1; no grid behind the glass — each attempt blinded a sightline heading), the Blackout
-  figure stands 2.6 m past the doorway at a pale tint (K3), the phones' prompt names both keys
-  (K4, `prompt_text()`), and the real seam is plugged with wall under the torch (K5, Issue 198).
-  `check_kontur_condemn.gd`.
-- ⭐⭐ **FIRST HAND PLAYTEST + REWORK (2026-09-09), the user's verdict "not scary, not packed."** Full
-  evidence and decisions in `backlogs/05-kontur.md` §3a/§3b. The scary half: opening the black door
-  **blows every light but the torch** (`_begin_cell_blackout`, restored at the Kitchen) and **Object 12
-  charges the glass** as you pass in the dark (`ContainmentCell.charge`, zero panic, cannot kill). The
-  packed half: **Gate 6 is now three phones** (see below), **the vinegar is hidden behind a tear-away
-  notice** (Gate 2 below), a **PA tannoy** runs on a timetable (`_tick_pa`, zero panic, no answers), a
-  **figure stands in the gate-7 dark** visible only torch-off (`_make_dark_figure`), and the **Archive
-  files your strikes** into lot 23-Z ("N OF 3 LOGGED", H3 diegetically). Guards:
-  `check_kontur_blackout.gd`, `check_kontur_phones.gd`. Everything added charges **zero panic** except
-  the phone gate's unchanged pressure and the blue-phone hallucination.
-- ⭐ **THE SOVIET HALF IS DARK (2026-09-03, the user's call, D2).** `DARK_AMBIENT` 0.02 and the
-  nine lamps from Landing to Switchboard at `SOVIET_DARK` 0.0. ⚠️ **THE SOVIET HALF ONLY** — the
-  clinical Airlock/Escort/Terminus wing keeps every lamp, and that limit was taken deliberately
-  with the user rather than as a half-measure: Gate 7's entire puzzle is that the Blackout room is
-  the room with no lamp, which stops being a place in a level where nothing is lit, and
-  `_ev_escort_begins()` needs lamps to kill as you commit to the escort corridor. The darkness
-  therefore runs exactly to the Blackout, which is where the visual arc already changes register.
-  ⚠️ Every `Label3D` in the level is now `shaded = true` and the Gate 6 hammer is
-  `SHADING_MODE_PER_PIXEL`: `Label3D` is UNSHADED by default, so with the torch off the stencils,
-  the mailbox slot numbers and the Archive lot cards were the only things on screen, floating in a
-  black room. ⚠️ **ONE exception**: Gate 3's offering pedestal keeps its 1.1-energy glow, because a
-  bait keycard on an unlit pedestal is not bait — asserted by parent name in `check_darkness.gd`.
 - ⭐ **The Perëkozhnik** (`creature_shapechanger.gd` + `mimic_shell.gd`): a billboard mimic that
   **wears an ordinary prop until you touch it** (2026-08-18). It never moves or chases and is **not** a
-  gate — it feeds gaze panic and kills only within `KILL_DIST=2 m`. Its 16 panic/s stare is
-  **deliberately** faster than the three-strike budget (see the `⚠️ DELIBERATE` note on
-  `GAZE_INTENSITY`); it exists to punish the one instinct this level otherwise rewards: walking up to
+  gate — it feeds gaze panic and kills only within `KILL_DIST=2 m`. Its 16 panic/s stare
+  exists to punish the one instinct this level otherwise rewards: walking up to
   something for a better look
   - ⚠️ **THE DISGUISE ADDED NO RULES AND CHANGED NONE.** `GAZE_INTENSITY` 0.8, `KILL_DIST` 2.0, "never
     moves", "not a gate" — all untouched. Its name means *shapechanger* and for its whole life it was a
     static billboard in the Passage's west corner that a player who never swept a torch there simply
     never met. It now stands at one of `MIMIC_SITES` — **a fourth bottle on the kitchen shelf** or **a
-    second phone on the switchboard desk** — drawn per run and **restored, never re-rolled**, on a
+    fourth phone on the switchboard desk** — drawn per run and **restored, never re-rolled**, on a
     back-door return (K-T6's rule applied to the level's third randomisation)
   - ⚠️ **THE TELL IS A COUNT, and it stays wrong for as long as you care to look.** The kitchen has
     three shelf slots and four bottles, two of them wearing the same label, and the fourth stands off
-    the three-slot rhythm at z=21.9. The switchboard has two phones and **only one of them is
+    the three-slot rhythm at z=21.9. The switchboard has four phones and **only one of them is
     ringing** — and the ringing one is the gate. A mimic with no tell is a coin flip
   - ⚠️ **LOOKING AT THE DISGUISE COSTS NOTHING.** `MimicShell` is a **sibling** of the `ScaryObject`,
     never a child (`player.gd:_find_scary_object()` walks UP from the collider it hit), and the
@@ -394,16 +329,6 @@ the rule and its reason are usually one sentence, and splitting them would break
       *four-slab inner door liner carrying the same port opening* backed the figure everywhere except
       behind the figure, because the occupant stands at exactly the height the hole is. One full
       panel facing +z, drawn from the north and culled at the port, solves both
-  - ⚠️ **THE DOOR HAS AN OBSERVATION PORT, AND UNTIL 2026-08-18 IT DID NOT.** Three faces are glazed
-    and the fourth (−z) is a steel leaf which `_spawn_containment_cell()` deliberately turns to face
-    the spine — so the level's one look at its own title creature was staged to face the direction it
-    could not be seen from. Measured over 23 reachable poses, **six rendered ZERO pixels of the
-    occupant** (the whole 165°–210° arc, at 2.0 m and 3.2 m). The leaf is now four slabs around a
-    1.32 × 0.95 m glazed opening (`PORT_W`/`PORT_Y0`/`PORT_Y1`) with a bead frame and two glazing
-    bars; the wheel, mid-rail, chevron band and placard all moved, having every one of them been
-    sitting inside what is now the opening. ⚠️ It also fixes the *"flat luminous white panel"* the
-    same capture shows — that was the torch on the only large untextured flat plane in a corridor
-    whose walls carry texture, and the port is what breaks the plane. ISSUES_SOLUTIONS **Issue 148**
   - ⚠️ **The glass is `roughness` 0.22, not 0.08.** At 0.08 the pane is a mirror and the torch put a
     near-pinpoint glare on it which, because the player faces the booth head-on, landed **on the
     occupant's chest** at 0.90 luminance. It was diagnosed as a highlight on the creature twice; it
@@ -448,8 +373,8 @@ the rule and its reason are usually one sentence, and splitting them would break
   pass** (`tools/make_archive_keycard.py`: Cyrillic header, mugshot silhouette, № 47, barcode;
   front and back as two art quads sampling the top/bottom halves, MULTIPLY emission 0.30 on the
   art only — the green box is gone). Textures graded dark for the Soviet half
-  (`tools/grade_ritual_textures.py`, shared with the Flood). The "flat-tinted and untextured"
-  sentence below is history. `check_kontur.gd` (every lot textured, the plate art, no "217"
+  (`tools/grade_ritual_textures.py`, shared with the Flood).
+  `check_kontur.gd` (every lot textured, the plate art, no "217"
   label) + `check_kontur_archive.gd` (two art faces, no green emissive) + `screenshot_kontur_archive.gd`.
 - ⭐ **THE RECOVERY ARCHIVE** (`_spawn_recovery_archive`, 2026-08-18). The Archive's own objective line
   is *"RECOVERY ARCHIVE — DO NOT DISTURB THE INVENTORY"* and its wall sign says *"ITEMS RECOVERED FROM
@@ -475,3 +400,159 @@ the rule and its reason are usually one sentence, and splitting them would break
     renames five of them (Issue 17, third time in this file). And the cards use the LOT's rotation, not
     its negation: `Label3D` is double-sided, so a card facing into its own rack still renders, mirrored
     and unreadable
+- **Cyrillic signage and hazard stencils** (`_spawn_stencils`, `_spawn_floor_markings`, 2026-08-18):
+  every room on the spine carries a stencilled Russian designation high on a wall (`Л-1 ЛЕСТНИЦА`,
+  `У-5 УЧЁТ`, `Ш-9 ШЛЮЗ` …) and the three thresholds where the protocol changes its mind about you
+  carry painted hazard bands on the floor. ⚠️ **Paint, not signs** — dark-tinted `Label3D`s and unlit
+  ochre quads, so they cannot be confused with the eight NOTICES, which are the level's only actual
+  help. ⚠️ `FLOOR_MARK_Y` is **0.03**, the Corridor's own `FLOOR_DECAL_Y`: 0.02 sits exactly on
+  `check_wall_overlap.gd`'s 2 cm minimum and `AABB.has_point()` includes its boundary, which is how
+  every flat decal in the Corridor got reported the first time that guard was pointed at it.
+  ⚠️ **Not one of them says anything about a gate** — a stencil that hinted would put an answer inside
+  a level whose whole premise is that the answers are somewhere else
+- **Objectives never state an answer** — `GameState.set_objective()` runs in protocol register
+  ("PROTOCOL 4-B — PROCEED TO THE MARKED EXIT", "DECONTAMINATION REQUIRED", …)
+- ⚠️ **THE LEVEL'S RANDOMISATIONS ARE RESTORED, NEVER RE-ROLLED — AND SO IS THE WORLD THE LEDGER
+  DESCRIBES** (K-T6 + K-B1, fixed 2026-08-18, ISSUES_SOLUTIONS **141**/**142**). `save_progress()` had
+  written `"dark_x"` since the day the snapshot was added and **nothing ever read it back**, while the
+  gate-1 colour was not saved at all — so a back-door return restored the eight-gate ledger and
+  re-rolled the answers underneath it, which is the exact failure this file already warned about.
+  `_preload_snapshot()` now runs as the FIRST line of `_ready()`, before `_build_geometry()` and
+  `_spawn_gate1_doors()` consume the dice; it restores `dark_x`, `gate1_black_east` and `mimic_site`,
+  and warns rather than silently re-rolling if it meets an older snapshot
+  - ⚠️ **AND `_reopen_passed_gates()` IS THE HALF THAT MATTERED MORE.** `_ready()` rebuilds every
+    physical seal on every load and `_restore_progress()` restored only the ledger. Three of those
+    seals stand across the spine, and `AirlockSeal` is **unrecoverable by construction**:
+    `_tick_airlock()` opens with `if _gates["airlock"] … return`, so the one path that can free it is
+    switched off by the flag the restore just set. A player who cleared gate 8, walked back for a note
+    and returned was **walled in at z=66 with the exit 32 m beyond it** — a soft-lock reachable by
+    using a door the game provides. The restore now opens the black door
+    (`ChoiceDoor.open_instantly()`), dissolves the barrier, frees the roster seal, frees the airlock
+    seal and its whole marker widget, and silences the phone (`RotaryPhone.mark_smashed()` — both
+    methods additive and default-preserving; the Backrooms' two phones never call it)
+  - ⚠️ The general rule this encodes: **a ledger and the world it describes must be restored together**,
+    and the test is not "does the flag come back" but "having come back, can the player still finish".
+    `check_kontur_resume.gd` drives a real advance→go_back cycle with a DIFFERENT seed pinned before
+    the return, passes gates 1 and 2 through the shipping `ai_interact()` ray, and carries two
+    permanent controls. With the fix disabled it goes red ten ways
+- Win: **all eight** gates → exit door → The Breach. Fail: **any one wrong action** (`_strike()` →
+  `_condemn()`, fatal since 2026-09-13), the Perëkozhnik, a forfeited run (`_forfeit()` condemns too),
+  or the wrong door (which banishes rather than kills)
+
+## DECISIONS & GOTCHAS
+
+⚠️ **Dated ⭐ entries live at the TOP of SPEC, not here.** They carry the level's *current* state and
+override the older prose beneath them — that is how `CLAUDE.md` was written, and why entries say
+things like *"every paragraph below that says 320 m is history"*.
+
+⚠️ **The top-to-bottom order is NOT strictly newest-first.** Measured 2026-09-19: `01-lab.md`'s
+2026-09-13 entry sits *above* the 2026-09-14 entry that reverts it, and `04-backrooms.md:302` sits
+*below* the same-day entry that supersedes it. **Read the dates; where they tie, read the code.**
+
+Use this section only for rationale that leaves **no trace** in the level — something tried and
+abandoned. Anything describing what the level *is* belongs in SPEC.
+
+---
+
+### Superseded passages, moved out of SPEC (audit 2026-09-19)
+
+Every block below was live SPEC prose until this audit. It is kept **verbatim** for its rationale,
+measurements and rejected attempts; none of it describes the level as it is now.
+
+**1 · The three-strike economy** — superseded by the condemn sentence (K2, 2026-09-13), which the
+top of SPEC already announced while these sentences stayed live. `_strike()` now calls `_condemn()`;
+`STRIKE_PANIC`, the `_strikes` ledger and the Archive's "N OF 3 LOGGED" are not in `kontur.gd`
+(`_sync_archive_strikes()` survives and writes `LOT 23-Z   SUBJECT 47 — PENDING`, unconditionally).
+Moved from the 2026-09-09 rework bullet, from Gate 8, from the fail economy and from the Perëkozhnik:
+
+> and the **Archive files your strikes** into lot 23-Z ("N OF 3 LOGGED", H3 diegetically)
+
+> A miss calls the level's normal `_strike()` — a full `STRIKE_PANIC=18` that counts toward the 3-strike
+> limit — `⚠️ DELIBERATE`, confirmed with the user, who understood 3 mistimed catches alone could end
+> the run before choosing this over a softer custom penalty.
+
+> Each wrong answer is `flash_scare(kontur_flash.png)` + jolt + `STRIKE_PANIC=18`. Three strikes
+> = 54 > `PANIC_MAX` (50), so `add_panic()` fires the fatal screamer on its own.
+
+> Its 16 panic/s stare is **deliberately** faster than the three-strike budget (see the `⚠️ DELIBERATE` note on
+> `GAZE_INTENSITY`)
+
+⚠️ **The user-confirmed part of the Gate 8 note must not be lost:** a mistimed catch was deliberately
+given the level's full wrong-answer weight, chosen over a softer custom penalty with the user
+understanding that three misses alone could end a run. Under the condemn sentence **one** miss ends
+it — harsher than what was agreed, and flagged as reported-to-the-user at the top of SPEC.
+
+**2 · Gate 6 — THE PHONE (one phone)** — superseded 2026-09-09 by the three-phone gate. Its
+`PHONE_PRESSURE_RATE` of 4.5/s is the number the live text records as "2.0 (was 4.5)", and
+`kontur_hammer.png` is retired to `assets_src/textures/superseded/` (the hammer is parts on a bench):
+
+- **(superseded) Gate 6 — THE PHONE** (`rotary_phone.gd`, *destroy* — was *ignore* until **BUG_FIX.md 4.5**): a
+  phone rings for a whole room's length in the Switchboard. Answering still **forfeits the run**
+  instantly, unchanged. What changed: simply not answering is no longer enough — while the phone
+  rings unresolved, `_tick_phone_pressure()` drains `PHONE_PRESSURE_RATE=4.5`/s panic on anyone within
+  `PHONE_PRESSURE_RANGE=7 m` of it, and KONTUR's floor-wide DreadZone cancels decay exactly everywhere,
+  so that pressure only ever accumulates. The fix is a **Hammer** (`KeyItem`-pattern pickup, billboard
+  QuadMesh from `kontur_hammer.png`) planted in Landing near the level entrance; carrying it flips
+  `RotaryPhone.smashable = true`, and `interact()` then calls `_smash()` instead of answering — stops
+  the ring for good and fires `smashed` → `_pass_gate("phone")`. A diegetic note by the desk
+  ("THESE PHONES... IF YOU CAN'T ANSWER IT, BREAK IT") explains why a hammer is the answer. Hint: the
+  **Backrooms** phone is a read-to-die trap. `RotaryPhone` gained `smashable`/`smashed`/`_smash()`,
+  defaulting off so Backrooms' own phone (the only other caller) is unaffected
+
+⚠️ Still true and still load-bearing from that block: `PHONE_PRESSURE_RANGE` 7 m, the hammer arming
+`RotaryPhone.smashable`, `smashed` → `_pass_gate("phone")`, and the Backrooms phone as the hint.
+
+**3 · The open shelf** — superseded 2026-09-09 (captures #5/#6): `_spawn_gate2_shelf()` puts only
+**bleach / poison / water** on the three slots and `_spawn_vinegar_niche()` hides the vinegar behind
+a tear-away `WallSheet`. This orphan clause had been left inlined in the middle of the live bullet:
+
+> The old shelf text follows: three bottles (vinegar / bleach / water) on the kitchen shelf,
+
+**4 · The containment cell's observation port** — superseded 2026-09-13 (K2, capture #011; the
+user's choice: *"OPEN BARRED FRONT, NO STEEL DOOR"*). There is no leaf and no port: the −z face is
+bars over an open void with a gate section, and `PORT_W`/`PORT_Y0`/`PORT_Y1`/`_port_panels` are gone
+from `containment_cell.gd`. ⚠️ **Its measurement is why the CURRENT bars sit off the centre line** —
+the same 23-heading sweep that condemned the blank leaf is what `check_kontur_entities.gd` re-runs
+against the bars, and "no bar at x 0.0" exists because the 180° heading went blind there:
+
+  - ⚠️ **THE DOOR HAS AN OBSERVATION PORT, AND UNTIL 2026-08-18 IT DID NOT.** Three faces are glazed
+    and the fourth (−z) is a steel leaf which `_spawn_containment_cell()` deliberately turns to face
+    the spine — so the level's one look at its own title creature was staged to face the direction it
+    could not be seen from. Measured over 23 reachable poses, **six rendered ZERO pixels of the
+    occupant** (the whole 165°–210° arc, at 2.0 m and 3.2 m). The leaf is now four slabs around a
+    1.32 × 0.95 m glazed opening (`PORT_W`/`PORT_Y0`/`PORT_Y1`) with a bead frame and two glazing
+    bars; the wheel, mid-rail, chevron band and placard all moved, having every one of them been
+    sitting inside what is now the opening. ⚠️ It also fixes the *"flat luminous white panel"* the
+    same capture shows — that was the torch on the only large untextured flat plane in a corridor
+    whose walls carry texture, and the port is what breaks the plane. ISSUES_SOLUTIONS **Issue 148**
+
+⚠️ The one-sided `CULL_BACK` liners the port pass introduced are **still in the code and still in
+SPEC** (`LinerNorth` / `LinerSouth` / `LinerEast`), as is the rejected frosted-pane build — only the
+leaf and its opening went.
+
+**5 · A dangling pointer, deleted.** The Archive-texturing entry ended *"The 'flat-tinted and
+untextured' sentence below is history."* That sentence does not occur below it, or anywhere in this
+file — it lives in `01-lab.md:158` and `06-breach.md:118`, about other props. Nothing was superseded
+by it, so the pointer was removed rather than moved.
+
+## NEEDS A PLAYTEST
+
+⚠️ Claims in SPEC that are **measurements from a build that has since changed**, or that no headless
+guard can settle. None of them is known wrong; none of them has been re-measured against the level as
+it stands. Do not delete them, and do not cite them as current until someone plays this.
+
+- **The containment cell's photometry.** SPEC's *"23 reachable headings · 7 097–67 169 px · occ/bg
+  0.52–0.77 · contrast 0.231–0.483 · whole-frame mean 0.048–0.104"* was measured against the **glazed
+  leaf with the observation port**, which K2 replaced with an open barred front, and K1b then barred
+  the west face too. `tests/screenshot_cell_visibility.gd` needs a display and is outside
+  `run_tests.sh`; re-run it and restate the numbers. The headless sightline half
+  (`check_kontur_entities.gd`) *has* been re-pointed at the bars.
+- **Sign legibility.** *"Worst sign now 15.7 px, best 63.2, floor 15"* and the briefing notice's
+  *"17.1 px of cap height from the player's own spawn 7.10 m away"* were measured before
+  `DARK_AMBIENT` 0.02 / `SOVIET_DARK` 0.0 put the Soviet half in the dark and before Gate 2's sign
+  became the tear-away `WallSheet` over the vinegar. `check_kontur_signs.gd` measures ink, not
+  brightness — a plate can pass it and still be unreadable in an unlit room.
+- **The Perëkozhnik's read.** Both tells are counts — a fourth bottle wearing a duplicate BLEACH
+  label off the three-slot rhythm at z=21.9, and a fourth, colourless, never-ringing handset among the
+  switchboard's phones. Nothing measures whether either count is *noticeable* at the distance a player
+  actually stands, in the dark, with a 16 panic/s stare as the price of stepping closer to check.

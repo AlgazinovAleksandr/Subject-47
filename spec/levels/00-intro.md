@@ -101,6 +101,10 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
       the alternatives are a creak that stops dead with the chair or a hard cut at full amplitude
       0.9 s after it. `check_intro_beats.gd` asserts the STREAM, not just that something plays — a
       working fallback is exactly what hides a missing asset
+    - ⚠️ **SUPERSEDED — the `−7.6` in the paragraph above is HISTORY** (audited 2026-09-19).
+      `intro_room.gd:116` ships `WHEELCHAIR_SFX_DB := 1.0` with `WHEELCHAIR_SFX_MAX_DB := 8.0`; the
+      ⭐ entry immediately below carries the live value. The measurement, the fade constants and the
+      stream assertion in that paragraph are untouched and still current.
   - ⭐ **LOUDER AGAIN (2026-09-10, capture #1: *"Can we make the noise of this wheelchair even
     louder?"*).** `WHEELCHAIR_SFX_DB` −7.6 → **+1.0**, `max_db` **8.0** (it was the default 3.0,
     which clamped `volume_db + attenuation` — the gain would have done nothing inside 2.5 m), and a
@@ -142,15 +146,44 @@ Note text: *"You are Subject 47. This is a psychological experiment... Stay calm
   `tests/check_art_aspect.gd` asserts mesh aspect against **effective** texture aspect (pixel aspect
   × `uv1_scale`, because the note deliberately UV-crops a square, black-backed source)
 
+## NEEDS A PLAYTEST
+
+This room HAS been hand-played (2026-07-28, 2026-08-16, 2026-09-10) — unlike Levels 7 and 8, which have
+not been played at all since their 2026-09-12 rebuilds. What has landed here since the last capture and
+has not yet been seen or heard by a player:
+- **The louder wheelchair** (2026-09-10). `WHEELCHAIR_SFX_DB` +1.0, `WHEELCHAIR_SFX_MAX_DB` 8.0 and the
+  0.35 s `HoldBreath` dip were built in answer to capture #1 (*"even louder"*) and never replayed. There
+  is no headroom past this — the next lever is contrast only — so the replay verdict decides the beat.
+- **The v3 sheeted form.** v1 and v2 were each rejected on a replay; v3 (the `SurfaceTool` heightfield) is
+  asserted by `check_intro_sheet.gd`, but there is no recorded human verdict on the one property that was
+  rejected twice: whether it reads as a body.
+- **The seated exit door + casing and the derived `_corrupt_room()` planks** (2026-08-16). Both are now
+  asserted by `check_intro_geometry.gd` in the normal room and under `GameState.is_ending`, but the ending
+  pass is a geometry assertion, not a played beat.
+
+⚠️ Whatever the captures say, the two hard rules hold and are guarded: the room is **UNLOSEABLE**
+(nothing calls `add_panic()`; `check_intro_beats.gd` fails if the bar moves at all) and there is **NO
+jumpscare in it** (asserted as an absence).
 
 ## DECISIONS & GOTCHAS
 
-Dated change entries, newest first — why the level is the way it is, what was measured, what was
-tried and rejected. ⚠️ Anything marked **DELIBERATE** or **the user's call** must not be
-re-litigated without asking.
+⚠️ **Dated ⭐ entries live at the TOP of SPEC, not here.** They carry the level's *current* state and
+override the older prose beneath them — that is how `CLAUDE.md` was written, and why entries say
+things like *"every paragraph below that says 320 m is history"*.
 
-⚠️ `⚠️` gotchas that describe *current* behaviour stay inline in **SPEC** above: in this codebase
-the rule and its reason are usually one sentence, and splitting them would break the sentence.
+⚠️ **The top-to-bottom order is NOT strictly newest-first.** Measured 2026-09-19: `01-lab.md`'s
+2026-09-13 entry sits *above* the 2026-09-14 entry that reverts it, and `04-backrooms.md:302` sits
+*below* the same-day entry that supersedes it. **Read the dates; where they tie, read the code.**
 
-*No dated entries yet — this level's history is recorded inline in SPEC above. Add new entries
-here, newest first, as the SPEC-FIRST protocol completes each change.*
+Use this section only for rationale that leaves **no trace** in the level — something tried and
+abandoned. Anything describing what the level *is* belongs in SPEC.
+
+### Superseded claims — the 2026-09-19 spec audit
+
+⚠️ **`WHEELCHAIR_SFX_DB = −7.6` (2026-08-16) → superseded 2026-09-10 by `+1.0` / `max_db` 8.0.**
+The −7.6 was derived from the file's own measured level (2.009 s, mono 44.1 kHz, −2.3 dBFS RMS, 9.6 dB
+hotter than `gurney_creak`); the shipped +1.0 was set on the user's *"even louder"* call instead, so the
+derivation is history but the measurement behind it is not. The losing clause sits mid-sentence inside a
+paragraph that is otherwise current (the sound file, the no-decay fade, the stream assertion), and could
+not be lifted out without rewording surviving prose — so it is flagged in place in SPEC rather than moved,
+and recorded here. Truth from the code: `intro_room.gd:116-117`.

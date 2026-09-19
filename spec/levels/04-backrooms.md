@@ -5,6 +5,28 @@
 ## SPEC
 
 **Level 4 — The Backrooms (liminal mono-yellow maze)** — `backrooms.gd` + `backrooms.tscn`
+- ⭐ **2026-09-16 (`BACKLOG_Sep_16.md` R3–R6, R10):** you **arrive with the torch OFF** (F works;
+  the Smiler killed the user 9 s in with the default-on torch); the correct arm's scrawl is
+  **per round** (`ROUND_SCRAWLS`: NO DOOR / IT IS NOT A COINCIDENCE / YOU ARE HERE FOR A REASON);
+  the Flood's calm island is a **raised tiled swimming pool with dark blue water** (deck
+  `DryPlatform`, curbs, a ramp from the Descent side, a chrome ladder, a cold lamp) and setting
+  the sixth relic makes **the relics wake** (`_relics_wake`: candle, bell, doll, lamp gutter, a
+  groan from the Sump; zero panic). Seam transitions are deferred (Issue 216).
+- ⭐ **2026-09-13 (B1/F1):** the crate sting plays **as the lunge starts** (`_start_the_lunge`), not
+  on `lunged`; the Flood board reads **SIX RELICS OF THE WARD. / RETURN THEM TO ME.** and the
+  pre-completion objective is *Someone down here kept relics of the ward.*
+- ⭐ **2026-09-14 (`BACKLOG_Sep_14.md` B1–B2):** the entry note is **the verb only** ("There is no
+  door. Walk into the wall."); the arrow and Smiler rules arrive as `RoundNote` in the hub from
+  round 2, and the CORRECT arm's seam scrawl reads `NO DOOR. / WALK INTO IT.` each `_assign_round`.
+  The crate's `crate_jumpscare.ogg` had 0.786 s of leading silence — trimmed by
+  `tools/make_crate_jumpscare.py` (ffmpeg `atrim` from the raw in `assets_src/`).
+- ⭐ **2026-09-13 (`BACKLOG_Sep_13.md` B1–B4):** the mirage doors are **old-house yellowed
+  panel doors** (`backrooms_door_yellow.png`, 6 in the Lobby, 4 in the Sprawl; the red stays on
+  the real back door); the cap scrawl reads **EASY TO GET IN. / IMPOSSIBLE TO GET OUT.** and
+  comes down after the first loop-back, the glitch wall reads **YOU ARE HERE FOR A REASON.**;
+  the Sprawl's crate is a **gift box** and the dweller **lunges to arm's length with the
+  user's `crate_jumpscare.ogg`** before its run — **no fullscreen flash**; **SHOULD I FOLLOW
+  IT?** scrawls when it goes through the wall.
 - **Entry = the noclip** (`_spawn_noclip()` in `corridor.gd`): the player never reaches room 217 — which now wears `backrooms_tear_door.png`, a black-wood door torn open on a red-lit void, sized from the artwork's own aspect. **Fifteen** metres out every torch dies and `player.kill_flashlight()` force-kills the light (F now only plays a dead-battery click), and the floor gives way **5 m short of the door** (user's call, 2026-08-15 — you see it, you never touch it). ⚠️ **It is a REAL fall (2026-08-15)**: `_ev_noclip_fall()` zeroes the player's `collision_mask`, so gravity takes them straight through the floor (measured 6.96 m in 1.2 s); input is frozen, the screen fades at −3 m and the Backrooms takes over at −9 m. It used to fade to black and wait 2 s with the player standing still, which is not a fall. No hole is cut: the corridor floor is one CSGBox3D per 45 m segment, and the blackout killed every light 10 m earlier so nobody could see one. ⚠️ **Three constants move together** — `NOCLIP_FALL_BEFORE_DOOR`, `NOCLIP_ONSET_BEFORE_END` and `RETURN_MARGIN` (14 → **18**). Re-entry from the Backrooms must land clear of BOTH trigger boxes or arriving re-fires the blackout, or the fall bounces the player straight back. `tests/check_noclip_fall.gd` asserts the relationships rather than the numbers, so any one of them can be retuned but not alone
 - **Cyclic maze, no seamless portals** (design Q1): a 4-way intersection hub with three choice arms (N/E/W) built from `CSGBox3D`, triplanar `backrooms_wallpaper_albedo` walls + `backrooms_carpet_albedo` floor, recessed flickering fluorescents. The E/W arms dead-end in a `LoopBack` trigger that teleports you to an identical re-randomised hub — so it reads as an endless series of intersections without any continuous-portal seams
 - **Win — three down-turns** (`_assign_round`, `_on_arm_entered`): an arrow decal on the hub columns marks exactly one arm with a DOWN arrow each round. Take it to advance the loop counter; the E/W arms loop back, and on the 3rd correct turn the win arm (N) is forced and opens into the exit utility room. The **glitch wall** there runs a screen-space vertex-jitter shader (`glitch_wall.gdshader`); walking into its `ExitTrigger` Area3D → `advance_level()` → The Void
@@ -67,7 +89,7 @@
     closing the hole, and it is **not** a lighting pass: `ambient_light_color` and energy are
     untouched and only `ambient_light_source` is pinned to COLOR, dropping the 8 % sky contribution
     (0.0026 in linear ambient luminance)
-- **Fail — wrong turn**: entering a non-down-arrow arm = `light_pop` + 15 panic + counter reset + teleport to the start (`_wrong_turn`). **Standing still** > 4 s raises panic (`player.enable_standstill_panic()`, +3/s) — the maze forbids rest. Plus the usual panic-bar-fills death
+- **Fail — wrong turn**: entering a non-down-arrow arm = `light_pop` + 18 panic + counter reset + teleport to the start (`_wrong_turn`). **Standing still** > 4 s raises panic (`player.enable_standstill_panic()`, +3/s) — the maze forbids rest. Plus the usual panic-bar-fills death
 - **Dynamic dark zones**: one (always-wrong) arm goes black each round (`_apply_dark_arm` → lights off + `DarkZone`)
 - **The Smiler** (`creature_smiler.gd`, ~50% per dark arm): a glowing `screamer_smiler.png` billboard at the dark arm's end. Its logic INVERTS the maze (design Q2): shine your flashlight on it **or** sprint → rush → `Screamer.trigger()` (fatal — the smiler image fills the screen via `LEVEL_SCREAMERS[4]`). Turn the light OFF and hold still (don't sprint) and it fades after 4 s. While engaged it calls `player.set_smiler_active(true)` to suspend the standstill + dark ticks and drives its own slow dread (+2.5/s) — freezing to survive is tense but fair
 - **Footstep echo** (`player.enable_footstep_echo()`): every step replays at half-volume 0.4 s later, two paces behind you
@@ -119,8 +141,8 @@
     - **Zero panic.** The beacons are bare `AudioStreamPlayer3D`s with no script, no children and no
       Area3D; `check_backrooms_seam.gd` asserts that structurally
   - **Zone 2 — THE SPRAWL** (`backrooms_zone2.gd`, origin `(200,0,0)`): a 40×40 m pillar hall with a
-    **4.5 m** ceiling — deliberately wrong-scale against zone 1's 3 m corridors. Four *identical*
-    glitch walls, one real, randomised. Touching a
+    **4.5 m** ceiling — deliberately wrong-scale against zone 1's 3 m corridors.
+    Touching a
     fake = `go_solid()` and **nothing else** — ⚠️ **the 12 panic, the teleport, the `flash_scare`
     and the `light_pop` were all REMOVED on 2026-09-03 (D6): every wall here is now visibly RED and
     known to be a lie, so charging for testing one is charging for reading the level.** The one
@@ -179,9 +201,6 @@
     until the runner arrives: it looks exactly like its three neighbours and walking into it does
     **nothing**. ⚠️ Sealed is a COLLIDER, not a hidden node — `_side_runs()` cuts a 7 m gap in the
     perimeter for each wall, so in this zone the wall IS the shell and hiding it is a hole in the
-    world. ⚠️ **The gate follows a re-roll** (`_apply_gate()` recomputes all four from `_real_side`;
-    `revive()` rebuilds triggers from scratch, which is where a seal would silently drop), and it
-    does **not** come back once the runner has been through.
     ⚠️⚠️ **WHICH MAKES THE WHISPER A COMPLETABILITY GUARANTEE**, and it was **inaudible everywhere**
     until this pass — Issue 131: the gains were set from the files' RMS and never against the bed
     they play over (the score is −22.0 dBFS effective; the far cue reached **−25.2 dBFS at the box**).
@@ -200,10 +219,10 @@
     through the real interact ray and the real `Area3D`, and asserts the gate in **both** directions.
     ⚠️ The runner is a **dedicated one-shot
     object, never a Congregation `Watcher`**: those are ruleless by construction and that is why the
-    Congregation is legal beside a Smiler that kills you for looking. ⚠️ The mark is **motion**
+    Congregation is legal beside a Smiler that kills you for looking.
     (`GlitchWall.set_agitated()`, tear 0.12 → 0.34), not brightness — the glitch wall is already the
     brightest surface in its room by 2.3× — and it **follows a re-roll**, because a mark left on a
-    wall that is no longer real is worse than no mark. ⚠️ The crate's recess has its ceiling light
+    ⚠️ The crate's recess has its ceiling light
     **cut** (`_build_lights()` skips every strip within 11 m), so "hidden in the dark" is measured.
     ⚠️ **Zero panic**: the scare is `flash_scare` + a camera jolt and nothing else; whether it should
     cost anything is an open question (backlog 04 §16.5 / D31), not an omission. It IS **+14.6 dB
@@ -217,7 +236,7 @@
     own tell no longer opens anything, so the line named a verb that does not work.
     **The `SilenceZone` and the wall's own cue are FLAVOUR AND CONFIRMATION now, not the route**
     (2026-08-18). A `SilenceZone` around the real wall still ducks the whole `"Backrooms"` bus to
-    −30 dB, and `_randomise_real_wall()` still spawns a positive cue AT that wall, deliberately kept
+    −30 dB, and `_build_tells()` still spawns a positive cue AT that wall, deliberately kept
     off that bus so the pocket cannot duck the very tell it provides (**BUG_FIX.md 3.5**, added when
     playtest read pure silence as too subtle). ⚠️ Measured while making the crate the gate: outside
     the pocket that cue sits ~14 dB **under** the score, and inside it the bus ducks 30 dB and it
@@ -229,7 +248,7 @@
     `unit_size 4.5`, audible only once you were already at the correct wall in a 40×40 m room with
     four identical ones, and it was replaced by the two-layer far-cue/near-confirm pattern
     (`backrooms_zone2.gd:187-225`). **`sprawl_wall_hum.wav` is still generated by
-    `tools/make_sfx_backrooms.py:97` and is referenced by no `.gd` file at all** — it is an orphan.
+    `tools/make_sfx_backrooms.py:97` and is referenced by no `game/scripts/` file** — it is an orphan.
     Do not "restore" it without re-reading that comment; the wide range is the whole point
     - ⚠️ **THE EIGHT ALCOVES WERE SEALED FOR THE WHOLE LIFE OF THE ZONE, AND ARE NOW OPEN**
       (2026-08-17, `backlogs/04-backrooms.md` §9, ISSUES_SOLUTIONS **Issue 90**).
@@ -274,21 +293,7 @@
     - ⚠️ **Three panic sources went live with the cut and none of them was tuned**: two
       `MirageDoor`s at `PANIC = 10` each (voluntary, one-shot) and `SprawlMirror`'s
       `GAZE_INTENSITY = 0.7` (**14 panic/s** while stared at, in a zone where decay is cancelled).
-      `SprawlPhone` is zero — `open_note = false` and `rings = false`, asserted. The zone's
-      `WRONG_WALL_PANIC` 12 was measured with all of this unreachable; treat the next playtest as
-      the first real reading
-    - ⚠️⚠️ **THE EIGHT ALCOVES ARE SEALED, AND EVERYTHING IN THEM IS UNREACHABLE** (measured
-      2026-08-17, NOT fixed — it needs a decision). `_build_alcoves()` builds each recess as a
-      floor, a back wall and two side walls OUTSIDE the perimeter, and nothing ever removes the
-      run of perimeter wall in front of it: `_build_shell()`'s two runs span 3.5…20 and −20…−3.5
-      and the alcoves are at **±11**. A ray from 3 m inside the hall is blocked at exactly the
-      3.00 m mouth plane on all eight. Behind that wall: `SprawlNote` (the only readable object
-      in 1600 m², and the page that states this zone's own tell), `SprawlPhone`, the
-      `LivingMirror`, two `MirageDoor`s and five props. ⚠️ **This re-reads the playtest finding
-      "SprawlNote was not read in either session"** — that was never a placement problem.
-      Opening them adds ~10 reachable objects and eight rooms to a zone tuned without them, and a
-      mis-cut hole in this shell is why `_catch_out_of_world()` exists. See
-      `backlogs/04-backrooms.md` F1 and the ⚠️ block at `_build_alcoves()`
+      `SprawlPhone` is zero — `open_note = false` and `rings = false`, asserted.
     - **THE CONGREGATION** (`congregation.gd`): 6–8 persistent `Watcher`s among the 36 pillars,
       growing by one per wrong wall (capped at 12). Zero panic, no collider, no kill radius, no
       fail state — unchanged, and it is what keeps the feature legal under `SCARY.md` §8.3.
@@ -302,10 +307,10 @@
       - **They never held still.** `SETTLE_MIN`/`SETTLE_MAX` (8–16 s, randomised per figure). A
         figure that has teleported five times since you last looked cannot support "there was one
         by that pillar", which is the entire product.
-      - **And they were LIGHTER than the floor.** `watcher.gd`'s premise is "a dark shape OCCLUDING
-        a lit surface"; measured here the figure was 43.7 lum at 2 m and 42.4 at 25 m (unshaded, so
-        no falloff) against a floor at 29.5–36.3 and a ceiling at 28.8. `Congregation.FIGURE_TINT`
-        (0.42, 0.42, 0.48) via `watcher.gd`'s new additive `figure_tint` → **18.5 rendered**
+      - **`Congregation.FIGURE_TINT` is `Color(0.21, 0.21, 0.24, 1.0)`** (`congregation.gd:101`).
+        The 2026-08-17 build at (0.42, 0.42, 0.48), the 43.7/42.4-lum measurement behind it and
+        `watcher.gd`'s "a dark shape OCCLUDING a lit surface" premise — *"the premise above"* the
+        block below refers to — were moved to **DECISIONS & GOTCHAS** on 2026-09-19.
         - ⚠️⚠️ **HALVED TO (0.21, 0.21, 0.24) ON 2026-09-03 — A MODEST GAIN, AND THE FIRST
           MEASUREMENT BEHIND IT WAS RETRACTED.** An unshaded tint is a FIXED rendered luminance;
           the premise above is a claim about a **ratio**, and the darkness pass cut everything on
@@ -466,35 +471,116 @@
 - Win: three zones, three glitch walls. Fail: wrong turns/wrong walls/standing still/the Smiler/a
   read-to-end phone call → panic bar fills
 
-
 ## DECISIONS & GOTCHAS
 
-Dated change entries, newest first — why the level is the way it is, what was measured, what was
-tried and rejected. ⚠️ Anything marked **DELIBERATE** or **the user's call** must not be
-re-litigated without asking.
+⚠️ **Dated ⭐ entries live at the TOP of SPEC, not here.** They carry the level's *current* state and
+override the older prose beneath them — that is how `CLAUDE.md` was written, and why entries say
+things like *"every paragraph below that says 320 m is history"*.
 
-⚠️ `⚠️` gotchas that describe *current* behaviour stay inline in **SPEC** above: in this codebase
-the rule and its reason are usually one sentence, and splitting them would break the sentence.
+⚠️ **The top-to-bottom order is NOT strictly newest-first.** Measured 2026-09-19: `01-lab.md`'s
+2026-09-13 entry sits *above* the 2026-09-14 entry that reverts it, and `04-backrooms.md:302` sits
+*below* the same-day entry that supersedes it. **Read the dates; where they tie, read the code.**
 
-- ⭐ **2026-09-16 (`BACKLOG_Sep_16.md` R3–R6, R10):** you **arrive with the torch OFF** (F works;
-  the Smiler killed the user 9 s in with the default-on torch); the correct arm's scrawl is
-  **per round** (`ROUND_SCRAWLS`: NO DOOR / IT IS NOT A COINCIDENCE / YOU ARE HERE FOR A REASON);
-  the Flood's calm island is a **raised tiled swimming pool with dark blue water** (deck
-  `DryPlatform`, curbs, a ramp from the Descent side, a chrome ladder, a cold lamp) and setting
-  the sixth relic makes **the relics wake** (`_relics_wake`: candle, bell, doll, lamp gutter, a
-  groan from the Sump; zero panic). Seam transitions are deferred (Issue 216).
-- ⭐ **2026-09-13 (B1/F1):** the crate sting plays **as the lunge starts** (`_start_the_lunge`), not
-  on `lunged`; the Flood board reads **SIX RELICS OF THE WARD. / RETURN THEM TO ME.** and the
-  pre-completion objective is *Someone down here kept relics of the ward.*
-- ⭐ **2026-09-14 (`BACKLOG_Sep_14.md` B1–B2):** the entry note is **the verb only** ("There is no
-  door. Walk into the wall."); the arrow and Smiler rules arrive as `RoundNote` in the hub from
-  round 2, and the CORRECT arm's seam scrawl reads `NO DOOR. / WALK INTO IT.` each `_assign_round`.
-  The crate's `crate_jumpscare.ogg` had 0.786 s of leading silence — trimmed by
-  `tools/make_crate_jumpscare.py` (ffmpeg `atrim` from the raw in `assets_src/`).
-- ⭐ **2026-09-13 (`BACKLOG_Sep_13.md` B1–B4):** the mirage doors are **old-house yellowed
-  panel doors** (`backrooms_door_yellow.png`, 6 in the Lobby, 4 in the Sprawl; the red stays on
-  the real back door); the cap scrawl reads **EASY TO GET IN. / IMPOSSIBLE TO GET OUT.** and
-  comes down after the first loop-back, the glitch wall reads **YOU ARE HERE FOR A REASON.**;
-  the Sprawl's crate is a **gift box** and the dweller **lunges to arm's length with the
-  user's `crate_jumpscare.ogg`** before its run — **no fullscreen flash**; **SHOULD I FOLLOW
-  IT?** scrawls when it goes through the wall.
+⚠️ **The `:302` half of that measurement is now CLOSED** — that block was moved down here on
+2026-09-19 (**MOVED OUT OF SPEC** below); the `01-lab.md` half stands.
+
+Use this section only for rationale that leaves **no trace** in the level — something tried and
+abandoned. Anything describing what the level *is* belongs in SPEC.
+
+### MOVED OUT OF SPEC (2026-09-19 audit) — superseded, kept verbatim
+
+⚠️ Every block below is the **losing** half of a contradiction this file carried in `## SPEC`. Each is
+byte-identical to the text that was there; the one-line note above it says what supersedes it and what
+the code does today. Nothing here describes the level as it is — do not build from it.
+
+- ⚠️ **SEALED ALCOVES — SUPERSEDED by the `⚠️ THE EIGHT ALCOVES … ARE NOW OPEN` block of the SAME DAY
+  (2026-08-17), which is still in SPEC.** The mouths are cut: `backrooms_zone2.gd:_side_runs()` subtracts
+  the 7 m glitch-wall gap and one `ALCOVE_W + 2T` mouth per alcove from each side, and
+  `tests/check_sprawl_alcoves.gd` re-seals one mouth every run to prove the check can fail. **There is no
+  open decision here.** The text as it stood:
+    - ⚠️⚠️ **THE EIGHT ALCOVES ARE SEALED, AND EVERYTHING IN THEM IS UNREACHABLE** (measured
+      2026-08-17, NOT fixed — it needs a decision). `_build_alcoves()` builds each recess as a
+      floor, a back wall and two side walls OUTSIDE the perimeter, and nothing ever removes the
+      run of perimeter wall in front of it: `_build_shell()`'s two runs span 3.5…20 and −20…−3.5
+      and the alcoves are at **±11**. A ray from 3 m inside the hall is blocked at exactly the
+      3.00 m mouth plane on all eight. Behind that wall: `SprawlNote` (the only readable object
+      in 1600 m², and the page that states this zone's own tell), `SprawlPhone`, the
+      `LivingMirror`, two `MirageDoor`s and five props. ⚠️ **This re-reads the playtest finding
+      "SprawlNote was not read in either session"** — that was never a placement problem.
+      Opening them adds ~10 reachable objects and eight rooms to a zone tuned without them, and a
+      mis-cut hole in this shell is why `_catch_out_of_world()` exists. See
+      `backlogs/04-backrooms.md` F1 and the ⚠️ block at `_build_alcoves()`
+
+- ⚠️ **`WRONG_WALL_PANIC` IN THE SPRAWL — SUPERSEDED by D6 (2026-09-03).** `backrooms.gd:_on_zone_mistake()`
+  returns early for `which == 2`: no panic, no teleport, no `flash_scare`, no `light_pop` — only
+  `populate_one_more()`. `WRONG_WALL_PANIC` 12 is still declared (`backrooms.gd:38`) and is still paid, but
+  only on the **Flood's** decoy seams. The sentence that followed *"`SprawlPhone` is zero … asserted."*:
+      `WRONG_WALL_PANIC` 12 was measured with all of this unreachable; treat the next playtest as
+      the first real reading
+
+- ⚠️ **FOUR IDENTICAL WALLS, ONE REAL, RANDOMISED — SUPERSEDED by the 2026-09-10 ⭐⭐⭐ block**, which is
+  still in SPEC and already named this passage as "the OLD zone" from 40 lines below it. There are **five**
+  glitch walls: four perimeter decoys keyed N/E/S/W and permanently `is_real = false`, plus the real one at
+  the end of the crate's own recess. The clause that sat mid-sentence in the Zone 2 opener:
+Four *identical*
+    glitch walls, one real, randomised.
+
+- ⚠️ **"THE GATE FOLLOWS A RE-ROLL" — SUPERSEDED by the same 2026-09-10 block (**NO RE-ROLL**).**
+  `_real_side` is assigned once, from the crate's recess (`backrooms_zone2.gd:223`), and nothing ever
+  reassigns it; `_randomise_real_wall()` and `_move_voice_to()` are deleted. `_apply_gate()` does still
+  recompute every wall from `_real_side` rather than differentially (`backrooms_zone2.gd:901`), and the seal
+  still does not come back once the runner has been through (`_dweller_done`) — that half is true, it is the
+  *re-roll* that no longer exists. Verbatim:
+    world. ⚠️ **The gate follows a re-roll** (`_apply_gate()` recomputes all four from `_real_side`;
+    `revive()` rebuilds triggers from scratch, which is where a seal would silently drop), and it
+    does **not** come back once the runner has been through.
+
+- ⚠️ **"THE MARK FOLLOWS A RE-ROLL" — SUPERSEDED by the same 2026-09-10 block**, which states the opposite
+  (*"the mark never moves"*) and is asserted by `check_sprawl_crate.gd:_mark_stays_put`. `set_agitated()` is
+  still the mark and it is still motion rather than brightness (`backrooms_zone2.gd:923`; SPEC keeps that in
+  the `set_agitated()` tear "still carries the motion half"). The sentence opened *"⚠️ The mark is
+  **motion**"* at the end of the line above it:
+    (`GlitchWall.set_agitated()`, tear 0.12 → 0.34), not brightness — the glitch wall is already the
+    brightest surface in its room by 2.3× — and it **follows a re-roll**, because a mark left on a
+    wall that is no longer real is worse than no mark.
+
+- ⚠️ **`FIGURE_TINT` (0.42, 0.42, 0.48) — SUPERSEDED by the 2026-09-03 halving**, which is still in SPEC
+  directly below the replacement bullet. `congregation.gd:101` is `Color(0.21, 0.21, 0.24, 1.0)`. The
+  measurement and the premise are kept because the halving block argues against both:
+      - **And they were LIGHTER than the floor.** `watcher.gd`'s premise is "a dark shape OCCLUDING
+        a lit surface"; measured here the figure was 43.7 lum at 2 m and 42.4 at 25 m (unshaded, so
+        no falloff) against a floor at 29.5–36.3 and a ceiling at 28.8. `Congregation.FIGURE_TINT`
+        (0.42, 0.42, 0.48) via `watcher.gd`'s new additive `figure_tint` → **18.5 rendered**
+
+## NEEDS A PLAYTEST
+
+⚠️ This level carries more unplayed, measured-but-unconfirmed work than any other. Everything here is
+**asserted by a probe or a guard and has never been judged by eye in a live run.** Nothing in this section
+is a defect; it is the list of things a hand playtest exists to settle. Move an item into SPEC (or file it)
+once someone has actually seen it.
+
+- **The 2026-09-16 tiled swimming pool** (`backrooms_zone3.gd:_build_island()`, deck `DryPlatform`, curbs,
+  the ramp from the Descent side, the chrome ladder, the cold lamp). Built and screenshot
+  (`screenshot_flood_island.gd`); never walked. Does a raised tiled pool read as the wing's one safe island,
+  or as a prop? Is the 0.44 m curb climbable-looking when a capsule cannot climb it?
+- **Whether the relics waking reads at all** (`_relics_wake()`, `backrooms_zone3.gd:341`): candle, bell,
+  doll, lamp gutter and a groan from the Sump, on the sixth relic, at **zero panic**. Zero-panic payoffs are
+  exactly the kind that get missed. Does the player notice they were rewarded?
+- **"1.74 s in frustum"** for the Sprawl runner (`screenshot_sprawl_run.gd`, FAIL under 1.6). That is a
+  measured camera number, not a legibility one, and it was written against captures #10/#11 (*"it runs very
+  far away through one of the yellow blocks, I cannot see it well"*). 1.74 s of a dark shape at 4 m/s in a
+  0.07-ambient hall may still not read.
+- **Every luminance and contrast figure in this file**, all of which were taken from probes rather than from
+  play: the arrow at **89 %** / **92.7 %** glyph contrast at 15 m; the entry note's paper at **98.9/255**
+  against wallpaper **171.9**; the glitch wall "brightest surface in its room by **2.3×**"; the Congregation
+  tint's **0.32·0.51 / 0.71·0.82 / 0.83·1.02** at 2.5 / 4 / 8 m. The tint block itself records that an
+  earlier measurement of this same constant had to be **retracted** (Issue 164), which is the reason this
+  bullet exists.
+- **The Sprawl's darkness pass as a whole** (ambient 0.07, `DEAD_LIGHT_CHANCE` 0.55, `STRIP_ENERGY` 0.6,
+  the strips now flickering). The brief was "darker than usual, BUT NOT complete darkness" — only a hand
+  playtest can say which side of that line the hall landed on.
+- **The eight opened alcoves under real play.** `+3 241 standing cells`, interactables 8/12 → 12/12, and
+  three panic sources that went live with the cut and were never tuned (two `MirageDoor`s at 10 each,
+  `SprawlMirror` at 14 panic/s in a zone where decay is cancelled). Treat the next playtest as the first
+  real reading of the zone's panic economy.
+- **The torch-off arrival** (2026-09-16 R3) and whether F is discoverable from a cold start.

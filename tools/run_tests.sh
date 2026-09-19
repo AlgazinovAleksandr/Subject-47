@@ -260,6 +260,27 @@ for t in "${TESTS[@]}"; do
 done
 
 printf -- "----------------------------------------------------\n"
+
+# ── Doc-vs-code reports (NON-FATAL, 2026-09-19) ───────────────────────────────────────
+# These are Python, not Godot, and they do NOT affect the exit code. ⚠️ That is deliberate
+# and is the whole reason they are safe to enrol: a guard that reddens the suite every time
+# someone renames a constant gets commented out within a week. These report; you read them.
+#   check_spec_claims.py    — spec claims vs the code. Measured 2026-09-19: names drift at
+#                             ~0 %, values at ~9 %, and CARDINALITY at ~80 %, which is what
+#                             the tool is really for.
+#   check_spec_freshness.py — per level, git's last code change vs its spec's last change.
+# Skipped entirely when a test filter was given, so `run_tests.sh maze` stays terse.
+if [ -z "$FILTER" ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    claims=$(python3 "$(dirname "$0")/check_spec_claims.py" 2>/dev/null | grep -E "^TOTAL [0-9]+")
+    drift=$(python3 "$(dirname "$0")/check_spec_freshness.py" 2>/dev/null | grep -E "^[0-9]+ areas" )
+    printf "spec claims   %s\n" "${claims:-(not run)}"
+    printf "spec drift    %s\n" "${drift:-(not run)}"
+    printf "              (both non-fatal — run the tool directly for the detail)\n"
+    printf -- "----------------------------------------------------\n"
+  fi
+fi
+
 printf "%d passed, %d failed" "$pass" "$fail"
 [ $missing -gt 0 ] && printf ", %d missing" "$missing"
 printf "\n"

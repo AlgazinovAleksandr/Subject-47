@@ -5,6 +5,50 @@
 ## SPEC
 
 **Level 2 — The House (abandoned domestic interior)** — rebuilt procedurally (Session 10)
+- ⭐ **2026-09-16 (H4, `BACKLOG_Sep_16c.md`):** the cellar child fires when the **cellar NOTE is
+  closed** (`_arm_child_on_note_close`, a one-shot on `NoteUI.closed`), pinning the player at the
+  note; the ramp's foot keeps only the scrawl. Its scream is **`screamer_house`** (baba yaga, the
+  user's call) at 0 dB / `max_db` 6. **H5:** a red **WHERE AM I?** scrawl at `CELLAR_WHERE_AT` 0.7 s,
+  held 2 s, faded by 4.7 s — timed to be GONE before the doll at 5.5 s.
+- ⭐ **2026-09-16 (H2/H3):** the cellar's scripted HOLD apparition is **deleted** (it spent the
+  doll 5 s early); the director's random one stays upstairs. The cellar blackout **pins the
+  player** (`_begin_cellar_blackout` freezes; `_can_show_child` ignores that pin) until the child
+  has appeared. "Collect the key." uses the lower caption slot.
+- ⭐ **2026-09-15 (H1, Issue 214):** the cellar apparition **retries on an abort** — latches only
+  when `ApparitionDirector.arm()` returns true, else respawns and re-polls every 0.25 s for 20 s
+  (`_tick_apparition_retry`, refused while paused / a note is open).
+- ⭐⭐ **2026-09-13 (H1b):** the map's glass is a **ROOM**: `_place_glass()` glazes every open edge of
+  the key's cell (`_pane_rects`, solid to the icon and the monsters until `_break_glass()`); the mark
+  is `house_map_key_icon.png` and the hammer icon was redrawn upright (`tools/make_map_icons.py`).
+  `_is_won()` = fragments empty AND `_glass_broken` AND on the key; the hammer meets a pane through
+  `_check_fragments()` → `_check_glass()`, so the bot harnesses hit it. 28/40 unchanged.
+- ⭐⭐ **2026-09-13 (`BACKLOG_Sep_13.md` H1–H4):** the map game's stages are a **hammer** and a
+  **glass case with the key in it** (`tools/make_map_icons.py`; the seal is a glass pane, a
+  `glass_shatter` + cracked case for `WIN_HOLD` 0.4 s on the win; no mechanic moved). The
+  **second digit is on the forehead of the head in the fridge** (`house_fridge_thing_digit.png`,
+  read by gaze → `SafeNote_Head`), the fridge wears a **chain + padlock** (`chained`,
+  `chain_tried` → the level cuts it if the **bolt cutters** are held), and the cutters lie
+  half under the Bedroom bed, `visible` only with the torch aimed ≤ −30° from within 3.2 m
+  (`bolt_cutters.gd`, `_tick_cutters`). `SafeNote_Bedroom` is gone; `SAFE_NOTES_TOTAL` stays 3.
+  The cellar child's scream is re-mastered to −3 dBFS and lands 0.3 s into the dip. The
+  correct code makes the lock FALL (`lock_drop.wav`) and the door asks **ARE YOU SURE YOU WANT
+  TO GO IN THERE?** Guards: `check_house_fridge_chain`, `check_house_lock`, `check_maze_traps`.
+- ⭐⭐ **AND DARKER STILL SINCE 2026-09-07** — the same change as the Lab, for the same reason:
+  `set_torch_profile(11.0, 24.0)` and `DARK_AMBIENT` 0.02 → **0.0**, with every self-lit prop
+  halved (the forest window 0.90 → 0.40, the TV static panel 0.70 → 0.30, notes 0.60 → 0.25, the
+  cellar key's card 0.50 → 0.30, the two `LivingMirror` figures 0.50 → 0.25, the doors 0.08 →
+  0.03). ⚠️ **And the cellar key's own `OmniLight3D` is OFF.** It was created as a child of the key
+  and never appended to `_lights`, so `_drive_lights()` — the one function that holds this level's
+  ten lamps at zero — had no idea it existed: from the moment the map minigame was won until the
+  key was picked up it burned at 0.35 energy over a 2.5 m radius, i.e. it was the only real light
+  source in the building. Kept at zero rather than deleted, so the decision has a record.
+- ⭐ **PITCH BLACK UNTIL EVERY NOTE IS FOUND, AND THEN ONE LAMP (2026-09-03, the user's call).**
+  `DARK_AMBIENT` 0.02, every lamp held at zero by `_drive_lights()`; reading all three SAFE notes
+  fades up `Lamp_Lock` — the wall lamp beside the combination lock at the far end of the
+  ChildRoom, which has existed at energy 0.4 since long before this — over `LAMP_ON_FADE` 2.2 s,
+  with a new positional `lamp_wake` sting AT the lamp. ⚠️ **Only that one.** The Lab already owns
+  the everything-at-once relief; this beat is a single warm point at the end of a black house that
+  you then have to walk to, and a second lamp spends it.
 - ⚠️ **THERE WAS NO NOTE COUNTER BEFORE THIS.** `_spawn_notes()` discarded two of the three safe
   notes' return values and only the cellar one's `read` signal was wired; `GameState.journal` is a
   whole-game de-duplicated array, not a per-level count. ⚠️ It counts by NODE NAME, not `+= 1` —
@@ -64,9 +108,8 @@
     between the old first- and second-run values; `_drag_step()` takes `panic_ratio` and ignores
     it. ⚠️ DELIBERATE at the constant. Catch panic, drip, proximity and every monster number
     untouched. `check_maze_speed.gd` feeds the same cursor at panic 0 and 0.9 and asserts identical
-    travel, with a control on the retired lerp. The two bullets below describe the OLD behaviour.
-  - **Drag physics:** the icon eases toward the cursor on an exponential spring rather than snapping, and both the ease rate and the speed cap degrade as panic rises (`SPRING_K_BASE=9.0→SPRING_K_PANIC=3.0`, `PLAYER_MAX_SPEED=240→PLAYER_MIN_SPEED=100`). Releasing the mouse freezes the icon instantly, no glide, so letting go never costs an unwanted catch.
-  - **Panic climbs the whole time it is open:** a flat `MAZE_DRIP_RATE=0.9`/s plus a squared proximity term up to `PROXIMITY_MAX_RATE=5.0`/s, via the same "a paused UI's own `_process` still calls `player.add_panic()`" idiom `note_ui.gd` uses for trap notes — which means the UI **must** self-clear if a screamer fires and unpauses the tree out from under it (Issue 9 guard, copied verbatim from `combination_lock.gd`/`note_ui.gd`). Winning calls the unchanged `_build_cellar_key()` at the counter's other end for a real 3D pickup; getting caught (`CATCH_RADIUS=20px`) ejects back to 3D with a jolt + `CATCH_PANIC=18` (bracketed between `beartrap.gd`'s own 15/40 spring-vs-fail values) and the map is retryable. `house_drawer.gd` (the superseded Landing search) was deleted as dead code.
+    travel, with a control on the retired lerp.
+  - **Panic climbs the whole time it is open:** a flat `MAZE_DRIP_RATE=0.4`/s plus a squared proximity term up to `PROXIMITY_MAX_RATE=2.5`/s, via the same "a paused UI's own `_process` still calls `player.add_panic()`" idiom `note_ui.gd` uses for trap notes — which means the UI **must** self-clear if a screamer fires and unpauses the tree out from under it (Issue 9 guard, copied verbatim from `combination_lock.gd`/`note_ui.gd`). Winning calls the unchanged `_build_cellar_key()` at the counter's other end for a real 3D pickup; getting caught (`CATCH_RADIUS=20px`) ejects back to 3D with a jolt + `CATCH_PANIC=18` (bracketed between `beartrap.gd`'s own 15/40 spring-vs-fail values) and the map is retryable. `house_drawer.gd` (the superseded Landing search) was deleted as dead code.
   - ⚠️ **Legibility (playtest 2026-07-25, capture #3)**: the caption was added as a second child of the `CenterContainer`, which overwrites every child's anchors/offsets — so it landed stacked dead-centre ON the parchment in a cream that matched it. It now hangs off `_root` with a black outline (`ScreenText._outline()` convention). The three icons are 1024×1024 PNGs whose ink fills only ~30–40 % of the canvas, in the same sepia as both the parchment and the wall rects, so each rendered as ~28 px of near-invisible scribble; `modulate` cannot fix that (it multiplies — no multiplier turns brown into saturated blue), so `_make_icon()` stacks a dark halo disc + a bright identity disc sized to `ICON_HALF_EXTENT` + the ink on top. See ISSUES_SOLUTIONS Issue 32.
   - **Test coverage:** `tests/screenshot_maze_ui.gd` drives the real `interact()` path — `screenshot_scene.gd` structurally cannot reach a UI behind a prop. Maze generation is stress-tested independently of any scene by `tests/check_maze_gen.gd` (200 seeds: connectivity, non-trivial target distance, valid monster and patroller placement), because the minigame is only ever opened by player interaction and a normal scene smoke test never exercises `_generate_maze()` at all.
 - **THE GUEST (2026-07-28/29) — the house rearranges itself, one step per quest milestone.** The
@@ -116,9 +159,17 @@
     while the room-tone bed **ducks to `BED_DUCK_DB` rather than stopping**, and both return after
     `PLAY_TIME`. A duck with no restore is Issue 50's shape; `tests/check_music_box.gd` waits past
     the wind-down in real time and asserts the bed is back
-- **THE CELLAR SEQUENCE** — three scripted beats on reaching the bottom of the ramp, timed to the
-  user's spec: every lamp AND the torch die instantly → **5.5 s of nothing** → the child, screaming,
-  ~3.2 m in front of wherever the player is facing → **3.0 s later** the lights return and it is gone
+- ⭐⭐ **THE CELLAR CHILD IS IN YOUR FACE AND THE CAMERA IS FORCED TO IT (2026-09-10, capture #7).**
+  `_cellar_child_appear()` now tries a player-relative ladder — `CHILD_NEAR [1.7, 2.0, 2.4]` ahead,
+  ±`CHILD_FAN_DEG` 25° at 2.0, 3.2 ahead, then 2.0/2.6 BEHIND, then the room centre — through
+  `Watcher.spawn(require_los = true)`; on success it zeroes the velocity, `freeze_input()`s,
+  `turn_to_face(child + 1.35 m, CHILD_TURN_TIME 0.45)` and dips the bed (`CHILD_DIP` 0.4), the Lab
+  nook's idiom. `_end_cellar_blackout()` unfreezes. `check_house_guest.gd` asserts ≤ 2.6
+  m, dot ≥ 0.9 after the turn, pinned then released, and case (iii) (nose to the wall) now
+  REQUIRES a figure behind and the turn. Zero panic as before.
+- **THE CELLAR SEQUENCE** — three scripted beats, timed to the
+  user's spec: every lamp AND the torch die instantly → **5.5 s of nothing** → the child, screaming
+  → **3.0 s later** the lights return and it is gone
   - ⚠️ **The dark-zone and standstill taxes are SUSPENDED for the whole sequence**
     (`player.set_smiler_active(true)`). ⚠️ **The cellar's `DarkZone` was REMOVED in the darkness pass
     (D4) — the whole House is unlit until the three safe notes are read, and the cellar's `DreadZone`
@@ -127,7 +178,6 @@
     there at 99 % panic on the run that prompted this
   - The figure is a `Watcher` (zero panic, no collider, no rules) at **1.95 m** — deliberately taller
     than a child, because at child height it read as small and far away rather than on top of you.
-    `childe_scream` at +18 dB with `max_db` raised to 24, or the gain is clamped away
   - ⚠️ Two earlier placements FAILED SILENTLY and both are worth remembering: spawning it on the
     milestone put it two rooms from the player, `Watcher.spawn()`'s line-of-sight check failed
     through the walls, it returned null and the one-shot flag was already set — no figure, no
@@ -169,6 +219,15 @@
     clears it*, and with nothing clearing, 0.62 s reads as a pause in front of an open box
   - ⚠️ The lower wire shelf is `SIZE.y * 0.34`, not 0.40 — at 0.40 it drew straight across the bottom
     7 cm of the face, which is the same capture. The head now RESTS on that shelf, clear of both
+- ⭐ **THE KITCHEN DRAWER IS TWO PRESSES NOW (2026-09-10, capture #5: *"The note should be
+  physically seen in this cabinet before it will be taken"*).** E slides it open and a real page
+  (`DrawerPage`, a nested layer-2 body on `DrawerSlide`, art `kontur_note_page.png` cropped to the
+  quad's aspect, collider `disabled` until the slide finishes) lies in it; a second, separate E
+  takes and reads it, and only then does `record_note()` run. `lab_cabinet_drawer.gd`'s beat, and
+  the Flood's. `can_interact()` on the drawer is `not _opened`; the page's is "open and present".
+  `check_open_then_read.gd`'s House section asserts no note and no journal entry after E1, that the
+  shipping ray finds the PAGE, and that E2 archives exactly once. `check_wall_overlap.gd` waives
+  `DrawerPageSheet` by name (it lies inside the counter while shut).
 - **The kitchen drawer** (`kitchen_drawer.gd`) carries a second, independent hint for **KONTUR Gate 1**
   ("the black door is the way out, the red one is not a door" — the rule, never a position, since the
   colours swap per run). Gate 1's only other hint is in the Lab morgue behind a beartrap and two
@@ -201,78 +260,78 @@
 - Win: read the 3 safe notes, enter code **472** on the combination lock by the child's-room exit (`CODE_ENTERED`)
 - Fail: read a trap note **fully**; the apparition rush; or panic bar fills. Read-to-die: trap notes feed +12 panic/s while open (`TRAP_PANIC_RATE` in `note.gd`, ticked by `note_ui.gd`); text bleeds red; close early to survive
 - **The window + Forest scare** (`_spawn_window()`): a moonlit forest (`forest.png`) behind glass on the living-room north wall (quads rotated PI to face the room, inset 0.25 to sit proud of the wall, culling disabled). Press up (≤1.5 m) → SURVIVABLE `flash_scare(screamer_forest.png)` + jolt + 25 panic
-- **Scares**: cursed props (bedroom painting 0.8, living-room mirror 1.2) + a TV-static gaze panel (`tv_static_face.png`); a one-way mirror (`living_mirror.gd`) in the bathroom; a music box (`music_box.wav`) in the child's room; the cellar is a `DreadZone`+`DarkZone` with water drips, a beartrap, and a non-teach HOLD apparition; pipe groans + random blackouts on timers; 3 `CorridorEvent` triggers (door slam +8, footsteps overhead +6, bedroom light dies +6 → `DarkZone`)
+- **Scares**: cursed props (bedroom painting 0.8, living-room mirror 1.2) + a TV-static gaze panel (`tv_static_face.jpg`); a one-way mirror (`living_mirror.gd`) in the bathroom; a music box (`music_box.wav`) in the child's room; the cellar is a `DreadZone` with water drips, a beartrap; pipe groans + random blackouts on timers; 3 `CorridorEvent` triggers (door slam +8, footsteps overhead +6, bedroom light dies +6)
 - **Lock penalty**: each wrong combination = harsh buzz (`lock_buzz.wav`) + 10 panic — brute-forcing the lock is itself a fail path
-
 
 ## DECISIONS & GOTCHAS
 
-Dated change entries, newest first — why the level is the way it is, what was measured, what was
-tried and rejected. ⚠️ Anything marked **DELIBERATE** or **the user's call** must not be
-re-litigated without asking.
+⚠️ **Dated ⭐ entries live at the TOP of SPEC, not here.** They carry the level's *current* state and
+override the older prose beneath them — that is how `CLAUDE.md` was written, and why entries say
+things like *"every paragraph below that says 320 m is history"*.
 
-⚠️ `⚠️` gotchas that describe *current* behaviour stay inline in **SPEC** above: in this codebase
-the rule and its reason are usually one sentence, and splitting them would break the sentence.
+⚠️ **The top-to-bottom order is NOT strictly newest-first.** Measured 2026-09-19: `01-lab.md`'s
+2026-09-13 entry sits *above* the 2026-09-14 entry that reverts it, and `04-backrooms.md:302` sits
+*below* the same-day entry that supersedes it. **Read the dates; where they tie, read the code.**
 
-- ⭐ **2026-09-16 (H4, `BACKLOG_Sep_16c.md`):** the cellar child fires when the **cellar NOTE is
-  closed** (`_arm_child_on_note_close`, a one-shot on `NoteUI.closed`), pinning the player at the
-  note; the ramp's foot keeps only the scrawl. Its scream is **`screamer_house`** (baba yaga, the
-  user's call) at 0 dB / `max_db` 6. **H5:** a red **WHERE AM I?** scrawl at `CELLAR_WHERE_AT` 0.7 s,
-  held 2 s, faded by 4.7 s — timed to be GONE before the doll at 5.5 s.
-- ⭐ **2026-09-16 (H2/H3):** the cellar's scripted HOLD apparition is **deleted** (it spent the
-  doll 5 s early); the director's random one stays upstairs. The cellar blackout **pins the
-  player** (`_begin_cellar_blackout` freezes; `_can_show_child` ignores that pin) until the child
-  has appeared. "Collect the key." uses the lower caption slot.
-- ⭐ **2026-09-15 (H1, Issue 214):** the cellar apparition **retries on an abort** — latches only
-  when `ApparitionDirector.arm()` returns true, else respawns and re-polls every 0.25 s for 20 s
-  (`_tick_apparition_retry`, refused while paused / a note is open).
-- ⭐⭐ **2026-09-13 (H1b):** the map's glass is a **ROOM**: `_place_glass()` glazes every open edge of
-  the key's cell (`_pane_rects`, solid to the icon and the monsters until `_break_glass()`); the mark
-  is `house_map_key_icon.png` and the hammer icon was redrawn upright (`tools/make_map_icons.py`).
-  `_is_won()` = fragments empty AND `_glass_broken` AND on the key; the hammer meets a pane through
-  `_check_fragments()` → `_check_glass()`, so the bot harnesses hit it. 28/40 unchanged.
-- ⭐⭐ **2026-09-13 (`BACKLOG_Sep_13.md` H1–H4):** the map game's stages are a **hammer** and a
-  **glass case with the key in it** (`tools/make_map_icons.py`; the seal is a glass pane, a
-  `glass_shatter` + cracked case for `WIN_HOLD` 0.4 s on the win; no mechanic moved). The
-  **second digit is on the forehead of the head in the fridge** (`house_fridge_thing_digit.png`,
-  read by gaze → `SafeNote_Head`), the fridge wears a **chain + padlock** (`chained`,
-  `chain_tried` → the level cuts it if the **bolt cutters** are held), and the cutters lie
-  half under the Bedroom bed, `visible` only with the torch aimed ≤ −30° from within 3.2 m
-  (`bolt_cutters.gd`, `_tick_cutters`). `SafeNote_Bedroom` is gone; `SAFE_NOTES_TOTAL` stays 3.
-  The cellar child's scream is re-mastered to −3 dBFS and lands 0.3 s into the dip. The
-  correct code makes the lock FALL (`lock_drop.wav`) and the door asks **ARE YOU SURE YOU WANT
-  TO GO IN THERE?** Guards: `check_house_fridge_chain`, `check_house_lock`, `check_maze_traps`.
-- ⭐⭐ **AND DARKER STILL SINCE 2026-09-07** — the same change as the Lab, for the same reason:
-  `set_torch_profile(11.0, 24.0)` and `DARK_AMBIENT` 0.02 → **0.0**, with every self-lit prop
-  halved (the forest window 0.90 → 0.40, the TV static panel 0.70 → 0.30, notes 0.60 → 0.25, the
-  cellar key's card 0.50 → 0.30, the two `LivingMirror` figures 0.50 → 0.25, the doors 0.08 →
-  0.03). ⚠️ **And the cellar key's own `OmniLight3D` is OFF.** It was created as a child of the key
-  and never appended to `_lights`, so `_drive_lights()` — the one function that holds this level's
-  ten lamps at zero — had no idea it existed: from the moment the map minigame was won until the
-  key was picked up it burned at 0.35 energy over a 2.5 m radius, i.e. it was the only real light
-  source in the building. Kept at zero rather than deleted, so the decision has a record.
-- ⭐ **PITCH BLACK UNTIL EVERY NOTE IS FOUND, AND THEN ONE LAMP (2026-09-03, the user's call).**
-  `DARK_AMBIENT` 0.02, every lamp held at zero by `_drive_lights()`; reading all three SAFE notes
-  fades up `Lamp_Lock` — the wall lamp beside the combination lock at the far end of the
-  ChildRoom, which has existed at energy 0.4 since long before this — over `LAMP_ON_FADE` 2.2 s,
-  with a new positional `lamp_wake` sting AT the lamp. ⚠️ **Only that one.** The Lab already owns
-  the everything-at-once relief; this beat is a single warm point at the end of a black house that
-  you then have to walk to, and a second lamp spends it.
-- ⭐⭐ **THE CELLAR CHILD IS IN YOUR FACE AND THE CAMERA IS FORCED TO IT (2026-09-10, capture #7).**
-  `_cellar_child_appear()` now tries a player-relative ladder — `CHILD_NEAR [1.7, 2.0, 2.4]` ahead,
-  ±`CHILD_FAN_DEG` 25° at 2.0, 3.2 ahead, then 2.0/2.6 BEHIND, then the room centre — through
-  `Watcher.spawn(require_los = true)`; on success it zeroes the velocity, `freeze_input()`s,
-  `turn_to_face(child + 1.35 m, CHILD_TURN_TIME 0.45)` and dips the bed (`CHILD_DIP` 0.4), the Lab
-  nook's idiom. `_end_cellar_blackout()` unfreezes. The bullet below still says "~3.2 m in front
-  of wherever the player is facing" — that is the OLD ladder. `check_house_guest.gd` asserts ≤ 2.6
-  m, dot ≥ 0.9 after the turn, pinned then released, and case (iii) (nose to the wall) now
-  REQUIRES a figure behind and the turn. Zero panic as before.
-- ⭐ **THE KITCHEN DRAWER IS TWO PRESSES NOW (2026-09-10, capture #5: *"The note should be
-  physically seen in this cabinet before it will be taken"*).** E slides it open and a real page
-  (`DrawerPage`, a nested layer-2 body on `DrawerSlide`, art `kontur_note_page.png` cropped to the
-  quad's aspect, collider `disabled` until the slide finishes) lies in it; a second, separate E
-  takes and reads it, and only then does `record_note()` run. `lab_cabinet_drawer.gd`'s beat, and
-  the Flood's. `can_interact()` on the drawer is `not _opened`; the page's is "open and present".
-  `check_open_then_read.gd`'s House section asserts no note and no journal entry after E1, that the
-  shipping ray finds the PAGE, and that E2 archives exactly once. `check_wall_overlap.gd` waives
-  `DrawerPageSheet` by name (it lies inside the counter while shut).
+Use this section only for rationale that leaves **no trace** in the level — something tried and
+abandoned. Anything describing what the level *is* belongs in SPEC.
+
+### Superseded, moved out of SPEC on the 2026-09-19 audit
+
+Each of these was a passage SPEC's own newer ⭐ entries already declared dead while leaving it in
+place. Verified against the code before moving; the winning statement is named on each line.
+
+- **The maze's panic-degraded drag physics** — *"the icon eases toward the cursor on an exponential
+  spring rather than snapping, and both the ease rate and the speed cap degrade as panic rises
+  (`SPRING_K_BASE=9.0→SPRING_K_PANIC=3.0`, `PLAYER_MAX_SPEED=240→PLAYER_MIN_SPEED=100`). Releasing
+  the mouse freezes the icon instantly, no glide, so letting go never costs an unwanted catch."*
+  Superseded by the 2026-09-10 ONE SPEED entry — `maze_chase_ui.gd` declares `SPRING_K := 7.5` and
+  `PLAYER_SPEED := 210.0` and none of those four constants exists any more (`_drag_step()` takes
+  `panic_ratio` and assigns it to `_unused`). ⚠️ The release-freeze half is still true of the code;
+  it is kept here only because it shared a sentence with the dead constants.
+- **The cellar child's old placement** — *"~3.2 m in front of wherever the player is facing"*, plus
+  the pointer sentence that already flagged it. Superseded by the 2026-09-10 ladder entry:
+  `CHILD_NEAR := [1.7, 2.0, 2.4]` ahead, then a ±25° fan, then `CHILD_DIST` 3.2 as a late rung, then
+  BEHIND, then the room centre. 3.2 m survives in the code as the *far* fallback, which is why the
+  number looked live.
+- **The cellar sequence's old trigger** — *"on reaching the bottom of the ramp"*. Superseded by the
+  2026-09-16 H4 entry: `_begin_cellar_blackout()` has exactly one caller,
+  `_arm_child_on_note_close()`, armed off the cellar note's `read` and fired on `NoteUI.closed`. The
+  ramp foot keeps only the `CELLAR_HINT` scrawl.
+- **The cellar child's old scream gain** — *"`childe_scream` at +18 dB with `max_db` raised to 24,
+  or the gain is clamped away"*. Superseded by the 2026-09-16 H4 entry (`screamer_house` at 0 dB /
+  `max_db` 6). ⚠️ It is **not dead code**: `level_2.gd:2072-2073` is `0.0 if baba else
+  CHILD_VOLUME_DB` / `6.0 if baba else 24.0`, so these are the numbers the FALLBACK path still uses
+  when `screamer_house` fails to load — and the "or the gain is clamped away" warning is the reason
+  `max_db` is written at all.
+- **The cellar's `DarkZone`, the bedroom event's `DarkZone`, and the cellar's HOLD apparition** —
+  struck from the `**Scares**` line, which still listed all three. Superseded by the D4 darkness-pass
+  entry and the 2026-09-16 H2 entry, both already in SPEC: `_spawn_cellar_contents()` builds a
+  `DreadZone` and nothing else, `_ev_bedroom_dark()` kills `Lamp_Bedroom` and drops no zone, and the
+  `# ---- apparition` section of `level_2.gd` is now a comment block explaining that the scripted
+  HOLD apparition is gone (the director's random one stays upstairs).
+
+## NEEDS A PLAYTEST
+
+Claims the code cannot settle. Nothing here is a defect — it is what a hand-play or a harness re-run
+has to answer before SPEC can state it flatly.
+
+- **Does the doll beat land in its 2026-09-16 form?** The trigger moved to the cellar note's close,
+  the player is now pinned for the whole 8.5 s, the WHERE AM I? scrawl was inserted at 0.7 s, and the
+  scream became `screamer_house` at 0 dB. Four changes to one beat, none hand-played. Specifically:
+  does the scrawl read as the player's own thought or as a title card, and does the baba-yaga sting
+  still register as *this child* rather than as the level's generic death sound?
+- **The measured maze figures need the harness re-run.** 28/40, 232/400 = 58 % and the 21.7 s median
+  were measured before the 2026-09-13 glass-room stage; SPEC asserts "28/40 unchanged" without a
+  quoted re-run. `check_maze_chase.gd` and `probe_maze_variance.gd` settle it. ⚠️ Re-measure only —
+  every constant involved is the user's call.
+- **How the furniture reads.** "Built from PARTS, never one flat box" is a legibility claim about
+  beds, chairs, the table and the music box at ambient 0.0, and two playtests photographed the
+  previous version. Only a screenshot from inside the level answers it.
+- **`Lamp_Lock` as the level's one relief.** Whether a single warm point at the far end of a black
+  house reads as a payoff or as an unexplained light needs a play, not a render.
+- **The bolt cutters' discovery rule.** `visible` only with the torch aimed ≤ −30° from within 3.2 m,
+  half under the Bedroom bed, in a house at ambient 0.0 — findable, or a dead end?
+- **The cellar beartrap on the forced-blind entry line.** The user's decision, and it fired in both
+  playtest sessions. Now that the blackout also *pins* the player, the collision's shape has changed
+  and wants re-observing.
