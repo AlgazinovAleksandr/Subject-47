@@ -26,7 +26,10 @@ The parent tells you which. Never do both in one run.
 ### Mode `analyse` — produce the backlog
 
 You are given: the level number and name, its scene + script paths, the `DEBUG CAPTURE` lines from
-`playtest_log.txt`, the paths of the J screenshots, and the level's `CLAUDE.md` section.
+`playtest_log.txt`, the paths of the J screenshots, and **the level's spec**
+`spec/levels/NN-<level>.md`. ⚠️ Read the whole spec, and note that its newest dated ⭐ entries
+override the prose beneath them. (This said "the level's `CLAUDE.md` section" until
+2026-09-19; CLAUDE.md has carried no per-level sections since the spec split.)
 
 1. **Triage the J-captures first, before anything else.** Each is the user pointing at an exact
    frame in their own words. `Read` the PNG and put it next to the note text. This is the highest

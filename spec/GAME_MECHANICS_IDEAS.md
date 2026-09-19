@@ -58,8 +58,11 @@ The distinction that keeps them from drifting:
 - An item that arrives from **someone playing the game** belongs in `backlogs/NN-<level>.md`, with
   the screenshot and the log line that produced it. Those never move here — only their *verdicts*
   do.
-- **Deferred** items cross-post to §2 so they survive the level pass. **Rejected** items cross-post
-  to §5 with the user's own words, so no future session re-pitches them. That is the whole contract.
+- **Deferred** items cross-post to **§5.6** so they survive the level pass. **Rejected** items
+  cross-post to **§5.1** with the user's own words, so no future session re-pitches them. That is
+  the whole contract. (⚠️ This said "§2" for Deferred until 2026-09-19 — §2 is the *build status of
+  the existing corpus*, which a deferred idea by definition is not. §5.6 Deferred is where they have
+  actually been landing.)
 
 | File | Level | Status |
 |---|---|---|

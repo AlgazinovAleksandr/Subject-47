@@ -1,3 +1,15 @@
+> ## ⚠️ ARCHIVED 2026-09-19 — superseded by `game/tests/check_shell_sealed.gd`
+>
+> Kept for **provenance only**. **Do not follow this manually.**
+>
+> This was the hand protocol for finding black-void holes in CSG levels. `check_shell_sealed.gd`
+> now does it automatically across all three Backrooms zones and every other level: a 0.25 m
+> perimeter sweep at six heights, an outward hemisphere fan from each alcove, and an interior floor
+> grid — ~66 000 rays, with two permanent controls that punch a known hole back open and require the
+> sweep to go red. `spec/systems/testing.md` records the supersession.
+>
+> ⚠️ It also never loaded: it lived in `.agents/skills/`, which Claude Code does not read.
+
 ---
 name: fix-void
 description: 'Diagnose and fix black void / open-space holes in Godot CSGBox3D levels. Use when the user reports a black rectangle, visible void, missing wall, floor gap, or sees "outside the level" through geometry. Triggers on: black void, open space, missing wall, I can see outside, black rectangle, can fall through, floor gap.'

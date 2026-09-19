@@ -139,7 +139,11 @@ the guards themselves, both of which mattered game-wide:
   size, and `_self_test_quad_grid()` proves the mode catches something grid 1 misses, on the scene
   under test, every run.
 
-**Four levels still have no `check_wall_overlap` wrapper** — KONTUR, Breach, Nightmare, Void.
+⚠️ ~~**Four levels still have no `check_wall_overlap` wrapper** — KONTUR, Breach, Nightmare, Void.~~
+**Retired 2026-09-19** — true before the H1 sweep rework, false since. There are no wrappers to have:
+`check_wall_overlap.gd` iterates `tests/lib/scenes.gd` and sweeps **every** scene (see the top of
+this file, and `check_wall_overlap.gd:108` — *"A ROW IS AN OVERRIDE, NOT AN ENROLMENT"*). A level
+cannot be left out by being forgotten, only by being written down.
 
 ⚠️ **Three guards and a probe added 2026-09-07, and two of them found things nobody had reported.**
 - `check_apparition_framing.gd` — **is the apparition on screen when it appears?** Nothing had ever

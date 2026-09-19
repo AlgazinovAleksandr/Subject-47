@@ -183,10 +183,12 @@ TESTS=(
 #                                   --script res://tests/autoplay/autoplay_dungeon.gd
 #
 # ⚠️ THE SCENE-PARAMETERISED GUARDS ARE SWEEPS NOW (2026-08-17, workstream H1), not one
-# level plus whichever wrappers somebody remembered to write. `check_wall_overlap`,
-# `check_note_mounting`, `check_art_aspect`, `check_prop_mounting`, `check_reachable` and
-# `check_shell_sealed` each iterate `game/tests/lib/scenes.gd`, which is DERIVED from
-# `GameState`'s own SCENE_* constants — so adding a level enrols it in all six with no
+# level plus whichever wrappers somebody remembered to write. NINE of them now
+# (corrected 2026-09-19; this comment said six and listed six): `check_wall_overlap`,
+# `check_note_mounting`, `check_art_aspect`, `check_prop_mounting`, `check_doorways`,
+# `check_shell_sealed`, `check_fixtures`, `check_spawn_blocked` and `check_reachable`
+# each iterate `game/tests/lib/scenes.gd`, which is DERIVED from
+# `GameState`'s own SCENE_* constants — so adding a level enrols it in all nine with no
 # wrapper to remember, and a SCENE_* constant that is neither classified as a level nor
 # excluded by name turns every one of them red. The eight wrappers they replaced
 # (check_wall_overlap_{house,corridor,backrooms}, check_note_mounting_{house,backrooms},

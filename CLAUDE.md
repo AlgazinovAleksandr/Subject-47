@@ -137,10 +137,16 @@ Each level: explore the environment, find clues/items, unlock the exit door. Fai
 ⚠️ **Three levels are specified but not yet built** — OBSERVATION, THE ANECHOIC CHAMBER and THE
 RETURN, designed in `spec/design/SCARY.md` §5. The agreed target running order, the renumbering plan,
 and the ⚠️ note on the non-monotonic unreality curve all live in **`spec/design/proposed-levels.md`**.
-⚠️ The renumbering must land as **ONE commit** — it moves `GameState`'s level map, the `SCENE_*`
-constants, `Screamer.LEVEL_SCREAMERS`, the `level_progress` rows, `level_3.gd`'s `current_level` and
-the back-door chain together. (This paragraph said *four* levels and listed THE NIGHTMARE until
-2026-09-19; that one shipped as Level 7.)
+⚠️ The renumbering must land as **ONE commit**, and it is **12 items, not the 5 this paragraph used
+to list** (corrected 2026-09-19 by counting them) — ⚠️ **none of which fail loudly**: a half-landed
+renumber is a playable game with the wrong screamer faces and lost progress. `new-level` carries the
+full list; the ones this file had missed are the **eleven `GameState.current_level = N` assignments
+across ten scripts** (not just `level_3.gd` — and note `kontur.gd` has *two*: its own index at `:241`
+and the banishment destination at `:1104`), the **eleven hard-coded-index `get_level_progress(N)` /
+`get_level_attempts(N)` call sites**, `tests/lib/scenes.gd`, `check_level_resume.gd`, and every test
+that pins a level by index. ⚠️ **Do NOT rename the asset folders** — `level_9_dungeon/` serves
+level 7, because those numbers are identity, not index. (This paragraph said *four* levels and
+listed THE NIGHTMARE until 2026-09-19; that one shipped as Level 7.)
 
 ### Making the game scarier — read `spec/design/SCARY.md`
 `spec/design/SCARY.md` is the authoritative fear document: the diagnosis (predictable/habituating · no dread
@@ -249,6 +255,12 @@ Interact with back door (goes_back=true) → GameState.go_back() → load previo
 - `go_back()` sets `GameState.entered_from_ahead = true`, captures the level you are leaving into
   `GameState.level_progress`, and restores the destination's snapshot on arrival (see **Level
   progress & backtracking** below). The Backrooms gained a back door for this — it had none
+- ⚠️ **There is no "back-door chain" in the sense the docs used to describe** (corrected 2026-09-19).
+  A back door does **not** name its predecessor: `door.gd:217-222` carries no level index at all, and
+  `go_back()` is literally `current_level -= 1` plus `start_current_level()`. The real chain is the
+  `match current_level` in `start_current_level()` ↔ **each level script's own
+  `GameState.current_level = N`** in `_ready()`, and the two must agree. `tests/check_level_resume.gd`
+  exists precisely to catch them disagreeing
 
 ## Code Architecture
 
@@ -374,11 +386,30 @@ Panic source priority per frame (`_update_panic`): gaze at a ScaryObject **with 
 - `apply_slow(duration)` — the beartrap LIMP, speed ×0.45 (`SLOW_MULTIPLIER`); timers don't stack, longest wins. `cancel_slow()` clears it immediately (beartrap escape success). ⚠️ Since 2026-08-15 this is only what happens AFTER you break free — being caught is a hard pin (`begin_qte()` → `_apply_movement()` zeroes `velocity.x/z`), not a slow
 - **Read-to-die trap notes**: `NoteUI` feeds `player.add_panic(TRAP_PANIC_RATE × delta)` while a trap note is open (works during tree pause — NoteUI is `PROCESS_MODE_ALWAYS`)
 
+## ⚠️ Skills — MUST use these, do not improvise
+
+| When the user wants to… | Use |
+|---|---|
+| **build a NEW level** (or implement one of the three specced-unbuilt ones) | `new-level` |
+| **fix / change / tune / improve an EXISTING level**, or act on a playtest, J-captures or a log — one level or several | `level-work` |
+
+These two carry the procedure **and** the guards — including three failures that are silent
+(`AUDIO_SUBDIRS`, `LEVEL_SCREAMERS`, `start_current_level()`'s `_:` arm) and a renumber whose real
+size is **12 items, not the 5 this file used to list**. Improvising these is what produced the
+2026-09-19 spec drift. Both mandate **running the game**, not just the assert suite.
+
 ## Skills and agents — the parts their own descriptions DON'T say
 
-Skills live in `.agents/skills/`, agents in `.claude/agents/`; both are listed with their
-descriptions in every session, so what follows is **only** the rules and history that are not in
+Skills live in **`.claude/skills/`** and agents in `.claude/agents/`, and both are listed with their
+descriptions in every session — so what follows is **only** the rules and history that are not in
 that listing.
+
+⚠️ **Corrected 2026-09-19.** This paragraph said skills live in `.agents/skills/`. They did, and
+that is exactly the problem: Claude Code loads `.claude/skills/`, so **every skill in this repo had
+never once loaded** — for its whole life. `grill-me` appeared to work only because the user asked
+for it by name and the file was opened by hand. The four live skills were moved to
+`.claude/skills/`; `caveman`, `zoom-out` and `design-an-interface` are still in `.agents/skills/`
+and **still do not load**. If you add a skill, it goes in `.claude/skills/`.
 
 - ⚠️ ~~`nano-banana-pro`~~ is **DEAD** (2026-08-15) — the Gemini API path no longer works, and the
   skill is now disabled. Use the image pack instead: see **Image Generation**

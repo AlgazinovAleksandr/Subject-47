@@ -43,7 +43,11 @@ move together or the game breaks silently between them:
 - `Screamer.LEVEL_SCREAMERS` (the per-level fatal image/audio pairs)
 - the `level_progress` rows
 - `level_3.gd`'s `current_level` (the Void sets its own index)
-- the back-door chain (each level's back door names its predecessor)
+- ⚠️ the `match current_level` in `start_current_level()` **and every level script's own**
+  `GameState.current_level = N` — these two are the real chain and must agree.
+  (This line read *"the back-door chain (each level's back door names its predecessor)"*
+  until 2026-09-19. It does not: `door.gd:217-222` carries no level index, and `go_back()`
+  is just `current_level -= 1`. `tests/check_level_resume.gd` asserts the real chain.)
 
 with `tests/check_level_resume.gd` extended to assert the full chain **in both directions** before
 the commit lands.
