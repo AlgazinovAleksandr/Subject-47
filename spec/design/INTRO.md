@@ -6,7 +6,12 @@ a light switch before the room — and the opening note — are revealed. This d
 implementation brief for whoever builds this (developer instructions) **and** the image
 prompts for whoever generates the new textures (you, via nano-banana-pro).
 
-Nothing in this document has been implemented yet. It is the spec to build against.
+⚠️ **This shipped.** The line here read *"Nothing in this document has been implemented yet"*
+until 2026-09-19. §3.1's cold open is `main_menu.gd:160`, §3.2's lock/unlock pair is
+`player.gd:834,840`, §3.3's switch is `light_switch.gd`, §6's generator is `tools/make_sfx_intro.py`,
+and §7's deferred follow-up is done (`intro_room.gd:1619`). ⚠️ §2's mid-fumble nightmare jolt was
+built and then **CUT** on the first playtest — see `spec/levels/00-intro.md`. The shipped state of
+the room is that spec; this file is the design it was built from.
 
 ## 1. Design decisions (resolved via grill-me, 2026-07-21)
 

@@ -1,3 +1,23 @@
+> ## ⚠️ ARCHIVED 2026-09-19 — superseded by `../tools/merge_creature_glb.py`
+>
+> This file is kept for **provenance only**. **Do not build from it.**
+>
+> It specified a Meshy.ai 2D→3D pipeline to replace Level 6's creature. A different route shipped
+> instead: `tools/merge_creature_glb.py` merges six Meshy GLBs into `game/assets/models/hollow_crown.glb`,
+> which is what `creature_anim.gd:101-108` loads. Documented in `assets_src/README.md`.
+>
+> What it does not know:
+> - `Void_creature.glb`, its stated starting point, **no longer exists**. `creature_object12.gd:150`
+>   records the swap: the old model "contained **zero animation**".
+> - Its output target `game/assets/models/object12/` was never created; that folder holds only
+>   `hollow_crown.*` and `parasite.*`.
+> - Its §4 code instructions ("kill `_apply_retint()`'s `material_override`") describe a rewrite the
+>   shipped route made moot.
+>
+> ⚠️ At the time of archiving it was referenced by **nothing** — a repo-wide grep for its filename
+> returned zero hits in any `.md`, `.gd`, `.py`, `.tscn` or agent file. It is the only doc in the set
+> with no inbound citations at all.
+
 # Object 12 — 2D → 3D asset pipeline
 
 Replacing Level 6's placeholder creature (currently `Void_creature.glb`, a Mixamo model

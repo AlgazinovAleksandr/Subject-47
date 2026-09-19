@@ -1,3 +1,20 @@
+> ## ⚠️ ARCHIVED 2026-09-19 — the original team task list (last edited 2026-07-27)
+>
+> Kept for **provenance**, and because its own **⚠️ STATUS ANNOTATION — 2026-08-17** block (immediately
+> below) is still the most honest per-item record of what shipped. **Read the annotation, not the
+> raw list**: the items and owners below it are left exactly as first written.
+>
+> ⚠️ **One item is still genuinely OPEN and must not be lost with this file:**
+>
+> > **#1 — Void difficulty.** Open. The Void is among the levels the improvement run has not reached
+> > (`backlogs/08-void.md`). A 2026-08-17 reachability sweep found two notes in a pocket no route
+> > reaches (`backlogs/00-cross-level.md` X44). The level was rebuilt on `RoomBuilder` 2026-09-12 and
+> > **has still not been hand-played** — see `spec/levels/08-void.md`.
+>
+> ⚠️ The untranslated Russian tail is **not** covered by the annotation block and is where the real
+> staleness sits — e.g. it says the shared monster does not appear in the Corridor, Backrooms or Void,
+> but `apparition_director.gd` now drives it in the Lab, House, Corridor, KONTUR and the Flood.
+
 > ## ⚠️ STATUS ANNOTATION — 2026-08-17
 >
 > This list was last edited **2026-07-27** and several items have shipped since. Nothing below has

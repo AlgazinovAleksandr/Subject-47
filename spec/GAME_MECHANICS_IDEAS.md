@@ -3,8 +3,16 @@
 **Written:** 2026-07-27. **Supersedes** `REPORT.md` and `IDEA_HISTORY.md`, both now in `drafts/`.
 
 **The two numbers that should drive every decision in here:**
-- **37 accepted ideas across four design documents. Two are built.** (6 partial, 25 untouched, plus
-  6 known defects unfixed — §2, §3.)
+- **37 accepted ideas across four design documents.** Counted off §2.1's own status column on
+  2026-09-19: **7 built · 7 partial · 16 not built** (the rest carry prose verdicts rather than
+  a status word).
+  ⚠️ This line read *"Two are built. (6 partial, 25 untouched)"* until **2026-09-19**, when a
+  re-audit of §2.1 against the code found **eight wrong rows**: `HoldBreath`, `Watcher`,
+  `MovedProp` and `UnseenWader` had all shipped while reading NOT BUILT; **THE NIGHTMARE** had
+  shipped as Level 7; Death-degradation and the audio-bus overhaul were both partial; and
+  `RoomToneZone`'s verdict was right while its cited evidence was false. Corrected rows are marked
+  *(re-audited 2026-09-19)*; every other row still rests on the older `559514e` audit, so
+  **verify a row before quoting it.** Known defects unfixed: 6 — §2, §3.
 - **The game is already playable end to end.** Nine scenes, intro through ending, all completable.
 
 So the bottleneck is not ideas. §6 cuts the 25 unbuilt rows down to **9**, and §4 adds only **5** new
@@ -31,6 +39,7 @@ others, with no one place recording what was actually *built*.
 
 **The rule that keeps this file honest:** every status claim in §2 and §3 carries a `file:line` from
 an audit of the code at commit `559514e`, **not** from what a design document claims about itself.
+⚠️ **That anchor is stale and the rule was not being kept.** A 2026-09-19 re-audit found **eight** wrong rows in §2.1 — `HoldBreath`, `Watcher`, `MovedProp` and `UnseenWader` had shipped while reading NOT BUILT; `RoomToneZone`'s verdict was right but its evidence false; THE NIGHTMARE had shipped as Level 7; and Death-degradation and the audio overhaul were both partial. Rows corrected that day carry *(re-audited 2026-09-19)*. Every other row still rests on the `559514e` audit — **verify before quoting one.**
 That distinction is not pedantry — it is how the shadow error in §2.0 was found.
 
 ⚠️ **`drafts/KONTUR.md` is the cautionary tale.** It is a stale doc that silently contradicts the
@@ -54,7 +63,7 @@ The distinction that keeps them from drifting:
 
 | File | Level | Status |
 |---|---|---|
-| `backlogs/00-cross-level.md` | — | open (parking lot; **never acted on during the run**) — X1…X21 |
+| `backlogs/00-cross-level.md` | — | open (parking lot; **never acted on during the run**) — X1…**X67** ⚠️ (this said X1…X21 until 2026-09-19; the file has grown by 46 items since) |
 | `backlogs/captures/` | — | downscaled J-capture screenshots + session logs for levels whose pass has not run yet, so the evidence outlives the session-scoped temp dir it was captured into |
 | `backlogs/00-intro.md` | Intro + twist ending | **verified** — 13 items, 2 rounds. Twist ending deliberately deferred |
 | `backlogs/01-lab.md` | 1 The Lab | **verified** — 3 revision rounds |
@@ -66,6 +75,37 @@ The distinction that keeps them from drifting:
 | `backlogs/06-breach.md` | 6 The Breach | not started — 4 machine findings filed. Every hiding place is stretched, and hiding is that level's entire counter-play |
 | `backlogs/07-nightmare.md` | 7 THE NIGHTMARE | **redesigned 2026-09-12, awaiting the hand playtest** — nothing kills (panic bar only), the Parasite hunter in waves, eight room archetypes, 24×24 / 16 chambers, a found map on M. Decisions in `DUNGEON_NIGHTMARES.md` "Deviations" |
 | `backlogs/08-void.md` | 8 The Void | **rebuilt 2026-09-12 on `RoomBuilder`, awaiting the hand playtest** — 15 rooms, the loop corridor, the floating tiles, fragment rooms of earlier levels; the sealed pocket and the 142 sky rays are gone (202 points / 0 escaping, 11/11 reachable), and `walk_void.gd` walks it end to end |
+
+### ⚠️ The seven September run-backlogs — this file was blind to them
+
+The index above describes the **2026-08-16 improvement run**. Five later playtest runs
+(2026-09-13 → 2026-09-16) rebuilt large parts of the Lab, House, Corridor, Backrooms and KONTUR, and
+until 2026-09-19 this document contained **zero mentions of them** — so a level marked *verified*
+above may have been substantially reworked since.
+
+Those runs live in **`backlogs/runs/`** (⚠️ local only — removed from git 2026-09-19), with a full
+built/to-review triage in `backlogs/runs/INDEX.md`.
+
+| Run | Items | Built | Outstanding |
+|---|---|---|---|
+| `BACKLOG_Sep_13.md` | 20 | 18 | **X2** (fatal-flash retirement pattern), **X3** (known pre-existing red) |
+| `BACKLOG_Sep_13b.md` | 14 | 14 | — |
+| `BACKLOG_Sep_14.md` | 16 | 15 | **X2** (the survey appendix — deliberately unbuilt) |
+| `BACKLOG_Sep_15.md` | 8 | 8 | — |
+| `BACKLOG_Sep_16.md` | 10 | 10 | — |
+| `BACKLOG_Sep_16b.md` | 5 | 5 | — |
+| `BACKLOG_Sep_16c.md` | 3 | 3 | — |
+| **Total** | **76** | **73** | **3** |
+
+⚠️⚠️ **"Built" here means the code was written and its named guard went green — every one of those
+runs ends its `## Status` with "not hand-played."** Several also carry a *"decided without the
+user (flag for review)"* list of deviations from what was agreed. Treat the 73 as **shipped but
+unverified by a human**, not as finished.
+
+⚠️ The older `backlogs/runs/BACKLOG.md` (superseded, content stops 2026-08-17) has 47 items of which
+only **13** carry a `**DONE**` marker; the other 34 are genuinely unknown and are marked TO REVIEW in
+the index. Its bullets were numbered #6…#98 on 2026-09-19 so `CLAUDE.md`'s `BACKLOG #N` citations
+resolve — ⚠️ that numbering is **reverse-engineered, not recovered**.
 
 The run is **strictly serial** — a level is played, backlogged, approved, built, tested and
 re-played before the next one opens. `.claude/agents/level-improver.md` is the agent that does it
@@ -147,14 +187,14 @@ row**. Cost scale is `SCARY.md` §3's: **XS** = one script < ~80 lines, no asset
 | **Stop-delayed footstep echo** | SCARY P2 | **PARTIAL** | `enable_footstep_echo()` `player.gd:423-432` fires exactly one phantom step (`:244-246`, `:251-253`); no `trail_steps`, nothing on `_is_moving` going false. One caller: `backrooms.gd:111`. | XS |
 | **Sanity-effect suite (diegetic UI)** | REPORT #2 → SCARY P8 | **PARTIAL** | Panic feedback exists (blur/tint `panic_hud.gd:92-97`, heartbeat `player.gd:588-602`, `jolt_camera` `:384`) but **nothing lies**. No `set_deceptive_mode`, no `sanity` anywhere. ⚠️ Gated by defect §3(d). | S |
 | **Shadows as an atmospheric tool** | SCARY §4.2 | **PARTIAL — better than documented** | Flashlight casts in all 9 scenes (see §2.0a). Static lamps do not, deliberately (`level_1.gd:173-175`). | XS→M |
-| **`RoomToneZone` — runtime reverb buses** ⭐ | SCARY P1 | **NOT BUILT** | Zero `AudioEffect*` project-wide. Two buses total: `Master` + a runtime `"Backrooms"` (`backrooms.gd:39,:782-787`). | XS |
-| **Audio architecture overhaul** (bus layout, occlusion, reactive stems, audible creatures) | SCARY §4.1 | **NOT BUILT** | No `default_bus_layout.tres`. Object 12 is silent while patrolling/chasing; `creature_growl_near.wav` sits unused on disk. | L |
-| **`HoldBreath` — pre-scare silence dip** ⭐ | REPORT #7 → SCARY P5 | **NOT BUILT** | Only ducking is `silence_zone.gd:35-53`. `Screamer.flash_scare()` `screamer.gd:167-182` cuts straight to audio with no silence beat. | XS |
-| **`Watcher` — distant motionless figure, zero panic** ⭐ | SCARY P3 | **NOT BUILT** | No `watcher` anywhere in `scripts/` or `tests/`. Needs 1 texture. | XS |
+| **`RoomToneZone` — runtime reverb buses** ⭐ | SCARY P1 | **NOT BUILT** (verdict stands; ⚠️ evidence corrected 2026-09-19) | The item is genuinely unbuilt, but the old evidence was false: `audio_buses.gd:104` adds an `AudioEffectHardLimiter` on Master, and the layout is `Master → Ambience` + `Master → Body` plus per-level nested beds. | XS |
+| **Audio architecture overhaul** (bus layout, occlusion, reactive stems, audible creatures) | SCARY §4.1 | 🟡 **PARTIAL** (re-audited 2026-09-19) | The **bus layout shipped**, deliberately as a runtime layout rather than §4.1's five-bus `.tres`: `audio_buses.gd` gives `Master → Ambience` + `Master → Body` with per-level beds nested under Ambience, `reset_all()` on every level load, and `AudioEffectHardLimiter` on Master (`:104`). Occlusion, reactive stems and audible creatures are still unbuilt. | M |
+| **`HoldBreath` — pre-scare silence dip** ⭐ | REPORT #7 → SCARY P5 | ✅ **BUILT** (re-audited 2026-09-19) | `game/scripts/hold_breath.gd:2` `class_name HoldBreath`; wired as a 0.6 s pre-duck inside `screamer.gd:flash_scare()`. The old evidence here predates it. | — |
+| **`Watcher` — distant motionless figure, zero panic** ⭐ | SCARY P3 | ✅ **BUILT** (re-audited 2026-09-19) | `game/scripts/watcher.gd:2` `class_name Watcher`; used by the Corridor doorway, the House cellar and the Sprawl's Congregation. | — |
 | **The False Ceiling — telegraphs that mean nothing** ⭐ | REPORT #5 → SCARY P4 | **NOT BUILT** | Corridor's event schedule (`corridor.gd:627-650`) is 11 events, every one of which delivers. No misdirection, no `misdirect.gd`. | XS |
-| **`MovedProp` — the object that changed** ⭐ | REPORT #4 → SCARY P6 | **NOT BUILT** | No `MovedProp`. (REPORT #4's physics `FallingProp` was superseded by this; no `RigidBody3D` exists anywhere either.) | XS |
-| **Death-degradation** ⭐ | SCARY P7 | **NOT BUILT** | No `deaths_this_level` in `game_state.gd`. Deaths counted for instrumentation only (`debug_log.gd:31,81-82`), explicitly never affecting behaviour. | S |
-| **The unseen thing in the Flood** | SCARY P10 | **NOT BUILT** | `backrooms_zone3.gd` spawns two HOLD apparitions (`:354,:371`) and four water loops (`:126-131`) — no audio-only entity. | S |
+| **`MovedProp` — the object that changed** ⭐ | REPORT #4 → SCARY P6 | ✅ **BUILT** (re-audited 2026-09-19) | `game/scripts/moved_prop.gd:2` `class_name MovedProp`; the House's music-box move is its live use. | — |
+| **Death-degradation** ⭐ | SCARY P7 | 🟡 **PARTIAL** (re-audited 2026-09-19) | ⚠️ The old evidence (*"no `deaths_this_level`"*) was true only of that exact name. `game_state.gd:144,148,243` keeps `level_attempts` — a per-level DEATH counter that survives the progress wipe — and it already drives behaviour: `level_6_breach.gd:152` collapses the familiarization window 30 s → 10 s after a death. One consumer, no degradation *curve*; the mechanism exists. | S |
+| **The unseen thing in the Flood** | SCARY P10 | ✅ **BUILT** (re-audited 2026-09-19) | `game/scripts/unseen_wader.gd:2` `class_name UnseenWader` — no mesh, no collider, a `wade_distant` loop kept ≥ 12 m away. | — |
 | **Room-tone-masked geometry mutation** | REPORT #20 → SCARY P11 | **NOT BUILT** | Depends on P1. Nearest is `GlitchWall.go_solid()` (`glitch_wall.gd:76`) — solidity, not layout. | M |
 | **Sequence fuse/valve puzzle** (replace the Lab breakers) | REPORT #12 | **NOT BUILT** | Still flip-once ×3: `breaker.gd:103-106` one-shot, counted at `level_1.gd:57,318-323`. No ordering, no fuses, no sockets. | M |
 | **Item combination / 2–4 slot inventory** | REPORT #10 | **NOT BUILT** ⚠️ blocked | `carried_item` is **one slot** (`game_state.gd:8`, setter `:59-61`), enforced in KONTUR (`kontur.gd:704`). No combine verb. See §2.0b. | M+ |
@@ -167,7 +207,7 @@ row**. Cost scale is `SCARY.md` §3's: **XS** = one script < ~80 lines, no asset
 | **Investigation / deduction level** | REPORT #19 | **NOT BUILT** | No evidence terminal, no answer/verdict system. | L |
 | **OBSERVATION — anomaly level (new level 2)** | SCARY §5.2 | **NOT BUILT** | `Observation` is a *room* in Level 1 (`level_1.gd:169`), not a level. | L |
 | **THE ANECHOIC CHAMBER — silence level (new level 5)** | SCARY §5.3 | **NOT BUILT** | Zero hits. Depends on §4.1. | L |
-| **THE NIGHTMARE — Dungeon Nightmares level (new level 9)** | DUNGEON_NIGHTMARES.md | **NOT BUILT** | Zero hits. The largest single build in the corpus. | L+ |
+| **THE NIGHTMARE — Dungeon Nightmares level** | `spec/design/DUNGEON_NIGHTMARES.md` | ✅ **BUILT** (re-audited 2026-09-19) | Shipped as **Level 7**: `game/scenes/dungeon.tscn` + `dungeon.gd` / `dungeon_gen.gd` / `dungeon_rooms.gd` / `dungeon_map_ui.gd`, wired in `game_state.gd`. Redesigned 2026-09-12 (D1–D8) — nothing in it kills; the panic bar is the only death. | — |
 | **THE RETURN — P.T. loop level (new level 11)** | SCARY §5.1 | **NOT BUILT** | Zero hits. Documented as the cheapest level in the game. | M |
 | **The 12-level renumbering commit** | CLAUDE.md / SCARY §6 | **NOT BUILT** | Current map is 9 entries (`game_state.gd:10`, constants `:34-43`, dispatch `:131-141`). Note the pre-existing oddity: `SCENE_LEVEL_3` is the *Void* at index **7**. | M |
 | **Volumetric / depth fog** | SCARY §4.3 | **NOT BUILT — deliberately deferred** | Zero fog hits project-wide. Flagged EXPERIMENT, Nightmare level only. | — |

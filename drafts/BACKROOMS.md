@@ -1,3 +1,23 @@
+> ## ⚠️ ARCHIVED 2026-09-19 — superseded by `../spec/levels/04-backrooms.md`
+>
+> This file is kept for **provenance only**. **Do not build from it** — it contradicts the shipped
+> level on its central mechanism.
+>
+> Measured against the code at archive time:
+> - It says crossing a threshold triggers *"an invisible `Area3D` teleportation"* for **seamless
+>   portals**. `backrooms.gd:14-15` says the opposite, explicitly: *"No continuous seamless portals —
+>   the loop is a state machine over real geometry, so there are no seams to mis-tune."*
+> - It describes **one zone**. The level shipped with **three** — the Lobby, the Sprawl
+>   (`backrooms_zone2.gd`) and the Flood (`backrooms_zone3.gd`), neither of which appears anywhere here.
+> - Wrong-turn panic: it says 15; `backrooms.gd:25 WRONG_TURN_PANIC := 18.0`.
+> - `arrow_decal.png` is **gone** — replaced by `backrooms_arrow_glyph.png` after the original was
+>   measured at 2.2 % glyph contrast (it was a photograph of yellow wallpaper).
+> - It names three `.glb` models (`wall_segment_modular`, `ceiling_light_fluorescent`, `rotary_phone`)
+>   that **do not exist**; `game/assets/models/` holds only `hollow_crown.glb` and `parasite.glb`.
+>
+> What it got right and what still holds: three down-turns to win (`TURNS_TO_WIN := 3`), the Smiler's
+> inverted counter-play, and the standstill panic rule. Those live in the spec now.
+
 # Level X — The Backrooms
 
 A liminal, non-Euclidean nightmare labyrinth representing the absolute breakdown of Subject 47's psychological baseline. 

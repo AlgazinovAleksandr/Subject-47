@@ -1,6 +1,11 @@
 # SCARY.md — the fear document
 
-**Status:** design specification. Nothing here is implemented yet.
+**Status:** design specification — **partly implemented**. ⚠️ This line read *"Nothing here is
+implemented yet"* until 2026-09-19, which was false: five shipped scripts cite this file by item
+number in their own headers — `watcher.gd` (P3), `hold_breath.gd` (P5), `moved_prop.gd` (P6),
+`unseen_wader.gd` (P10) — and `audio_buses.gd` deliberately declines §4.1's five-bus layout.
+§5's three new levels (OBSERVATION, ANECHOIC CHAMBER, THE RETURN) are still unbuilt; that is a
+roadmap, not staleness. Check `spec/GAME_MECHANICS_IDEAS.md` before assuming any item is unbuilt.
 **Written:** 2026-07-27.
 **Supersedes** `drafts/REPORT.md` for everything to do with *fear craft* (see §0.3).
 

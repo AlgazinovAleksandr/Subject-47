@@ -78,6 +78,8 @@ Mirrors the destination path, so it is obvious what each source becomes:
 | `audio/level_2_house/music_box_source.flac` | `game/assets/audio/level_2_house/music_box_tune.ogg` | `ffmpeg` (see below) | local |
 | `audio/level_2_house/music_box_generated_pre2026-08-16.wav` | *superseded* `music_box.wav` | — | local |
 | `reference/monster_model.png` | *nothing — design input, see below* | — | local |
+| `reference/monster_2d_front_view.png` · `reference/monster_2d_back_view.png` | *nothing — the inputs to the abandoned Meshy Image-to-3D route, see `../drafts/OBJECT12_PIPELINE.md`* | — | local |
+| `models/Meshy_AI_Hollow_Crown_biped.zip` | `models/hollow_crown/*.glb` → `tools/merge_creature_glb.py` → `game/assets/models/hollow_crown.glb` | unzip, then `merge_creature_glb.py` | local |
 | `textures/intro/door_from_intro_to_lab.png` | `game/assets/textures/intro/intro_lab_door.png` | `cutout_alpha.py` → `restencil_door.py` | **yes** |
 | `textures/intro/gurney_intro_pre2026-08-16.png` | *superseded* `gurney_intro.png` | — | local |
 | `textures/level_1_lab/lab_breaker_panel_raw.png` | `game/assets/textures/level_1_lab/lab_breaker_panel.png` | `tools/flatten_alpha_checker.py` | **yes** |

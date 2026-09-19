@@ -14,12 +14,12 @@ extends Node3D
 #                                          "47" from the intro note until BACKLOG #24
 #   Gate 3  THE OFFERING    abstain     <- the L3 Corridor door plate
 #   Gate 6  THE PHONE       destroy     <- the L4 Backrooms phone (a read-to-die trap);
-#                                          was "ignore" until BUG_FIX.md 4.6 — a hammer
+#                                          was "ignore" until BUG_FIX.md 4.5 — a hammer
 #                                          waits in Landing, and the ring itself now
 #                                          drains panic until it's smashed
 #   Gate 7  THE DARK ROOM   unlight     <- the L4 Backrooms Flood (light hides the way)
 #   Gate 8  THE AIRLOCK     catch       <- self-taught. Was a 9 s stillness hold ("wait")
-#                                          until BUG_FIX.md 4.7 replaced it with a marker-
+#                                          until BUG_FIX.md 4.6 replaced it with a marker-
 #                                          catch minigame — still inverts the Backrooms
 #                                          standing-still rule, still has to teach itself
 #   Gate 4  THE ESCORT      don't look  <- the L4 Backrooms wall scrawl
