@@ -2,6 +2,13 @@
 
 ## Testing
 
+`check_breach_playtest.gd` (2026-09-20) covers the supernatural door sequence and hiding-memory
+policy through real E-rays, physical door collision, timed light/audio restoration, overlapping
+effects, F-off, entering cover and scene removal. It drives 120 simulated seconds of hidden
+movement and relocation and carries a live legacy-policy control that targets the cabinet.
+`-- --legacy-hiding` deliberately disables the policy and must fail; `-- --screenshots` requires
+a render target and writes matched material and door-phase evidence to `/tmp/breach_sep20/`.
+
 ```bash
 tools/run_tests.sh          # the whole headless suite, one summary table
 tools/run_tests.sh -q       # summary + failing output only
@@ -270,3 +277,61 @@ reproduces failures with targeted probes and reports. It is explicitly forbidden
 difficulty constants — that is always the user's call. It is distinct from the `game-testing`
 SKILL, which is the human-in-the-loop playtest protocol.
 
+
+
+### Void human playtest regression coverage — 2026-09-20
+
+The geometry-only `walk_void` remains separate from `walk_void_live`, which retains and activates
+all five lethal creatures and uses the player's real movement, note/puzzle ray, and exit interaction.
+`check_void_alignment` covers incorrect viewpoint rejection, the visible seal, torch-off solving,
+southern-branch footing and event snapshots. `check_stalker_motion` has actual wall/door/gap
+fixtures, measured mesh freeze and a contact lunge. `check_transition_race` drives the real shared
+door and fatal paths in both orders, duplicate interactions and replacement scenes. All are registered
+in `tools/run_tests.sh`; sample counts and positive controls prevent vacuous passes.
+
+
+### The Void's 2026-09-20 playtest pass
+
+`check_void_stare` (new): every Void stalker whispers; a 7 s stare fires exactly one hallucination
+and the body never moves while watched (the dismissal included), then retreats on the first
+unobserved frame; the panic-bar lie is a shader override that reverts and never moves `_panic`;
+nothing fires with input frozen; on the tiles the blink is substituted. `check_stalker_motion` gains
+the observed-frame-zero-displacement assertion on both the direct and the real physics path, with the
+retreat's landing as its control. `check_void`, `check_void_alignment`, `walk_void`, `walk_void_live`
+extend to the loop ladder (note refused below lap 2, the plug present at lap 2 and gone after the
+read), the three viewpoints (each solves only its own set; a wrong press costs exactly 6 and opens
+nothing; the seal stands until the third), the Morgue's new rect, and the shard → cradle → plate chain
+(the plate intercepts the twist note's ray until the cradle is done). `check_doorways` learns
+`LoopWallPlug`; `check_reachable` learns `SanctumPlate` (an occluder opened through
+`move_aside_instantly()`, without which the twist note reads UNREACHABLE — the proof it can fail) and
+`LoopWallPlug`. ⚠️ `walk_void_live` read `current_scene` during the scene switch and reported the
+ending as missed once (2026-09-20, 24/25 with the human exit working); it now waits for a scene.
+
+
+### The Void's 2026-09-20 pass 2 — a coverage probe as a guard
+
+`check_void_alignment` now carries the coverage sweep that set the puzzle's tolerances: a 0.3 m grid
+over each viewpoint tile at eye ± 0.15 m, facing ± 15°, asserting ≥ 70 % of cells align per view, that
+no adjacent tile centre aligns, and that from an adjacent tile the prompt is absent AND the shipping ray
+finds no keystone (the control that would have caught the evening run's 20 wrong presses). The
+instrument itself is `probe_void_view_region.gd`, kept outside the suite. `check_void` asserts the loop
+note has no collider and is invisible before lap 2, that the flicker hands the lamp back, that the new
+sounds load and the bed loops. `check_void_stare` samples the eyelids meeting and parting.
+`check_stalker_motion` proves the Void-only speed export (2.4× per tick) leaves the default at 0.25 m
+per 12 ticks. ⚠️ Issue 228: a shared speed export re-prices every test that waits a fixed time next to
+a creature — `check_void`'s watch-only control staged its own death at 3.0 m/s until it was moved.
+
+
+### The Void's 2026-09-20 pass 3 — gates with controls, and two defects only a picture caught
+
+`check_void_alignment` (121) asserts a socket refuses E with no anchor and with the wrong one, accepts
+the right one, and that the seated keystone carries its view's family; `check_void` (93) measures the
+child room, the seventeen drawers (exactly one page, through the ray), the hidden shard (unreachable by
+ray before the table rearranges — a standing red control), the step-through's 1.2 s against a 0.76 s
+control, and the exit's eight slabs off their true sub-rects before the assembly and on them after;
+`check_transition_race` (29) races a death against the 1.2 s assembly — with `begin_transition` moved
+below the animation it goes 3 red, the proof the token-first order is load-bearing. `walk_void` gained a
+wall-clock deadline (Issue 224's hole). ⚠️ Issues 232 and 233 — a page the camera could not see into an
+open drawer, and an assembled door that was a red grid because a seam lives in the mesh size — were
+caught only by reading the screenshots; every guard was green on both. `check_flood_drowned` flaked once
+in two full-suite runs (a Backrooms 2.0 s knock window, unrelated); filed as cross-level X70.

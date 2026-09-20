@@ -134,7 +134,18 @@ const CONFIG := {
 	"SCENE_LEVEL_3": {
 		# Rebuilt 2026-09-12: nine notes on walls through wall_point(), one per room, so the
 		# same-room separation pass legitimately finds zero pairs.
-		"min_props": 9, "min_notes": 9, "min_pairs": 0, "min_resting": 0,
+		# ⭐ 2026-09-20 pass 3: ELEVEN. The Morgue gained two pages that are not on walls — a
+		# torn fragment lying FLAT against the underside of the inverted slab (0.05 m of
+		# backing, measured) and the pointer page lying FLAT in one of the seventeen drawers,
+		# on the tray that holds it up (0.02 m). Both pass the wall rule through their own thin
+		# axis, like the Intro's table note, so `min_resting` stays 0 — and the Morgue now
+		# supplies this sweep's only same-room note pairs, all three of them.
+		# ⭐ 2026-09-20 pass 4: TWELVE. The page at the end of the Hall of Frames' corridor hangs
+		# on the new room's north wall (which carries no doorway). ⚠️ And this guard caught the
+		# pass's one real geometry bug on the first build: the secret doorway at (-21, 47.5) is
+		# the CENTRE of the Morgue's west wall, which is exactly where `wall_point()` had put
+		# `NoteMorgue` — the Records-sign fault, a second time, on the same level.
+		"min_props": 12, "min_notes": 12, "min_pairs": 3, "min_resting": 0,
 	},
 }
 
@@ -440,6 +451,20 @@ func _same_plane(a: Node3D, b: Node3D) -> bool:
 
 # ⚠️ Any ancestor carrying a creature script disqualifies the whole subtree. See
 # CREATURE_SCRIPTS.
+# ⚠️ WALK THE BASE-SCRIPT CHAIN, never `get_script() == note_script`. The Void's `LoopNote`
+# is a level-local SUBCLASS (`void_loop_note.gd`) whose exact script is not note.gd, so an
+# identity test drops it and this file's `min_notes: 9` quietly becomes 8 — a real note
+# unmeasured, reported as a count mismatch rather than as a missing prop. An `ends_with
+# ("note.gd")` test happens to work for THIS subclass's filename and would break on the next.
+func _is_note(script: Script, base: GDScript) -> bool:
+	var s: Script = script
+	while s != null:
+		if s == base:
+			return true
+		s = s.get_base_script()
+	return false
+
+
 func _is_creature(n: Node) -> bool:
 	var at: Node = n
 	while at != null and at != current_scene:
@@ -507,7 +532,7 @@ func _measure_scene() -> void:
 			continue
 		if _is_creature(n):
 			continue
-		if n.get_script() == note_script:
+		if _is_note(n.get_script(), note_script):
 			var title: String = String(n.note_text).split("\n")[0]
 			props.append([n, "note: " + title.substr(0, 38)])
 			notes.append([n, title.substr(0, 28)])

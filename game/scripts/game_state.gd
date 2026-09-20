@@ -154,6 +154,47 @@ func get_level_attempts(level: int) -> int:
 # the 320 m Corridor it is the difference between a walk and a re-run.
 var entered_from_ahead: bool = false
 
+# Delayed doors and fatal sequences compete for ONE transition in their source scene.
+# The token and scene identity both matter: an autoload timer can outlive that scene.
+var _transition_serial := 0
+var _transition_token := -1
+var _transition_scene_id := 0
+var _transition_kind := ""
+
+
+func begin_transition(kind: String) -> int:
+	var scene := get_tree().current_scene
+	if scene == null:
+		return -1
+	if _transition_token >= 0 and _transition_scene_id == scene.get_instance_id():
+		return -1
+	_transition_serial += 1
+	_transition_token = _transition_serial
+	_transition_scene_id = scene.get_instance_id()
+	_transition_kind = kind
+	return _transition_token
+
+
+func transition_is_current(token: int) -> bool:
+	var scene := get_tree().current_scene
+	return token >= 0 and token == _transition_token and scene != null \
+		and scene.get_instance_id() == _transition_scene_id
+
+
+func invalidate_transition() -> void:
+	_transition_token = -1
+	_transition_scene_id = 0
+	_transition_kind = ""
+
+
+func complete_door_transition(token: int, backwards: bool) -> void:
+	if not transition_is_current(token) or _transition_kind != "door":
+		return
+	if backwards:
+		go_back()
+	else:
+		advance_level()
+
 
 func get_level_progress(level: int) -> Dictionary:
 	return level_progress.get(level, {})
@@ -170,6 +211,7 @@ func _capture_progress() -> void:
 
 
 func start_current_level() -> void:
+	invalidate_transition()
 	reset_level_state()
 	# ⚠️ Every level starts with the mixer at zero. Audio buses are global and survive a
 	# scene change, so without this one level's un-restored duck follows the player for the
@@ -220,6 +262,7 @@ func go_back() -> void:
 
 
 func go_to_main_menu() -> void:
+	invalidate_transition()
 	is_ending = false
 	twist_read = false
 	kontur_banished = false

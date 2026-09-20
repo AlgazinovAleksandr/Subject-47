@@ -136,6 +136,8 @@ const SCORCHED_ROOMS := ["PurgeAnte", "Incinerator"]
 var _builder: RoomBuilder
 var _lights: Array = []
 var _slam_doors: Array = []
+var _door_scare: Node
+var _creature_voice: Node
 var _creature: CreatureObject12
 var _purge_chamber: PurgeChamber
 var _exit_door: StaticBody3D
@@ -166,6 +168,12 @@ func _ready() -> void:
 	_refresh_exit()
 	_start_ambience()
 	_boost_ambient(0.28)
+	_door_scare = preload("res://scripts/breach_door_scare.gd").new()
+	add_child(_door_scare)
+	_door_scare.configure(_player(), _lights, _slam_doors)
+	_creature_voice = preload("res://scripts/breach_creature_voice.gd").new()
+	add_child(_creature_voice)
+	_creature_voice.configure(_creature, _player(), _slam_doors)
 
 	GameState.set_objective("OBJECT 12 HAS NOT NOTICED YOU YET — MOVE.")
 	_restore_progress()
@@ -319,6 +327,8 @@ func _add_lamp(lamp_name: String, pos: Vector3, energy: float, color: Color) -> 
 
 func _spawn_creature() -> void:
 	_creature = CreatureObject12.new()
+	_creature.forget_hidden_player = true
+	_creature.emission_base = 0.025
 	# Set BEFORE add_child(): CreatureObject12._ready() seeds _body's transform from
 	# global_transform the moment it enters the tree (the ScaryObject transform-chain
 	# discipline — see Issue 10). Setting position after add_child() would move only
@@ -327,6 +337,7 @@ func _spawn_creature() -> void:
 	# global position here.
 	_creature.position = _builder.room_center("Junction1")
 	add_child(_creature)
+	preload("res://scripts/breach_creature_surface.gd").apply(_creature._material)
 	var wps := PackedVector3Array()
 	for room in PATROL_LOOP:
 		wps.append(_builder.room_center(room))
@@ -700,6 +711,9 @@ func _add_slam_door(door_name: String, pos: Vector3, yaw_deg: float) -> void:
 	# leave its door behind. `RoomBuilder.DEFAULT_H` is this level's room height.
 	door.door_width = _doorway_width_at(Vector2(pos.x, pos.z))
 	door.door_height = RoomBuilder.DEFAULT_H
+	door.batter_time_min = 4.0
+	door.batter_time = 6.0
+	door.silent_tail = 1.2
 	add_child(door)
 	door.slammed.connect(_on_slam_door_slammed.bind(door))
 	_slam_doors.append(door)
@@ -1191,5 +1205,6 @@ func _start_ambience() -> void:
 func _process(delta: float) -> void:
 	_tick_familiarization(delta)
 	_tick_slam_doors()
-	_tick_light_weapon(delta)
+	if not is_instance_valid(_door_scare) or not _door_scare.torch_is_interrupted():
+		_tick_light_weapon(delta)
 	_tick_noise()

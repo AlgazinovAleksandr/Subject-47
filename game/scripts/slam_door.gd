@@ -11,8 +11,14 @@ class_name SlamDoor
 
 signal slammed
 signal broken_open
+signal batter_started
+signal batter_silenced
+signal batter_impact
 
 @export var batter_time: float = 10.0
+# Opt-in for the Breach; Dungeon/SpurEscape retain the original door contract.
+@export var batter_time_min: float = 0.0
+@export var silent_tail: float = 0.0
 
 # ⭐ THE DOOR IS SIZED FROM ITS DOORWAY NOW (2026-09-03), and until it was, IT HAD NEVER CLOSED.
 #
@@ -68,6 +74,7 @@ const RESLAM_COOLDOWN := 8.0
 var _reslam_lock_t: float = 0.0
 var _batter_t: float = 0.0
 var _thud_t: float = 0.0
+var _silenced := false
 
 var _hinge: Node3D      # left leaf
 var _hinge_r: Node3D    # right leaf, mirrored
@@ -535,10 +542,12 @@ func start_battering(creature: Node) -> void:
 	if not _closed or _battering:
 		return
 	_battering = true
-	_batter_t = batter_time
+	_batter_t = randf_range(batter_time_min, batter_time) if batter_time_min > 0.0 else batter_time
 	_thud_t = 0.0
+	_silenced = false
 	if creature and creature.has_method("force_block"):
-		creature.force_block(batter_time)
+		creature.force_block(_batter_t)
+	batter_started.emit()
 
 
 func check_blocks_path(from: Vector3, to: Vector3) -> bool:
@@ -577,11 +586,20 @@ func _process(delta: float) -> void:
 	if not _battering:
 		return
 	_batter_t -= delta
+	if silent_tail > 0.0 and _batter_t <= silent_tail:
+		if not _silenced:
+			_silenced = true
+			_batter_audio.stop()
+			batter_silenced.emit()
+		if _batter_t <= 0.0:
+			_break_open()
+		return
 	_thud_t -= delta
 	if _thud_t <= 0.0:
 		_thud_t = THUD_INTERVAL
 		if _batter_audio.stream:
 			_batter_audio.play()
+		batter_impact.emit()
 		var player := get_tree().get_first_node_in_group("player")
 		if player and player.has_method("jolt_camera"):
 			player.jolt_camera(0.05, 0.3)
@@ -608,6 +626,7 @@ func force_open() -> void:
 
 func _break_open() -> void:
 	_battering = false
+	_batter_audio.stop()
 	_batter_t = 0.0
 	_reslam_lock_t = RESLAM_COOLDOWN
 	_set_closed(false)

@@ -198,7 +198,36 @@ const CONFIG := {
 		"gates": {}, "ignore": {}, "min_cells": 25000, "min_targets": 8,
 	},
 	"SCENE_LEVEL_3": {
-		"seeds": ["@player"], "gates": {},
+		"seeds": ["@player"], "gates": {
+			"MorgueSeal": "opens via perspective puzzle; real-ray solution and crossing are walked by walk_void",
+			# ⭐ 2026-09-20. Not a passage gate — a 0.06 m stone cover 3 cm in front of the twist
+			# note, retracted by completing the child room's cradle. It occludes ONE probe target
+			# rather than sealing a room, and it carries `move_aside_instantly()` so this sweep
+			# uses the level's own restore path (the LabLocker rule) instead of killing a collider.
+			"SanctumPlate": "retracts when the shard is set in the cradle; walk_void proves the real E-ray order",
+			# Never present at load; walled up at loop lap 2 and freed by reading the loop note.
+			"LoopWallPlug": "built at lap 2 of the corridor loop, freed by reading LoopNote",
+			# ⭐ 2026-09-20 pass 2. The loop note has NO MESH AND NO COLLIDER until the corridor
+			# has repeated twice — it is a gate in time, not in space. It carries `reveal()`,
+			# aliased to `move_aside_instantly()`, so this sweep uses the level's own path (the
+			# LabLocker rule) and then probes the page exactly where a lap-2 player meets it.
+			"LoopNote": "appears at lap 2 of the corridor loop; reveal() puts it in the world",
+			# ⭐ 2026-09-20 pass 3. The shard has no mesh and no collider until the Archive's
+			# inverted table rearranges itself off-screen — a gate in TIME again, like the loop
+			# note, and it carries `reveal()` aliased to `move_aside_instantly()` so this sweep
+			# uses the level's own path. Without the row it is merely DORMANT here, i.e. not
+			# measured at all, and the level's whole far-wing chain would go unprobed.
+			"SlabShard": "hidden in the inverted table's basin until the table rearranges off-screen",
+			# ⭐ 2026-09-20 pass 4. A SIXTEENTH room behind the Morgue's west wall, built at
+			# _ready() like every other one and then plugged, so the shell is sealed from frame 0
+			# and the wall is a real wall. The plug carries `move_aside_instantly()` — without
+			# this row the whole Hall of Frames, its lamp and its page measure UNREACHABLE.
+			"SecretPlug": "fills the Morgue -> FrameHall doorway until the child room's cradle is completed",
+			# ⭐ And the page at the end of the frames' corridor: no mesh and no collider until
+			# the five frames line up, a gate in TIME like `LoopNote` and `SlabShard`, with
+			# `move_aside_instantly()` aliased to `reveal()`.
+			"HiddenNote": "appears when the Hall of Frames settles; reveal() puts it in the world",
+		},
 		# ⚠️ REPORTED, NOT HIDDEN — and NOT FIXED, because the Void is not this pass's level.
 		# Both notes sit in a pocket around x 8.5..9.0, z -1.0..0.5 that the fill cannot enter
 		# from the spawn: the nearest REACHABLE standing cell is 4.79 m and 3.25 m away
@@ -211,7 +240,15 @@ const CONFIG := {
 		# ⭐ X44 CLOSED 2026-09-12 (the rebuild): nothing is waived. Nine notes and two doors, the
 		# far five of them across the tile causeway.
 		"ignore": {},
-		"min_cells": 20000, "min_targets": 10,
+		# ⭐ 2026-09-20: the Morgue grew to 12 x 10 and the far wing gained the slab shard, the
+		# cradle socket and the sanctum plate.
+		# ⭐ 2026-09-20 pass 3: 33 783 cells (527.9 m²) and 41 targets measured — the seventeen
+		# drawer fronts, the three anchors, the two new pages and the bigger child room. The
+		# drawer page is CONTAINED (reached by opening Drawer4_1), which is the Lab
+		# HintPage-in-a-drawer classification and the reason it is not a waiver.
+		# ⭐ 2026-09-20 pass 4: 35 531 cells (555.2 m²) and 42 targets measured — the sixteenth
+		# room behind the Morgue's west wall and the page at the end of its corridor.
+		"min_cells": 33000, "min_targets": 40,
 	},
 }
 

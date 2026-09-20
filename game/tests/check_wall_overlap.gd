@@ -225,7 +225,25 @@ const CONFIG := {
 		# than papered over; the solid pass and the CSG pass both have real samples.
 		# Rebuilt 2026-09-12: 141 boxes (rooms, tiles, beams, the pit), 12 flat props (notes,
 		# the torn pages, the drawing, the pads), 64 solid props (fragments, candles, doors).
-		"min_boxes": 120, "min_quads": 8, "min_solids": 40,
+		# ⭐ 2026-09-20: the impossible-prop pass (ceiling stair, flat doorframe, fused chairs,
+		# inverted table, door heap, three sets of hung shards, the drawer bank and the 3.9 m
+		# drawer) plus two more alignment sets takes it to 145 / 13 / 210. The floors are raised
+		# to match — a floor that a whole prop family could vanish under is not a sample size.
+		# ⭐ 2026-09-20 pass 2: the fractured doors' slab quads and the figures' masks put the
+		# measured run at 145 boxes / 34 flat props / 301 solid props. The flat floor stops
+		# being the 0-sample coverage gap the note above records: there are real quads now.
+		# ⭐ 2026-09-20 pass 3: 143 / 35 / 343 measured — the seventeen drawer fronts, the two
+		# pages, the three anchors, the three sockets and the second flat doorframe. ⚠️ The BOX
+		# count went DOWN by two and that is the child room growing to the Sanctum's span: the
+		# shared z = 29.5 plane became ONE interval, so RoomBuilder emits one wall where it used
+		# to emit two. The floor stays at 140 because the count is now 143, not 145.
+		# ⭐ 2026-09-20 pass 4: 150 / 41 / 415 measured. The BOX count went UP by SEVEN and every
+		# one is accounted for: FrameHall's floor, ceiling and three perimeter walls, the new
+		# doorway's floor bridge, and the Morgue's x = -21 wall split in two by that doorway.
+		# The quads are the five dioramas' backdrops plus the folded frame's suspended sheet; the
+		# solids are the SecretPlug's face, the five frame shells (4 bars each) and the five
+		# dioramas. A floor a whole prop family could vanish under is not a sample size.
+		"min_boxes": 146, "min_quads": 38, "min_solids": 400,
 	},
 }
 

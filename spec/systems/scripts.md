@@ -1,5 +1,73 @@
 # Key scripts — reference
 
+### Shipped — Breach playtest, 2026-09-20
+
+🔨 PLANNED follow-up: `SlamDoor.batter_impact` emits with each existing thud; this is presentation
+only and has no timing/collision effect. The Breach director uses it for leaf recoil and a
+level-owned voice controller selects chase/batter/hidden-search calls from actual creature state.
+
+`SlamDoor` exposes batter-start and silence signals plus opt-in random duration/silent-tail
+settings; defaults preserve all other callers. A Breach-owned director controls its local
+lamp/torch blackout and ambient dip without changing player input or global audio buses.
+`CreatureObject12` gains an opt-in hiding-forgets-player policy: hidden coordinates constrain
+safe wandering/relocation destinations but cannot feed search memory. Defaults preserve
+the Nightmare's behavior. The Breach's material detail is applied locally to its duplicated
+skin material; other consumers of `CreatureAnim` keep their materials.
+
+### Shipped 2026-09-20 — Void playtest fixes (hand-played the same day)
+
+`CreatureStalker` gained an optional custom visual (`visual_script`), defaulting to the imported
+model. Shared movement uses physics-step swept capsule clearance, floor support and leash bounds for
+advance/retreat; blocked movement stops or slides. Relocation checks the same constraints. The attack
+animates the inner visible body, and the watched state freezes custom animation. Nightmare contracts
+and difficulty constants untouched.
+
+`GameState`, `door.gd` and `screamer.gd` arbitrate delayed transitions: the first accepted door or
+fatal action owns the current scene; repeats lose, and stale callbacks cannot advance/restart a
+replacement scene or charge its attempt counter (`check_transition_race.gd`).
+
+### Shipped 2026-09-20 — the stare (the user's call after Void capture #2)
+
+`creature_stalker.gd` — **a watched stalker never moves, without exception.** `_dismiss()` no longer
+executes the 3 m retreat in the observed frame; it marks `_retreat_pending` and the first unobserved
+frame spends it (instead of advancing). Replaces: the one place the Void's rule was broken, which the
+player saw as "it moved while I looked". New opt-in `whisper` (the Void sets it): a positional loop
+`stalker_whisper` on the body whose level rises with continuous gaze from ANY distance with line of
+sight and falls when looked away — `_stare_time` (continuous, resets) feeds the Void's stare director
+via `stare_time()`, `_whisper_level` (rise/fall) drives the audio. Neither adds panic. `DebugLog.note`
+on awaken / dismiss / retreat / lunge, guarded by `get_node_or_null("/root/DebugLog")`. Proved by
+`check_stalker_motion` (49 checks) — zero displacement in any observed frame including the dismissal
+frame on both the direct and the real physics path, the retreat on the first unobserved frame, the
+whisper rising and falling with gaze. Nightmare callers (`dungeon.gd`) keep `whisper=false` and see only
+the deferred retreat.
+
+`panic_hud.gd` — additive `lie(ratio, seconds)` (SCARY P8 effect 1, the panic-spike lie): for
+`seconds` the blur/tint shaders show `ratio` instead of the value the player re-drives every frame
+(`player.gd:616/633`), then the next real call restores it. Real `_panic` never moves. Byte-identical
+when unused. `is_lying()` for tests.
+
+`void_stare_director.gd` — level-local (the Void only): polls `stare_time()` on every stalker and, at
+6 s of continuous stare and every 6 s after, fires ONE diegetic hallucination, cycling blink (0.4 s
+black + `blink` sound, then a second fractured figure at arm's length for exactly one frame) →
+panic-bar lie (0.98 for 0.8 s) → scrawl → nearest lamp dimmed to 20 % for 1 s. `ApparitionDirector`'s
+gates: never while the tree is paused, `NoteUI.is_open`, or `is_input_frozen()`; and never the blink
+while the player is on the tiles (a black screen over a fatal pit is §8.11). A look-away resets the
+ladder. Zero panic. Proved by `check_void_stare` — a 7 s stare fires exactly one effect, `_panic` is
+unchanged by it, nothing fires with input frozen, the blink is substituted on the tiles.
+
+### Shipped 2026-09-20 evening — Void pass 2: stalker speed exports, the eyelid blink
+
+`creature_stalker.gd` — `@export var stalk_speed := STALK_SPEED` (1.25) and `@export var
+retreat_distance := 3.0`; `_update_stalk` advances at `stalk_speed`, `_execute_retreat` moves
+`retreat_distance`. Only the Void sets them (3.0 / 2.0 — the user's numbers); every other caller and the
+Nightmare are byte-identical. Proves: `check_stalker_motion` — a 3.0 stalker moves 2.4× a default one
+per tick, the default unchanged (control) — 51 checks green.
+
+`void_stare_director.gd` — the blink is two curved eyelids (top and bottom panels, corner-rounded on
+their meeting edge) that close over 0.12 s, hold 0.25 s and open over 0.2 s; the one-frame figure
+appears as they open; `YOU BLINKED.` leaves the scrawl list. `blink_progress()` for tests — `check_void_stare`
+samples the lids meeting (0.50) and parting.
+
 ### Key scripts
 | Script | Responsibility |
 |--------|---------------|
@@ -7,7 +75,12 @@
 | `door.gd` | ⭐ **CROSS-LEVEL X47 IS CLOSED (2026-09-03)** — `crop_uv_to_fit()`. `build_visual()` sized its art quad to the DOOR and handed the artwork whatever shape was left over: **1.569× Lab, 1.177× House, 1.315× THE NIGHTMARE** — ⚠️ and NOT KONTUR's two Gate-1 leaves, which X47's own row claims and which `door.gd`'s comment claimed until 2026-09-03: `choice_door.gd` builds its own box and quads and never calls `build_visual()`, so nothing here reaches it; its 1.571× was already fixed in that level's own pass, the oldest outstanding art defect `check_art_aspect.gd` measured. A door's width is set by its doorway and its height by the room, so neither could move to suit a picture — which is why it sat deferred. The fix samples a centred sub-rect of the texture instead, the same mechanism `intro_room.gd`'s note already uses and the reason that guard compares against pixel aspect × `uv1_scale`. ⚠️ It is a NO-OP where the aspects already agree, so `hotel_door_leaf.png` (whose width is DERIVED from its texture) is untouched. ⭐ `door_material()` and `build_visual()` take an ADDITIVE `emission_scale` (2026-09-07, closing cross-level X64): the Lab and House pass 0.375, i.e. 0.08 → **0.03**, and every other level is byte-identical. ⚠️ It reaches the UNTEXTURED branch too, on purpose — nothing in those two levels takes it, but KONTUR's leaves do at emission 1.5, and a half-wired parameter is how the next darkness pass ships a beacon it thought it had turned down. Unlock modes: `NONE` · `KEYCARD` · `CODE_ENTERED` · `TWIST_READ`; `@export var goes_back: bool` for back doors. Static `door_material(tex_path)` owns the blood-red convention for all levels — ⚠️ with a texture the red emission must stay **very** low (0.08); these levels are lit at ~0.45 energy, so emission outweighs albedo and a higher value renders the door salmon pink (Issue 21) |
 | `note.gd` | Note interact, `is_trap` / `is_twist_note` flags. ⭐ `paper_material(trap, emission_scale := 1.0)` — the scale is ADDITIVE and defaults to today's look, so only the Lab and House (0.42, i.e. 0.60 → 0.25) are affected; cross-level X65, closed 2026-09-07. Trap notes open via `NoteUI.show_note(text, TRAP_PANIC_RATE)` — read-to-die, no instant fail |
 | `combination_lock.gd` | **Type the digits** (2026-08-15): `0-9` (top row and keypad) write into the selected dial and advance, Backspace steps back and clears, Enter submits alongside E; the arrows still work. ⚠️ The controls now live on a **separate, immutable hint label** — `_feedback_label` doubled as the instruction line, so the first `INCORRECT` destroyed the "Esc cancel" text exactly when panic was ticking. `note_ui.gd:77` / `journal_ui.gd:136` are the convention it now matches. Dials also reset on every open. Spinner-dial UI, digit count sized from its answer (`_digit_count()`). Level 2 exit: 3 dials, code **472**, via `GameState.level2_code`. KONTUR's roster gate: 2 dials, code **63** (`kontur.gd:94`, `ROSTER_CODE` — 47 was the pre-BACKLOG-#24 value), via its own `code`/`title_text`/`unlocked`/`wrong_code` exports — no `GameState` coupling. Wrong code = buzz + 10 panic (`WRONG_CODE_PANIC`); UI auto-drops if a screamer fires while open |
-| `creature_stalker.gd` | `class_name CreatureStalker` — the Void's creatures. Weeping-Angel stalk (move when unobserved, freeze when watched), LOS-gated, `START_GRACE` opening, lunge → `Screamer.trigger()` on contact. Builds its own visible red-eyed figure + gaze collider in `_ready()`. **Moves the inner `StaticBody3D` (not `self`)** — see the ScaryObject transform-chain gotcha below |
+| `creature_stalker.gd` | `class_name CreatureStalker` — the Void's creatures. Weeping-Angel stalk (move when unobserved, freeze when watched), LOS-gated, `START_GRACE` opening, lunge → `Screamer.trigger()` on contact. Builds its gaze collider and default animated model in `_ready()`; `visual_script` optionally supplies the Void's fractured mesh with `set_gait`, `tick_gait` and `attack`. `protected_player_rect` suppresses contact, movement and gaze pressure in the tile hall. Swept floor-supported movement runs in physics steps; `relocate_safely()` validates loop movement. **Moves the inner `StaticBody3D` (not `self`)** — see the ScaryObject transform-chain gotcha below |
+| `void_stare_director.gd` | The Void's hallucination ladder (2026-09-20): polls every stalker's `stare_time()`; at 6 s of continuous stare and every 6 s after fires ONE of blink → panic-bar lie → scrawl → lamp dim, with `ApparitionDirector`'s gates and never the blink on the tiles. Zero panic. Test surface `fired_count()`, `last_effect()`, `is_blinking()`, `set_cycle()` |
+| `void_loop_note.gd` | A `note.gd` subclass for the Void's `LoopNote`: `can_interact()` true (a false hides the prompt), `prompt_text()` by lap, `interact()` refuses below lap 2 and logs |
+| `void_keystone.gd` · `void_shard.gd` · `void_cradle.gd` · `void_sanctum_plate.gd` | The Void's 2026-09-20 interactables: the two branch keystones (layer 2, forward to `void_alignment.gd:interact_view`), the shard under the slab (`set_carried("stone shard")`), the cradle's interact on its own layer-1 body, the stone cover over the twist note (layers 1\|2, `retract()`, `move_aside_instantly()` for `check_reachable`) |
+| `void_anchor.gd` · `void_drawer.gd` · `void_exit_door.gd` | The Void's pass-3 interactables (2026-09-20): a carried anchor (handle / slat / latch; layer 2, one at a time, `"Your hands are full."`, the LEVEL frees the body — two owners of one node's lifetime is how a restore ends up with an anchor both carried and on the floor); one of the Morgue's seventeen drawer fronts (E slides it 0.35 m once, retires its own interact box — Issue 231); the ExitDoor's `door.gd` subclass whose `_open_door()` is TOKEN-FIRST (`begin_transition` → 0.9 s assembly + 0.3 s hold → `complete_door_transition`, never `await super`) — `check_transition_race` proves a death during the assembly wins |
+| `void_door_visual.gd` · `void_face.gd` | Static builders: the fractured slab doors over the red `DoorMesh` plate (one `void_door.png` sliced by `uv1_offset`/`uv1_scale`), and the figure's broken face (`void_face.png` on the recess plane + a per-variant jumble of the level's own objects) |
 | `creature_static.gd` | Older static-creature variant; `rush_camera()` on trigger. The Void now uses `creature_stalker.gd` instead |
 | `vignette.gd` | `class_name Vignette` — `Vignette.spawn(parent, color, strength)` adds per-level overlay |
 | `keycard.gd` | Pickup → sets `GameState.has_keycard`; auto-hides on reload if already collected |

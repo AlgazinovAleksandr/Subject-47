@@ -211,15 +211,16 @@ func _is_unlocked() -> bool:
 
 
 func _open_door() -> void:
+	if not goes_back and not advances_level:
+		return
+	var token := GameState.begin_transition("door")
+	if token < 0:
+		return
 	var open_audio: AudioStreamPlayer3D = get_node_or_null("OpenAudio")
 	if open_audio and open_audio.stream:
 		open_audio.play()
-	if goes_back:
-		await get_tree().create_timer(0.5).timeout
-		GameState.go_back()
-	elif advances_level:
-		await get_tree().create_timer(0.5).timeout
-		GameState.advance_level()
+	await get_tree().create_timer(0.5).timeout
+	GameState.complete_door_transition(token, goes_back)
 
 
 func _show_locked_feedback() -> void:

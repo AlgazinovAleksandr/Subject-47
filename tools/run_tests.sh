@@ -55,9 +55,13 @@ fi
 # The comment after each name is what it protects; keep it accurate, it is the only
 # index of what this suite actually covers.
 TESTS=(
+  check_breach_playtest       # hidden-player forgetting, random hunt, door silence/blackout and restoration
+  check_breach_voice          # three spatial voices, silent-tail suppression, leaf recoil and hidden safety
   check_audio_buses           # the silence architecture: Body survives a dip, beds nest
   check_scare_loudness        # the stings are LOUD, and the fatal path cuts to black first
   check_creature_model        # the ASSET: six clips, no root motion, not metal, not self-lit
+  check_stalker_motion       # swept clearance, floor support, watched mesh freeze and visible lunge
+  check_transition_race      # first accepted door/death wins; stale callbacks cannot restart replacement scenes
   check_creature_anim         # the WIRING: each state's gait, and the Weeping-Angel freeze
   check_darkness              # Lab/House/KONTUR start black, the torch is infinite, no DarkZones
   check_dark_payoffs          # ...and the light EARNS its way back: 3 breakers, 3 notes
@@ -163,6 +167,9 @@ TESTS=(
   check_dungeon_map           # THE NIGHTMARE: the found map — inert until taken, draws only rooms walked, never reads a position
   check_gaze_decay            # Issue 196: a ScaryObject at intensity 0 (harmless/burnt frame) must not freeze panic decay
   check_note_audio            # 2026-09-13: a note / the journal keep the level's audio playing through the pause; panic still frozen
+  check_void_alignment       # real-ray perspective alignment, safety, restore and optional Ward interaction
+  check_void_stare           # 2026-09-20: whispers rise/fall with gaze, a 7 s stare fires ONE hallucination, panic untouched, no blink on the tiles
+  walk_void_live             # real player completes Void with all five creatures active
   walk_void                   # THE VOID (2026-09-12): spawn -> notes -> the loop sends you back, then stops -> the tiles -> twist -> exit, all through the ray
   check_void                  # THE VOID: seam keeps heading+velocity, the bridge stalker never steps (with control), 6 lethal stalkers, 9 notes, snapshot, the fall
   check_reachable             # ALL NINE levels: can the player STAND where each prop is

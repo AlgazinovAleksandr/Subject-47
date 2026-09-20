@@ -6001,3 +6001,336 @@ player's own corridor (the wing screamer's method, Issue 208) — never non-fini
 lunges, and the log carries its distance and room. **A beat whose placement can fail needs a
 placement that cannot, and a log line either way.**
 
+
+## Issue 218 — Void stalkers moved through geometry and lunged on the wrong transform (2026-09-20)
+
+**Symptom:** the September 19 player questioned corridor passing and creatures becoming stuck.
+The later capture confirmed passage, so permanent blockage was not established. Inspection found
+advance, retreat and loop reposition writing a StaticBody position without capsule or floor checks.
+The lethal lunge instead moved the outer Node3D, across the ScaryObject transform break (Issue 10),
+leaving the actual model still.
+
+**Fix:** physics-step swept capsule motion, floor-footprint sampling and encounter leashes cover
+advance, retreat, spark steps and loop relocation. A short attack tween moves the actual inner body
+before the fatal cut. The tile hall excludes every stalker's movement, gaze and contact.
+
+**Why tests missed it:** the geometry walker removed all creatures. New `check_stalker_motion`
+contains wall corners with clear eye-rays, door jambs, an unsupported gap, nonzero movement controls,
+mesh-pose freeze and a visible contact lunge. `walk_void_live` keeps all five threats and uses actual
+player inputs to create space, solve the puzzle and leave. **LOS is not body clearance; geometry
+reachability is not encounter survivability.**
+
+## Issue 219 — A Void exit and a fatal screamer both completed (2026-09-20)
+
+**Symptom:** the September 19 log records a real death at 376.24 followed by the ending at 376.41.
+The ending's subsequent corrupted-intro redirect is intentional. The shared door waited 0.5 s
+without claiming the transition, while the fatal autoload later restarted mutable current_level.
+The delayed restart could therefore act on the destination instead of the dying scene.
+
+**Fix:** scene-scoped serial tokens in GameState. The first accepted door or fatal sequence owns
+the transition; duplicate/competing calls lose. Door completion and every fatal asynchronous stage
+validate the token and source scene. Explicit navigation invalidates tokens; stale fatal UI clears.
+Lunges reserve fatal ownership before the visible wind-up.
+
+**Verification:** `check_transition_race` drives actual E-ray doors and Screamer in both orders,
+multiple doors, external replacement scenes and forced navigation, checking destination identity
+and attempt counts. **An autoload coroutine outlives its originating scene unless explicitly guarded.**
+
+## Issue 220 — The Void's loop never fired for a human, because its note came before its seam (2026-09-20)
+
+**Symptom:** the 2026-09-20 player read `LoopNote` at 150.56 s and again at 259.89 s, each time on
+the first pass up the corridor, and captured *"I think this corridor is underpacked with actions."*
+The torn pages, the `AGAIN.` scrawl and the creature creeping closer per lap — the corridor's entire
+beat — never happened in either run.
+
+**Cause:** the note that breaks the loop hangs at z 23 and the seam that sends you back sits at
+z 32. A player who reads notes as they see them breaks the loop before it can happen. `walk_void.gd`
+passed for a week because its route walks to z 40 *first* and reads the note on the way back.
+
+**Fix:** `void_loop_note.gd` (a level-local subclass of `note.gd`) refuses to open below lap 2 —
+the prompt says the words will not hold still, then that one line has settled — and the corridor
+gained a lap ladder (a lamp per lap, the entry doorway walled up behind you at lap 2) so the two
+guaranteed laps escalate. `check_void.gd` proves the refusal with the acceptance at lap 2 as its
+control; `walk_void.gd` now laps twice before it can read.
+
+**Why tests missed it:** the walk bot read the note in the order that proved the loop works, not the
+order a human meets it. **A walk test must read notes in human order** — the order they are seen
+from the route, not the order that exercises the mechanic — or it proves a beat that nobody reaches.
+
+## Issue 221 — A test read `current_scene` during the scene switch and reported the ending as missed (2026-09-20)
+
+**Symptom:** `walk_void_live.gd` went 24/25 on a build whose human run reached `ending.tscn` at
+374.96 s. The failing check was "real E exit reached the ending"; "completion had no fatal event"
+passed in the same run.
+
+**Cause:** `change_scene_to_file()` leaves `SceneTree.current_scene` null for a frame; the test
+compared `scene_file_path` on the first frame the scene was no longer the level.
+
+**Fix:** wait for a non-null scene before asserting which one it is. **An autoload coroutine outlives
+its scene (Issue 219), and a test's `current_scene` read can land in the gap between two.**
+
+## Issue 222 — The Void's stalkers moved while watched, exactly once: in the dismissal frame (2026-09-20)
+
+**Symptom:** capture #2, standing 2.6 m from creature B and staring at it: *"I think we want those
+creatures to move when we not look. Was it supposed to be that way, and does it work like that?"*
+`check_stalker_motion.gd` measured the stalk rule working in real physics frames, 40 of 40.
+
+**Cause:** `_dismiss()` — the 4 s stare-off — executed its 3 m retreat in the same, OBSERVED frame.
+The one place the level's only rule was broken, and B's leash clamped the retreat to a ~1 m lurch
+into its corner under the player's gaze: a creature that visibly moved while being looked at, and
+never visibly moved otherwise (at 2.6 m the look-away window before a lunge is 1.1 s).
+
+**Fix:** the retreat is deferred (`_retreat_pending`) and spent on the first unobserved frame instead
+of an advance. Same 4 s, same panic cost, same 3 m. The stare is now paid for in channels rather
+than a number — a whisper loop that rises with continuous gaze from any distance with line of sight,
+and the Void's `void_stare_director.gd` hallucination ladder (SCARY.md P8 + a P3 flash), none of
+which touch `_panic`. `check_stalker_motion.gd` asserts zero displacement in every observed frame,
+dismissal included, on both the direct and the real physics path.
+
+**Why tests missed it:** the guard asserted the retreat's *distance* and called `_dismiss()` directly —
+it never asked *when* the body moved. **A rule stated as "never while X" needs its test to sample
+during X, not after it.** The user's rulings that went with this: B and D stay where they are (the
+0.4 s and 1.1 s windows are the design), and no new panic term for the distant stare.
+
+## Issue 223 — A freed node compares equal to null, so a one-shot setup block ran twice (2026-09-20)
+
+**Symptom:** `walk_void_live.gd` printed *"level_3.tscn did not load, or level_3.gd failed to
+parse"* on a run in which the exit door had just worked and `ending.tscn` was on screen.
+
+**Cause:** the test's setup block was guarded by `if _level == null:`. In Godot 4 a variable that
+still holds a reference to a FREED node compares equal to `null`, so the moment the exit swapped
+`level_3.tscn` out the guard re-opened, the block ran again against `ending.tscn`, and the wrong
+diagnostic fired. It was the second cause behind Issue 221's 24/25.
+
+**Fix:** a `_bootstrapped` flag plus `is_instance_valid()` guards. **A freed-node reference tests
+equal to null; a one-shot block guarded on it is not one-shot.**
+
+## Issue 224 — A guard with no deadline, whose budget was only checked while another timer ran (2026-09-20)
+
+**Symptom:** with the loop note's lap-2 refusal deliberately disabled (a positive control),
+`check_void.gd` hung the whole suite forever instead of failing.
+
+**Cause:** the lap-1 control press broke the loop, lap 2 could never happen, and the waiting stage
+had no `match` arm, so `_process` spun. The lap budget could not save it because the lap poll lived
+inside the `if _wait > 0` branch — once the wait expired the poll stopped.
+
+**Fix:** `DEADLINE_MS` 120 000 and a `LAP_BUDGET` of 1 500 ticks, with the poll moved out of the
+wait branch. Found only because the fix was disabled on purpose. **A hanging guard is worse than a
+failing one, and a budget that is only checked while another timer runs is not a budget.** Three
+smaller ones from the same build, recorded here so they are not re-learned: a typed `var d: Node =`
+throws on a freed instance and silently aborts the step (untyped `var`); at `time_scale` 6 the
+harness cannot creep because `player.gd` normalises `ai_move_dir`, so exact-arrival legs oscillate
+forever (drop to 1.5 for those legs); the door heap's panels were built on the slabs' local +X, which
+faces the wall — invisible, and caught only by reading the screenshot, because no guard covers "a
+prop's detail faces the wall".
+
+## Issue 225 — The Void's ambient bed died after one play: the import had looping off (2026-09-20)
+
+**Symptom:** capture #5 of the evening playtest, seven and a half minutes in: *"The music stopped
+playing — it is not being done in loops this level?"*
+
+**Cause:** `game/assets/audio/level_4_void/ambient_void.ogg.import` carries `loop=false`, and
+`level_3.gd:_start_ambience()` played the stream as imported. The bed is a few minutes long, so every
+run longer than that went silent, and no guard listened.
+
+**Fix:** `_start_ambience()` sets `loop = true` on the `AudioStreamOggVorbis` in code, so a re-import
+cannot regress it; `check_void.gd` asserts `AmbientPlayer.stream.loop`. **An import flag is a fact
+about the file, not the level — the level must state what it needs.**
+
+## Issue 226 — A prompt that appears where the action cannot succeed (2026-09-20)
+
+**Symptom:** evening playtest, capture #3: *"Does this even work? I pressed E on the middle object and
+it was fine — but when it comes to the one on the left and on the right — seems like both are not
+working."* Twenty wrong presses in four minutes, 120 panic, the island solved once, the far wing never
+reached.
+
+**Cause:** the north and south keystones sat within the 3 m interaction ray of TWO tiles each — their
+own viewpoint and the tile before it — and `can_interact()` was true from both. At least one press was
+logged from (−5.4, 47.6), the adjacent tile, 1.9 m from the viewpoint against a 0.65 m radius. From
+there the prompt read `E — Hold the shape.`, the press cost 6 panic, and nothing distinguished "wrong
+tile" from "wrong angle". `check_void_alignment.gd` teleported the test player to the exact eye point
+and never asked whether a human on a 1.6 m tile could hit it.
+
+**Fix:** each keystone's `can_interact()` is true only within 1.5 m of its own view's feet, so the
+prompt appearing tells you WHERE to stand and nothing about alignment (SCARY.md §8.2 respected); a probe
+maps each view's solvable region on its tile and the tolerances are widened until ≥ 70 % of a 0.3 m
+grid aligns; the three shapes are different memories in different corners so the places are
+distinct. **A prompt is a promise that the action can succeed from here. If it cannot, the prompt must
+not appear — and a guard that teleports to the exact answer has not tested the question.**
+
+
+## Issue 227 — A hidden player was invisible to sight but still the teleport search target (2026-09-20)
+
+**Symptom:** Breach playtest captures #3–4: Object 12 repeatedly returned to the cabinet. The user
+wanted successful hiding to lose its attention, followed by random wandering and teleportation.
+
+**Cause:** `_detect_player()` respected `is_hidden()`, but `_relocate_near_player()` copied the
+player's current position into `_last_seen_pos` after every jump. SEARCH therefore walked straight
+back to the hidden player, scanned, teleported and repeated. The CHASE grace period also moved
+before checking whether cover had been entered.
+
+**Fix:** a Breach-enabled `forget_hidden_player` policy clears memory before movement/contact.
+Hidden roaming selects random reachable room centres outside the hiding room and at least 10 m
+away. Every 12 unblocked roaming seconds it attempts an unseen relocation, then walks toward a
+different room. Departure and arrival visibility sample the head, torso, feet and sides. Cover
+also survives contact and stagger recovery. Other consumers retain the default policy.
+
+**Verification:** `check_breach_playtest.gd` drives the actual E-ray into the locker and 120 seconds
+of simulated state-machine motion. It requires nonzero walking/relocation samples, multiple random
+destinations, no hidden-coordinate targets, an actually visible no-teleport control, and restored
+sight detection after emerging. Its live legacy-policy control reproduces the exact-coordinate
+leak. Running with `-- --legacy-hiding` turns the new hiding assertions red; the enabled policy
+passes. The same guard checks the approved 4–6 s supernatural door interruption, physical blocker,
+light/audio restoration, overlapping interruptions, hiding during darkness and scene removal.
+
+**Why existing tests missed it:** `check_hiding_spots.gd` checks detection and the player's hiding
+mechanics; `check_breach_teleport.gd` checks where a jump lands. Neither asked where the creature
+walks afterward while the player remains hidden. **An AI's knowledge contract applies to every
+writer of its target, not only its sight detector.**
+
+## Issue 227 — An effect that borrows a value must hand it back (2026-09-20)
+
+**Symptom:** the loop corridor's new lamp flicker permanently killed `Light_Loop_19` on lap 1 — two
+rungs before the ladder kills it.
+
+**Cause:** `_flicker_loop_lamps()` ended its pulse train at energy 0, and `_apply_loop_ladder()` only
+ever turns lamps OFF, so nothing ever turned it back on. A settle function that only removes cannot
+restore.
+
+**Fix:** the flicker restores `LOOP_LAMP_ENERGY` before the ladder runs. Caught by a new `check_void`
+assertion, "the near lamp is alive again once the flicker ends", written before the fix as a control.
+
+## Issue 228 — A shared speed export changes every test that waits a fixed time next to a creature (2026-09-20)
+
+**Symptom:** after the Void's stalkers were set to 3.0 m/s, `check_void`'s watch-only control (which
+stands the player 3.7 m from creature D for 1.5 s) staged its own death: D covered 4.22 m, hit
+`CONTACT_DIST`, the scene reloaded, the freed level compared equal to null (Issue 223) and the test
+re-ran its structure stage until the deadline, reporting 314 checks.
+
+**Fix:** 5.9 m and 0.75 s (2.25 m covered) plus an explicit "the control did not stage its own death"
+assertion. Same shape as the first draft of `check_void_stare` earlier the same day: **a wait next to a
+creature is a distance, and a speed change re-prices every one of them.**
+
+## Issue 229 — Two props hidden by their own geometry, found only by measuring from the camera (2026-09-20)
+
+**Symptom:** (a) the figure's `FaceSocket` never appeared on any variant; (b) the new keystones for the
+bed and window views sat on top of the very pieces they gate.
+
+**Cause:** (a) the socket was sunk 2 cm behind an opaque `QuadMesh` whose bounds fully contained it,
+for the whole life of the feature; (b) at `eye + f·1.1 − 0.2 y` a keystone subtends ±9.3° and the
+bed's foot leg and the window's sill sit in that cone.
+
+**Fix:** the socket sits 6 mm proud of the art plane running backwards; each view carries its own
+keystone offset measured off the rendered angles (bed +19.1°, window +20.0°, against shapes spanning
+roughly −28° to +6°). **Occlusion is a camera fact. The scene tree cannot tell you what is visible;
+only a ray or a picture can.** (The morning's door heap, built facing the wall, was the same lesson.)
+
+## Issue 230 — A collider that is the prop's bounding box makes the prop's interior unreachable (2026-09-20)
+
+**Symptom:** the Void's stone shard was moved into the legs-up basin of the Archive's inverted table.
+It rendered exactly where it should, and the shipping E-ray never found it from any stance: the raw
+ray reported `InvertedTable_Archive` from 1.3 m, 1.9 m and 2.6 m away.
+
+**Cause:** `void_fragments.inverted_table()` gave the prop ONE collider, 1.50 × 1.05 × 1.00 from the
+floor to above the legs — the prop's bounding box. `player.gd`'s interact ray takes the NEAREST hit,
+so a box that encloses the basin is a box that answers for everything inside it. This is the same
+fault the Morgue slab had in the morning of the same day ("the single collider made the slab a
+brick"), rebuilt on a different prop four hours later.
+
+**Fix:** the table's collision is its 0.22 m top slab only — the legs are open air — and the shard
+sits at y 0.42, which is 0.20 m of clearance above the slab's top face. Both numbers are measured: at
+y 0.38 a descending ray still grazed the slab first.
+
+**Why existing tests missed it:** `check_reachable` classified the shard DORMANT, not unreachable,
+because it is deliberately invisible until the table re-poses — a hidden prop is skipped, and
+skipping is not passing. It now has a documented gate row (`move_aside_instantly()` → `reveal()`) so
+it is probed in the state a player meets it in. **A prop that is not in the world yet must still be
+enrolled in the sweep, or the sweep measures the state nobody plays.**
+
+## Issue 231 — An interact volume that keeps intercepting the ray after it stops being interactable (2026-09-20)
+
+**Symptom:** the Morgue's searchable drawers open on E and one of them holds a page. With the drawer
+open, the page — 0.23 m behind the front — got no prompt at all.
+
+**Cause:** each drawer's interact box stands 0.09 m PROUD of the cabinet so the ray can reach it past
+the carcass. Once opened, `can_interact()` returns false, but the collider is still there and still
+nearest: `player.gd:_update_interact_prompt()` takes the ray's first hit and NULLS it if it is not
+interactable — it does not look past it. So the opened drawer swallowed every ray aimed into itself.
+
+**Fix:** opening disables the drawer's own shape (`_retire()`), which is honest — a pulled drawer has
+nothing left to offer — and lets the ray reach what is inside it.
+
+**General lesson:** **a refusing collider is an opaque collider.** Any prop that stops being
+interactable while staying in front of something else has to get out of the ray's way too.
+
+## Issue 232 — A page the ray could reach and the camera could not see (2026-09-20)
+
+**Symptom:** the drawer page passed every guard — reachable through the shipping ray, correctly
+mounted, contained by its host — and was invisible in the screenshot of the open drawer.
+
+**Cause:** it lay flat on the drawer's tray. From eye height 1.65 m, an open drawer at y 0.98 with a
+0.54 m front hides its own interior: the sight line clears the front's top edge at y 0.89 against an
+edge at 1.25. The E-ray did not care, because the front is a MESH with no collider and a physics ray
+goes straight through it.
+
+**Fix:** the page STANDS in the drawer, wedged against the inside of the front and poking 0.10 m above
+its top edge.
+
+**Why existing tests missed it:** they asked whether the ray found it, which is a different question
+from whether a person can see it. Issue 229's lesson, recurring in the same level three hours later:
+**occlusion is a camera fact; only a ray from the eye or a picture can answer it — and a ray through
+a collider-less mesh is not a ray from the eye.**
+
+## Issue 233 — The assembled door was a red grid: position cannot close a seam that lives in the mesh (2026-09-20)
+
+**Symptom:** the Void's exit door tweens its eight floating sub-rects onto their true places on the
+leaf. The finished, "whole" door rendered as a BLOOD-RED GRID over a door — the exact picture pass 2
+had rejected for the broken door ("7–13 cm gaps … a red grid, not a broken door"), rebuilt by
+accident at the other end of the animation.
+
+**Cause:** each slab's mesh is its grid cell MINUS the gap (0.037 m at `broken` 1.0). Slabs parked on
+their true centres therefore still leave a 3.7 cm seam between every pair, and the blood-red backing
+plate — which exists to glow through the gaps — shows through all of them at once.
+
+**Fix:** the builder stores a `true_scale` alongside `true_position`, and the assembly tweens scale as
+well, growing each slab back to its full cell. Measured: the eight slabs then tile 100 % of the
+1.0 × 2.2 leaf. `check_art_aspect` reads a mesh's own size and never the node scale, so the sub-rect
+measurement is untouched.
+
+**Why existing tests missed it:** the first assertion only compared each slab's POSITION against the
+stored transform, which was true and insufficient. It now also measures the covered area. **Caught by
+reading the screenshot, not by a guard — the third time on this level.**
+
+## Issue 234 — A flag that means "out of the world" reused to mean "in hand" (2026-09-20)
+
+**Symptom:** after the Void's cradle was completed, a snapshot restore put the stone shard back in the
+Archive's table, ready to be picked up a second time.
+
+**Cause:** pass 3 gave the level a real inventory, and `consume_shard()` cleared `_shard_taken` to mean
+"no longer carrying it". But `_shard_taken` is what `_sync_shard()` and `_restore_progress()` read to
+decide whether the Archive still HAS a shard — so clearing it re-created one.
+
+**Fix:** `_shard_taken` means OUT OF THE WORLD and is never reset; carrying is the derived
+`has_shard()` = `_shard_taken and not _cradle_done`.
+
+**General lesson:** when a boolean gains a second reader, name what it means to the WORLD, not what it
+means to the player, and derive the player's state from it. The same rename would have prevented the
+`carried_item == "stone shard"` breakage next door: that property became a composed HUD line the
+moment two things could be carried at once, and every equality test against it silently went false.
+
+## Issue 235 — A supplied texture shipped with a generator's watermark on every wall (2026-09-20)
+
+**Symptom:** the fourth Void playtest, capture #1, standing in PocketA: *"The texture of the wall is
+great, but it has the gemini watermark. We need to remove it."* A four-pointed sparkle, mid-height, on
+every wall of every room — and, because the ceilings use the same material, overhead too.
+
+**Cause:** `level_4_void/wall_void.png` carried the Gemini sparkle in its bottom-right corner, and the
+material is triplanar-tiled, so the corner repeats once per tile across the whole level. The floor
+texture from the same batch was clean. It had been on every wall since the level's first build; three
+playtests looked past it because it reads as one more crack until you stand still in front of it.
+
+**Fix:** a feathered clone-stamp of the same texture over the corner, with the outermost rows and
+columns untouched so the seamless tile edge is unchanged; re-imported; the registry row says so.
+**The texture audit rule gains a step: look at a new texture's corners, not just its histogram.** A
+generator's mark is small, high-contrast and always in the same place, which is exactly the shape a
+tiled material multiplies.

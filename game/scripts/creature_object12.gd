@@ -53,6 +53,10 @@ enum State { PATROL, INVESTIGATE, CHASE, SEARCH, STAGGERED }
 @export var model: String = "hollow_crown"
 @export var lethal_contact: bool = true
 @export var relocate_when_lost: bool = true
+@export var forget_hidden_player: bool = false
+var _was_hidden := false
+var _hidden_roam_t := 0.0
+const HIDDEN_RELOCATE_INTERVAL := 12.0
 signal caught
 const FOV_DOT := 0.5           # wide cone (~120 deg) — this creature actively hunts
 const CHEST := 0.9
@@ -566,6 +570,17 @@ func _process(delta: float) -> void:
 	if _purge_frozen:
 		return
 
+	# 2026-09-20: cover is a successful escape, even if entered during CHASE or battering.
+	# Clear memory BEFORE contact/movement. Otherwise the 0.4 s LOS grace still homes in.
+	var hidden := forget_hidden_player and _player_is_hidden()
+	if hidden and not _was_hidden:
+		_hidden_roam_t = 0.0
+		_choose_hidden_destination(false)
+		if _state != State.STAGGERED:
+			_enter(State.SEARCH)
+		_log_hunt("HIDDEN — contact lost; roaming away")
+	_was_hidden = hidden
+
 	if _block_t > 0.0:
 		_block_t = maxf(0.0, _block_t - delta)
 		if _block_t <= 0.0:
@@ -588,6 +603,15 @@ func _process(delta: float) -> void:
 			_tick_staggered(delta)
 		elif _state == State.CHASE:
 			_check_contact()
+		_regen_shield(delta)
+		return
+
+	if hidden and _state != State.STAGGERED:
+		_hidden_roam_t += delta
+		if _hidden_roam_t >= HIDDEN_RELOCATE_INTERVAL:
+			_hidden_roam_t = 0.0
+			_choose_hidden_destination(true)
+		_tick_search(delta)
 		_regen_shield(delta)
 		return
 
@@ -649,6 +673,8 @@ func _tick_investigate(delta: float) -> void:
 # Extracted 2026-09-07 so a door-blocked creature can still reach you — see `_process()`.
 # Returns true if contact fired, in which case the caller must stop.
 func _check_contact() -> bool:
+	if forget_hidden_player and _player_is_hidden():
+		return false
 	var here := get_creature_position()
 	var flat := Vector2(here.x - _player.global_position.x,
 		here.z - _player.global_position.z).length()
@@ -708,6 +734,9 @@ func _tick_search(delta: float) -> void:
 	_search_t += delta
 	_body.rotation.y += deg_to_rad(SEARCH_SCAN_SPEED_DEG) * delta
 	if _search_t >= SEARCH_TIME:
+		if forget_hidden_player and _player_is_hidden():
+			_choose_hidden_destination(false)
+			return
 		# Lost for good at this spot — try to reappear near the player (out of sight); otherwise
 		# fall back to drifting to the nearest patrol waypoint.
 		if relocate_when_lost and _relocate_near_player():
@@ -720,6 +749,8 @@ func _tick_search(delta: float) -> void:
 # is graph-distant (around a corner, not down a long sightline). Returns false — leaving the caller
 # to PATROL — when there are no portals (THE NIGHTMARE's Matron) or nothing legal fits.
 func _relocate_near_player() -> bool:
+	if forget_hidden_player and _player_is_hidden():
+		return _choose_hidden_destination(true)
 	if _portals.is_empty() or _rooms.is_empty() or not is_instance_valid(_player):
 		return false
 	var pp := _player.global_position
@@ -759,6 +790,63 @@ func _relocate_near_player() -> bool:
 	return true
 
 
+# Coordinates of a hidden player are used ONLY to exclude their room/proximity and visibility.
+# Random reachable room centres, not the locker, drive the hunt until sight/noise finds them.
+func _player_is_hidden() -> bool:
+	return is_instance_valid(_player) and _player.has_method("is_hidden") and _player.is_hidden()
+
+
+func _visible_to_player(pos: Vector3) -> bool:
+	if not is_instance_valid(_camera):
+		return false
+	# A chest hidden by a low prop is not an unseen creature if its head is still visible.
+	for offset in [Vector3(0, 0.25, 0), Vector3(0, CHEST, 0), Vector3(0, 1.8, 0),
+			Vector3(-0.4, 1.2, 0), Vector3(0.4, 1.2, 0)]:
+		var sample: Vector3 = pos + offset
+		if _camera.is_position_in_frustum(sample) and _has_los(_camera.global_position, sample):
+			return true
+	return false
+
+
+func _choose_hidden_destination(relocate: bool) -> bool:
+	var here := get_creature_position()
+	var from_room := _room_at(here)
+	var reachable := _room_depths(from_room) if from_room >= 0 else {}
+	var candidates: Array[Vector3] = []
+	var hidden_room := _room_at(_player.global_position)
+	for i in range(_rooms.size()):
+		if i == hidden_room or not reachable.has(i):
+			continue
+		var pos: Vector3 = _rooms[i]["c"]
+		if pos.distance_to(_player.global_position) < RELOCATE_MIN or pos.distance_to(here) < 3.0:
+			continue
+		if relocate and _visible_to_player(pos):
+			continue
+		candidates.append(pos)
+	if candidates.is_empty():
+		_last_seen_pos = here
+		_search_t = 0.0
+		return false
+	var target: Vector3 = candidates.pick_random()
+	if relocate and not _visible_to_player(here):
+		_body.global_position = Vector3(target.x, here.y, target.z)
+		_log_hunt("HIDDEN relocation — random room, no player target")
+		# Pick a DIFFERENT destination so it resumes walking after the unseen relocation.
+		return _choose_hidden_destination(false)
+	_last_seen_pos = target
+	_investigate_target = target
+	_search_t = 0.0
+	_search_arrived = false
+	_refresh_clip()
+	return true
+
+
+func _log_hunt(message: String) -> void:
+	var log_node := get_node_or_null("/root/DebugLog")
+	if log_node:
+		log_node.note("OBJECT 12 " + message)
+
+
 # BFS room-depth from `start` over the doorway graph.
 func _room_depths(start: int) -> Dictionary:
 	var depth := {start: 0}
@@ -795,6 +883,8 @@ func _tick_staggered(delta: float) -> void:
 		# re-detects fairly — it just walks somewhere while doing it. **No difficulty constant
 		# moved:** `SEARCH_TIME`, `STAGGER_MIN/MAX` and `chase_speed` are untouched.
 		_last_seen_pos = _recovery_target()
+		if forget_hidden_player and _player_is_hidden():
+			_choose_hidden_destination(false)
 		_search_t = 0.0
 		_enter(State.SEARCH)
 		recovered.emit()

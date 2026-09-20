@@ -4,12 +4,60 @@
 
 ## SPEC
 
+### 🔨 PLANNED — 2026-09-20 second replay: Object 12's voice and door impacts
+
+The user confirmed hiding and the shorter door hold now work, but requested three distinct
+monster screams and stronger door presentation. A Breach-owned voice controller will use
+three new procedural vocal assets: a rising chase scream, a strained door-battering roar
+layered with the existing punches, and a frustrated searching howl while the player is hidden.
+Voices follow the creature's actual position, with irregular gaps, distance attenuation and
+one voice at a time. Hidden calls imply searching but never update AI knowledge or damage.
+Door voice has priority over chase/search and stops with the pounding for the supernatural
+silent tail. Purge, stagger, death and scene exit stop the voice; relocation cannot drag a
+playing voice discontinuously across the map. Calls resume naturally from the new position.
+
+Each batter impact also displaces the visible door leaves briefly (recoil, then settle), with
+escalating force. The blocker and interaction volumes stay fixed. Impact signals feed the
+presentation only; hold duration, blackout timing and the newly-confirmed hiding policy remain.
+Verify real streamed audio, distinct clips, spatial following, silence/stagger/purge suppression,
+hidden safety and cooldowns; render a mid-impact door and compare with its settled pose.
+
+### Shipped — 2026-09-20 hand-playtest follow-up
+
+- **Supernatural door interruption (user-selected).** Breach slam doors hold for a random
+  4–6 seconds per batter. Pounding stops for the final 1.2 seconds; after 0.4 seconds of silence,
+  nearby room lamps and the player's torch go dark for the remaining 0.8 seconds. The door
+  crashes open and light returns immediately. Ambience dips during the silence; body sounds
+  remain. The player keeps movement and interaction. Effects are local to a nearby door,
+  compose across overlapping doors, and restore on cancellation/scene exit. Other levels keep
+  their existing slam-door timings. No panic charge or new death rule.
+- **Hiding forgets the player.** Entering a hiding spot before contact clears Object 12's chase
+  memory immediately. It wanders toward random reachable rooms away from the hiding room,
+  with relocation attempts every 12 seconds of unblocked roaming, only when both departure
+  and arrival are unseen. Five body samples check visibility. Hidden player
+  coordinates may reject unsafe destinations but never become a search target. Exiting cover
+  restores ordinary sight/noise detection, not automatic knowledge of the player. This behavior
+  is enabled only for the Breach; the Nightmare's hunter keeps its current contract.
+- **Creature depth.** The animated 3D mesh and original skin are retained. The Breach's resting
+  emission is 0.025 (shared default remains 0.12). `breach_creature_surface.gd` applies procedural
+  normal detail and varied roughness with stronger skin highlights to the duplicated material.
+  The flashlight wound response is retained. Matching lit views were rendered before/after;
+  the visual judgement remains a human playtest item.
+- **Proof.** `check_breach_playtest.gd` drives real E-ray door/locker interactions, checks physical
+  door obstruction, samples the timed silence and blackout, and verifies overlapping effects,
+  F-off, hiding and scene-removal restoration. It runs 120 simulated seconds of hidden movement
+  and searches with nonempty movement/relocation counts. The legacy policy reproduces exact
+  hidden-coordinate leakage; `-- --legacy-hiding` makes the guard fail. Render with
+  `-- --screenshots` (without `--headless`) for matching creature views and all door phases.
+
 **Level 6 — THE BREACH (Object 12, Loose)** — `level_6_breach.gd` + `level_6_breach.tscn` — a
 Nemesis/Mr.X-style pursuit level, direct continuation of KONTUR's facility: Object 12, the subject
 KONTUR was built around, is now loose in a deeper containment wing. Built the same
 `.tscn`-minimal / `PRESERVE`-whitelist / `RoomBuilder` pattern as `kontur.gd`, from a 20-room graph
-(a main spine plus two bypass loops — WardA east of Atrium/Junction2, ArchiveA/B west of
-Junction2/WardB — so route-planning and breaking line-of-sight actually mean something). Visual arc
+(a main spine, west wing through Records/WestHall/ArchiveA–C to the ExitVault dead end,
+and east wing through EastLock/WardA/EastVault/EastHall/EastCell, with bypass connections
+back into the spine). **The seal room is ExitVault; the exit is in the Incinerator.** Lure the
+creature west, seal it there, then return to the spine and its far end. Visual arc
 extends KONTUR's two-tier skin system to three: facility → structural rupture → organic decay,
 ending at a scorched-steel Incinerator.
 - ⭐⭐ **THE GRAB THROUGH THE DOOR (2026-09-14, `BACKLOG_Sep_14.md` X1, the user's pick).** When
@@ -135,12 +183,12 @@ ending at a scorched-steel Incinerator.
   (`PATROL → INVESTIGATE → CHASE → SEARCH → STAGGERED`), structurally descended from
   `creature_stalker.gd`'s build pattern (`ScaryObject → StaticBody3D → CollisionShape3D`, GLB
   load/arm-pose) but reusing `hollow_crown.glb` **retinted** via `CreatureAnim.apply_tint()` (sickly
-  grey-green + red vein emission) rather than a new 3D asset. **CHASE moves directly toward the
-  player every frame, unconditionally** — the deliberate opposite of `creature_stalker.gd`'s
+  grey-green, with the Breach surface pass described above) rather than a new 3D asset.
+  **CHASE follows the player through the doorway graph regardless of gaze** — the opposite of `creature_stalker.gd`'s
   "freeze while observed" rule, which would let a persistent chaser be cheesed by simply staring at
-  it. Losing the player doesn't reset straight to PATROL: `SEARCH` walks to the last-seen position
-  and scans there for `SEARCH_TIME=8s` first — the one Mr.X/Alien:Isolation lesson worth stealing,
-  since it's what makes hiding feel tense rather than a free reset. `CHASE_SPEED=5.0` sits
+  it. Losing sight of an exposed player enters `SEARCH`, walks to the last-seen position and scans
+  there for `SEARCH_TIME=8s`. **Entering a hiding spot instead clears that memory and starts
+  random wandering**, per the 2026-09-20 user ruling above. `CHASE_SPEED=5.0` sits
   deliberately between the player's walk (4.0) and sprint (6.4) — beatable only by sprinting, which
   costs `SPRINT_PANIC_RATE`. Contact within `CONTACT_DIST=1.0` is **instant-fatal**.
   ⚠️ The FOV/facing check is deliberately **horizontal-only**: dotting the creature's (horizontal)
@@ -166,7 +214,9 @@ ending at a scorched-steel Incinerator.
   action. `player.gd` gained `enter_hiding()`/`exit_hiding()`/`is_hidden()`: movement blocks via the
   existing `_input_frozen` flag, but look is exempted and clamped to a ±55° peek cone
   (`_rotate_camera`'s `_hidden` branch) instead of the full range. The
-  creature's own `_detect_player()` short-circuits `false` whenever `is_hidden()` is true
+  creature's own `_detect_player()` short-circuits `false` whenever `is_hidden()` is true.
+  The Breach also clears chase memory before movement/contact and refuses hidden contact;
+  merely suppressing sight was insufficient while relocation copied the player's position.
   - ⚠️⚠️ **THIS ENTRY CLAIMED FOOTSTEPS WERE "silenced for free by the existing `_is_moving`-gated
     chain — no separate suppression flag needed" AND THAT WAS FALSE** (corrected 2026-09-07,
     Issue 179). `_handle_footsteps()` needs only `_is_moving and is_on_floor()`, and
@@ -181,8 +231,11 @@ ending at a scorched-steel Incinerator.
   while passing through to slam it shut; `level_6_breach.gd::_tick_slam_doors()` scans every frame
   whether a closed door lies on the creature's path to its current CHASE/SEARCH/INVESTIGATE target
   (`check_blocks_path()`, a segment/AABB test) and calls `start_battering()`, which pauses the
-  creature's movement (`force_block()`, any state, no state change) for `batter_time≈10s` while it
-  "batters" the door down — a temporary delay, not a permanent block. Deliberately **not** built on
+  creature's movement (`force_block()`, any state, no state change) for a random 4–6 seconds,
+  including the supernatural interruption above — a temporary delay, not a permanent block.
+  `breach_door_scare.gd` restores torch influence via its light cull mask, preserving F-off and
+  hiding's brightness ownership; both level audio beds dip 32 dB during the nearby silence.
+  Deliberately **not** built on
   `door.gd` — its `UnlockCondition`/`extra_lock` machinery is irrelevant baggage for a non-exit door
 - **The Purge Chamber** (`purge_chamber.gd`, one-shot, at the ArchiveC↔ExitVault threshold) — the
   **only permanent win condition**. A heavier blast-door escalation of `slam_door.gd`; `interact()`
@@ -232,6 +285,11 @@ things like *"every paragraph below that says 320 m is history"*.
 Use this section only for rationale that leaves **no trace** in the level — something tried and
 abandoned. Anything describing what the level *is* belongs in SPEC.
 
+**2026-09-20 ruling.** The user rejected the repeated cabinet-return loop and chose supernatural
+interruption over physical door destruction. The old search-memory tension rule no longer applies
+after successful hiding. No panic tax, forced camera turn, new pursuer or new death path was added.
+The material pass keeps the existing mesh/skin; its realism still needs the user's judgement.
+
 ### Superseded (moved out of SPEC verbatim, 2026-09-19 audit)
 
 **1. The first portal-router fix — `PORTAL_PUSH` 0.8 m past the portal.** Superseded by SPEC's
@@ -259,13 +317,10 @@ stays in SPEC.
 
 ## NEEDS A PLAYTEST
 
-- ⚠️ **The 20-room maze (2026-09-09) is not written down anywhere in this spec.** SPEC still
-  describes the pre-rework shape — "a main spine plus two bypass loops" — while the code builds a
-  spine plus a WEST wing (Records/WestHall/ArchiveA–C + the `ExitVault` dead end) and an EAST wing
-  (EastLock, WardA, EastVault, EastHall, EastCell), and **the seal room is `ExitVault`, not the
-  Incinerator**. The counts were corrected in this audit; the prose describing the wings, the
-  decoupled exit and the backtrack to `ExitVault` still has to be written by whoever owns the
-  level (SPEC-FIRST: write it, then re-read the file).
+- Replay the shorter doors: does silence → blackout → crash feel frightening and leave enough
+  escape time? Compare the creature's revised surface under a moving torch and from a locker.
+- Hide at several spots and judge whether the wandering/relocation leaves a useful window to
+  emerge. The two-minute automated hunt proves target handling, not the player's sense of relief.
 - Walk the west wing as the creature chases: the router was measured over the **old** 13-room
   graph (`probe_breach_router_sweep.gd`, 624 traversals). Re-run it over the 20-room graph and
   confirm the two new slam doors (`Slam_ArchiveB_WardB`, `Slam_WardC_EastHall`) actually gate the
