@@ -11,6 +11,32 @@ var _audio: AudioStreamPlayer
 var _screamer_textures: Array[Texture2D] = []  # fallback pool (intro / ending)
 var _is_triggering: bool = false
 var _is_flashing: bool = false
+var _fatal_token := -1
+
+
+func _claim_fatal(reserved_token: int = -1) -> int:
+	if reserved_token >= 0:
+		return reserved_token if GameState.transition_is_current(reserved_token) else -1
+	if _lunging and GameState.transition_is_current(_fatal_token):
+		return _fatal_token
+	return GameState.begin_transition("death")
+
+
+func _clear_fatal(token: int) -> void:
+	if _fatal_token != token:
+		return
+	_black_panel.visible = false
+	_screamer_image.visible = true
+	_audio.stop()
+	_is_triggering = false
+	_lunging = false
+	_suppress_sting = false
+	_fatal_token = -1
+
+
+func _process(_delta: float) -> void:
+	if _fatal_token >= 0 and not GameState.transition_is_current(_fatal_token):
+		_clear_fatal(_fatal_token)
 
 # Per-level fatal screamer: current_level -> [image path, audio base name].
 # load_audio() resolves the base name across the audio subdirs (.wav/.ogg).
@@ -151,9 +177,13 @@ const BLACK_HOLD := 0.2
 # `with_image` false (R7, 2026-09-16, the user: "only the running animation accompanied by the
 # scream, we do not need the static image following after it"): the lunge deaths cut to black
 # and restart with no fullscreen picture — the figure at arm's length WAS the picture.
-func trigger(image_override: String = "", with_image: bool = true) -> void:
+func trigger(image_override: String = "", with_image: bool = true, reserved_token: int = -1) -> void:
 	if _is_triggering:
 		return
+	var token := _claim_fatal(reserved_token)
+	if token < 0:
+		return
+	_fatal_token = token
 	# K3 (2026-09-16, capture #6 again): while a lunge is in progress ANY death is the lunge —
 	# the condemn bar's own `add_panic()` death raced the figure and brought the picture back.
 	if _lunging:
@@ -167,11 +197,15 @@ func trigger(image_override: String = "", with_image: bool = true) -> void:
 	if image_override != "" and ResourceLoader.exists(image_override):
 		_screamer_image.texture = load(image_override)
 	await _black_then_scream(with_image)
+	if not GameState.transition_is_current(token):
+		_clear_fatal(token)
+		return
 	_suppress_sting = false
 	await get_tree().create_timer(maxf(0.0, RESTART_DELAY - BLACK_HOLD)).timeout
-	_black_panel.visible = false
-	_screamer_image.visible = true
-	_is_triggering = false
+	if not GameState.transition_is_current(token):
+		_clear_fatal(token)
+		return
+	_clear_fatal(token)
 	GameState.restart_current_level()
 
 
@@ -183,10 +217,13 @@ func trigger(image_override: String = "", with_image: bool = true) -> void:
 # ⚠️ The timer is `process_always` — `trigger()` unpauses the tree, but `trigger_to_menu()` can
 # be reached from a paused NoteUI, and a paused SceneTreeTimer here would hang on black forever.
 func _black_then_scream(with_image: bool = true) -> void:
+	var token := _fatal_token
 	_screamer_image.visible = false
 	_black_panel.visible = true
 	HoldBreath.dip(get_tree(), PRE_SCARE_SILENCE)
 	await get_tree().create_timer(BLACK_HOLD, true, false, true).timeout
+	if not GameState.transition_is_current(token) or token != _fatal_token:
+		return
 	_screamer_image.visible = with_image
 	if _audio.stream and not _suppress_sting:
 		_audio.play()
@@ -223,10 +260,14 @@ func trigger_with_lunge(tex_path: String, ahead: float = 2.2, reach: float = 0.5
 		time: float = 0.28, image_override: String = "") -> void:
 	if _is_triggering or _lunging:
 		return
+	var token := _claim_fatal()
+	if token < 0:
+		return
+	_fatal_token = token
 	var p := get_tree().get_first_node_in_group("player") as Node3D
 	var scene := get_tree().current_scene
 	if p == null or scene == null:
-		trigger(image_override)
+		trigger(image_override, true, token)
 		return
 	_lunging = true
 	get_tree().paused = false
@@ -273,13 +314,18 @@ func trigger_with_lunge(tex_path: String, ahead: float = 2.2, reach: float = 0.5
 	if p.has_method("turn_to_face"):
 		p.call("turn_to_face", spot + Vector3(0, 1.2, 0), LUNGE_TURN)
 	l.lunged.connect(func() -> void:
+		if not GameState.transition_is_current(token):
+			return
 		_lunging = false
-		trigger(image_override, false)   # R7: no static picture after the lunge
+		trigger(image_override, false, token)   # R7: no static picture after the lunge
 	)
 	await get_tree().create_timer(LUNGE_TURN, true).timeout   # scales with time_scale, like the tween
+	if not GameState.transition_is_current(token):
+		_clear_fatal(token)
+		return
 	if not is_instance_valid(l):
 		_lunging = false
-		trigger(image_override, false)
+		trigger(image_override, false, token)
 		return
 	var dir_to: Vector3 = (l.global_position - p.global_position)
 	dir_to.y = 0.0
@@ -289,9 +335,9 @@ func trigger_with_lunge(tex_path: String, ahead: float = 2.2, reach: float = 0.5
 	l.lunge_to(end, time)
 	# Safety valve: if the tween never lands (a freed scene), the funnel still runs.
 	await get_tree().create_timer(time + 0.6, true).timeout
-	if _lunging:
+	if _lunging and GameState.transition_is_current(token):
 		_lunging = false
-		trigger(image_override, false)
+		trigger(image_override, false, token)
 
 
 # image_override lets a caller force a specific fatal image regardless of the
@@ -300,6 +346,10 @@ func trigger_with_lunge(tex_path: String, ahead: float = 2.2, reach: float = 0.5
 func trigger_to_menu(image_override: String = "") -> void:
 	if _is_triggering:
 		return
+	var token := _claim_fatal()
+	if token < 0:
+		return
+	_fatal_token = token
 	_is_triggering = true
 	_log_death()
 	get_tree().paused = false
@@ -309,10 +359,14 @@ func trigger_to_menu(image_override: String = "") -> void:
 	if image_override != "" and ResourceLoader.exists(image_override):
 		_screamer_image.texture = load(image_override)
 	await _black_then_scream()
+	if not GameState.transition_is_current(token):
+		_clear_fatal(token)
+		return
 	await get_tree().create_timer(maxf(0.0, RESTART_DELAY - BLACK_HOLD), true, false, true).timeout
-	_black_panel.visible = false
-	_screamer_image.visible = true
-	_is_triggering = false
+	if not GameState.transition_is_current(token):
+		_clear_fatal(token)
+		return
+	_clear_fatal(token)
 	GameState.go_to_main_menu()
 
 

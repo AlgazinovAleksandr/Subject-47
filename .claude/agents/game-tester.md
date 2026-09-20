@@ -112,8 +112,8 @@ things worth paying attention to.
 | `tools/run_tests.sh` | The suite runner; the `TESTS` array is the index of coverage |
 | `game/tests/` | All tests. `check_*` assert, `walk_*` drive a body, `autoplay_*` drive the real player, `screenshot_*` need a display (no `--headless`) |
 | `game/tests/autoplay/autoplayer.gd` | Drives the real Player via its `ai_*` surface |
-| `ISSUES_SOLUTIONS.md` | Every hard bug, with its root cause. **Read before diagnosing.** |
+| `docs/ISSUES_SOLUTIONS.md` | Every hard bug, with its root cause. **Read before diagnosing.** |
 | `CLAUDE.md` | Design intent per level — what is deliberate and what is not |
-| `BACKLOG.md` | Outstanding player-reported items |
+| `backlogs/runs/INDEX.md` | ⚠️ **Local only.** Built/to-review triage of every run-backlog item. `backlogs/runs/BACKLOG.md` is the older superseded log. |
 | `~/Library/Application Support/Godot/app_userdata/horror_game/logs/` | Godot's own stdout logs, where `SCRIPT ERROR` + backtraces land. The Level 6 crash was found here, not by reading code |
 | `.../horror_game/playtest_log.txt` | `DebugLog`'s timeline from the last human session |

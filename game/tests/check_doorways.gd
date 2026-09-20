@@ -41,7 +41,16 @@ const GATE_SCRIPTS := [
 	"archive_gate.gd",
 ]
 # ...and node names, for gates built as bare CSG by the level itself.
-const GATE_NAMES := ["MorgueShutter", "RosterSeal", "AirlockSeal", "Shutter", "Seal"]
+# ⭐ `LoopWallPlug` (2026-09-20): the Void walls up the LoopIn <-> LoopStraight doorway on lap 2
+# of the corridor and frees it when the loop note is read. It does not exist at scene load, so
+# this sweep never meets it — the entry is here so that a future run which DOES (a snapshot
+# restored at laps >= 2) reads it as an intentional gate rather than a sealed passage.
+# ⭐ `SecretPlug` (2026-09-20 pass 4): the Void's SIXTEENTH room hangs off the Morgue's west wall
+# and its doorway is filled from `_ready()`, so unlike `LoopWallPlug` this sweep DOES meet it on
+# every run. It is freed by completing the child room's cradle and carries
+# `move_aside_instantly()`, which is how `check_reachable` probes past it.
+const GATE_NAMES := ["MorgueSeal", "MorgueShutter", "RosterSeal", "AirlockSeal", "Shutter", "Seal",
+	"LoopWallPlug", "SecretPlug"]
 
 # ---------------------------------------------------------------- the per-scene rows
 #

@@ -26,7 +26,10 @@ The parent tells you which. Never do both in one run.
 ### Mode `analyse` — produce the backlog
 
 You are given: the level number and name, its scene + script paths, the `DEBUG CAPTURE` lines from
-`playtest_log.txt`, the paths of the J screenshots, and the level's `CLAUDE.md` section.
+`playtest_log.txt`, the paths of the J screenshots, and **the level's spec**
+`spec/levels/NN-<level>.md`. ⚠️ Read the whole spec, and note that its newest dated ⭐ entries
+override the prose beneath them. (This said "the level's `CLAUDE.md` section" until
+2026-09-19; CLAUDE.md has carried no per-level sections since the spec split.)
 
 1. **Triage the J-captures first, before anything else.** Each is the user pointing at an exact
    frame in their own words. `Read` the PNG and put it next to the note text. This is the highest
@@ -72,13 +75,19 @@ You are given the approved `backlogs/NN-<level>.md` and any answers to your ques
    obvious it looks. If you find something new mid-build, add it to `## 5. Deferred` and carry on.
 2. Add or extend tests. See the verification rules below.
 3. Run `tools/run_tests.sh`. Green, or explain every red.
-4. Write any **real bug** you fixed into `ISSUES_SOLUTIONS.md` in the existing house style —
+4. ⚠️ **SPEC-FIRST — update the level's spec.** Before building, state the intended change in
+   `spec/levels/NN-<level>.md`'s **SPEC** section marked `🔨 PLANNED`; after building, drop the
+   marker and record the rationale under **DECISIONS & GOTCHAS**. A change is not finished until
+   its spec says so. See `CLAUDE.md` → SPEC-FIRST.
+5. Write any **real bug** you fixed into `docs/ISSUES_SOLUTIONS.md` in the existing house style —
    symptom, cause, fix, why existing tests missed it, general lesson. A fix that is not in that
    file gets re-debugged later.
-5. Update the backlog: item statuses, and `Status: built`.
-6. Update `CLAUDE.md`'s section for this level if behaviour changed. That file is the design
-   contract; a level whose doc lies is worse than one with no doc.
-7. Return what you built, what you measured, and what the user should look for on their
+6. Update the backlog: item statuses, and `Status: built`.
+7. ⚠️ **Re-read the whole level spec** and fix anything the change now contradicts. The spec is the
+   design contract; a level whose spec lies is worse than one with no spec. ⚠️ `CLAUDE.md` no longer
+   carries per-level sections — since 2026-09-19 it holds a 3-line index and the detail lives in
+   `spec/levels/NN-<level>.md`. Touch `CLAUDE.md` only if a level's **hard constraints** changed.
+8. Return what you built, what you measured, and what the user should look for on their
    verification replay.
 
 **Never commit.** The user commits. Do not run `git commit`, `git add`, or `git push`.
@@ -176,11 +185,12 @@ measured level**, not from a plausible-looking number.
 | Path | What |
 |---|---|
 | `CLAUDE.md` | Design intent per level. What is deliberate and what is not. Read your level's section in full. |
-| `SCARY.md` | Authoritative fear craft: P1–P11, the audio overhaul, the eleven anti-patterns, §8.4's chase-level constraint |
-| `GAME_MECHANICS_IDEAS.md` | Build status of every accepted idea, the live defects, and **§5 the rejection ledger — read before proposing** |
-| `DUNGEON_NIGHTMARES.md` | Authoritative spec for THE NIGHTMARE |
-| `ISSUES_SOLUTIONS.md` | Every hard bug and its root cause. Read before diagnosing. |
-| `BACKLOG.md` | Player-reported items, shipped and outstanding |
+| `spec/design/SCARY.md` | Authoritative fear craft: P1–P11, the audio overhaul, the eleven anti-patterns, §8.4's chase-level constraint |
+| `spec/GAME_MECHANICS_IDEAS.md` | Build status of every accepted idea, the live defects, and **§5 the rejection ledger — read before proposing** |
+| `spec/design/DUNGEON_NIGHTMARES.md` | Authoritative spec for THE NIGHTMARE |
+| `docs/ISSUES_SOLUTIONS.md` | Every hard bug and its root cause. Read before diagnosing. |
+| `backlogs/runs/INDEX.md` | ⚠️ **Local only.** Built/to-review triage of every run-backlog item |
+| `spec/levels/NN-<level>.md` | ⚠️ **The level's live spec** — read it before proposing anything, and update it when you build (SPEC-FIRST) |
 | `backlogs/` | This run's per-level docs + `00-cross-level.md` |
 | `game/tests/` | `check_*` assert · `walk_*` drive a body · `autoplay_*` drive the real player · `screenshot_*` need a display (no `--headless`) · `probe_*` throwaway |
 | `~/Library/Application Support/Godot/app_userdata/horror_game/playtest_log.txt` | The last human session |

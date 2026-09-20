@@ -55,9 +55,13 @@ fi
 # The comment after each name is what it protects; keep it accurate, it is the only
 # index of what this suite actually covers.
 TESTS=(
+  check_breach_playtest       # hidden-player forgetting, random hunt, door silence/blackout and restoration
+  check_breach_voice          # three spatial voices, silent-tail suppression, leaf recoil and hidden safety
   check_audio_buses           # the silence architecture: Body survives a dip, beds nest
   check_scare_loudness        # the stings are LOUD, and the fatal path cuts to black first
   check_creature_model        # the ASSET: six clips, no root motion, not metal, not self-lit
+  check_stalker_motion       # swept clearance, floor support, watched mesh freeze and visible lunge
+  check_transition_race      # first accepted door/death wins; stale callbacks cannot restart replacement scenes
   check_creature_anim         # the WIRING: each state's gait, and the Weeping-Angel freeze
   check_darkness              # Lab/House/KONTUR start black, the torch is infinite, no DarkZones
   check_dark_payoffs          # ...and the light EARNS its way back: 3 breakers, 3 notes
@@ -163,6 +167,9 @@ TESTS=(
   check_dungeon_map           # THE NIGHTMARE: the found map — inert until taken, draws only rooms walked, never reads a position
   check_gaze_decay            # Issue 196: a ScaryObject at intensity 0 (harmless/burnt frame) must not freeze panic decay
   check_note_audio            # 2026-09-13: a note / the journal keep the level's audio playing through the pause; panic still frozen
+  check_void_alignment       # real-ray perspective alignment, safety, restore and optional Ward interaction
+  check_void_stare           # 2026-09-20: whispers rise/fall with gaze, a 7 s stare fires ONE hallucination, panic untouched, no blink on the tiles
+  walk_void_live             # real player completes Void with all five creatures active
   walk_void                   # THE VOID (2026-09-12): spawn -> notes -> the loop sends you back, then stops -> the tiles -> twist -> exit, all through the ray
   check_void                  # THE VOID: seam keeps heading+velocity, the bridge stalker never steps (with control), 6 lethal stalkers, 9 notes, snapshot, the fall
   check_reachable             # ALL NINE levels: can the player STAND where each prop is
@@ -183,10 +190,12 @@ TESTS=(
 #                                   --script res://tests/autoplay/autoplay_dungeon.gd
 #
 # ⚠️ THE SCENE-PARAMETERISED GUARDS ARE SWEEPS NOW (2026-08-17, workstream H1), not one
-# level plus whichever wrappers somebody remembered to write. `check_wall_overlap`,
-# `check_note_mounting`, `check_art_aspect`, `check_prop_mounting`, `check_reachable` and
-# `check_shell_sealed` each iterate `game/tests/lib/scenes.gd`, which is DERIVED from
-# `GameState`'s own SCENE_* constants — so adding a level enrols it in all six with no
+# level plus whichever wrappers somebody remembered to write. NINE of them now
+# (corrected 2026-09-19; this comment said six and listed six): `check_wall_overlap`,
+# `check_note_mounting`, `check_art_aspect`, `check_prop_mounting`, `check_doorways`,
+# `check_shell_sealed`, `check_fixtures`, `check_spawn_blocked` and `check_reachable`
+# each iterate `game/tests/lib/scenes.gd`, which is DERIVED from
+# `GameState`'s own SCENE_* constants — so adding a level enrols it in all nine with no
 # wrapper to remember, and a SCENE_* constant that is neither classified as a level nor
 # excluded by name turns every one of them red. The eight wrappers they replaced
 # (check_wall_overlap_{house,corridor,backrooms}, check_note_mounting_{house,backrooms},
@@ -260,6 +269,27 @@ for t in "${TESTS[@]}"; do
 done
 
 printf -- "----------------------------------------------------\n"
+
+# ── Doc-vs-code reports (NON-FATAL, 2026-09-19) ───────────────────────────────────────
+# These are Python, not Godot, and they do NOT affect the exit code. ⚠️ That is deliberate
+# and is the whole reason they are safe to enrol: a guard that reddens the suite every time
+# someone renames a constant gets commented out within a week. These report; you read them.
+#   check_spec_claims.py    — spec claims vs the code. Measured 2026-09-19: names drift at
+#                             ~0 %, values at ~9 %, and CARDINALITY at ~80 %, which is what
+#                             the tool is really for.
+#   check_spec_freshness.py — per level, git's last code change vs its spec's last change.
+# Skipped entirely when a test filter was given, so `run_tests.sh maze` stays terse.
+if [ -z "$FILTER" ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    claims=$(python3 "$(dirname "$0")/check_spec_claims.py" 2>/dev/null | grep -E "^TOTAL [0-9]+")
+    drift=$(python3 "$(dirname "$0")/check_spec_freshness.py" 2>/dev/null | grep -E "^[0-9]+ areas" )
+    printf "spec claims   %s\n" "${claims:-(not run)}"
+    printf "spec drift    %s\n" "${drift:-(not run)}"
+    printf "              (both non-fatal — run the tool directly for the detail)\n"
+    printf -- "----------------------------------------------------\n"
+  fi
+fi
+
 printf "%d passed, %d failed" "$pass" "$fail"
 [ $missing -gt 0 ] && printf ", %d missing" "$missing"
 printf "\n"

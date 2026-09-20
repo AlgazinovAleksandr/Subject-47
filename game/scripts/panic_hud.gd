@@ -89,7 +89,30 @@ func _on_carried_changed(item: String) -> void:
 	tween.tween_property(_carry_label, "modulate:a", _CARRY_REST_ALPHA, 1.0)
 
 
+# ⭐ THE PANIC-BAR LIE (2026-09-20 — SCARY.md P8 effect 1, built for the Void's stare director).
+# The player re-drives this HUD every frame (player.gd `_update_panic` / `add_panic`), so a lie has
+# to live HERE: for `seconds` the shaders show `ratio` instead of whatever the player sends, then
+# the next real call restores the truth. Real `_panic` never moves — the WORLD lies, the RULES do
+# not (§8.6). Byte-identical behaviour while no lie is active.
+var _lie_until_ms: int = 0
+var _lie_ratio: float = 0.0
+
+
+func lie(ratio: float, seconds: float) -> void:
+	_lie_ratio = clampf(ratio, 0.0, 1.0)
+	_lie_until_ms = Time.get_ticks_msec() + int(seconds * 1000.0)
+	_apply_ratio(_lie_ratio)
+
+
+func is_lying() -> bool:
+	return Time.get_ticks_msec() < _lie_until_ms
+
+
 func set_panic_ratio(ratio: float) -> void:
+	_apply_ratio(_lie_ratio if is_lying() else ratio)
+
+
+func _apply_ratio(ratio: float) -> void:
 	if not _blur_material or not _tint_material:
 		return
 	ratio = clampf(ratio, 0.0, 1.0)

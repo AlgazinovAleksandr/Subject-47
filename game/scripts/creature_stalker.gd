@@ -15,18 +15,51 @@ const FOV_DOT := 0.55           # cos of the half-angle that counts as "looked a
 const GAZE_INTENSITY := 0.6     # mild panic while you stare it down
 const CHEST := 0.9              # ray target / facing height
 const START_GRACE := 5.0        # opening seconds where nothing hunts — time to read the room
-const STARE_OFF_TIME := 4.0     # continuous gaze to dismiss — costs 48 panic; requires nerve
+const STARE_OFF_TIME := 4.0     # continuous gaze to dismiss; panic applies within player GAZE_RANGE; the retreat itself is DEFERRED to a look-away
+
+# Void-only art and sanctuary. Other callers keep their existing visual and rules.
+@export var visual_script: Script
+@export var protected_player_rect: Rect2 = Rect2()
+var _custom_visual: Node3D
+var _scary: ScaryObject
+
+# ⭐ THE STARE (2026-09-20, the user's call after Void capture #2 — "we want those creatures to
+# move when we not look"). Two changes, both shared, both inert for callers that leave `whisper`
+# off except the first:
+#   1. A WATCHED STALKER NEVER MOVES, WITHOUT EXCEPTION. `_dismiss()` used to execute its 3 m
+#      retreat in the OBSERVED frame — the only place the rule was ever broken, and exactly the
+#      lurch the player saw. It now marks `_retreat_pending`; the first unobserved frame spends it
+#      instead of advancing. Same 4 s, same panic cost, same 3 m.
+#   2. `whisper` (opt-in): a positional loop on the body whose level rises with CONTINUOUS gaze
+#      from ANY distance with line of sight and falls when you look away. `_stare_time` is the
+#      continuous count (resets on a look-away) that the Void's stare director reads through
+#      `stare_time()`; `_whisper_level` is the rise/fall envelope that drives the audio. Neither
+#      adds panic — SCARY.md's governing finding: a scare with a number can be optimised against.
+@export var whisper: bool = false
+# ⚠️ THE USER'S NUMBERS, VOID ONLY (2026-09-20 evening grill: "not moving aggressively enough — too
+# simple to get away from them"). `level_3.gd` sets 3.0 / 2.0; the defaults keep every other caller,
+# THE NIGHTMARE included, byte-identical. Not a re-tune candidate for a subagent.
+@export var stalk_speed: float = STALK_SPEED
+@export var retreat_distance: float = 3.0
+const WHISPER_RISE := 6.0        # seconds of continuous gaze to full whisper
+const WHISPER_FALL := 2.5        # seconds to fade out after a look-away
+const WHISPER_MIN_DB := -38.0
+const WHISPER_MAX_DB := -8.0     # tools/make_sfx_void.py prints the file's RMS (-19.6 dBFS)
+var _retreat_pending: bool = false
+var _stare_time: float = 0.0
+var _whisper_level: float = 0.0
+var _whisper: AudioStreamPlayer3D = null
 
 # ── THE NIGHTMARE's "Still Ones" (DUNGEON_NIGHTMARES.md §B4.1) ──────────────────
 # CreatureStalker is ALREADY a weeping angel, which is the luckiest fit in that
 # whole proposal. These three additions port DN's skeletons on top of it.
 #
-# ⚠️ ALL THREE DEFAULT TO OFF, so the Void's four creatures are byte-for-byte
-# unchanged. Only dungeon.gd sets them.
+# ⚠️ ALL THREE DEFAULT TO OFF, so existing callers retain their encounter rules. Only dungeon.gd opts into
+# the dud and spark behaviours.
 
 # ⭐ The scrape tell: a positional loop gated on ADVANCING. This is a genuine
 # FAIRNESS UPGRADE over the Void, where the only tell is looking — consider
-# back-porting it there once it has been played.
+# the Void also enables it after its rebuild.
 @export var scrape_tell: bool = false
 
 # ⭐ The dud. ~35% of Still Ones topple with a crash when you get close and are then
@@ -88,8 +121,9 @@ func _ready() -> void:
 	# walk from the ray-hit body finds the panic source above it. ScaryObject is
 	# a plain Node and breaks the Node3D transform chain, so the body carries the
 	# world transform itself — seeded here from the scene placement, then moved
-	# directly in _process. The visual figure rides on the body so it follows.
+	# directly in physics steps. The visual figure rides on the body so it follows.
 	var scary := ScaryObject.new()
+	_scary = scary
 	scary.scare_intensity = GAZE_INTENSITY
 	add_child(scary)
 	_body = StaticBody3D.new()
@@ -121,6 +155,11 @@ enum Gait { DORMANT, WATCHED, ADVANCING }
 var _gait: int = -1
 
 func _build_visual() -> void:
+	if visual_script:
+		_custom_visual = visual_script.new() as Node3D
+		_custom_visual.name = "FracturedFigure"
+		_body.add_child(_custom_visual)
+		return
 	_anim = CreatureAnim.build(_body)
 	if _anim:
 		_apply_retint()
@@ -166,9 +205,13 @@ func _apply_retint() -> void:
 # learn. `CreatureAnim.freeze()` sets speed_scale to 0, so it stops MID-STRIDE and resumes the
 # same stride when you look away, rather than snapping to a pose.
 func _set_gait(mode: int) -> void:
-	if _anim == null or _gait == mode:
+	if _gait == mode:
 		return
 	_gait = mode
+	if _custom_visual:
+		_custom_visual.call("set_gait", mode)
+	if _anim == null:
+		return
 	match mode:
 		Gait.WATCHED:
 			_anim.freeze(true)
@@ -242,7 +285,13 @@ func _add_eye_glow() -> void:
 	_body.add_child(glow)
 
 
-func _process(delta: float) -> void:
+func _physics_process(delta: float) -> void:
+	_update_stalk(delta)
+	if _custom_visual and not _fallen:
+		_custom_visual.call("tick_gait", delta, Gait.ADVANCING if _fired else _gait)
+
+
+func _update_stalk(delta: float) -> void:
 	if _fired or _fallen:
 		return
 	_age += delta
@@ -259,11 +308,26 @@ func _process(delta: float) -> void:
 		_camera = _player.get_node_or_null("Camera3D") as Camera3D
 	if not _camera:
 		return
-
 	var cam_pos := _camera.global_position
 	var here: Vector3 = _body.global_position
 	var my_pos: Vector3 = here + Vector3(0, CHEST, 0)
 	var to_me: Vector3 = my_pos - cam_pos
+
+	# The stare: continuous gaze from ANY distance with line of sight. Feeds the whisper and the
+	# Void's director, never panic. Distinct from `_stare_off_timer`, which stays ENGAGE-gated
+	# because it drives the dismissal.
+	var looked := _looks_observed(cam_pos, my_pos, to_me)
+	_stare_time = _stare_time + delta if looked else 0.0
+	_whisper_level = clampf(_whisper_level + (delta / WHISPER_RISE if looked else -delta / WHISPER_FALL), 0.0, 1.0)
+	_tick_whisper()
+
+	var protected := protected_player_rect.has_area() and protected_player_rect.has_point(
+		Vector2(_player.global_position.x, _player.global_position.z))
+	_scary.scare_intensity = 0.0 if protected else GAZE_INTENSITY
+	if protected:
+		_set_scrape(false)
+		_set_gait(Gait.WATCHED)
+		return
 
 	# A dud topples when you get close enough to find out what it was. Checked
 	# BEFORE the engage-distance early-out, and regardless of whether it is being
@@ -283,8 +347,10 @@ func _process(delta: float) -> void:
 		# `check_creature_anim.gd` only ever tested at 4.
 		# ⚠️ It computes `observed` for the GAIT ONLY and deliberately does NOT set `_awakened`
 		# — waking a creature from 20 m would change the stalk rule itself, which is not the bug.
-		if _looks_observed(cam_pos, my_pos, to_me):
+		if looked:
 			_set_gait(Gait.WATCHED)
+		elif _retreat_pending:
+			_execute_retreat()
 		else:
 			_set_gait(Gait.DORMANT)
 		return
@@ -293,7 +359,9 @@ func _process(delta: float) -> void:
 	var forward := -_camera.global_transform.basis.z
 	var observed := los and forward.dot(to_me.normalized()) > FOV_DOT
 	if observed:
-		_awakened = true
+		if not _awakened:
+			_awakened = true
+			_note("STALKER %s awakened at %.1f m" % [name, to_me.length()])
 		_stare_off_timer += delta
 		_set_scrape(false)   # frozen while watched, so the drag stops too
 		_set_gait(Gait.WATCHED)
@@ -301,6 +369,9 @@ func _process(delta: float) -> void:
 			_dismiss()
 		return  # frozen while watched
 	_stare_off_timer = 0.0  # reset the moment the player looks away
+	if _retreat_pending:
+		_execute_retreat()   # the deferred dismissal: it moves only now that you are not looking
+		return
 	if not _awakened or not los:
 		_set_scrape(false)
 		_set_gait(Gait.DORMANT)
@@ -323,14 +394,81 @@ func _process(delta: float) -> void:
 
 	var dir := Vector3(_player.global_position.x - here.x, 0,
 		_player.global_position.z - here.z).normalized()
-	var next: Vector3 = here + dir * STALK_SPEED * delta
-	if leash.size != Vector2.ZERO:
-		next.x = clampf(next.x, leash.position.x, leash.end.x)
-		next.z = clampf(next.z, leash.position.y, leash.end.y)
-	_body.global_position = next
+	var moved := _move_safely(dir * stalk_speed * delta)
 	_body.rotation.y = atan2(dir.x, dir.z)
-	_set_scrape(true)   # advancing: the dry wooden drag is the tell
-	_set_gait(Gait.ADVANCING)
+	_set_scrape(moved.length_squared() > 0.000001)
+	_set_gait(Gait.ADVANCING if moved.length_squared() > 0.000001 else Gait.DORMANT)
+
+
+# A visibility ray is not body clearance. Sweep a slightly inset capsule and sample floor
+# under its footprint in small increments, including during a three-metre dismissal.
+func _sweep_fraction(from: Vector3, motion: Vector3) -> float:
+	var shape := CapsuleShape3D.new()
+	shape.radius = 0.295
+	shape.height = 1.68
+	var query := PhysicsShapeQueryParameters3D.new()
+	query.shape = shape
+	query.transform = Transform3D(Basis.IDENTITY, from + Vector3(0, 0.85, 0))
+	query.motion = motion
+	query.margin = 0.003
+	query.collision_mask = 1
+	query.exclude = [_body.get_rid()]
+	var space := get_world_3d().direct_space_state
+	if not space.intersect_shape(query, 1).is_empty():
+		return 0.0
+	var fractions := space.cast_motion(query)
+	return fractions[0] if not fractions.is_empty() else 0.0
+
+
+func _supported(at: Vector3) -> bool:
+	var space := get_world_3d().direct_space_state
+	for offset in [Vector3.ZERO, Vector3(0.24, 0, 0), Vector3(-0.24, 0, 0),
+			Vector3(0, 0, 0.24), Vector3(0, 0, -0.24)]:
+		var q := PhysicsRayQueryParameters3D.create(at + offset + Vector3(0, 0.15, 0),
+			at + offset - Vector3(0, 0.2, 0), 1)
+		q.exclude = [_body.get_rid()]
+		var hit := space.intersect_ray(q)
+		if hit.is_empty() or (hit.normal as Vector3).y < 0.7:
+			return false
+	return true
+
+
+func _try_step(motion: Vector3) -> bool:
+	var start := _body.global_position
+	var target := start + motion
+	if leash.has_area():
+		target.x = clampf(target.x, leash.position.x, leash.end.x)
+		target.z = clampf(target.z, leash.position.y, leash.end.y)
+	motion = target - start
+	if motion.length_squared() < 0.0000001:
+		return false
+	var fraction := _sweep_fraction(start, motion)
+	if fraction <= 0.001:
+		return false
+	target = start + motion * fraction
+	if not _supported(target):
+		return false
+	_body.global_position = target
+	return true
+
+
+func _move_safely(displacement: Vector3) -> Vector3:
+	var start := _body.global_position
+	displacement.y = 0.0
+	var steps := maxi(1, ceili(displacement.length() / 0.12))
+	var step := displacement / steps
+	for i in range(steps):
+		if _try_step(step):
+			continue
+		# Axis slides let a diagonal approach follow a wall without tunnelling through it.
+		if not _try_step(Vector3(step.x, 0, 0)) and not _try_step(Vector3(0, 0, step.z)):
+			break
+	return _body.global_position - start
+
+
+func relocate_safely(target: Vector3) -> bool:
+	_move_safely(target - _body.global_position)
+	return _body.global_position.distance_to(target) < 0.05
 
 
 # Is the player looking at us right now? Used ONLY to decide the gait beyond ENGAGE_DIST — the
@@ -356,23 +494,95 @@ func _dismiss() -> void:
 	_stare_off_timer = 0.0
 	_awakened = false
 	_set_gait(Gait.DORMANT)
+	# ⚠️ NO MOVEMENT HERE. This runs in an observed frame; the retreat waits for a look-away.
+	_retreat_pending = true
+	_note("STALKER %s dismissed — retreat pending" % name)
+
+
+func _execute_retreat() -> void:
+	_retreat_pending = false
+	_set_scrape(false)
+	_set_gait(Gait.DORMANT)
 	if _player:
 		var away := Vector3(_body.global_position.x - _player.global_position.x,
 			0, _body.global_position.z - _player.global_position.z).normalized()
-		_body.global_position += away * 3.0
+		_move_safely(away * retreat_distance)
+	_note("STALKER %s retreated" % name)
+
+
+func stare_time() -> float:
+	return _stare_time
+
+
+func whisper_level() -> float:
+	return _whisper_level
+
+
+func retreat_pending() -> bool:
+	return _retreat_pending
+
+
+func _note(msg: String) -> void:
+	var dbg := get_node_or_null("/root/DebugLog")
+	if dbg:
+		dbg.note(msg)
+
+
+# The whisper loop. Every .wav.import in this project is loop_mode=0, so the loop is re-triggered
+# from `finished` (the scrape's idiom). Level and pitch ride `_whisper_level`; silent at zero.
+func _tick_whisper() -> void:
+	if not whisper:
+		return
+	if _whisper == null:
+		var s := GameState.load_audio("stalker_whisper")
+		if s == null:
+			whisper = false
+			return
+		_whisper = AudioStreamPlayer3D.new()
+		_whisper.name = "StalkerWhisper"
+		_whisper.stream = s
+		_whisper.unit_size = 10.0
+		_whisper.max_db = 0.0
+		_whisper.volume_db = WHISPER_MIN_DB
+		_whisper.position = Vector3(0, CHEST, 0)
+		_body.add_child(_whisper)
+		_whisper.finished.connect(_whisper.play)
+	if _whisper_level <= 0.0:
+		if _whisper.playing:
+			_whisper.stop()
+		return
+	if not _whisper.playing:
+		_whisper.play()
+	_whisper.volume_db = lerpf(WHISPER_MIN_DB, WHISPER_MAX_DB, _whisper_level)
+	_whisper.pitch_scale = lerpf(1.0, 0.8, _whisper_level)
 
 
 func _lunge() -> void:
 	if not lethal:
 		_startle()
 		return
+	var token := GameState.begin_transition("death")
+	if token < 0:
+		return
 	_fired = true
 	_set_scrape(false)
+	_note("STALKER %s lunge" % name)
 	# The last thing you see is it coming at full tilt, not mid-shuffle.
 	if _anim:
 		_anim.play(CreatureAnim.CLIP_CHARGE, 1.4, 0.05)
-	global_position = _camera.global_position - _camera.global_transform.basis.z * 0.3
-	Screamer.trigger()
+	if _custom_visual:
+		_custom_visual.call("attack")
+	# The ScaryObject parent breaks the outer spatial chain; animate the INNER body.
+	if _player.has_method("freeze_input"):
+		_player.call("freeze_input")
+	_player.velocity = Vector3.ZERO
+	var end := _camera.global_position - _camera.global_transform.basis.z * 0.55
+	end.y = _body.global_position.y
+	var tw := create_tween()
+	tw.tween_property(_body, "global_position", end, 0.18)
+	await tw.finished
+	if GameState.transition_is_current(token):
+		Screamer.trigger("", true, token)
 
 
 # The non-lethal catch: announce it (the level owns the flash and the panic), then fall over
@@ -449,7 +659,7 @@ func on_spark(spark_pos: Vector3) -> void:
 	var dir := Vector3(spark_pos.x - here.x, 0.0, spark_pos.z - here.z)
 	if dir.length() < 0.05:
 		return
-	_body.global_position = here + dir.normalized() * SPARK_STEP
+	_move_safely(dir.normalized() * SPARK_STEP)
 
 
 func has_fallen() -> bool:

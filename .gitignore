@@ -16,6 +16,7 @@ export_presets.cfg
 *.blend2
 
 ARTICLE.md
+article/
 
 # Python
 __pycache__/
