@@ -259,7 +259,10 @@ func _run() -> void:
 		% ("none" if still_lying.is_empty() else ", ".join(still_lying)), still_lying.is_empty())
 	_ok("…and all three sockets come back filled",
 		(_level.get_node("AlignmentKeystone").call("sockets_filled") as Array) == [true, true, true])
+	# ⭐ pass 4: the plate is the HIDDEN NOTE'S now, so what a snapshot has to carry is that the
+	# page was read — `_notes_read` and the `hidden_note_read` key — not that the cradle was done.
 	_ok("navigation restore keeps the twist note exposed", _level.get_node_or_null("SanctumPlate") == null)
+	_ok("…and the secret wall stays open across the return", bool(_level.call("secret_open")))
 
 	# ⭐ Coming back through the ending's door with a CLEARED snapshot. This is the case the
 	# early `data.is_empty()` return used to swallow: the plate came back over a note the
@@ -597,7 +600,33 @@ func _chain() -> void:
 		and not bool(_level.call("has_shard"))
 		and String(root.get_node("GameState").get("carried_item")) == "")
 	await create_timer(1.4).timeout
-	_ok("completing the cradle retracts the stone plate", _level.get_node_or_null("SanctumPlate") == null)
+	# ⭐ 2026-09-20 pass 4 — THE CHAIN GAINED A LINK AND THIS IS WHERE IT MOVED. The cradle no
+	# longer retracts the stone plate: it opens a sixteenth room behind the Morgue's west wall,
+	# and the page at the end of THAT is what moves the stone. No new unlock condition was added;
+	# `ExitDoor` still waits on `TWIST_READ` alone.
+	_ok("completing the cradle does NOT retract the stone plate any more",
+		_level.get_node_or_null("SanctumPlate") != null)
+	_ok("…it opens the Morgue's west wall instead (measured with a ray, not a flag)",
+		bool(_level.call("secret_open"))
+		and _level.get_world_3d().direct_space_state.intersect_ray(
+			PhysicsRayQueryParameters3D.create(Vector3(-20.4, 1.0, 47.5),
+				Vector3(-21.6, 1.0, 47.5), 1)).is_empty())
+	_ok("…and the plate's line becomes a POINTER rather than a refusal (Issue 226)",
+		String(_level.get_node("SanctumPlate").call("prompt_text"))
+			== "Something else was opened instead.")
+
+	# The page behind the frames is what does it. Driven through the note's own `interact()`,
+	# with the hands already empty (three anchors seated, the shard spent) — which is the state
+	# anyone standing at the corridor's end is in.
+	var hidden = _level.call("hidden_note")
+	hidden.call("reveal")
+	_ok("the hidden page accepts E once everything is put back (prompt '%s')"
+		% hidden.call("prompt_text"),
+		String(hidden.call("prompt_text")) == "E — Read the page.")
+	hidden.call("interact")
+	root.get_node("NoteUI").call("_close")
+	await create_timer(1.4).timeout
+	_ok("reading it retracts the stone plate", _level.get_node_or_null("SanctumPlate") == null)
 	_place(Vector3(-16.0, 0, 26.1), twist.global_position)
 	await _ticks(3)
 	_ok("…and the twist note is now what the ray finds", _player.call("ai_interact_target") == twist)

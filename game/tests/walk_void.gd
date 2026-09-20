@@ -193,10 +193,31 @@ var _steps: Array = [
 	{"check": "sanctum_unsealed"},
 	{"walk": Vector3(-14.0, 0, 42.5)}, {"walk": Vector3(-14.0, 0, 40.9)},
 	{"walk": Vector3(-14.0, 0, 36.5)}, {"walk": Vector3(-14.0, 0, 33.0)},
-	{"walk": Vector3(-14.0, 0, 29.5)}, {"walk": Vector3(-14.0, 0, 27.9)},
+	# ⚠️ AND THE STARE HAPPENS AT (-12.6, 26.6), NOT AT (-14, 27.9). `{"stare"}` STOPS the walker
+	# for 4.2 s, and (-14, 27.9) is 1.15 m south of creature E's leash edge (z 29.95) and dead in
+	# line with the child room's doorway — so E, unobserved because the walker is staring at F,
+	# walked through the opening and lunged. Measured: `CreatureE awakened at 2.1 m` then
+	# `CreatureE lunge`, 3 deaths in 9 live runs, all at this leg, once pass 4's route added a
+	# second pass through that room. From (-12.6, 26.6) the line back to E crosses z 29.5 at
+	# x -12.29, OUTSIDE the 1.8 m opening (x -14.9..-13.1): E has no line of sight, and
+	# `creature_stalker` does not advance without one. F is 4.0 m away — outside `GAZE_RANGE` 3.0,
+	# which the stare stance must be or 4.2 s of staring is 50 panic on its own.
+	{"walk": Vector3(-14.0, 0, 29.5)}, {"walk": Vector3(-13.4, 0, 27.6)},
+	{"walk": Vector3(-12.6, 0, 26.6), "exact": true},
 	{"check": "exit_locked_before_twist"},
 	{"stare": "F"},
-	{"walk": Vector3(-16.0, 0, 26.1), "exact": true},
+	# ⚠️ READ THE TWIST NOTE FROM THE SOUTH-EAST, NOT FROM IN FRONT OF THE CREATURE. The note
+	# hangs at (-17.84, 24.5) on the Sanctum's west wall and creature F stands at (-16.0, 24.5),
+	# 1.84 m in front of it — "make space with a stare, then turn" is the level's own beat and
+	# stays. But the old approach stance was 1.6 m from F against CONTACT_DIST 1.25, and the walk
+	# turns AWAY from F to aim at the note, which unfreezes it: measured 3 deaths in 9 live runs
+	# at exactly this leg once pass 4's longer route changed the arrival timing. The stance is now
+	# 2.34 m from F and 2.43 m from the note (INTERACT_RANGE is 3.0), reached round the east side
+	# so no leg passes inside 2.3 m of F, and the ray to the note runs AWAY from it.
+	# ⚠️ The stare itself stays at 4.7 m, OUTSIDE `GAZE_RANGE` 3.0: staring from the read stance
+	# would be 12 panic/s for 4.2 s, which is exactly PANIC_MAX. The bot would die of the fix.
+	{"walk": Vector3(-12.9, 0, 23.4)}, {"walk": Vector3(-13.6, 0, 21.6)},
+	{"walk": Vector3(-16.8, 0, 22.3), "exact": true},
 	{"read": "TwistNote"},
 	{"check": "twist_read"},
 	{"walk": Vector3(-14.0, 0, 21.2)},
