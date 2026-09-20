@@ -169,6 +169,7 @@ TESTS=(
   check_note_audio            # 2026-09-13: a note / the journal keep the level's audio playing through the pause; panic still frozen
   check_void_alignment       # real-ray perspective alignment, safety, restore and optional Ward interaction
   check_void_stare           # 2026-09-20: whispers rise/fall with gaze, a 7 s stare fires ONE hallucination, panic untouched, no blink on the tiles
+  check_void_frames          # 2026-09-20 pass 4: THE HALL OF FRAMES — six seeded scrambles solvable, a wrong step never strands, the note refuses while carrying, the figure is a photograph
   walk_void_live             # real player completes Void with all five creatures active
   walk_void                   # THE VOID (2026-09-12): spawn -> notes -> the loop sends you back, then stops -> the tiles -> twist -> exit, all through the ray
   check_void                  # THE VOID: seam keeps heading+velocity, the bridge stalker never steps (with control), 6 lethal stalkers, 9 notes, snapshot, the fall

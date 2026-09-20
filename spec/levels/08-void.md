@@ -13,9 +13,10 @@
 2026-09-19 playtest, on the 13:10 one, and on the 15:00 one that completed the level. The textures,
 music, violet vignette and the crossing are the user's and stay.
 
-- **Layout:** 15 abutting rooms, 14 doorways: Threshold → Hall1 (PocketA trap) → Ward (Archive dead
-  end) → LoopIn → LoopStraight → LoopOut → Hall2 → TileHall → Morgue → Hall3 (PocketB trap) →
-  ChildRoom → Sanctum. The Morgue is **12 × 10 (x −21..−9, z 42.5..52.5)** since 2026-09-20 — the
+- **Layout:** **16** abutting rooms, **15** doorways (2 gated): Threshold → Hall1 (PocketA trap) → Ward
+  (Archive dead end) → LoopIn → LoopStraight → LoopOut → Hall2 → TileHall → Morgue (→ **FrameHall**, the
+  secret room west of it, x −27..−21, z 44..50, its doorway at (−21, 47.5) plugged from frame 0 until
+  the cradle) → Hall3 (PocketB trap) → ChildRoom → Sanctum. The Morgue is **12 × 10 (x −21..−9, z 42.5..52.5)** since 2026-09-20 — the
   TileHall's x = −9 wall and Hall3's z = 42.5 wall are shared exactly. The ChildRoom is **8 × 7
   (x −18..−10, z 29.5..36.5)** since pass 3, the Sanctum's x span exactly, so the shared z = 29.5
   plane is one interval and RoomBuilder emits one wall where it used to emit two (measured: 145 →
@@ -98,8 +99,10 @@ music, violet vignette and the crossing are the user's and stay.
   unfolds under reveal lighting with a delayed stone reply. Non-lethal, one-shot, the floor and
   camera never move.
 - **The Morgue:** the inverted slab (its collider is three shapes, so the 1.91 m underside is real
-  headroom), the dead monitor on the north wall, the note on the west wall, a drawer bank along the
-  north wall and one impossibly long pulled drawer on the floor. The hollow on the slab's underside
+  headroom), the dead monitor on the north wall, the note on the west wall **2.5 m south of its centre**
+  (the secret doorway sits at the centre — Issue 236), a drawer bank along the north wall — **one drawer
+  starts pulled out** (not the page's) so the bank visibly has a moving part — and one impossibly long
+  pulled drawer on the floor. The hollow on the slab's underside
   holds a **torn page** at (−13.1, 1.84, 45.5) — a fragment of the twist note, laid flat against the
   underside — so the "E under the slab with your back to D" beat survives the shard moving out.
 - **SEARCH (pass 3):** the bank's **seventeen fronts open on E**, once each, sliding out 0.35 m over
@@ -122,10 +125,37 @@ music, violet vignette and the crossing are the user's and stay.
   LoopIn frame has no area — so it bypasses nothing and is the relief valve for the anchors' return
   trips. It cannot strand anyone behind the corridor's lap-2 plug: reaching Hall2 at all means
   passing the z 32 seam, which sends you back every time until the loop note is read. Zero panic.
-- **The far-wing chain:** the shard fits the child room's cradle (E on the cradle body beside creature
-  E; without the shard the prompt says something is missing); completing it tweens the slats level and
-  retracts `SanctumPlate`, the stone cover over the Sanctum's twist note (layers 1|2, prompt *"The
-  stone will not move."*, `move_aside_instantly()` for the reachability guard). It never blocks a doorway.
+- **The far-wing chain (pass 4):** the shard fits the child room's cradle (E on the cradle body beside
+  creature E; without the shard the prompt says something is missing). Completing it tweens the slats
+  level and **the cradle GIVES**: a 0.6 s `HoldBreath` dip, then a sixth fractured figure with no rules,
+  no collider and no AI rises through the cradle and lunges to 0.6 m in front of the camera over 0.35 s
+  with `cradle_sting` on Master (the loudest thing in the level; Ambience is ducked under it), then is
+  gone — zero panic, one-shot, never replayed by a restore, creature E held off (`protected_player_rect`
+  = the child room) for the lunge + 1 s. Three things answer it: `SecretPlug` frees with a distant
+  `stone_grind` from the Morgue's west doorway; the child room's crayon drawing becomes, when you look
+  away, a plan with one door marked in red (`void_child_drawing_plan.png`); and `SanctumPlate`'s prompt
+  becomes *"Something else was opened instead."* The plate (layers 1|2, `move_aside_instantly()` for
+  the reachability guard) is retracted by the **hidden note** at the end of the Hall of Frames, read
+  only **empty-handed** (three anchors seated, the shard spent — already mandatory, so no new gate;
+  it refuses by name otherwise). `TWIST_READ` and the exit door are untouched. It never blocks a doorway.
+- **THE HALL OF FRAMES** (`void_frame_hall.gd`, in `FrameHall`): five upright violet frames, each
+  holding a small diorama of a thing met earlier in its room's family — hung shards (violet), the
+  folded frame (bone), the legs-up table (rust), the fused chairs (verdigris), the ceiling stair (tar).
+  Step through them in the order you first met them (Threshold → Ward → Archive → LoopIn → Hall1),
+  with the step-through's 1.2 s dwell. **Right:** you drop out of the next frame, the lamp gains 0.15,
+  `frame_tone` rises an interval, every whisper hushes a second. **Wrong:** you drop back out with a
+  slam, the lamp dies for 2 s, the frames re-scramble — in PAIRS, each pair only while neither is in
+  view, because no arrangement of five frames in a 6 × 6 room has a free bearing (Issue 241) — and
+  the cradle figure stands in a diorama one frame nearer, behind you for one frame every third wrong
+  step. **Finish:** `frame_settle`, the five frames slide into one line, a corridor, the dioramas
+  shrink away — the pieces finally agree — and the hidden note stands at its end. Zero panic, no fail
+  state, retryable; brute force ≤ 15 dwells.
+- **The Ward touch answers across the room:** E on the left folded frame arms it; the moment you look
+  away — only while you are still in the Ward — the RIGHT frame, five metres off, changes shape (yaw
+  0.9, tilt 0.35, lifted 0.3 m) with a stone grind from it. The bed slat never moves. Hall2's flat
+  doorframe reacts to a dwell (its bars tilt toward the black over the 1.2 s and snap back on exit);
+  the LoopIn twin does not. The loop swaps ONE object per lap against a remembered baseline (P.T.'s
+  tell): lap 1 a stain at z 27 becomes a hung chair leg, lap 2 a hand-sized page.
 - **Props, all Void-native and matte:** the folded frames (Ward), a stair into the ceiling (Hall1), a
   doorframe lying flat over black (Hall2) **and its twin in LoopIn, which is where the first one puts
   you**, chairs fused into the wall (LoopIn), a table legs-up (Archive), a heap of doors (Hall3),
@@ -135,7 +165,7 @@ music, violet vignette and the crossing are the user's and stay.
   assigned by room** — bone, rust, verdigris, violet stone, tar (`void_fragments.gd:PALETTE`): Ward
   bone, Archive rust, LoopIn verdigris, Morgue slab bone + drawers rust, child room bone, Hall3 heap
   mixed, Hall1 stair and Hall2 doorframe tar, shards violet; the figures keep their own dark stone,
-  and the Ward's lamp is desaturated to (0.85, 0.75, 1.0) so bone can read under it. Textures `void_sheet`,
+  and the Ward's lamp is desaturated to (0.85, 0.75, 1.0) so bone can read under it. The wall texture's Gemini sparkle is cloned out (Issue 235). Textures `void_sheet`,
   `void_child_drawing`, `void_monitor_face`, `void_face`, `void_door` — every one made for this level;
   the echoes of earlier levels survive only in the notes' text.
 - **The exit assembles itself (pass 3):** `void_exit_door.gd` (a `door.gd` subclass, on the ExitDoor
@@ -159,9 +189,9 @@ music, violet vignette and the crossing are the user's and stay.
   `stone_grind` and the shared `footstep`; pass 3 adds `drawer_pull` on each drawer, `frame_drop` at
   the step-through's destination, `paper_drop` on the shard's reveal and `stone_grind` on the exit's
   assembly. ⚠️ Every gain is set from the file's measured RMS, never from a plausible number.
-- **Notes/zones:** **eleven** notes — nine on walls at 1.3 m (five safe, three read-to-die traps, one
-  twist) plus pass 3's two Morgue pages, which are flat rather than hung (the slab's torn fragment and
-  the page standing in a drawer). Two `DarkZone`s (the 12 × 10 Morgue, the 8 × 7 ChildRoom),
+- **Notes/zones:** **twelve** notes — nine on walls at 1.3 m (five safe, three read-to-die traps, one
+  twist), pass 3's two Morgue pages (the slab's torn fragment, the page standing in a drawer) and pass
+  4's hidden note at the end of the settled hall. Two `DarkZone`s (the 12 × 10 Morgue, the 8 × 7 ChildRoom),
   `DreadFarWing` over the far wing, `CalmThreshold` at the entrance. Fatal: creature contact, the abyss, a trap note read to the end, full panic.
 - **Progress:** `save_progress()` stores notes read, loop state and laps, the solved views, the spent
   reveal, the Ward frame's armed/spent, `shard_taken`, `cradle_done`, the spent rearrangers and — since
@@ -181,6 +211,13 @@ music, violet vignette and the crossing are the user's and stay.
   `VOID exit door ASSEMBLING`.
 
 ### Verification
+
+**Pass 4 measured (2026-09-20, the builder; the parent's re-run is in DECISIONS):** `check_void` 142/0 ·
+`check_void_frames` 75/0 over six seeds · `check_void_alignment` 128/0 · `walk_void` 93/0 ·
+`walk_void_live` 95/0, twelve consecutive green runs · `check_transition_race` 29/0 · wall-overlap
+**150 CSG boxes / 41 flat / 415 solid**, 0 findings · shell 231 points, 0 escaping, sealed at frame 0
+with the plug in · **15 doorways, 2 gated** · reachable **555.2 m², 42 targets, 38 reachable, 3 inert,
+1 contained, 0 unreachable** · **12 notes** · 26 art samples · full suite **120 / 0**.
 
 **Pass 3 measured (2026-09-20):** `check_void` 93/0 · `check_void_alignment` 121/0 · `walk_void` 78/0
 (0 stalls) · `walk_void_live` 81/0 with the real E exit into `ending.tscn` through the 1.2 s assembly ·
@@ -214,99 +251,27 @@ observed frame on both paths; a 3.0 stalker covers 2.4× the default per tick, t
 2026-09-20 evening: **119 passed / 0 failed**. `probe_void_view_region.gd` is the instrument the
 tolerances came from and is kept outside the suite.
 
-### 🔨 PLANNED — 2026-09-20 pass 4 (the 18:30 run: completed, 0 deaths, four captures)
-
-Evidence: `backlogs/captures/08-void-2026-09-20d/`. An Opus research menu (games in this level's vein)
-fed a grill; the user chose item by item. Rulings and numbers in DECISIONS & GOTCHAS. ⚠️ This pass
-knowingly reverses `GAME_MECHANICS_IDEAS.md` §7.3 Q5's *proposed* "cut the Void minigame"; the surviving
-half of that reasoning — never the House's genre again — is honoured.
-
-- **The cradle GIVES.** Completing the cradle fires a survivable, zero-panic in-world scare: a sixth
-  fractured figure with no rules, no collider and no AI rises through the cradle and lunges to 0.6 m in
-  front of the camera over 0.35 s with a loud positional `cradle_sting` (never the fatal screamer
-  sound), after a 0.6 s `HoldBreath` dip, then is gone. Creature E is held off (`protected_player_rect`
-  = the child room) for the lunge + 1 s so a blinded player cannot be coin-flipped (§8.11). One-shot;
-  a restore never replays it. Replaces: a slat tween and a plate retracting two rooms away.
-- **A secret door that did not exist.** A sixth-room `FrameHall` (x −27..−21, z 44..50) abuts the
-  Morgue's west wall with a doorway at (−21, 47.5) plugged from `_ready()` by `SecretPlug` (the loop
-  plug's pattern, 0.2 × 3.3 × 1.80 in the wall material; the doorway's 4 mm floor bridge hidden until
-  then) so the shell is sealed from frame 0. The plug frees on the cradle with a distant `stone_grind`;
-  the child room's crayon drawing rearranges when you look away into a plan with one door marked; the
-  Sanctum plate's prompt becomes *"Something else was opened instead."* Doorways 14 → 15, 2 gated.
-- **THE HALL OF FRAMES.** Five upright doorframes in the new room, each framing a small diorama of a
-  thing met earlier, in that room's family — hung shards (violet), the folded frame (bone), the legs-up
-  table (rust), the fused chairs (verdigris), the ceiling stair (tar). Step through them in the order
-  you first met them (Threshold → Ward → Archive → LoopIn → Hall1) with the step-through's 1.2 s dwell.
-  **Right:** you drop out of the next frame, the room's lamp gains a step, `frame_tone` rises an
-  interval, the whisper hushes a beat. **Wrong:** you drop back out of the frame you entered with a
-  slam, the lamp dies for 2 s, the frames re-scramble when you next look away, and the cradle figure
-  stands in a diorama one frame nearer each time — on the third wrong step, 1.2 m behind you for one
-  frame. **Finish:** the frames slide into one line, a corridor, with the hidden note at its end. Zero
-  panic, no fail state, retryable; brute force is a floor (≤ 15 tries), not a wall. It makes the
-  step-through load-bearing.
-- **The hidden note moves the stone.** A safe, journal-kept note at the corridor's end, readable only
-  **empty-handed** (three anchors seated, the shard spent — already mandatory, so no new gate; the
-  prompt refuses by name otherwise). Reading it retracts `SanctumPlate`; the cradle no longer does.
-  `TWIST_READ` and the exit door are untouched. One note points, one moves the stone, one reveals.
-- **The Ward touch answers across the room.** Touching the left folded frame makes the RIGHT one, five
-  metres away, change shape the moment you look away — only while you are still in the Ward, with a
-  stone grind from it — a larger transform than before. The bed slat never moves.
-- **Discoverability, structurally.** One Morgue drawer (not the page's) starts pulled out; Hall2's
-  flat frame reacts to a dwell (its slabs tilt toward the black over the 1.2 s and snap back on exit — a
-  diegetic affordance, not a §8.2 readout); the secret door's site brings you back past the drawers.
-- **P.T.'s swap in the loop:** lap 1 swaps one corridor stain for a hung chair leg at the same spot;
-  lap 2 swaps it for a hand-sized page. One discrete object change per lap, against a remembered
-  baseline. Zero panic.
-- **The wall texture's Gemini sparkle is cloned out** (`wall_void.png`, bottom-right; the floor was
-  clean).
-- Proves: `check_void` — the room is sealed at frame 0, the plug frees on the cradle, the lunge fires
-  once with E protected and `_panic` unchanged (control: unprotected E lunges), the drawing rearranges,
-  one drawer open at start, the Hall2 frame reacts and the LoopIn twin does not, the loop swap per lap;
-  new `check_void_frames` in the maze-tester shape — N seeded scrambles solvable, a wrong step never
-  strands, dwells reachable from a human stance, the finish reachable, the note refuses while carrying
-  (control), the figure never has a collider; `walk_void`/`walk_void_live` — the new route through the
-  hall to the ending; `check_reachable` (`SecretPlug` gate), `check_doorways` (15, 2 gated),
-  `check_shell_sealed`, `check_wall_overlap`, `check_note_mounting`; screenshots read as images.
-
 ## NEEDS A PLAYTEST
 
-Three passes on 2026-09-20 were verified by guards, a coverage probe and screenshots; the pass-2 build
-was **hand-played to the ending at 15:00** (564 s, two panic deaths, both from close stare-offs in the
-dread wing, neither complained about) and pass 3 answers that run. **Pass 3 has not been hand-played.**
-What it needs a human for, first:
-- **The walking cost of one anchor at a time.** Three objects, one pair of hands, three sockets on the
-  causeway: the handle is ≈ 100 m from its socket, the slat ≈ 80 m (and the step-through takes 30 m of
-  that off the way back), the latch 8 m. Measured on the walk bot, not on a human. If it reads as
-  errands rather than as a quest, the fix is to let the player carry all three — one line in
-  `take_anchor()` — and nothing else in the design depends on the restriction.
-- **The tar handle as a keystone.** It is the dimmest of the three seated objects (tar's palest slot
-  is albedo 0.17, and this level has no emission to spend), so it reads as a dark silhouette inside a
-  bright violet socket. The other two (bone slat, verdigris latch) read as objects. **Resolved the
-  same hour: the handle moved to the violet family** (the door view's own tint) and re-shot — it reads.
-- **Whether anybody searches seventeen drawers.** Sixteen are empty by design. Nothing hints the
-  seventeenth, and the page in it is the only pointer to the Archive — the shard is findable without
-  it (the Archive is on the way), but a player who misses both walks the far wing twice.
-- **The step-through**, which is unsignposted by design: standing still in a doorway on the floor for
-  1.2 s is a thing nobody does by accident. The latch lying inside it is the teacher.
-
-Verdicts from the 15:00 run, all now built: the three viewpoints were found in nine seconds and the
-identical keystones read as buttons ("*too simple… make it more like a quest*"); the child room was too
-small to move in; the shard was seven seconds from its cradle ("*make it somewhere at the beginning…*");
-the final door wanted an animation; the level wanted one or two more sub-challenges. Still open from
-earlier passes:
-- **The three memories.** Whether a human finds the spine tile, the island and the south-branch tile
-  as "places", and whether a bed that can read as a bench at first glance is enough of a bed.
-- **3.0 m/s.** Whether the stalkers now read as dangerous to pass, and whether B in the Ward — 2.6 m
-  from first sight, 0.4 s to contact at this speed — is a lesson or a wall.
-- **The mask** at play distance, and the human face on it: judged from screenshots at 2.5 and 5 m.
-- **The loop's returns** — the flicker, the slam, the grind, the whisper from both ends, the echo —
-  gains set from files, never heard in a room. And whether the corridor now feels closed behind you.
-- **The palette** under each room's lamp, and the desaturated Ward lamp.
-- **The eyelids** — 0.12 / 0.25 / 0.20 s, and the one-frame figure as they part.
-- **The far wing's panic economy** — now measured on a human: 95 % at the Morgue note after 25 s of
-  stare-off cycles with D at 2.5–4.5 m, and 85 % carried out of the child room after 50 s with E, then
-  a death on the west pad. `DreadFarWing` cancels decay, so every close stare is permanent. The user
-  asked for harder, not easier, and did not flag either death; no constant moved.
+Four passes on 2026-09-20; the first three were hand-played the same day (the third and fourth runs
+completed the level). **Pass 4 has not been hand-played.** What it needs a human for:
+- **The cradle's giving scare** — the sting sits on Master under a `HoldBreath` dip, the figure lunges to
+  0.6 m; judged from a guard and a screenshot, never felt. And whether the three answers (the distant
+  grind, the drawing's plan, the plate's new line) send you to the Morgue's west wall.
+- **THE HALL OF FRAMES** — whether the answer (the order you met the things) is discoverable, whether the
+  wrong-step ladder keeps tension or reads as punishment, whether the pairwise re-scramble is ever seen
+  (it must not be), whether the tar diorama reads as a ladder or a hole, and how many dwells a human
+  needs (the bot: five; brute force: fifteen).
+- **The hidden note** — whether "put everything back" lands as the ending's meaning or as a refusal.
+- **The Ward touch** — five metres across the room, with a grind; nobody has turned round to it.
+- **Whether the drawers and the step-through are found now** — one drawer starts open, Hall2's frame
+  reacts, and the hall makes the verb load-bearing; the 18:30 run found neither.
+- **A hazard the bot found**: standing still just south of the child room's doorway with your back to
+  E is inside E's reach through the opening (Issue 239). The 15:00 human survived that spot; watch the
+  log for `CreatureE lunge` near z 28–29.
+- **Audio** — every gain from a file's RMS; the whisper hush on a right step is unasserted.
+- Still open from earlier passes: the far wing's panic economy (the user's ruling: keep), one anchor
+  at a time (kept for a playtest), the loop's return sounds.
 
 ## DECISIONS & GOTCHAS
 
@@ -394,6 +359,56 @@ pieces they gate (229) — occlusion is a camera fact.
 file gets the quietest gain), the south whisper rides C's level over the same −38…−8 dB window, the
 footstep echo uses `unit_size 2.0 + max_db 0` so at its fixed 2 m the gain is exactly 1.0. None heard
 in a room.
+
+### Built 2026-09-20 — pass 4 (one level-improver; the parent's assets, guard, docs)
+
+**Measured.** FrameHall added +7 CSG boxes exactly (its floor, ceiling, three walls, the new bridge, and
+the Morgue's x = −21 wall split by the doorway): 150 / 41 / 415. Reachable 555.2 m² (was 527.9), 42
+targets. The hall's shells stand on end via Rx(−π/2) + a 1.17 lift (opening y 0.12–2.22, width 0.92);
+backdrops 1.40 × 2.20 at y 0.10–2.30 (a 2.50 quad dips into the floor slab). Lamp 0.25 + 0.15 per right
+step → 1.00 at five. Gains from the files: `cradle_sting` −10.09 dBFS RMS → **−3.0 dB / unit 4.0 on
+MASTER** (at 0.6 m the distance gain clamps at +3, so the effective level is 0 dB and its −1.01 peak
+sits on the ceiling without clipping; Ambience is where `HoldBreath` ducks to −30, so a sting there
+would land inside its own silence — `screamer.gd` routes the same way); `frame_tone` −7.5 / 4.0 at
+pitch 1.0 / 1.125 / 1.25 / 1.5 / 2.0; the hall's `loop_slam` −6.0 / 3.0; `frame_drop` −10.5 / 4.0;
+`frame_settle` −5.5 / 6.0; the secret door's `stone_grind` −6.0 / unit 8.0 ≈ −11 dB at the 14.2 m from
+the cradle — a distant answer. Panic from everything in the pass: **0**, asserted with `RandomAmbient`
+unregistered (Issue 240). Five positive controls run red then green: the plug removed, E's rect not set,
+a collider on the figure, the note's refusal removed, the re-scramble's observation check removed.
+
+**The parent's re-run (2026-09-20 night, after the hand-back).** `check_void_frames` **75 / 0 over six
+seeds** (registered in `tools/run_tests.sh` after `check_void_alignment`) · `check_void` 142 / 0 ·
+`walk_void_live` 95 / 0 · full suite **121 passed, 0 failed** · 65 screenshots regenerated, ten read as
+images (the settled corridor, the figure in a frame, the plan drawing, the answered Ward frame, the open
+doorway, the hidden note's prompt, the bone and tar dioramas, the open drawer, the clean wall). ⚠️ One
+positive control was re-run by the parent rather than trusted: with both `return`s removed from
+`void_hidden_note.gd:interact()` the harness reddened on exactly "…and E opens nothing" and "…and the
+stone has not started moving" (29 checks, 2 failed), green again with the file restored byte-identical.
+The first attempt at that control matched nothing and ran the unmodified file green — a control that
+never modified the code proves nothing, so check the diff is non-empty before reading the result. The
+claim checker's two `COUNT?` rows were the 2026-09-19 audit paragraph below, corrected to 16 / 15.
+
+**Rulings on the builder's questions.** The tar diorama is the dimmest of the five and reads as a
+ladder silhouette — **left**: it is correct (Hall1's stair is tar), and lightening one backdrop would
+cost the one-family-per-room rule its meaning; the honest lever is the hall lamp's base. The wrong-step
+figure escalates **every third** wrong step, not once — a player who keeps flailing keeps being
+answered. The settle **frees the dioramas** (a 0.5 s shrink under the 1.6 s settle) — otherwise the
+corridor is five blocked holes; "the pieces finally agree" is the reading. The shells are **violet, not
+tar**: tar at 0.17 in a 0.25-lit room is invisible, and legibility was the run's headline complaint; the
+cost is that they no longer rhyme with Hall2's tar step-through frame. `walk_void_live`'s twist-note
+leg is routed round the Sanctum's east side to keep every stance ≥ 2.3 m from F and out of E's sight
+line — a harness change that documents a real hazard, no level change (the far wing's economy is the
+user's ruling). The doorway's 4 mm floor bridge is hidden until the door opens although it is invisible
+by construction (both floors cover it) — a later edit to either footprint would quietly turn it into a
+seam that says *door here*; `check_void` asserts solid floor under it in both states.
+
+**Bugs the build found (docs/ISSUES_SOLUTIONS.md 236–241).** The Records-sign fault from the other end
+(a doorway added at a wall's centre landed on the note hanging there — the note moved 2.5 m south).
+Godot 4 replaces duplicate node names, so `DoorFloor` addressed one bridge of fourteen — bridges are
+found by geometry now. Issue 228 recurred in a brand-new stage the same day. The live walk's three
+deaths in nine at the twist note were creature E through the child room's doorway, not F. A zero-panic
+claim cannot be measured with `RandomAmbient` running. And a five-point ring has no free bearing, so
+the re-scramble is pairwise.
 
 ### Pass 4 rulings — 2026-09-20 18:30 run, grilled on an Opus games-research menu
 
@@ -544,10 +559,13 @@ the approved changes above.
 
 ### Audit record — 2026-09-19 spec audit
 
-⚠️ **"15 abutting rooms … 14 doorways" is EXACT and was VERIFIED, not narrowed.** `level_3.gd`'s
-`ROOMS` const holds exactly 15 rows and `DOORS` exactly 14. A claim-checker `COUNT?` that reports 19/16
-is counting the `#` comment lines inside those arrays (the Morgue-abutment warning and the LoopOut
-bridge-overlap warning). No spec change was needed. The stale code header was corrected during the September 20 implementation.
+⚠️ **The room and doorway counts are EXACT and were VERIFIED, not narrowed.** On 2026-09-19 `level_3.gd`'s
+`ROOMS` const held exactly 15 rows and `DOORS` exactly 14; **since pass 4 (2026-09-20) it is 16 rows and 15
+doorways** — `FrameHall` and its west Morgue doorway, counted by `{` row literals. A claim-checker `COUNT?`
+that reports more (19/16 on 2026-09-19, 35/17 on 2026-09-20) is counting lines other than the row literals:
+the `#` comment lines inside those arrays (25 in `ROOMS`, 4 in `DOORS` after pass 4). Older dated
+verification records above that say "14 doorways, 1 gated" are history, not drift. The stale code header
+was corrected during the September 20 implementation.
 
 ⚠️ **Two claims above could not be verified from the code and were left standing, not edited.**
 (1) *"Standable area 77 → 452 m²"*: the 77 m² figure is corroborated by `level_3.gd`'s header, but 452

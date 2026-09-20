@@ -6334,3 +6334,79 @@ columns untouched so the seamless tile edge is unchanged; re-imported; the regis
 **The texture audit rule gains a step: look at a new texture's corners, not just its histogram.** A
 generator's mark is small, high-contrast and always in the same place, which is exactly the shape a
 tiled material multiplies.
+
+## Issue 236 — Adding a doorway to a wall that already carries a prop is the Records-sign bug from the other end (2026-09-20)
+
+**Symptom:** the first build of the Void's secret door hung `NoteMorgue` in the new doorway.
+`check_note_mounting` caught it on the first run.
+
+**Cause:** `wall_point()` returns the wall's CENTRE, and the centre of the Morgue's west wall is
+(−20.84, 47.5) — exactly where the user chose to put the doorway. The rule "never hang a prop on a
+doorway wall's centre" (Issue 191's sign) has a second half: **a doorway added later to a wall that
+already carries a centred prop lands on the prop.**
+
+**Fix:** the doorway stayed (the site is a ruling); the note moved 2.5 m south — not north, where it
+would have sat 2.03 m from the drawer page against the 2.50 m same-room separation the mounting guard
+enforces. Grep every `wall_point(<room>, <side>, …)` on a wall before adding a doorway to it.
+
+## Issue 237 — Godot 4 does not suffix a duplicate node name, it replaces it (2026-09-20)
+
+**Symptom:** a name-based lookup for a doorway's floor bridge found exactly one bridge in the whole
+level — the Threshold's — and silently returned null for every other doorway.
+
+**Cause:** `RoomBuilder` names every floor bridge `DoorFloor`. Godot 4 keeps the first and renames
+the rest `@CSGBox3D@NN`; the scene held one `DoorFloor` and fourteen anonymous boxes.
+
+**Fix:** find bridges by GEOMETRY — they are the only boxes the builder sinks below y 0 by
+`BRIDGE_SINK`. **A node name that a builder reuses is not an address.**
+
+## Issue 238 — Issue 228, again, in a brand-new test stage (2026-09-20)
+
+**Symptom:** `check_void`'s cradle-lunge control restored creature E's suppression and then waited
+1.5 s with the player 4.5 m away. At 3.0 m/s that is 4.5 m of closing; the stage staged its own death.
+
+**Fix:** the player leaves for the tile pad before the wait. Recorded a second time because it was
+written by a builder who had read Issue 228 that morning. **A wait beside a creature is a distance,
+and every new stage next to one must be priced at the current speed.**
+
+## Issue 239 — A death blamed on the room the bot was in, caused by the room next door (2026-09-20)
+
+**Symptom:** `walk_void_live` died three runs in nine at the twist note (`CreatureE awakened at
+2.1 m` → `CreatureE lunge`) — but the twist note is in the Sanctum, guarded by F, and E lives in the
+child room.
+
+**Cause:** the `{"stare": "F"}` step stops the walker for 4.2 s at (−14, 27.9): 1.15 m south of E's
+leash edge and dead in line with the child room's 1.8 m doorway. Staring at F is not looking at E, so
+E, with line of sight through the opening, walked out and lunged.
+
+**Fix:** the stare stance moved to (−12.6, 26.6), from which the line back to E crosses the doorway
+plane outside the opening — no line of sight, and a stalker never advances without one. The stance
+must also stay outside `GAZE_RANGE` 3.0: 4.2 s of gazing at 12/s is exactly `PANIC_MAX`, so "stand
+closer to the note" would have killed the bot by the other rule. 12 of 12 green after. **The hazard is
+real for a human too**: standing still just south of the child room's doorway with your back to E is
+inside E's reach — watch the log for `CreatureE lunge` near z 28–29.
+
+## Issue 240 — A zero-panic claim cannot be measured with the ambient metronome running (2026-09-20)
+
+**Symptom:** `check_void_frames` reported "the page costs no panic — 0.072" against an innocent
+beat.
+
+**Cause:** `RandomAmbient` is a global autoload on a random timer, and two of its three events call
+`add_panic(8.0)` and `add_panic(12.0)`. A `painting_fall` landed during the measured window.
+
+**Fix:** both Void guards unregister `RandomAmbient` for the run; it was not retuned (shared, global).
+**Any guard that asserts a panic delta must first silence every source it is not measuring.**
+
+## Issue 241 — A five-point ring makes an "off-screen" rule unsatisfiable (2026-09-20)
+
+**Symptom:** the Hall of Frames' re-scramble, which must happen only while no frame is in view, never
+happened: from the middle of a pentagon of five frames the nearest one is always within 36° of any
+heading, and a 75° camera's horizontal half-angle is 53.7°. Measured from the wrong step's drop point
+the frames sat at bearings −122 / −41 / +41 / +122 / 180, worst-case 40.5° to the nearest. **No layout
+of five frames in a 6 × 6 room has a free bearing.**
+
+**Fix:** the re-scramble exchanges PAIRS of unwatched frames, 0.25 s apart, four exchanges: every swap
+is atomic, the order is a valid permutation at every instant, and the level's rule holds per frame
+instead of per room — stand still staring at one and the ones behind you still trade. The control:
+with the observation check removed, "no frame changed while it was in view" fails and names the slot.
+**A rule about the whole room is a rule about the widest camera angle; state it per object.**

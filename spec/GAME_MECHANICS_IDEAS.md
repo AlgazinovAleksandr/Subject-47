@@ -583,6 +583,12 @@ tell a dud from a killer without walking up to one."*
 → **For the ledger: not a HUD violation; an ambiguity violation.** That is a distinct rule this
 project had not previously written down.
 
+**2026-09-20 — THE VOID, pass 4: BUILT from the games-research menu** — Visage / Layers of Fear's *scare
+that gives* (the cradle's rule-less lunge opens a door elsewhere), Yume Nikki's *relinquishment ending*
+(the hidden note reads only empty-handed), P.T.'s *single swapped object per lap* (the loop corridor's
+stain → chair leg → page), and an in-world minigame in a different genre from the House's maze (THE
+HALL OF FRAMES). Recorded in `spec/levels/08-void.md`.
+
 **2026-09-20 — THE VOID, pass 4 (an Opus games-research menu; studied and NOT taken)**
 
 | Date | Idea | Reason |

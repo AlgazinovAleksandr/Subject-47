@@ -335,3 +335,21 @@ wall-clock deadline (Issue 224's hole). ⚠️ Issues 232 and 233 — a page the
 open drawer, and an assembled door that was a red grid because a seam lives in the mesh size — were
 caught only by reading the screenshots; every guard was green on both. `check_flood_drowned` flaked once
 in two full-suite runs (a Backrooms 2.0 s knock window, unrelated); filed as cross-level X70.
+
+
+### The Void's 2026-09-20 pass 4 — the frames harness, and two lessons that recurred the same day
+
+`check_void_frames` (75 checks, six seeded scrambles, ~110 s; `-- --seeds N` narrows it, `-- --trace`
+prints panic transitions) is the `maze-tester` shape for THE HALL OF FRAMES: every scramble solvable by
+the answer order, a wrong step never strands (the player lands on floor inside the room), every dwell
+reachable from a human stance, the finish reachable, the note refuses while carrying (control) and
+reads empty-handed, the figure never carries a collider or a `ScaryObject`, and no frame changes while
+it is in view (control: the observation check removed → fails and names the slot). `check_void` (142)
+proves the Morgue's west wall solid at frame 0 and that the plug is what stops it, E suppressed during
+the lunge (control), the drawing's swap, the open drawer, the reacting Hall2 frame, the loop swap.
+⚠️ Both Void guards **unregister `RandomAmbient`** before any zero-panic assertion (Issue 240). ⚠️ Issue
+228 recurred in a brand-new stage the same day it was filed (Issue 238), and `walk_void_live`'s three
+deaths in nine were the room NEXT to the one the bot was in (Issue 239) — a stare stance must have no
+line of sight to any other stalker and stay outside `GAZE_RANGE`. The screenshot pass now runs five
+in-scene actions before shooting (settle the hall, open the door, swap the drawing…), so the images are
+of states the guards reached, not poses.
