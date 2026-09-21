@@ -1,10 +1,27 @@
 # Key scripts — reference
 
+`breach_flashlight_clue.gd` adds a faint intermittent cabinet seam light and a physical torch
+prop to the existing Archive B hiding spot. Collection briefly lifts the prop into the camera,
+then removes it. `level_6_breach.gd` owns the missing/recovered state, uses the existing player
+lock/unlock API, observes entry into that specific cabinet, gates light damage on ownership,
+and persists recovery through ordinary visits while death resets it. The recovered light stays
+off until F; collection keeps the player hidden.
+
 ### Shipped — Breach playtest, 2026-09-20
 
-🔨 PLANNED follow-up: `SlamDoor.batter_impact` emits with each existing thud; this is presentation
+`breach_kill_sequence.gd` owns Object 12's confirmed-contact presentation: the existing mesh/skin
+with animated arm reaches, two impacts and brief animated generated close-ups. The level claims
+a GameState death token before attaching the sequence to the player's camera; completion calls
+the existing Screamer with that token and its static image disabled. Stale callbacks cannot act
+on a replacement scene. This uses the existing transition API without changing shared scripts.
+
+`SlamDoor.batter_impact` emits with each existing thud; this is presentation
 only and has no timing/collision effect. The Breach director uses it for leaf recoil and a
-level-owned voice controller selects chase/batter/hidden-search calls from actual creature state.
+level-owned `breach_creature_voice.gd` selects chase/batter/hidden-search calls from actual creature
+state. It layers the user's positional chase scream with a separate repeating stereo background,
+keeps music playing between screams, and stops both on hiding/door/stagger/purge/death/scene exit.
+`tools/prepare_breach_audio.py` prepares the user's four recordings from preserved originals;
+the earlier procedural generator now outputs only to a source archive.
 
 `SlamDoor` exposes batter-start and silence signals plus opt-in random duration/silent-tail
 settings; defaults preserve all other callers. A Breach-owned director controls its local
@@ -80,6 +97,7 @@ samples the lids meeting (0.50) and parting.
 | `void_loop_note.gd` | A `note.gd` subclass for the Void's `LoopNote`: `can_interact()` true (a false hides the prompt), `prompt_text()` by lap, `interact()` refuses below lap 2 and logs |
 | `void_keystone.gd` · `void_shard.gd` · `void_cradle.gd` · `void_sanctum_plate.gd` | The Void's 2026-09-20 interactables: the two branch keystones (layer 2, forward to `void_alignment.gd:interact_view`), the shard under the slab (`set_carried("stone shard")`), the cradle's interact on its own layer-1 body, the stone cover over the twist note (layers 1\|2, `retract()`, `move_aside_instantly()` for `check_reachable`) |
 | `void_frame_hall.gd` · `void_cradle_figure.gd` · `void_hidden_note.gd` | The Void's pass-4 chain (2026-09-20): THE HALL OF FRAMES (five upright frames holding 0.24–0.55-scale dioramas of things met earlier, in their rooms' families; 1.2 s dwell; right → the next frame, lamp +0.15, `frame_tone` up an interval, whispers hushed 1 s; wrong → dropped back with `loop_slam`, lamp dead 2 s, an off-screen PAIRWISE re-scramble (Issue 241), the cradle figure one frame nearer, behind you for one frame every third; fifth right → `frame_settle`, the frames line up into a corridor and the dioramas shrink away); the cradle's giving scare (a `VoidCreatureVisual` with no collider, no `ScaryObject`, no AI — `HoldBreath.dip` 0.6 s, rises through the cradle, lunges to 0.6 m over 0.35 s with `cradle_sting` on MASTER because `HoldBreath` ducks Ambience; zero panic; E suppressed for the beat + 1 s); the hidden note (`note.gd` subclass, concealed until the frames settle, refuses by name unless empty-handed, and its `read` is what retracts `SanctumPlate`) |
+| `void_twist_note.gd` (+ pass-5 changes to `void_shard.gd`, `void_rearrangement.gd`, `void_cradle_figure.gd`, `void_sanctum_plate.gd`) | The Void's pass 5 (2026-09-21). `void_twist_note.gd` extends `note.gd` like the hidden note and refuses (*"The stone covers it."*) while `level.plate_stands()` — ⚠️ the refusal is the gate; the 0.90 × 1.10 plate is defence in depth, because no plate narrower than the room closes the grazing band along the west wall (Issue 242). `void_shard.gd` is visible from frame 0, `wedge()`d in the table's underside and refusing; `free_into_basin(announce)` on the table's `rearranged` (a restore never announces); `move_aside_instantly()` is still the reachability hook. `void_rearrangement.gd` touch mode builds `void_fragments.gd:gurney()` and plays a RECEIPT on E (drop 0.10 m, yaw 6°, 0.4 s, grind at the gurney) before the off-screen answer — ⚠️ its touch prop is built `call_deferred`, because `arm_on_sight` is set by the caller AFTER `add_child` (Issue 244); the sight-mode props stay on layer 2 (walk-through), a known, unfixed fact. `void_cradle_figure.gd:arm(player, source, sting)` rises from `_bbox_centre(source)`, and its `charge` mode (`arm_charge`) is the loop corridor's one-shot southbound rush — `_phase` values are labels (5, 6), never compare them (Issue 246); `snap_to_strike()` for captures. Both stings are `level_3.gd:_make_sting()`: the shared `jumpscare` at −10.3 dB / unit 4.0 on Master. |
 | `void_anchor.gd` · `void_drawer.gd` · `void_exit_door.gd` | The Void's pass-3 interactables (2026-09-20): a carried anchor (handle / slat / latch; layer 2, one at a time, `"Your hands are full."`, the LEVEL frees the body — two owners of one node's lifetime is how a restore ends up with an anchor both carried and on the floor); one of the Morgue's seventeen drawer fronts (E slides it 0.35 m once, retires its own interact box — Issue 231); the ExitDoor's `door.gd` subclass whose `_open_door()` is TOKEN-FIRST (`begin_transition` → 0.9 s assembly + 0.3 s hold → `complete_door_transition`, never `await super`) — `check_transition_race` proves a death during the assembly wins |
 | `void_door_visual.gd` · `void_face.gd` | Static builders: the fractured slab doors over the red `DoorMesh` plate (one `void_door.png` sliced by `uv1_offset`/`uv1_scale`), and the figure's broken face (`void_face.png` on the recess plane + a per-variant jumble of the level's own objects) |
 | `creature_static.gd` | Older static-creature variant; `rush_camera()` on trigger. The Void now uses `creature_stalker.gd` instead |

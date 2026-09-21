@@ -47,6 +47,9 @@ func _run() -> void:
 	_creature = _level.get("_creature")
 	_creature.set_process(false)
 	_player = _level.get_node("Player")
+	# This harness exercises the existing post-recovery torch/door/hiding mechanics.
+	_level.call("_recover_flashlight", false)
+	_player.get("flashlight").visible = true
 	_player.set("ai_active", true)
 	_creature.call("_ensure_player")
 	DirAccess.make_dir_recursive_absolute(OUT)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Three reproducible, wordless Object 12 voices. Stdlib glottal/formant synthesis.
 
-Only writes the three breach_voice_*.wav assets; never regenerates the existing mix.
+Historical prototypes only; never overwrites the user's shipped recordings.
 Voices use separate pitch/envelope/formant profiles, not pitched copies of a death sting.
 """
 import math
@@ -13,7 +13,7 @@ import wave
 from sfx_loudness import measure
 
 SR = 44100
-OUT = Path(__file__).resolve().parents[1] / 'game/assets/audio/level_6_breach'
+OUT = Path(__file__).resolve().parents[1] / 'assets_src/audio/level_6_breach/procedural_archive'
 
 
 def voice(kind):

@@ -2,7 +2,18 @@ extends StaticBody3D
 
 # A slab of the Sanctum's own wall, sitting 3 cm in front of the twist note. It is not a
 # door and not a puzzle: it says "The stone will not move." and it means it. It retracts
-# when the child room's cradle is completed, and nothing else moves it.
+# when the hidden note at the end of the Hall of Frames is read, and nothing else moves it.
+#
+# ⭐ 0.90 × 1.10, NOT 0.60 × 0.80 (2026-09-20 pass 5, Issue 242). At the old size it covered a
+# 0.4 × 0.5 note face-on and NOT from a grazing stance along the wall: 6 cm of depth at 80° off
+# normal is 34 cm of parallax, so a third of the page showed beside the slab and the interact
+# ray reached the note's collider past the plate's edge — the level's win condition, read with
+# the whole far-wing chain skipped. The slab now overhangs the note by 25 cm on each side and
+# 30 cm top and bottom, and it is no longer the only gate: `void_twist_note.gd` refuses by name
+# while this node is alive. **A blocker guards one viewing angle; a refusal guards all of them.**
+# ⚠️ NOT flush with the wall in the coplanar sense — its back face is 0.13 m clear of the wall
+# face at x -17.90 and 0.09 m clear of the note's paper quad. Two visible surfaces in one plane
+# is this project's most common bug class; "flush" here means "covering", not "touching".
 #
 # ⚠️ Layers 1|2 (`collision_layer = 3`): layer 1 so it intercepts the interact ray BEFORE the
 # note behind it, layer 2 so the refusal prompt appears at all. It hangs on a wall that has
@@ -36,14 +47,14 @@ func _ready() -> void:
 	var shape := CollisionShape3D.new()
 	var box := BoxShape3D.new()
 	# Local z is the thin axis so the caller's yaw convention matches note.gd's exactly.
-	box.size = Vector3(0.62, 0.82, 0.06)
+	box.size = Vector3(0.92, 1.12, 0.06)
 	shape.shape = box
 	add_child(shape)
 	var stone := FRAGMENTS._mat(Color(0.26, 0.23, 0.31))
-	FRAGMENTS._box(self, Vector3(0.60, 0.80, 0.06), Vector3.ZERO, stone, "PlateFace")
+	FRAGMENTS._box(self, Vector3(0.90, 1.10, 0.06), Vector3.ZERO, stone, "PlateFace")
 	# Two shallow ribs so it reads as a fitted slab rather than a floating rectangle.
-	for y in [-0.28, 0.28]:
-		FRAGMENTS._box(self, Vector3(0.64, 0.05, 0.03), Vector3(0, y, 0.035),
+	for y in [-0.39, 0.39]:
+		FRAGMENTS._box(self, Vector3(0.94, 0.05, 0.03), Vector3(0, y, 0.035),
 			FRAGMENTS._mat(FRAGMENTS.TINT_DARK), "PlateRib")
 
 

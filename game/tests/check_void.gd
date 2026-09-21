@@ -44,6 +44,7 @@ var _stalkers: Dictionary = {}
 var _want_laps := 1
 var _after_lap := 5
 var _head_y0 := 0.0
+var _bootstrapped := false
 var _flicker_samples: Array = []
 var _flicker_ticks := 0
 
@@ -75,7 +76,13 @@ func _process(_delta: float) -> bool:
 	_settle += 1
 	if _settle < 14:
 		return false
-	if _level == null:
+	# ⚠️ `not _bootstrapped`, NOT `_level == null`. In Godot 4 a variable holding a FREED node
+	# compares equal to null (Issue 223), so the instant any stage staged its own death this
+	# block re-entered, re-pointed `_level` at the reloaded scene and ran the WHOLE file a second
+	# time — 336 checks, two structural passes, and the reload guard below never reached.
+	# `walk_void.gd` was fixed for exactly this in pass 4; this file still had the hole.
+	if not _bootstrapped:
+		_bootstrapped = true
 		_level = current_scene
 		if _level == null or not _level.has_method("get_stalkers"):
 			print("  FAIL level_3.tscn did not load, or level_3.gd failed to parse")
@@ -88,7 +95,12 @@ func _process(_delta: float) -> bool:
 		_structural()
 		_drawing_begin()
 		return false
-	if current_scene != _level and _stage < 9:
+	# ⚠️ `_stage < 9` WAS NOT A "BEFORE THE END" TEST. The stage numbers are labels, not an
+	# order — 21, 40, 60 and 75–84 all run before stage 9's fall — so this guard covered eight
+	# stages out of thirty and a death anywhere else was silently survived (measured: a death at
+	# stage 21 ran the whole file a second time). The only stages that legitimately swap the
+	# scene are the fall and its result.
+	if current_scene != null and current_scene != _level and _stage != 9 and _stage != 10:
 		_ok("the level did not reload mid-test", false, "stage %d" % _stage)
 		return _report()
 	var t := _ticks()
@@ -113,6 +125,16 @@ func _process(_delta: float) -> bool:
 		72: _cradle_lunged()
 		73: _cradle_control()
 		74: _cradle_after()
+		75: _charge_begin()
+		76: _charge_north_control()
+		77: _charge_fired()
+		78: _charge_after()
+		79: _charge_once()
+		80: _shard_begin()
+		81: _shard_watched()
+		82: _shard_freed()
+		83: _gurney_moved()
+		84: _twist_opened()
 		1: _begin_watch_only()
 		2: _end_watch_only()
 		21: _head_frozen_begin()
@@ -247,6 +269,7 @@ func _structural() -> void:
 	_mask_checks()
 	_pass3_checks()
 	_pass4_checks()
+	_pass5_checks()
 	# ⚠️ `RandomAmbient` IS UNREGISTERED FOR THE REST OF THIS FILE, and it is not tidying: that
 	# autoload is global, fires on a random timer in every level, and two of its three events are
 	# `add_panic(8.0)` and `add_panic(12.0)`. `check_void_frames` reported "the page costs no
@@ -340,12 +363,16 @@ func _pass3_checks() -> void:
 	_ok("…and the page is a child of the drawer, so it slides out with the front",
 		page != null and page_drawer.is_ancestor_of(page))
 
-	# ── the shard is not in the world until the Archive's table re-poses itself.
+	# ── the shard lives in the Archive, not under the Morgue slab. ⚠️ Since pass 5 it is
+	# VISIBLE from frame 0 and refuses (Issue 243); `_pass5_checks` owns the wedged pose and the
+	# refusal, and this row only keeps pass 3's claim: it is in the Archive's table, not the
+	# Morgue, and it is not takeable yet.
 	var shard = _level.call("shard")
 	var table := _level.get_node_or_null("InvertedTable_Archive")
-	_ok("the shard starts hidden in the Archive, not under the Morgue slab",
-		shard != null and not bool(shard.call("is_revealed")) and not shard.visible
-		and shard.global_position.distance_to(Vector3(-3.4, 0.42, 22.0)) < 0.2,
+	_ok("the shard starts in the Archive's table, not under the Morgue slab, and is not free",
+		shard != null and not bool(shard.call("is_freed"))
+		and Vector2(shard.global_position.x, shard.global_position.z).distance_to(
+			Vector2(-3.4, 22.0)) < 0.6,
 		str(shard.global_position) if shard else "missing")
 	_ok("…and the table that hides it is an arm-on-sight rearranger",
 		table != null and bool(table.get("arm_on_sight")) and not bool(table.get("spent")))
@@ -514,7 +541,7 @@ func _watch_control() -> void:
 		if is_instance_valid(s):
 			_level.remove_child(s)
 			s.queue_free()
-	_stage = 60
+	_stage = 80
 
 
 # ⭐ THE MASK AND ITS RESERVED CENTRE (2026-09-20 pass 2).
@@ -875,18 +902,28 @@ func _snapshot() -> void:
 	_ok("…and the pass-3 quest keys: anchors / carried / sockets / drawers",
 		d.has("anchors_taken") and d.has("carried_anchor") and d.has("sockets_filled")
 		and d.has("drawers_opened") and (d["sockets_filled"] as Array).size() == 3, str(d))
+	# ⭐ pass 5: the corridor charge is a ONE-SHOT, and a snapshot has to carry that it HAPPENED.
+	# The Ward frame's rule: a restore records a one-shot, it never replays it.
+	_ok("…and the corridor charge's one-shot flag, already fired", d.has("corridor_charge_done")
+		and bool(d["corridor_charge_done"]), str(d.get("corridor_charge_done", "missing")))
 	root.get_node("GameState").call("save_level_progress", 8, d)
 	_level.set("_notes_read", [])
 	_level.set("_loop_broken", false)
 	_level.set("_loop_laps", 0)
 	_level.set("_shard_taken", false)
 	_level.set("_cradle_done", false)
+	# ⚠️ CLEARED FIRST, or "the charge is restored as spent" is true of a flag that simply never
+	# moved — the shape of a control that cannot fail.
+	_level.set("_charge_done", false)
 	_level.call("_restore_progress")
 	_ok("…and _restore_progress puts them back",
 		(_level.get("_notes_read") as Array).has("NoteWard") and bool(_level.call("loop_broken"))
 		and int(_level.call("loop_laps")) == 2,
 		"notes %s broken %s laps %d" % [_level.get("_notes_read"), _level.call("loop_broken"), _level.call("loop_laps")])
 	_ok("…including the far-wing chain", bool(_level.get("_shard_taken")) and bool(_level.get("_cradle_done")))
+	_ok("…and the corridor charge is restored as SPENT, with no figure replayed",
+		bool(_level.call("corridor_charge_done"))
+		and _level.get_node_or_null("ChargeFigure") == null)
 	_ok("…and the quest: the anchor in hand, the seated socket and the pulled drawer",
 		String(_level.call("carried_anchor")) == "slat"
 		and bool(_level.get_node("AlignmentKeystone").call("socket_filled", 0))
@@ -913,7 +950,13 @@ func _fall_result() -> bool:
 
 
 func _report() -> bool:
-	if _checks < 55:
+	# ⚠️ RAISED FROM 55 TO 150 (2026-09-20 pass 5), and it is not tidying. `call()` on a method
+	# that no longer exists pushes a SCRIPT ERROR and ABORTS THE ENCLOSING FUNCTION — it does not
+	# fail anything. Renaming `void_shard.gd:is_revealed()` silently deleted the last eight checks
+	# of `_pass3_checks()` (the shard, the slab page, the whole exit-door assembly) and this file
+	# printed "134 checks, 0 failed / RESULT: PASS". A floor 80 checks below the real count cannot
+	# catch that. Keep this within ~10 of the true total whenever checks are added.
+	if _checks < 195:
 		print("  FAIL only %d checks ran — did a stage abort?" % _checks)
 		_fails += 1
 	print("  %d checks, %d failed" % [_checks, _fails])
@@ -1127,6 +1170,25 @@ func _cradle_rising() -> void:
 	_ok("a sixth figure exists during the beat", _cradle_fig != null)
 	_ok("…and it has not lunged yet (the 0.6 s silence comes first)",
 		_cradle_fig != null and not bool(_cradle_fig.call("has_lunged")))
+	# ⭐ pass 5: it rises out of the CRADLE, not out of the floor in front of it (capture #5,
+	# *"make this 3d jumpscare look more centralised to the middle of this object"*). Measured
+	# against the cradle's own mesh bounding box, computed independently here — never against
+	# the number the level passed in.
+	var cradle := _level.get_node_or_null("Cradle_ChildRoom") as Node3D
+	var centre: Vector3 = _world_aabb(cradle).position + _world_aabb(cradle).size * 0.5
+	var home: Vector3 = _cradle_fig.call("home") if _cradle_fig else Vector3.ZERO
+	_ok("…and its home is the cradle's VISUAL centre, not the node origin on the floor",
+		_cradle_fig != null and home.distance_to(centre) < 0.2 and home.y > 0.6,
+		"home %v vs bbox centre %v (origin was y %.2f)" % [home, centre,
+			cradle.global_position.y if cradle else -1.0])
+	# …and the sting it carries is the shared jumpscare at the measured gain, on Master.
+	var cs := _level.get_node_or_null("CradleSting") as AudioStreamPlayer3D
+	_ok("…with the SHARED jumpscare on Master at -10.3 dB (cradle_sting stays on disk, unplayed)",
+		cs != null and cs.stream != null
+		and String(cs.stream.resource_path).find("jumpscare") >= 0
+		and absf(cs.volume_db + 10.3) < 0.01 and cs.bus == "Master",
+		"%s %.1f dB bus %s" % [cs.stream.resource_path if cs and cs.stream else "-",
+			cs.volume_db if cs else 0.0, cs.bus if cs else "-"])
 	# ⚠️ §8.11: creature E stands two metres from the cradle and the player is about to be
 	# blinded by a figure filling the frame. It is suppressed with the tile hall's own mechanism.
 	var rect: Rect2 = e.get("protected_player_rect")
@@ -1207,8 +1269,7 @@ func _cradle_after() -> void:
 	# Hand the level back to the rest of the file exactly as it found it.
 	_level.set("_shard_taken", false)
 	_level.set("_cradle_done", false)
-	_p.set("ai_active", false)
-	_stage = 1
+	_stage = 75
 
 
 # ⭐ THE TELL THAT SAYS WHERE. The drawing is two metres from where the cradle is completed and
@@ -1249,3 +1310,511 @@ func _drawing_released() -> void:
 		art != null and (art.mesh as QuadMesh).size.is_equal_approx(Vector2(0.7, 0.7)),
 		str((art.mesh as QuadMesh).size) if art else "missing")
 	_stage = 70
+
+
+# ⭐ THE PASS-5 CONTENT (2026-09-20): the twist note's own refusal, the receipt on the Ward's
+# gurney, the shard that is visible and wedged, the corridor charge, and the cradle figure
+# rising from the cradle's geometry instead of from the floor in front of it.
+func _pass5_checks() -> void:
+	print("--- pass 5: the gate, the receipt, the charge ---")
+	# ── the twist note is a SUBCLASS that refuses while the stone stands ───────────────────
+	var twist: Node = _level.call("twist_note")
+	_ok("TwistNote carries void_twist_note.gd (a note.gd subclass)",
+		twist != null and _is_note_script(twist.get_script())
+		and String(twist.get_script().resource_path).ends_with("void_twist_note.gd"),
+		String(twist.get_script().resource_path) if twist else "missing")
+	_ok("…and it is wired to the level that owns the plate",
+		twist != null and twist.get("level") == _level)
+	_ok("the level reports the stone as standing at frame 0", bool(_level.call("plate_stands")))
+	_ok("…so the page refuses by NAME, without offering E",
+		twist != null and String(twist.call("prompt_text")) == "The stone covers it.",
+		"'%s'" % (twist.call("prompt_text") if twist else ""))
+	# ⚠️ A DIRECT call, deliberately: the ray-level controls are in `_twist_gate()`, but this one
+	# asks whether the refusal is in the NOTE at all. Issue 30's inverse — a gate that only works
+	# because the ray happens not to arrive is not a gate.
+	var gs := root.get_node("GameState")
+	twist.call("interact")
+	_ok("CONTROL: E straight on the note opens nothing while the stone stands",
+		not bool(root.get_node("NoteUI").get("is_open")) and not bool(gs.get("twist_read")))
+
+	# ── and the plate itself grew, without landing on the wall's own plane ─────────────────
+	var plate := _level.get_node_or_null("SanctumPlate") as Node3D
+	var face := plate.get_node_or_null("PlateFace") as MeshInstance3D if plate else null
+	var box: BoxMesh = face.mesh as BoxMesh if face else null
+	_ok("the plate is 0.90 x 1.10 (it was 0.60 x 0.80)",
+		box != null and absf(box.size.x - 0.90) < 0.001 and absf(box.size.y - 1.10) < 0.001,
+		str(box.size) if box else "missing")
+	# The Sanctum's west wall face is at x -17.90 (nominal -18 + T/2); the note's paper quad is
+	# at -17.84. Two visible surfaces in one plane is this project's most common bug class.
+	var back: float = plate.global_position.x - 0.03 if plate else 0.0
+	_ok("…and its back face clears the wall face by %.3f m (>= 0.02 required)" % (back + 17.90),
+		plate != null and back + 17.90 >= 0.02, "back at x %.3f" % back)
+	_ok("…and it stands clear of the note's paper quad too (%.3f m)" % (back + 17.835),
+		plate != null and back + 17.835 >= 0.02)
+
+	# ── the Ward's touch prop is a gurney, and it is the thing that carries the touch ──────
+	var ward := _level.get_node_or_null("WardFragment")
+	var gurney := ward.get_node_or_null("HangingGurney") as Node3D if ward else null
+	var hang := gurney.get_node_or_null("GurneyHang") as Node3D if gurney else null
+	_ok("the Ward's touch prop is a hanging gurney, not an abstract shard",
+		gurney != null and hang != null and ward.get_node_or_null("TouchFragment") == null)
+	var parts := {"GurneyRail": 0, "GurneyLeg": 0, "GurneyWheel": 0, "GurneyMattress": 0,
+		"GurneyStrap": 0, "GurneyHeadBoard": 0}
+	var boxes := 0
+	if hang:
+		for c in hang.get_children():
+			if not (c is MeshInstance3D):
+				continue
+			boxes += 1
+			for k in parts.keys():
+				if String(c.name).begins_with(k):
+					parts[k] = int(parts[k]) + 1
+	# Silhouette carries a prop (Issue 35): two rails, four legs, four casters, a mattress
+	# standing proud of the frame, a head board and two straps — never one box.
+	_ok("…built from parts: 2 rails, 4 legs, 4 wheels, a mattress, a board",
+		int(parts["GurneyRail"]) == 2 and int(parts["GurneyLeg"]) == 4
+		and int(parts["GurneyWheel"]) == 4 and int(parts["GurneyMattress"]) == 1
+		and int(parts["GurneyHeadBoard"]) == 1, str(parts))
+	_ok("…all of it BOX geometry (no art quad, nothing borrowed)", boxes >= 12, "%d meshes" % boxes)
+	# It hangs: nose-down, from head height to knee height, clear of the floor and the ceiling.
+	var aabb := _world_aabb(gurney)
+	_ok("…hung nose-down between y %.2f and y %.2f (clear of floor and ceiling)"
+		% [aabb.position.y, aabb.position.y + aabb.size.y],
+		aabb.position.y > 0.05 and aabb.position.y + aabb.size.y < ROOM_CEIL - 0.1
+		and aabb.size.y > 1.4, str(aabb))
+	_ok("…and NOTHING in it is emissive (this level has no glow to spend)",
+		_no_emission(gurney))
+	_ok("…and it has no ScaryObject ancestor: zero panic, like everything else in the Ward",
+		_no_scary(ward))
+	_ok("the touch prompt names the object now",
+		ward != null and String(ward.call("prompt_text")) == "E — Touch the hanging gurney.",
+		"'%s'" % (ward.call("prompt_text") if ward else ""))
+
+	# ── the shard is in the world from frame 0, wedged ────────────────────────────────────
+	var shard = _level.call("shard")
+	_ok("the shard EXISTS and is VISIBLE at frame 0 (it used to spawn on a look-away)",
+		shard != null and shard.visible and not bool(shard.call("is_freed")))
+	_ok("…wedged in the inverted table's underside, above the table's own collider",
+		shard != null and shard.global_position.y > 0.6
+		and shard.global_position.distance_to(Vector3(-3.190, 0.74, 21.663)) < 0.02,
+		str(shard.global_position) if shard else "missing")
+	_ok("…and it says so instead of offering E",
+		shard != null and String(shard.call("prompt_text")) == "It is wedged fast.",
+		"'%s'" % (shard.call("prompt_text") if shard else ""))
+	_ok("…and its clatter resolves through GameState.load_audio",
+		gs.call("load_audio", "shard_clatter") != null)
+
+	# ── the corridor charge: the trigger volume, and nothing armed yet ────────────────────
+	var area := _level.call("charge_area") as Area3D
+	var ashape: BoxShape3D = (area.get_child(0) as CollisionShape3D).shape as BoxShape3D if area else null
+	_ok("the corridor charge's trigger covers x 11..14, z 41..43",
+		area != null and ashape != null
+		and absf(area.position.x - 12.5) < 0.01 and absf(area.position.z - 42.0) < 0.01
+		and absf(ashape.size.x - 3.0) < 0.01 and absf(ashape.size.z - 2.0) < 0.01,
+		"%s %s" % [area.position if area else "-", ashape.size if ashape else "-"])
+	_ok("…it watches the PLAYER layer only and is not itself solid",
+		area != null and area.collision_mask == 1 and area.collision_layer == 0)
+	_ok("…and nothing has fired at load", not bool(_level.call("corridor_charge_done"))
+		and _level.get_node_or_null("ChargeFigure") == null)
+	_ok("…and the shared jumpscare it uses resolves through GameState.load_audio",
+		gs.call("load_audio", "jumpscare") != null)
+	# ⚠️ -10.3 dB is measured, not chosen: jumpscare is -2.83 dBFS RMS against cradle_sting's
+	# -10.09, so it takes 7.26 dB less gain to land where pass 4 measured the old sting.
+	_level.call("_fire_corridor_charge")
+	var sting := _level.get_node_or_null("ChargeSting") as AudioStreamPlayer3D
+	_ok("the charge's sting is the SHARED jumpscare, on Master, at the measured -10.3 dB",
+		sting != null and sting.stream != null
+		and String(sting.stream.resource_path).find("jumpscare") >= 0
+		and absf(sting.volume_db + 10.3) < 0.01 and sting.bus == "Master",
+		"%s %.1f dB bus %s" % [sting.stream.resource_path if sting and sting.stream else "-",
+			sting.volume_db if sting else 0.0, sting.bus if sting else "-"])
+	# …and put the level back: this file fires the charge FOR REAL later, from inside the volume.
+	var early := _level.get_node_or_null("ChargeFigure")
+	if early:
+		_level.remove_child(early)
+		early.queue_free()
+	_level.set("_charge_done", false)
+	_level.set("_charge_protect", -1.0)
+	var c0 = _stalkers.get("C", null)
+	if c0 and is_instance_valid(c0):
+		c0.set("protected_player_rect", _tile_rect)
+
+
+const ROOM_CEIL := 3.3
+
+
+func _world_aabb(n: Node3D) -> AABB:
+	var out := AABB()
+	var found := false
+	var stack: Array = [n]
+	while not stack.is_empty():
+		var c: Node = stack.pop_back()
+		if c is MeshInstance3D:
+			var mi := c as MeshInstance3D
+			var w: AABB = mi.global_transform * mi.get_aabb()
+			out = w if not found else out.merge(w)
+			found = true
+		for k in c.get_children():
+			stack.append(k)
+	return out
+
+
+func _no_emission(n: Node) -> bool:
+	var stack: Array = [n]
+	while not stack.is_empty():
+		var c: Node = stack.pop_back()
+		if c is MeshInstance3D:
+			var m := (c as MeshInstance3D).get_surface_override_material(0)
+			if m is StandardMaterial3D and bool((m as StandardMaterial3D).emission_enabled):
+				return false
+		for k in c.get_children():
+			stack.append(k)
+	return true
+
+
+func _no_scary(n: Node) -> bool:
+	var walk: Node = n
+	while walk != null:
+		if walk is ScaryObject:
+			return false
+		walk = walk.get_parent()
+	var stack: Array = [n]
+	while not stack.is_empty():
+		var c: Node = stack.pop_back()
+		if c is ScaryObject:
+			return false
+		for k in c.get_children():
+			stack.append(k)
+	return true
+
+
+# ── THE CORRIDOR CHARGE, driven through the shipping trigger ──────────────────────────────
+#
+# ⚠️ IT RUNS HERE, WITH ALL FIVE STALKERS STILL ALIVE, because half of what it has to prove is
+# about creature C — and `_watch_control()` frees every stalker a few stages later. `_loop_broken`
+# is set by hand for the beat and put back: it is the exact flag a snapshot restore sets, no rung
+# of the loop ladder is touched, and the real southbound walk into the real Area3D is what fires
+# the charge. Nothing here calls `_fire_corridor_charge()`.
+# ⚠️ AND CREATURE C IS MOVED FIRST. C stands at (13.15, 41) — INSIDE the trigger volume — so
+# teleporting the player in would be teleporting them onto a lethal stalker (Issue 228: a wait
+# beside a creature is a distance). It is relocated through the level's own `relocate_safely()`,
+# which is what the loop's own creep uses, and the next lap puts it back.
+var _charge_panic := 0.0
+var _charge_fig: Node = null
+var _c_rect := Rect2()
+
+
+func _charge_begin() -> void:
+	print("--- the corridor charge (the walk back) ---")
+	var c = _stalkers.get("C", null)
+	_c_rect = c.get("protected_player_rect") if c else Rect2()
+	if c and is_instance_valid(c):
+		c.call("relocate_safely", Vector3(13.15, 0.0, 24.0))
+	_level.set("_loop_broken", true)
+	_p.set("ai_active", true)
+	_p.global_position = Vector3(12.5, 0.1, 41.6)
+	_p.force_update_transform()
+	# NORTHBOUND first: the way IN. The beat answers the walk back and must not fire here.
+	_p.call("ai_look_at", Vector3(12.5, 1.3, 48.0))
+	_p.set("ai_move_dir", Vector2(0.0, -1.0))
+	_charge_panic = float(_p.call("get_panic_ratio"))
+	_stage = 76
+	_wait = 24
+
+
+func _charge_north_control() -> void:
+	_ok("CONTROL: walking NORTH through the trigger does not fire the charge",
+		not bool(_level.call("corridor_charge_done"))
+		and _level.get_node_or_null("ChargeFigure") == null,
+		"player at z %.2f, velocity z %.2f" % [_p.global_position.z, _p.velocity.z])
+	_ok("…and the control really did cross the volume northbound",
+		_p.velocity.z > 0.5 and _p.global_position.z > 41.0,
+		"z %.2f, vz %.2f" % [_p.global_position.z, _p.velocity.z])
+	# …and now turn round. This is the leg capture #4 is about.
+	_p.global_position = Vector3(12.5, 0.1, 42.6)
+	_p.force_update_transform()
+	_p.call("ai_look_at", Vector3(12.5, 1.3, 20.0))
+	_p.set("ai_move_dir", Vector2(0.0, -1.0))
+	_stage = 77
+	_wait = 20
+
+
+func _charge_fired() -> void:
+	_charge_fig = _level.get_node_or_null("ChargeFigure")
+	var c = _stalkers.get("C", null)
+	_ok("walking SOUTH through the trigger fires the charge",
+		bool(_level.call("corridor_charge_done")) and _charge_fig != null,
+		"at z %.2f, vz %.2f" % [_p.global_position.z, _p.velocity.z])
+	_ok("…with the figure standing 25 m down the corridor under the dead lamp",
+		_charge_fig != null
+		and (_charge_fig as Node3D).global_position.distance_to(Vector3(12.5, 0, 16.5)) < 1.2
+		or bool(_charge_fig.call("has_lunged")) if _charge_fig else false,
+		str((_charge_fig as Node3D).global_position) if _charge_fig else "missing")
+	if _charge_fig != null:
+		# P3: a photograph, not a creature. The one thing a rule-less figure must never become.
+		var bad := ""
+		var stack: Array = [_charge_fig]
+		while not stack.is_empty():
+			var n: Node = stack.pop_back()
+			if n is CollisionObject3D or n is CollisionShape3D or n is ScaryObject:
+				bad += n.name + " "
+			for k in n.get_children():
+				stack.append(k)
+		_ok("…and it is a PHOTOGRAPH: no collider, no ScaryObject, no rule", bad == "", bad)
+	# ⚠️ §8.11 again: C stands in this corridor and the frame is about to be filled.
+	var rect: Rect2 = c.get("protected_player_rect") if c else Rect2()
+	_ok("creature C is held off for the beat, by the loop corridor's own rect",
+		rect.is_equal_approx(_level.call("_room_rect", "LoopStraight")),
+		"%s" % rect)
+	_ok("the charge costs ZERO panic",
+		absf(float(_p.call("get_panic_ratio")) - _charge_panic) < 0.001,
+		"%.4f -> %.4f" % [_charge_panic, float(_p.call("get_panic_ratio"))])
+	# ⚠️ STOP WALKING. Issue 228 for the third time on this level: the next wait is 2.8 s, the
+	# player was walking south at 4 m/s, and C had been parked at z 24 to clear the trigger
+	# volume — 11 m of walking straight into a lethal stalker. It killed the test's player.
+	# ⚠️ AND C STAYS PARKED UNTIL THE ONE-SHOT CONTROL IS DONE. Sending it home here put it at
+	# (13.15, 41), 1.9 m from the stance the control re-enters at: awakened, lunge, dead, and the
+	# file ran itself twice. A wait next to a creature is a distance, and so is a teleport.
+	_p.set("ai_move_dir", Vector2.ZERO)
+	_p.velocity = Vector3.ZERO
+	_stage = 78
+	# 2.37 s of beat + protection (TURN 0.25 + CHARGE 1.0 + LINGER 0.12 + 1.0) = 143 ticks.
+	_wait = 170
+
+
+func _charge_after() -> void:
+	var c = _stalkers.get("C", null)
+	_ok("the figure is gone — one shot, nothing left in the corridor",
+		_level.get_node_or_null("ChargeFigure") == null)
+	_ok("…and C's suppression is HANDED BACK to the tile hall's rect",
+		c != null and (c.get("protected_player_rect") as Rect2).is_equal_approx(_c_rect),
+		"%s vs %s" % [c.get("protected_player_rect") if c else "-", _c_rect])
+	_ok("the charge cost ZERO panic over the whole beat",
+		absf(float(_p.call("get_panic_ratio")) - _charge_panic) < 0.001,
+		"%.4f -> %.4f" % [_charge_panic, float(_p.call("get_panic_ratio"))])
+	# CONTROL: walk the same leg again. It is one-shot.
+	_p.global_position = Vector3(12.5, 0.1, 42.6)
+	_p.force_update_transform()
+	_p.call("ai_look_at", Vector3(12.5, 1.3, 20.0))
+	_p.set("ai_move_dir", Vector2(0.0, -1.0))
+	_stage = 79
+	_wait = 24
+
+
+func _charge_once() -> void:
+	_ok("CONTROL: a second southbound pass fires nothing",
+		_level.get_node_or_null("ChargeFigure") == null
+		and bool(_level.call("corridor_charge_done")))
+	# Hand the level back exactly as it was found: the loop is not broken yet, and C goes home.
+	_level.set("_loop_broken", false)
+	var c = _stalkers.get("C", null)
+	if c and is_instance_valid(c):
+		c.call("relocate_safely", Vector3(13.15, 0.0, 41.0))
+	_p.set("ai_move_dir", Vector2.ZERO)
+	_p.set("ai_active", false)
+	_stage = 1
+
+
+# ── THE WEDGED SHARD, through the prop's own off-screen beat ──────────────────────────────
+var _shard_panic := 0.0
+var _hang_y0 := 0.0
+var _hang_yaw0 := 0.0
+
+
+func _shard_begin() -> void:
+	print("--- the wedged shard and the gurney's receipt ---")
+	var shard = _level.call("shard")
+	_p.set("ai_active", true)
+	_p.set("ai_move_dir", Vector2.ZERO)
+	_p.global_position = Vector3(-3.4, 0.1, 20.6)
+	_p.force_update_transform()
+	_p.call("ai_look_at", shard.global_position)
+	_p.get_node("Camera3D").force_update_transform()
+	var t: Node = _p.call("ai_interact_target")
+	# ⚠️ THE REAL RAY. Issue 230: the table's own collider used to swallow this ray, and a basin
+	# the eye can enter and the E-ray cannot is the fault the whole prop was rebuilt for.
+	_ok("the wedged shard is what the interact ray finds from the Archive floor",
+		t == shard, "ray hit %s" % (t.name if t else "nothing"))
+	_shard_panic = float(_p.call("get_panic_ratio"))
+	_p.call("ai_interact")
+	_ok("…and E on it REFUSES: it is still there and nothing is carried",
+		is_instance_valid(shard) and not bool(shard.call("is_freed"))
+		and not bool(_level.call("has_shard")))
+	_ok("…at zero cost", absf(float(_p.call("get_panic_ratio")) - _shard_panic) < 0.001)
+	# Now look AT the table: `arm_on_sight` arms on one clear frame inside 8 m.
+	var table := _level.get_node_or_null("InvertedTable_Archive") as Node3D
+	_p.call("ai_look_at", table.global_position + Vector3(0, 0.6, 0))
+	_stage = 81
+	_wait = 20
+
+
+func _shard_watched() -> void:
+	var table := _level.get_node_or_null("InvertedTable_Archive")
+	var shard = _level.call("shard")
+	_ok("looking at the table arms it", bool(table.get("armed")))
+	_ok("CONTROL: and while it is WATCHED the shard has not moved",
+		not bool(shard.call("is_freed")) and shard.global_position.y > 0.6,
+		str(shard.global_position))
+	_p.call("ai_look_at", Vector3(-1.0, 1.3, 19.0))   # turn away, still in the Archive
+	_stage = 82
+	_wait = 12
+
+
+func _shard_freed() -> void:
+	var table := _level.get_node_or_null("InvertedTable_Archive")
+	var shard = _level.call("shard")
+	_ok("looking away re-posed the table", bool(table.get("spent")))
+	_ok("…and THAT is what shook the shard down into the basin",
+		bool(shard.call("is_freed"))
+		and shard.global_position.distance_to(Vector3(-3.4, 0.42, 22.0)) < 0.05,
+		str(shard.global_position))
+	_ok("…and it carries the clatter that announces it",
+		shard.get_node_or_null("ShardClatter") != null)
+	_ok("…and the prompt finally offers E",
+		String(shard.call("prompt_text")) == "E — Take the shard.",
+		"'%s'" % shard.call("prompt_text"))
+	# …and it is takeable through the real ray, exactly as before.
+	_p.global_position = Vector3(-3.4, 0.1, 20.9)
+	_p.force_update_transform()
+	_p.call("ai_look_at", shard.global_position)
+	_p.get_node("Camera3D").force_update_transform()
+	var t: Node = _p.call("ai_interact_target")
+	_ok("the freed shard is reachable by the ray from the basin's own approach",
+		t == shard, "ray hit %s" % (t.name if t else "nothing"))
+	_p.call("ai_interact")
+	_ok("…and E takes it", bool(_level.call("has_shard")))
+	_level.set("_shard_taken", false)
+	_level.call("_update_carried")
+
+	# ── the Ward: the slat must still be the first thing the ray finds from its approach ──
+	var slat := _level.get_node_or_null("Anchor_slat") as Node3D
+	_p.global_position = Vector3(-2.5, 0.1, 12.5)
+	_p.force_update_transform()
+	_p.call("ai_look_at", slat.global_position)
+	_p.get_node("Camera3D").force_update_transform()
+	var st: Node = _p.call("ai_interact_target")
+	# ⚠️ THE GURNEY HANGS 0.3 m FROM THIS RAY. Its touch volume is deliberately 1.05 m off the
+	# floor so this approach passes under it — the ray takes the NEAREST hit, and the bed slat
+	# gates the Morgue seal, so swallowing it would be a hard softlock.
+	_ok("CONTROL: the bed slat is still the ray's first hit from its own approach",
+		st == slat or (slat != null and st != null and slat.is_ancestor_of(st)),
+		"ray hit %s" % (st.name if st else "nothing"))
+
+	# ── and the gurney answers the touch under the player's eyes ──────────────────────────
+	var ward := _level.get_node_or_null("WardFragment") as Node3D
+	var hang := ward.get_node("HangingGurney/GurneyHang") as Node3D
+	_hang_y0 = hang.position.y
+	_hang_yaw0 = hang.rotation.y
+	_p.global_position = Vector3(-2.6, 0.1, 12.2)
+	_p.force_update_transform()
+	_p.call("ai_look_at", ward.global_position)
+	_p.get_node("Camera3D").force_update_transform()
+	var wt: Node = _p.call("ai_interact_target")
+	_ok("the gurney is what the ray finds from in front of it",
+		wt == ward, "ray hit %s" % (wt.name if wt else "nothing"))
+	_shard_panic = float(_p.call("get_panic_ratio"))
+	_p.call("ai_interact")
+	_ok("E arms the Ward's answer", bool(ward.get("armed")))
+	_stage = 83
+	_wait = 40          # past the 0.4 s receipt tween
+
+
+func _gurney_moved() -> void:
+	var ward := _level.get_node_or_null("WardFragment") as Node3D
+	var hang := ward.get_node("HangingGurney/GurneyHang") as Node3D
+	# ⭐ THE RECEIPT (Issue 243). Two playtests in a row called this touch "nothing happens",
+	# because the only answer was five metres away and off-screen. The thing you touch moves.
+	_ok("…and the gurney DROPS 0.10 m under the player's own eyes",
+		absf((_hang_y0 - hang.position.y) - 0.10) < 0.005,
+		"%.3f m" % (_hang_y0 - hang.position.y))
+	_ok("…and yaws 6 degrees with it",
+		absf(rad_to_deg(hang.rotation.y - _hang_yaw0) - 6.0) < 0.5,
+		"%.2f deg" % rad_to_deg(hang.rotation.y - _hang_yaw0))
+	_ok("…with a grind at the gurney itself, not across the room",
+		ward.get_node_or_null("GurneyGrind") != null)
+	_ok("the receipt costs ZERO panic",
+		absf(float(_p.call("get_panic_ratio")) - _shard_panic) < 0.001,
+		"%.4f -> %.4f" % [_shard_panic, float(_p.call("get_panic_ratio"))])
+	_twist_gate()
+	_stage = 84
+	# ⚠️ ONE FRAME. `move_aside_instantly()` queue_frees the plate, which lands at the END of the
+	# frame — a ray fired in the same frame still finds it (the pass-3 lesson, twice over).
+	_wait = 2
+
+
+# ⭐ THE GRAZING STANCE (Issue 242). The plate is a 6 cm-deep blocker on the same wall as the
+# page it covers, and the page sits 0.34 m off the line a player walks up that wall — so there is
+# a band of stances from which the interact ray passes the plate's edge and reaches the note's
+# collider. The 23:33 run read the level's win condition from inside that band with the whole
+# far-wing chain skipped.
+#
+# ⚠️ THIS SWEEPS THE BAND AND ASSERTS IT IS NOT EMPTY. A control that cannot reach the note
+# proves nothing about a gate on the note: if the geometry ever changes so that the plate really
+# does block every angle, this goes RED and says so, which is the right answer — it would mean
+# the test had stopped testing. (Measured 2026-09-20: it is not empty at either plate size. The
+# ray slips past the 0.90 m plate's z edge from z 22.2 by 2 cm. A blocker guards one angle.)
+func _twist_gate() -> void:
+	print("--- the twist note's gate, from the wall ---")
+	var note: Node3D = _level.call("twist_note")
+	var gs := root.get_node("GameState")
+	var ui := root.get_node("NoteUI")
+	var reached := 0
+	var opened := 0
+	var stances: Array = []
+	_p.set("ai_active", true)
+	_p.set("ai_move_dir", Vector2.ZERO)
+	for i in range(13):
+		var z: float = 21.6 + 0.1 * float(i)
+		_p.global_position = Vector3(-17.5, 0.1, z)
+		_p.force_update_transform()
+		_p.call("ai_look_at", note.global_position)
+		_p.get_node("Camera3D").force_update_transform()
+		var t: Node = _p.call("ai_interact_target")
+		if t != note:
+			continue
+		reached += 1
+		stances.append("%.1f" % z)
+		_p.call("ai_interact")
+		if bool(ui.get("is_open")) or bool(gs.get("twist_read")):
+			opened += 1
+			if bool(ui.get("is_open")):
+				ui.call("_close")
+	_ok("the grazing band is REAL: the ray reaches the page past the plate from %d stance(s)"
+		% reached, reached > 0, "z = " + ", ".join(stances))
+	_ok("…and from every one of them E opens NOTHING while the stone stands",
+		opened == 0 and not bool(gs.get("twist_read")), "%d opened" % opened)
+	# Face-on, the plate is still a blocker — that half has not regressed.
+	_p.global_position = Vector3(-16.4, 0.1, 24.5)
+	_p.force_update_transform()
+	_p.call("ai_look_at", note.global_position)
+	_p.get_node("Camera3D").force_update_transform()
+	var f: Node = _p.call("ai_interact_target")
+	_ok("face-on, the stone is what the ray finds",
+		f != null and String(f.name) == "SanctumPlate",
+		"ray hit %s" % (f.name if f else "nothing"))
+	# ── and the gate opens exactly when the stone moves, through the level's own path ──
+	_level.call("_unseal_sanctum_instantly")
+	_ok("moving the stone clears the gate", not bool(_level.call("plate_stands"))
+		and String(note.call("prompt_text")) == "E — Read the page.",
+		"'%s'" % note.call("prompt_text"))
+
+
+func _twist_opened() -> void:
+	var note: Node3D = _level.call("twist_note")
+	var gs := root.get_node("GameState")
+	var ui := root.get_node("NoteUI")
+	_ok("…and the stone is physically gone a frame later",
+		_level.get_node_or_null("SanctumPlate") == null)
+	_p.global_position = Vector3(-16.4, 0.1, 24.5)
+	_p.force_update_transform()
+	_p.call("ai_look_at", note.global_position)
+	_p.get_node("Camera3D").force_update_transform()
+	var g: Node = _p.call("ai_interact_target")
+	_ok("…and the page is what the ray finds now", g == note,
+		"ray hit %s" % (g.name if g else "nothing"))
+	_p.call("ai_interact")
+	_ok("…and E finally opens it", bool(ui.get("is_open")) and bool(gs.get("twist_read")))
+	ui.call("_close")
+	gs.set("twist_read", false)
+	_p.set("ai_active", false)
+	_stage = 60

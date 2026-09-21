@@ -492,6 +492,18 @@ and supplying new evidence.** The reasoning column is the entire value of this t
 | 2026-09-20 | **One loose piece of each shape that must be set at the right depth** (Superliminal's grammar) | Not taken. Cost L, and it invalidates the whole measured tolerance curve (`radius 1.30 / seam 0.20`, coverage 87.8 / 100 / 100 %) that `probe_void_view_region.gd` produced the same day. |
 | 2026-09-20 | **The shard among the Threshold's hung shards** or **under PocketA's trap note** | Not taken. The user chose the Archive's inverted table, revealed by its own rearrangement, so the level's best note pays for the first time; the Threshold version is walked past seven times unknowingly, the PocketA version is avoided forever by anyone who died there. |
 
+
+**2026-09-20 — THE VOID, pass 5 (the 23:33 run, eight captures; backlog `08-void.md`)** — *a +10-panic
+corridor charge* (declined: the pass rules a scare with a number attached can be optimised against; the
+charge costs zero) · *making the Ward answer and the shard immediate and on-screen* (declined: it drops
+the level's one rule for two props; the fix is a visible RECEIPT at the cause, the change still
+off-screen — Issue 243) · *a sound-only fix for the Ward touch* (the 18:30 build already had the grind
+and it was not noticed) · *a wheelchair fused into the wall, an upside-down crib, or a generated image
+on a quad* as the Ward's touch prop (a gurney hung nose-down, geometry only, won: a thing you walk
+around needs geometry) · *a 6 s hold-off for creature E after the cradle lunge* (the user's words:
+"*the difficulty is fine, the level should not be simple*" — three of seven deaths were E at the
+Sanctum doorway and that is the ruling).
+
 ### 5.2 Anti-patterns — do not build (from `SCARY.md` §8, reproduced so this file is self-sufficient)
 
 1. **Fake crashes, BSODs, save-corruption, OS dialogs, volume drops.** A macOS `.app` under active development with a `DebugLog` playtest protocol: a fake "SAVE DATA CORRUPTED" produces a real bug report and poisons real data. Use P8's diegetic suite.
@@ -582,6 +594,12 @@ mistake. It would likewise delete the accepted 35 %-dud Still Ones, whose whole 
 tell a dud from a killer without walking up to one."*
 → **For the ledger: not a HUD violation; an ambiguity violation.** That is a distinct rule this
 project had not previously written down.
+
+**2026-09-21 — THE VOID, pass 5: BUILT from the 23:33 run** — Visage / P.T.'s *hallway charge* (the
+loop corridor's one-shot southbound rush by a rule-less figure, zero panic, the shared `jumpscare`), and
+the **receipt rule** — a cause the player performs is answered where they are looking even when the
+payoff is off-screen (the gurney drops under your eyes before the far frame answers; the shard is
+visible and wedged before the look-away frees it — Issue 243). Recorded in `spec/levels/08-void.md`.
 
 **2026-09-20 — THE VOID, pass 4: BUILT from the games-research menu** — Visage / Layers of Fear's *scare
 that gives* (the cradle's rule-less lunge opens a door elsewhere), Yume Nikki's *relinquishment ending*

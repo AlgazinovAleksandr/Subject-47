@@ -141,6 +141,16 @@ var _steps: Array = [
 	{"walk": Vector3(12.5, 0, 30.0)}, {"walk": Vector3(12.5, 0, 38.0)},
 	{"walk": Vector3(12.5, 0, 43.0)},
 	{"check": "no_more_laps"},
+	# ⭐ THE CORRIDOR CHARGE (2026-09-20 pass 5). The walker has just come up the whole corridor
+	# NORTHBOUND with the loop broken, straight through the trigger volume at z 41..43 — which is
+	# the control: the beat answers the walk BACK and must not fire on the way in. Then it turns
+	# round, which is the leg capture #4 is about.
+	# ⚠️ The turn stops at z ~42.2 and creature C is at z 37 by now (it creeps 2 m per lap and the
+	# route walks two): 5 m of air, and C is held off for the beat by the level itself.
+	{"check": "charge_not_on_the_way_in"},
+	{"walk": Vector3(12.5, 0, 41.0)},
+	{"check": "corridor_charge"},
+	{"walk": Vector3(12.5, 0, 43.4)},
 	{"walk": Vector3(12.5, 0, 45.6)}, {"walk": Vector3(11.0, 0, 46.7)},
 	{"walk": Vector3(9.4, 0, 46.7)}, {"walk": Vector3(5.0, 0, 45.6)},
 	{"walk": Vector3(3.0, 0, 45.5)}, {"walk": Vector3(1.7, 0, 45.5)},
@@ -175,6 +185,7 @@ var _steps: Array = [
 	# wall three rooms away, and the page behind THAT is what moves the stone. The route walks it.
 	{"check": "secret_opened"},
 	{"check": "sanctum_still_sealed"},
+	{"check": "twist_refused_before_the_page"},
 	# north out of the child room, back through Hall3 and the Morgue, and west through the
 	# doorway that did not exist when the player last stood here.
 	{"walk": Vector3(-14.0, 0, 36.5)}, {"walk": Vector3(-14.0, 0, 40.9)},
@@ -704,36 +715,49 @@ func _check(what: String) -> void:
 		"solve_window":
 			_press_keystone("KeystoneWindow", 2, "window / south branch", true)
 		"shard_hidden":
+			# ⭐ 2026-09-20 pass 5 (Issue 243). The shard used to be INVISIBLE and collider-less
+			# until the table re-posed itself, and two captures of the 23:33 run called that a
+			# bug ("*this shard did not appear immediately*"). It is now in the world from frame
+			# 0, WEDGED, and it refuses — the look-away frees it instead of spawning it.
 			# ⚠️ THE INVARIANT, NOT THE MOMENT. In the LIVE run the walker keeps its eyes on
-			# whichever creature is nearest, so the Archive's table can arm and re-pose several
-			# legs earlier than the geometry route reaches this step — and asserting "the shard
-			# is hidden HERE" made walk_void_live fail on a run where everything worked. What is
-			# true in both runs is that the shard is in the world exactly when the table has
-			# moved; the ray control below then runs whenever it still has something to prove.
+			# whichever creature is nearest, so the table can arm and re-pose several legs
+			# earlier than this step — asserting "it is still wedged HERE" made walk_void_live
+			# fail on a run where everything worked. What is true in both runs is that the shard
+			# is FREE exactly when the table has moved.
 			var sh = _level.call("shard")
 			var tbl := _level.get_node_or_null("InvertedTable_Archive")
-			_ok("the shard is in the world exactly when the table has re-posed",
-				sh != null and tbl != null and bool(sh.call("is_revealed")) == bool(tbl.get("spent")),
-				"revealed %s, table spent %s" % [sh.call("is_revealed") if sh else "-",
+			_ok("the shard is in the world from the start, and visible",
+				sh != null and sh.visible, str(sh.global_position) if sh else "missing")
+			_ok("…and it is free exactly when the table has re-posed",
+				sh != null and tbl != null and bool(sh.call("is_freed")) == bool(tbl.get("spent")),
+				"freed %s, table spent %s" % [sh.call("is_freed") if sh else "-",
 					tbl.get("spent") if tbl else "-"])
 			if tbl != null and not bool(tbl.get("spent")):
-				# CONTROL: and the E-ray cannot find it either — the table is in the way.
+				# CONTROL: the ray FINDS it from the doorway side — that is the whole point of
+				# the change — and E on it is refused.
 				p.call("ai_look_at", sh.global_position)
 				p.get_node("Camera3D").force_update_transform()
 				var t0: Node = p.call("ai_interact_target")
-				_ok("CONTROL: …and the interact ray finds no shard from the doorway side",
-					t0 != sh, "ray hit %s" % (t0.name if t0 else "nothing"))
+				_ok("CONTROL: the wedged shard is reachable by the ray and says so",
+					t0 == sh and String(sh.call("prompt_text")) == "It is wedged fast.",
+					"ray hit %s, prompt '%s'" % [t0.name if t0 else "nothing",
+						sh.call("prompt_text")])
+				p.call("ai_interact")
+				_ok("CONTROL: …and E on it takes nothing",
+					not bool(sh.call("is_freed")) and not bool(_level.call("has_shard")))
 			else:
 				print("  NOTE  the table had already re-posed by this leg (live steering) —"
-					+ " the hidden-shard ray control runs in the geometry walk")
+					+ " the wedged-shard ray control runs in the geometry walk")
 		"shard_revealed":
 			var table := _level.get_node_or_null("InvertedTable_Archive")
 			var sh2 = _level.call("shard")
 			_ok("looking away re-posed the table", table != null and bool(table.get("spent")))
 			_ok("…and it is the prop's own off-screen beat that did it, not a call",
 				table != null and not bool(table.get("armed")))
-			_ok("…and that is what put the shard in the world",
-				sh2 != null and bool(sh2.call("is_revealed")) and sh2.visible)
+			_ok("…and that is what shook the shard down into the basin",
+				sh2 != null and bool(sh2.call("is_freed")) and sh2.visible
+				and sh2.global_position.distance_to(Vector3(-3.4, 0.42, 22.0)) < 0.05,
+				str(sh2.global_position) if sh2 else "missing")
 		"socket_refuses_empty":
 			# The sockets start EMPTY: three identical diamonds standing at the tiles is what
 			# the 15:00 playtest solved in 8.7 s.
@@ -789,6 +813,39 @@ func _check(what: String) -> void:
 		"sanctum_still_sealed":
 			_ok("…and the cradle did NOT retract the stone plate any more",
 				_level.get_node_or_null("SanctumPlate") != null)
+		"twist_refused_before_the_page":
+			# ⭐ pass 5, Issue 242. The plate was the only gate and it is a 6 cm blocker on the
+			# same wall as the page: from a grazing stance the interact ray reaches the note past
+			# its edge, and the 23:33 run read the level's win condition with the whole far-wing
+			# chain skipped. The note refuses on its own now. ⚠️ A DIRECT call, deliberately —
+			# `check_void` owns the walked grazing-stance sweep; what this asks is whether the
+			# refusal is true at this POINT IN THE ROUTE, with the cradle done and the page unread.
+			var tw: Node = _level.call("twist_note")
+			_ok("the twist note refuses while the stone stands",
+				tw != null and String(tw.call("prompt_text")) == "The stone covers it.",
+				"'%s'" % (tw.call("prompt_text") if tw else ""))
+			tw.call("interact")
+			_ok("…and E on it opens nothing and sets nothing",
+				not bool(root.get_node("NoteUI").get("is_open"))
+				and not bool(root.get_node("GameState").get("twist_read")))
+		"charge_not_on_the_way_in":
+			_ok("CONTROL: walking the corridor NORTHBOUND does not fire the charge",
+				not bool(_level.call("corridor_charge_done"))
+				and _level.get_node_or_null("ChargeFigure") == null,
+				"at z %.1f" % p.global_position.z)
+		"corridor_charge":
+			# ⚠️ STOP THE WALKER. A `check` step does not steer, but it does not brake either, and
+			# the live run coasted from z 42 to z 37.4 — onto creature C, which by then has crept
+			# to z 37. It survived only because the charge holds C off for the beat + 1 s. A test
+			# must not rely on the protection it is testing.
+			_auto.stop()
+			p.velocity = Vector3.ZERO
+			_ok("turning round in the corridor fires the charge, once",
+				bool(_level.call("corridor_charge_done")),
+				"at z %.1f, vz %.2f" % [p.global_position.z, p.velocity.z])
+			var d2: Dictionary = _level.call("save_progress")
+			_ok("…and the snapshot records it so a restore never replays it",
+				bool(d2.get("corridor_charge_done", false)))
 		"in_frame_hall":
 			var fr: Rect2 = _level.call("_room_rect", "FrameHall")
 			_ok("the player walked into the sixteenth room on foot",

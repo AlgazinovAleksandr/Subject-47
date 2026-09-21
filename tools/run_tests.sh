@@ -57,6 +57,8 @@ fi
 TESTS=(
   check_breach_playtest       # hidden-player forgetting, random hunt, door silence/blackout and restoration
   check_breach_voice          # three spatial voices, silent-tail suppression, leaf recoil and hidden safety
+  check_breach_kill           # real rig/contact, animated impacts, hidden safety and single scene-scoped restart
+  check_breach_flashlight     # fixed mid-level pickup, physics route, E/F, hiding, resume and death reset
   check_audio_buses           # the silence architecture: Body survives a dip, beds nest
   check_scare_loudness        # the stings are LOUD, and the fatal path cuts to black first
   check_creature_model        # the ASSET: six clips, no root motion, not metal, not self-lit

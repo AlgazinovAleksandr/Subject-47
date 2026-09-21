@@ -239,7 +239,17 @@ const CONFIG := {
 		# first time anything walked it.
 		# ⭐ X44 CLOSED 2026-09-12 (the rebuild): nothing is waived. Nine notes and two doors, the
 		# far five of them across the tile causeway.
-		"ignore": {},
+		# ⭐ ONE WAIVER SINCE 2026-09-20 pass 5, and it is a fix showing through. `void_rearrangement.gd`
+		# in SIGHT mode has no interact volume of its own — it is a script riding a prop's body so
+		# the prop is not a marker node (see its `_ready()`), `can_interact()` is false forever and
+		# no prompt can ever appear. It measured INERT until pass 5 only because the touch-mode
+		# branch of `_ready()` ran on it by accident and left a 0.4 x 0.5 x 0.4 volume at its
+		# origin; with that gone the aim point is the table's own top slab, and the freed shard in
+		# its basin stands between that point and every standing cell around it. The door heap,
+		# the same script with bigger geometry, still measures INERT.
+		"ignore": {
+			"InvertedTable_Archive": "a sight-mode rearranger: no prompt, no interact volume, and the shard in its basin blocks the aim point",
+		},
 		# ⭐ 2026-09-20: the Morgue grew to 12 x 10 and the far wing gained the slab shard, the
 		# cradle socket and the sanctum plate.
 		# ⭐ 2026-09-20 pass 3: 33 783 cells (527.9 m²) and 41 targets measured — the seventeen

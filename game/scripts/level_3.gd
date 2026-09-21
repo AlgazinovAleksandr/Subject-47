@@ -43,6 +43,9 @@ const _EXIT_DOOR_SCRIPT := preload("res://scripts/void_exit_door.gd")
 const _CRADLE_FIGURE := preload("res://scripts/void_cradle_figure.gd")
 const _FRAME_HALL := preload("res://scripts/void_frame_hall.gd")
 const _HIDDEN_NOTE_SCRIPT := preload("res://scripts/void_hidden_note.gd")
+# ⭐ 2026-09-20 pass 5: the twist note's own refusal, the receipt on the Ward's gurney, and the
+# rule-less figure that charges the loop corridor on the way back.
+const _TWIST_NOTE_SCRIPT := preload("res://scripts/void_twist_note.gd")
 
 const PRESERVE := ["Environment", "AmbientPlayer", "HUDCanvas", "Player"]
 const TEX := "res://assets/textures/level_4_void/"
@@ -243,6 +246,12 @@ var _drawing_swap_armed := false
 var _drawing_swapped := false
 var _frame_hall: Node3D = null
 var _hidden_note: StaticBody3D = null
+var _twist_note: StaticBody3D = null
+# ── pass 5: the corridor charge ──
+var _charge_area: Area3D = null
+var _charge_sting: AudioStreamPlayer3D = null
+var _charge_done := false
+var _charge_protect := -1.0           # seconds left of creature C's suppression, or < 0
 var _loop_swap_leg: Node3D = null     # P.T.'s one discrete change per lap, at z 27
 var _loop_swap_page: Node3D = null
 var _loop_swap_stage := -1
@@ -535,6 +544,7 @@ func _build_loop() -> void:
 	seam.body_entered.connect(_on_loop_seam)
 	_loop_rect = _room_rect("LoopStraight")
 	_build_loop_audio()
+	_build_corridor_charge()
 	# The dressing: a stain and a pipe stub on the east wall every 5 m, identical per period.
 	var stain := StandardMaterial3D.new()
 	stain.albedo_color = Color(0.03, 0.02, 0.05)
@@ -565,6 +575,98 @@ func _build_loop() -> void:
 		p.rotation.z = PI / 2.0
 		p.rotation.y = PI / 2.0
 		add_child(p)
+
+
+# ⭐ THE CORRIDOR CHARGE (2026-09-20 pass 5). Capture #4, standing in the loop corridor on the
+# walk back for the bed slat: *"we inevitably need to run back in this corridor… add some scary
+# thing in the corridor when we go back — like a sudden jumpscare with 3d animation."* The
+# corridor is 30 m long, it is walked at least three times, and after its note is read it is the
+# emptiest place in the level: the loop is broken, C has stopped creeping, nothing happens.
+#
+# The beat: the FIRST time you enter the north end heading SOUTH with the loop already broken, a
+# rule-less figure is standing 25 m away at the far end under the lamp the ladder killed, with
+# its back to you. It turns over 0.25 s and covers the corridor in 1.0 s, stopping 0.6 m from
+# the camera with the shared `jumpscare`, and it is gone.
+#
+# ⚠️ ZERO PANIC. Nothing in the beat touches `_panic`: no `ScaryObject`, no collider, no gaze
+# cost, and the corridor carries no DarkZone or DreadZone to charge for standing in it.
+# ⚠️ IT IS NOT A SIXTH PURSUER. SCARY.md §8.4 allows ONE chase level in twelve and this is not
+# it; `check_void_frames.gd` walks the figure's subtree and asserts no collider and no
+# `ScaryObject`, which is what keeps a photograph from becoming a creature.
+# ⚠️ NOT ON THE FIRST (NORTHBOUND) PASS. It answers the walk BACK, which is the leg the capture
+# is about — and a figure that charges you on the way in would just be the corridor's greeting.
+# ⚠️ CREATURE C IS HELD OFF for the beat + 1 s, with the tile hall's own mechanism
+# (`protected_player_rect`), because C stands in this corridor and a figure filling the frame
+# while a lethal stalker walks up behind you is §8.11's coin flip. RESTORED to `_tile_rect`,
+# never cleared (the cradle lunge's rule).
+# ⚠️ ONE SHOT, saved as `corridor_charge_done`, and `_restore_progress()` never replays it.
+const CHARGE_AREA_POS := Vector3(12.5, ROOM_H * 0.5, 42.0)   # x 11..14, z 41..43
+const CHARGE_AREA_SIZE := Vector3(3.0, ROOM_H, 2.0)
+const CHARGE_FIGURE_AT := Vector3(12.5, 0.0, 16.5)           # under Light_Loop_19, 25 m south
+const CHARGE_SOUTHBOUND := -0.5                              # m/s of -z that counts as "going back"
+
+
+func _build_corridor_charge() -> void:
+	_charge_area = Area3D.new()
+	_charge_area.name = "CorridorCharge"
+	var col := CollisionShape3D.new()
+	var sh := BoxShape3D.new()
+	sh.size = CHARGE_AREA_SIZE
+	col.shape = sh
+	_charge_area.add_child(col)
+	_charge_area.position = CHARGE_AREA_POS
+	_charge_area.collision_layer = 0
+	_charge_area.collision_mask = 1
+	add_child(_charge_area)
+
+
+# ⚠️ POLLED, not `body_entered`. A signal fires on the crossing and on nothing else, so a player
+# who walks in northbound, turns round inside the box and walks out south would never arm it —
+# and "turn round in the corridor" is exactly what this beat is about. Overlap + heading is a
+# superset of "entered southbound" and cannot miss it.
+func _tick_corridor_charge() -> void:
+	if _charge_done or _charge_area == null or not _loop_broken:
+		return
+	var p := _player()
+	if p == null or not _charge_area.overlaps_body(p):
+		return
+	if p.velocity.z > CHARGE_SOUTHBOUND:
+		return
+	_fire_corridor_charge()
+
+
+func _fire_corridor_charge() -> void:
+	if _charge_done:
+		return
+	_charge_done = true
+	var p := _player()
+	if p == null:
+		return
+	if _charge_sting == null:
+		_charge_sting = _make_sting("ChargeSting")
+	var c = _stalkers.get("C", null)
+	if c and is_instance_valid(c):
+		c.set("protected_player_rect", _loop_rect)
+		_charge_protect = _CRADLE_FIGURE.TURN_TIME + _CRADLE_FIGURE.CHARGE_TIME \
+			+ _CRADLE_FIGURE.LINGER + 1.0
+	var fig := _CRADLE_FIGURE.new() as Node3D
+	fig.name = "ChargeFigure"
+	add_child(fig)
+	fig.call("arm_charge", p, CHARGE_FIGURE_AT, _charge_sting)
+	_dbg("VOID corridor charge FIRED (player at %v, figure at %v)"
+		% [p.global_position, CHARGE_FIGURE_AT])
+
+
+func _tick_charge_protection(delta: float) -> void:
+	if _charge_protect < 0.0:
+		return
+	_charge_protect -= delta
+	if _charge_protect > 0.0:
+		return
+	_charge_protect = -1.0
+	var c = _stalkers.get("C", null)
+	if c and is_instance_valid(c):
+		c.set("protected_player_rect", _tile_rect)
 
 
 # ⭐ THE RETURN BEATS (2026-09-20 pass 2). The 13:10 playtester looped twice and wrote
@@ -883,6 +985,10 @@ func _build_fragments() -> void:
 	_ward_fragment = _REARRANGEMENT.new()
 	_ward_fragment.name = "WardFragment"
 	_ward_fragment.position = Vector3(-2.6, 1.25, 13.3)
+	# ⭐ pass 5: the thing you touch is a hospital gurney hung nose-down, in the Ward's own bone
+	# family — capture #1, *"they still should represent some objects. This one is too unclear."*
+	# It hangs from y 2.2 down to y 0.3 and gives a visible receipt on E (void_rearrangement.gd).
+	_ward_fragment.family = "bone"
 	_ward_fragment.sculpture = answering
 	_ward_fragment.room_rect = _room_rect("Ward")
 	# A bigger transform, because "unmissable" was the point: 0.9 rad of yaw, 0.35 of tilt, and
@@ -965,12 +1071,17 @@ func _arm_on_sight(prop: Node3D, child: String, rot: Vector3, offset: Vector3) -
 
 
 # ⭐ THE SHARD MOVED TO THE ARCHIVE (2026-09-20 pass 3), into the legs-up basin of the
-# inverted table — hidden and collider-less until that table rearranges itself behind your
-# back. The Archive is a dead end off the Ward that NONE of the day's three runs entered; the
-# shard used to lie seven seconds from the cradle it opens (taken 410 s, cradle 417 s).
+# inverted table. The Archive is a dead end off the Ward that NONE of the day's three runs
+# entered; the shard used to lie seven seconds from the cradle it opens (taken 410 s, cradle
+# 417 s).
+# ⭐ AND IT IS VISIBLE FROM FRAME 0, WEDGED (2026-09-20 pass 5). Pass 3 made it invisible and
+# collider-less until the table re-posed itself, and the 23:33 run photographed that twice:
+# *"this shard did not appear immediately… we should fix that."* It is now jammed between the
+# table's stretcher and one upturned leg, refusing, and the off-screen rearrangement shakes it
+# down into the basin. The rule is kept and the cause is finally legible.
 # ⚠️ `to_global`, never a hand-computed world point: the table is yawed 0.3 rad.
-# ⚠️ `conceal()` AFTER add_child — `_ready()` runs before the mesh and the collider exist and
-# cannot hide them (void_loop_note.gd's rule, learned the same way).
+# ⚠️ Both poses are handed over AFTER add_child — the node's `_ready()` runs before the mesh and
+# the collider exist and nothing set there could describe them (void_loop_note.gd's rule).
 func _spawn_archive_shard(table: Node3D) -> void:
 	_shard = _SHARD_SCRIPT.new()
 	_shard.name = "SlabShard"
@@ -979,16 +1090,25 @@ func _spawn_archive_shard(table: Node3D) -> void:
 	# at y 0.22) and a descending E-ray grazes that face before it reaches anything lower: at
 	# y 0.38 the raw ray reported `InvertedTable_Archive` from every stance tried. 0.42 leaves
 	# 0.20 m of clearance and the shard still sits inside the basin, between the legs-up legs.
-	_shard.position = table.to_global(Vector3(0.0, 0.42, 0.0))
+	var basin: Vector3 = table.to_global(Vector3(0.0, 0.42, 0.0))
+	# ⚠️ AND THE WEDGED POSE IS MEASURED TOO. Body-local (0.30, 0.74, -0.26) puts it against the
+	# stretcher (local y 0.88) beside the +x pair of upturned legs, on the DOORWAY SIDE of the
+	# table (world z 21.84 against the table's 22.0) so it is in view from the Archive's own
+	# doorway at (-2, 18) rather than behind two legs — and 0.52 m above the table's collider,
+	# which is what lets the E-ray reach it at all (Issue 230).
+	var wedged: Vector3 = table.to_global(Vector3(0.30, 0.74, -0.26))
+	_shard.position = wedged
 	add_child(_shard)
+	_shard.call("set_poses", wedged, Vector3(0.55, -0.35, 0.9), basin)
 	_shard.connect("taken", _on_shard_taken)
 	_sync_shard()
 
 
-# The rearrangement IS the reveal. Derived from the rearranger's own `spent` flag rather than
+# The rearrangement IS the release. Derived from the rearranger's own `spent` flag rather than
 # stored, so the off-screen beat, a snapshot restore and a test that sets the state by hand all
-# land in the same world (the loop ladder's rule).
-func _sync_shard() -> void:
+# land in the same world (the loop ladder's rule). ⚠️ `announce` is FALSE everywhere but the
+# live beat: a restore must never replay a one-shot.
+func _sync_shard(announce: bool = false) -> void:
 	if _shard == null or not is_instance_valid(_shard):
 		return
 	if _shard_taken:
@@ -996,13 +1116,13 @@ func _sync_shard() -> void:
 		_shard = null
 		return
 	if _inverted_table and is_instance_valid(_inverted_table) and bool(_inverted_table.get("spent")):
-		_shard.call("reveal")
+		_shard.call("free_into_basin", announce)
 	else:
-		_shard.call("conceal")
+		_shard.call("wedge")
 
 
 func _on_table_rearranged() -> void:
-	_sync_shard()
+	_sync_shard(true)
 
 
 func _on_ward_answered() -> void:
@@ -1303,19 +1423,7 @@ func _fire_cradle_lunge() -> void:
 	if p == null or _cradle == null or not is_instance_valid(_cradle):
 		return
 	if _cradle_sting == null:
-		# cradle_sting measures -10.09 dBFS RMS — the loudest file in the level — and it plays at
-		# 0.6 m from the camera. -3.0 dB against the default max_db 3.0 clamps the distance gain
-		# to exactly 0 dB inside 2.83 m, which puts its -1.01 dBFS peak on the ceiling without
-		# clipping it. ⚠️ Master, NOT Ambience: HoldBreath ducks Ambience to -30 dB for this very
-		# beat, and a sting inside its own silence is the opposite of the effect.
-		var s := GameState.load_audio("cradle_sting")
-		if s:
-			_cradle_sting = AudioStreamPlayer3D.new()
-			_cradle_sting.name = "CradleSting"
-			_cradle_sting.stream = s
-			_cradle_sting.volume_db = -3.0
-			_cradle_sting.unit_size = 4.0
-			add_child(_cradle_sting)
+		_cradle_sting = _make_sting("CradleSting")
 	var e = _stalkers.get("E", null)
 	if e and is_instance_valid(e):
 		e.set("protected_player_rect", _room_rect("ChildRoom"))
@@ -1324,7 +1432,32 @@ func _fire_cradle_lunge() -> void:
 	var fig := _CRADLE_FIGURE.new() as Node3D
 	fig.name = "CradleFigure"
 	add_child(fig)
-	fig.call("arm", p, _cradle.global_position + Vector3(0, 0.1, 0), _cradle_sting)
+	# ⭐ pass 5: the CRADLE, not a point. The figure takes the centre of the cradle's own geometry
+	# (every `_body()` prop in this level has its origin on the floor), so it rises out of the
+	# slats instead of out of the floor in front of them — capture #5, *"make this 3d jumpscare
+	# look more centralised to the middle of this object."*
+	fig.call("arm", p, _cradle, _cradle_sting)
+
+
+# ⭐ THE SHARED `jumpscare` ON MASTER (2026-09-20 pass 5, the user's ruling for both beats).
+# ⚠️ -10.3 dB IS MEASURED, not chosen. `cradle_sting` is -10.09 dBFS RMS and sat at -3.0 dB;
+# `jumpscare` is -2.83 dBFS RMS, i.e. 7.26 dB hotter, so -10.3 dB lands the shared file exactly
+# where pass 4 measured the old one (-13.1 dBFS at the source). Its peak is 0.00 dBFS, so at
+# -10.3 dB with the +3 dB max_db clamp the loudest sample sits 7.3 dB under the ceiling.
+# ⚠️ MASTER, not `AudioBuses.AMBIENCE`: `HoldBreath.dip()` ducks Ambience to -30 dB for the
+# cradle's beat, and a sting inside its own silence is the opposite of the effect.
+# `screamer.gd` routes its own the same way for the same reason.
+func _make_sting(nm: String) -> AudioStreamPlayer3D:
+	var s := GameState.load_audio("jumpscare")
+	if s == null:
+		return null
+	var pl := AudioStreamPlayer3D.new()
+	pl.name = nm
+	pl.stream = s
+	pl.volume_db = -10.3
+	pl.unit_size = 4.0
+	add_child(pl)
+	return pl
 
 
 func _tick_protection(delta: float) -> void:
@@ -1430,7 +1563,7 @@ func everything_put_back() -> bool:
 
 
 # The stone plate over the Sanctum's twist note. Built AFTER _spawn_notes() so it can sit in
-# front of TwistNote's own collider (note front at x -17.78; the plate occupies -17.75..-17.69).
+# front of TwistNote's own collider (note front at x -17.78; the plate occupies -17.77..-17.71).
 # ⚠️ The Sanctum's west wall carries no doorway — the twist note is there for exactly that
 # reason — so nothing here can seal a room.
 func _spawn_chain() -> void:
@@ -1439,7 +1572,10 @@ func _spawn_chain() -> void:
 	var plate := StaticBody3D.new()
 	plate.name = "SanctumPlate"
 	plate.set_script(_PLATE_SCRIPT)
-	plate.position = Vector3(-17.72, 1.3, 24.5)
+	# ⭐ pass 5: x -17.74, not -17.72, and 0.90 × 1.10 instead of 0.60 × 0.80. Its back face sits
+	# at -17.77, one centimetre in front of the note's collider face (-17.78) and 0.13 m clear of
+	# the wall's own face (-17.90) — covering, never coplanar.
+	plate.position = Vector3(-17.74, 1.3, 24.5)
 	plate.rotation.y = PI / 2.0
 	add_child(plate)
 	_sanctum_plate = plate
@@ -1564,10 +1700,15 @@ func _spawn_notes() -> void:
 		"47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47 47", true)
 	n = _make_note("TrapPocketB", _builder.wall_point("PocketB", Vector2(-1, 0), 1.3, 0.16), PI / 2.0,
 		"The exit is not an exit. The exit is not an exit. The exit is not an exit. The exit is not an exit. The exit is not an exit. The exit is not an exit. The exit is not an exit. The exit is not an exit. The exit is not an exit.", true)
-	# The twist.
+	# The twist. ⭐ pass 5: a note SUBCLASS (void_twist_note.gd) that refuses while the stone
+	# plate stands. The plate was the only gate and it is a 3 cm-deep blocker, which a grazing
+	# stance walks straight past (Issue 242) — the level's win condition was reachable without
+	# the cradle, the secret door or the Hall of Frames.
 	n = _make_note("TwistNote", _builder.wall_point("Sanctum", Vector2(-1, 0), 1.3, 0.16), PI / 2.0,
-		"There is no end condition.\n\nThe door at the end of this room opens onto the first room. It always has. Subject 47 has completed the trial eleven times and remembers none of them, which is the result.\n\nWe are not watching. There is nobody at the glass. We stopped watching after the fourth.\n\nGo through the door. We will see you at the beginning.", false)
+		"There is no end condition.\n\nThe door at the end of this room opens onto the first room. It always has. Subject 47 has completed the trial eleven times and remembers none of them, which is the result.\n\nWe are not watching. There is nobody at the glass. We stopped watching after the fourth.\n\nGo through the door. We will see you at the beginning.", false, _TWIST_NOTE_SCRIPT)
 	n.is_twist_note = true
+	n.set("level", self)
+	_twist_note = n
 
 
 # ⚠️ `script` is applied BEFORE add_child: a set_script() on a node already in the tree never
@@ -1735,6 +1876,8 @@ func _process(delta: float) -> void:
 	_tick_footstep_echo(delta)
 	_tick_step_through(delta)
 	_tick_protection(delta)
+	_tick_charge_protection(delta)
+	_tick_corridor_charge()
 	_tick_drawing_swap()
 
 
@@ -1864,6 +2007,9 @@ func save_progress() -> Dictionary:
 		# attempt counter moves under a restart and a player who walks back in must find the room
 		# they walked out of.
 		"secret_open": _secret_open, "lunge_spent": _lunge_spent,
+		# ⭐ pass 5. One shot, like the cradle's lunge: a restore records that it HAPPENED and
+		# never replays it. The corridor is walked several more times after it fires.
+		"corridor_charge_done": _charge_done,
 		"drawing_swapped": _drawing_swapped,
 		"frames": _frame_hall.call("save_state") if _frame_hall else {},
 		"hidden_note_read": _notes_read.has("HiddenNote")}
@@ -1905,6 +2051,7 @@ func _restore_progress() -> void:
 	if bool(data.get("secret_open", false)):
 		_open_secret_door_instantly()
 	_lunge_spent = bool(data.get("lunge_spent", false))
+	_charge_done = bool(data.get("corridor_charge_done", false))
 	_drawing_swapped = bool(data.get("drawing_swapped", false))
 	if _drawing_swapped:
 		_apply_drawing_plan()
@@ -2025,12 +2172,33 @@ func hidden_note() -> Node:
 	return _hidden_note if is_instance_valid(_hidden_note) else null
 
 
+# ⭐ pass 5. The ONE place that knows whether the stone over the twist note has moved, asked by
+# `void_twist_note.gd` on every prompt and every E. It is the level's own reference, which
+# `retract()`, `move_aside_instantly()` and `_unseal_sanctum_instantly()` all null in the same
+# breath — so the gate cannot disagree with the geometry, whichever path cleared it.
+func plate_stands() -> bool:
+	return _sanctum_plate != null and is_instance_valid(_sanctum_plate)
+
+
+func twist_note() -> Node:
+	return _twist_note if is_instance_valid(_twist_note) else null
+
+
 func cradle_done() -> bool:
 	return _cradle_done
 
 
 func lunge_spent() -> bool:
 	return _lunge_spent
+
+
+# ── test surface (pass 5) ───────────────────────────────────────────────────────
+func corridor_charge_done() -> bool:
+	return _charge_done
+
+
+func charge_area() -> Area3D:
+	return _charge_area if is_instance_valid(_charge_area) else null
 
 
 func drawing_swapped() -> bool:

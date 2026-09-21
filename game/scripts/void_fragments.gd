@@ -610,3 +610,78 @@ static func long_drawer(level: Node3D, pos: Vector3, yaw: float, nm: String,
 	_box(body, Vector3(0.54, 0.26, 0.04), Vector3(0, 0.13, -1.97), steel, "DrawerFace")
 	_box(body, Vector3(0.22, 0.035, 0.035), Vector3(0, 0.13, -2.00), fmat(family, PALE, 0.5, 0.3), "DrawerLongHandle")
 	return body
+
+
+# ⭐ THE HANGING GURNEY (2026-09-20 pass 5). The Ward's touchable fragment used to be a 0.24 m
+# pale box — capture #1: *"Objects in this level, even though they should be broken and
+# corrupted, they still should represent some objects. This one is too unclear."* It is now a
+# hospital gurney hung NOSE-DOWN BY ONE CORNER in the middle of the ward: a thing you recognise
+# from the first glance, in the wrong orientation, with nothing holding it up.
+#
+# ⚠️ BOXES ONLY and BONE family — the Ward's own palette, no emission, no `ScaryObject`, zero
+# panic. The silhouette is what carries it (Issue 35): two side rails, a head board, four legs
+# ending in caster discs, a mattress slab standing PROUD of the frame, and two straps, one of
+# which hangs loose. A flat box would read as a box, which is exactly the complaint.
+# ⚠️ The tilt lives on the inner `GurneyHang` node, not on the parent, so a caller can rock the
+# whole thing (the touch receipt drops it 0.10 m and yaws it 6°) without touching the pose.
+# ⚠️ THE POSE IS SET FROM THE PICTURE, not from the number. At 77 degrees the thing is almost
+# vertical and the mattress fills the frame as a pale rectangle — the complaint it exists to
+# answer, in a bigger size. At 49 degrees, turned broadside to the room, you see the rails, the
+# four legs, the casters and the slumped pad: a gurney, tipped, hanging by one corner.
+# ⚠️ THE YAW IS PART OF THE POSE, and it is also what keeps the footprint out of the way: the
+# long axis runs along X, where the Ward is 10 m wide, so the prop spans z 12.9..13.7 and
+# clears both the bed slat's approach ray and `FoldedFrame_Ward_L`'s geometry at z 13.68.
+const GURNEY_TILT := 0.85        # radians, nose-down
+const GURNEY_YAW := 1.72         # PI/2 + 0.15: broadside to the room, but not square to it
+const GURNEY_ROLL := 0.22        # …and it hangs off one corner
+
+
+static func gurney(parent: Node3D, pos: Vector3, yaw: float, nm: String,
+		family: String = "bone") -> Node3D:
+	var root := Node3D.new()
+	root.name = nm
+	root.position = pos
+	root.rotation.y = yaw
+	parent.add_child(root)
+	var hang := Node3D.new()
+	hang.name = "GurneyHang"
+	hang.rotation = Vector3(GURNEY_TILT, GURNEY_YAW, GURNEY_ROLL)
+	# ⚠️ 12 cm off the pivot in -z, measured: at 0 the low end reaches z 13.80 and
+	# `FoldedFrame_Ward_L`'s own geometry starts at z 13.73. Two props sharing 7 cm of space is
+	# how this project's most common bug class starts (Issues 19/20/23/24/25/26), and neither of
+	# them is a CSG box, so `check_wall_overlap` would never have said a word about it.
+	hang.position.z = -0.12
+	root.add_child(hang)
+	var steel := fmat(family, BASE, 0.6, 0.2)
+	var pale := fmat(family, PALE)
+	var dark := fmat(family, DARK)
+	# ⚠️ EVERY PART HAS A UNIQUE NAME. Godot 4 does not suffix a duplicate node name, it REPLACES
+	# it with the class-based auto name (Issue 237) — four legs called "GurneyLeg" are one
+	# `GurneyLeg` and three `@MeshInstance3D@NN`, and a guard counting them finds one.
+	var i := 0
+	# The frame: two side rails and a head board that is still recognisably a head board.
+	for side in [-1.0, 1.0]:
+		_box(hang, Vector3(0.07, 0.09, 1.90), Vector3(side * 0.36, 0.02, 0.0), steel,
+			"GurneyRail%d" % i)
+		# Legs, one pair splayed — it has been dropped, not parked.
+		for zi in [-1.0, 1.0]:
+			var leg := _box(hang, Vector3(0.06, 0.60, 0.06),
+				Vector3(side * 0.33, -0.32, zi * 0.78), steel, "GurneyLeg%d_%d" % [i, int(zi)])
+			leg.rotation.z = side * 0.06 * zi
+			# A caster as a thin box: a disc read at this size, and still box geometry.
+			var wheel := _box(hang, Vector3(0.17, 0.17, 0.045),
+				Vector3(side * 0.33, -0.645, zi * 0.78), dark, "GurneyWheel%d_%d" % [i, int(zi)])
+			wheel.rotation.y = 0.18 * side
+		i += 1
+	_box(hang, Vector3(0.78, 0.07, 0.07), Vector3(0, 0.02, 0.92), steel, "GurneyFootBar")
+	var board := _box(hang, Vector3(0.74, 0.34, 0.06), Vector3(0, 0.17, -0.94), pale, "GurneyHeadBoard")
+	board.rotation.x = -0.16
+	# The mattress stands PROUD of the frame and has slumped toward the low end.
+	var pad := _box(hang, Vector3(0.70, 0.13, 1.66), Vector3(0.02, 0.11, 0.06), pale, "GurneyMattress")
+	pad.rotation = Vector3(0.03, 0.02, -0.04)
+	# Two straps: one still across the pad, one hanging off the low side.
+	var strap := _box(hang, Vector3(0.80, 0.025, 0.11), Vector3(0, 0.17, -0.34), dark, "GurneyStrap0")
+	strap.rotation.z = 0.05
+	var loose := _box(hang, Vector3(0.10, 0.44, 0.025), Vector3(0.40, -0.06, 0.40), dark, "GurneyStrap1Loose")
+	loose.rotation = Vector3(0.0, 0.0, -0.35)
+	return root

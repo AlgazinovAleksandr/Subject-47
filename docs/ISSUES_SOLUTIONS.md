@@ -6410,3 +6410,91 @@ is atomic, the order is a valid permutation at every instant, and the level's ru
 instead of per room — stand still staring at one and the ones behind you still trade. The control:
 with the observation check removed, "no frame changed while it was in view" fails and names the slot.
 **A rule about the whole room is a rule about the widest camera angle; state it per object.**
+
+## Issue 242 — A blocker 3 cm in front of a target does not block at a grazing angle (2026-09-20)
+
+**Symptom:** the Void's twist note — the level's win condition — was read 13 s after the cradle with no
+Hall of Frames step, no settle and no hidden-note read in the log: the stone plate that covers it had
+never retracted, and the player won the level without the minigame (pass-5 capture 8, *"you can take
+the note hidden behind"*).
+
+**Cause:** the plate was the only gate, and it was a 0.60 × 0.80 slab hanging **3 cm in front** of a
+note of about the same size. From a grazing stance along the wall the two do not overlap on screen —
+6 cm of depth at 80° off-normal is 34 cm of parallax — so a third of the page shows beside the slab and
+the interact ray reaches the note's collider past the slab's edge. `check_reachable` and the walk
+harnesses only ever approached the note face-on, where the slab covers it exactly.
+
+**Fix:** gate the target, not the ray. `TwistNote` carries `void_twist_note.gd`, which refuses by name
+(*"The stone covers it."*) while the level's plate is valid. The plate grows to 0.90 × 1.10 as defence in
+depth only — the builder measured that NO plate narrower than the room closes the grazing band (the note
+hangs 0.34 m off the wall-hugging walk line; 7 of 13 swept stances still reach its collider). The control
+sweeps thirteen stances along the wall: with the refusal removed seven of them open the page; with it
+present none do, and the guard also asserts the band is not empty, so a future geometry that did block
+every angle would be reported rather than assumed.
+**A physical blocker guards one viewing angle; a refusal on the target guards all of them.** The
+Records-sign lesson's mirror image: there, a collider swallowed a ray it should not have; here, a
+collider failed to swallow one it should.
+
+## Issue 243 — An off-screen change with no on-screen receipt reads as a bug (2026-09-20)
+
+**Symptom:** two hand playtests in a row, the same two props: *"Touch the suspended fragment — nothing
+changes"* (18:30) and *"does it do something? I did not notice anything"* (23:33); *"this shard did not
+appear immediately"*, twice in one run. Both worked exactly as built — the Ward frame answered 33 s
+after the touch (the right frame stayed in view until then; <10 ms in later lives), the shard appeared
+4.4 / 11 / 5.6 s after the table was first seen, always on a look-away.
+
+**Cause:** SCARY.md P11's rule — nothing changes while the player is looking — was applied to the
+CAUSE as well as the effect. A touch with no visible consequence at the touched object is, to the
+player, a touch that did nothing; an object that does not exist until you look away is, to the player,
+an object that "did not appear". The 18:30 fix (a stone grind, the answer only while in the room) added
+information on channels the player was not attending to.
+
+**Fix:** a receipt. The touched object reacts under your eyes (the gurney drops 0.10 m with a grind)
+and THEN the other frame answers off-screen; the shard is visible from the start, wedged fast, and the
+look-away frees it into the basin with a clatter. The change still happens where you are not looking.
+**The rule governs what changes, not what acknowledges.** A cause the player performs must be answered
+where the player is looking, even when the payoff is somewhere else.
+
+## Issue 244 — An `@export` set after `add_child` is set after `_ready()` (2026-09-21)
+
+**Symptom:** the interact ray in the Void's Archive returned nothing from four stances a metre from a
+shard in plain view. `InvertedTable_Archive` reported two colliders — one a 0.4 × 0.5 × 0.4 box at its
+origin that nothing in the level builds — and `collision_layer` 2 on a body its builder sets to 1. Hall3's
+door heap carried the same.
+
+**Cause:** `void_rearrangement.gd:_ready()` branches on `arm_on_sight`, and the level sets that flag on
+the line AFTER `add_child` — `void_fragments._body()` attaches the script and adds the node in one call.
+So the sight-mode props ran the touch-mode branch for their whole life: a spurious interact volume, a
+stray pale box, an overwritten layer. Harmless while the touch prop was a 0.24 m box hidden inside other
+geometry; `check_reachable` classified both INERT, the right verdict for the wrong reason.
+
+**Fix:** `call_deferred("_build_touch_prop")`, which lands after the caller's next line, and the builder
+bails if `arm_on_sight`. The layer was deliberately left at 2 (making a table and a heap of doors solid is
+a level change). **A constructor-time branch on a caller-supplied flag must be deferred or passed in.**
+
+## Issue 245 — `call()` on a method that no longer exists aborts the function and the harness says PASS (2026-09-21)
+
+**Symptom:** renaming `void_shard.gd:is_revealed()` made `check_void` print "134 checks, 0 failed /
+RESULT: PASS" — eight checks (the shard, the slab page, the whole exit-door assembly) had silently
+vanished; `check_void_alignment` lost fourteen the same way.
+
+**Cause:** `Object.call()` on a missing method pushes a SCRIPT ERROR and unwinds the current function. It
+fails nothing. `check_void`'s own check-count floor was 55 against a real total of 142, so the floor
+noticed nothing either.
+
+**Fix:** both files on the new API; the floor raised to 195 with the reasoning written beside it. **A
+check-count floor 80 checks below the real count is not a floor — keep it within about ten.**
+
+## Issue 246 — A retirement test must not be an ordering test (2026-09-21)
+
+**Symptom:** a `check_void` stage staged its own death (creature C at 1.9 m — Issue 228, again) and the
+file ran itself a second time from the top: 336 checks, two structural passes, and PASS.
+
+**Cause:** the reload guard was `if _level == null` (re-entered, because a freed node compares equal to
+null — Issue 223) plus `_stage < 9`; but the stage numbers are labels, not an order — 21, 40, 60 and
+75–84 all run before stage 9. The same shape sat inside `void_cradle_figure.gd`: `if _phase >= 3: return`
+froze the new charge forever, because its phases are 5 and 6.
+
+**Fix:** a `_bootstrapped` bool, and the guard names the two stages it means. **When numbers are labels,
+never compare them.**
+

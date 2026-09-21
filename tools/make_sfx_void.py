@@ -242,6 +242,26 @@ def make_frame_settle():
     return out
 
 
+def make_shard_clatter():
+    """0.5 s one-shot: a stone shard dropping into a stone basin — two hard clicks a few ms apart
+    (the corner, then the flat), a short bright rattle, and a dull settle. The Archive table's
+    wedged shard coming loose behind your back (pass 5's receipt)."""
+    rng = random.Random(4718)
+    n = int(SR * 0.5)
+    out = []
+    lp = OnePole(2600.0)
+    for i in range(n):
+        t = i / float(SR)
+        click = 0.0
+        for t0, amp in ((0.0, 1.0), (0.055, 0.7), (0.13, 0.45), (0.19, 0.3)):
+            if t >= t0:
+                click += amp * math.sin(2 * math.pi * 1900.0 * (t - t0)) * math.exp(-(t - t0) * 260.0)
+        rattle = lp.tick(rng.uniform(-1.0, 1.0)) * 0.35 * math.exp(-t * 14.0) * (1.0 if t > 0.02 else 0.0)
+        settle = math.sin(2 * math.pi * 130.0 * t) * 0.25 * math.exp(-max(0.0, t - 0.2) * 18.0) * (1.0 if t >= 0.2 else 0.0)
+        out.append(click * 0.8 + rattle + settle)
+    return out
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     write_wav("stalker_whisper", make_stalker_whisper())
@@ -254,6 +274,7 @@ def main():
     write_wav("cradle_sting", make_cradle_sting())
     write_wav("frame_tone", make_frame_tone())
     write_wav("frame_settle", make_frame_settle())
+    write_wav("shard_clatter", make_shard_clatter())
 
 
 if __name__ == "__main__":

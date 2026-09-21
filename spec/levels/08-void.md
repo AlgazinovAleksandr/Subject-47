@@ -210,7 +210,64 @@ music, violet vignette and the crossing are the user's and stay.
   `VOID shard REVEALED`, `VOID STEP THROUGH #n`, `VOID drawer c_r pulled (THE PAGE)` and
   `VOID exit door ASSEMBLING`.
 
+### Pass 5 (built 2026-09-21 from the 23:33 run: 945 s, 7 deaths, not completed, eight captures)
+
+The run's evidence is `backlogs/captures/08-void-2026-09-20e/`; the rulings are in DECISIONS ("Pass 5
+rulings"). **Difficulty is ruled fine by the user (capture 6) — no constant changes in this pass.**
+
+- **The twist note refuses while the plate stands** (the bug in capture 8: the note was read 13 s after
+  the cradle with no frame step, no settle and no hidden-note read in the log). `TwistNote` gets
+  `void_twist_note.gd` (extends `note.gd`, the hidden note's pattern): `prompt_text()` *"The stone covers
+  it."* and `interact()` refuses (log `VOID twist note refused — the plate stands`) while the level's
+  `_sanctum_plate` is valid; `retract()` / `move_aside_instantly()` clear it; `_restore_progress` keeps it
+  consistent with `hidden_note_read` (`level.plate_stands()` is the one truth; `retract()`,
+  `move_aside_instantly()` and the ending's instant unseal all clear it). The plate grows to 0.90 × 1.10
+  at x −17.74 (0.13 m clear of the wall face, 0.09 m clear of the paper — never coplanar) as **defence in
+  depth only**: ⚠️ no plate narrower than the room closes the grazing band — the note hangs 0.34 m off the
+  line a player walks along that wall, and from (−17.5, 0, 22.2) the ray crosses the plate's 6 cm depth
+  2 cm before its edge; **7 of 13 swept stances still reach the note's collider. The refusal is the
+  gate.** **Replaces:** a 0.60 × 0.80 slab 3 cm in front of the note as the only gate. **Proves:**
+  `check_void` — from thirteen swept stances along the wall E opens nothing while the stone stands
+  (control: the refusal removed → 7 of them open the page), and the guard asserts the grazing band is NOT
+  empty, so if geometry ever did block every angle it says so; `walk_void_live` — refused before the
+  hidden note, read after.
+- **A cause shows a receipt; the change still happens off-screen** (captures 2, 3, 7 — the second run
+  in which the off-screen rule read as "nothing" / "a bug"). The Ward's suspended fragment becomes a
+  **hospital gurney hung nose-down by one corner** (`void_fragments.gd:gurney`, boxes only, bone family;
+  *"E — Touch the hanging gurney."*); E drops it 0.10 m and yaws it 6° over 0.4 s with a `stone_grind` at
+  the gurney itself, and THEN the right frame answers off-screen as built. **The shard is visible from
+  the start**, wedged in the inverted table's underside (*"It is wedged fast."*, refuses, log `VOID shard
+  refused — wedged`); the table's off-screen rearrangement frees it into the basin with a
+  `shard_clatter` (log `VOID shard FREED into the basin`), takeable as today. **Replaces:** an abstract
+  bone assembly as the touch prop; a shard that does not exist until the look-away. **Proves:**
+  `check_void` — the gurney carries the touch collider and moves on E; the shard refuses at start, frees on
+  `rearranged`, is takeable after; screenshots of both.
+- **The corridor charge** (capture 4): the first **southbound** entry to the loop corridor after the loop
+  is broken (an Area3D at x 11..14, z 41..43, **polled** — a `body_entered` signal fires on the crossing
+  only, and a player who walks in northbound and turns round inside it must still arm it) makes a
+  rule-less figure — a `charge` mode on `void_cradle_figure.gd`, no collider, no `ScaryObject` — stand at (12.5, 0, 16.5) under the dead lamp facing away, turn over 0.25 s,
+  rush to 0.6 m in front of the camera over 1.0 s with the shared `jumpscare` on a Master emitter, and
+  vanish. **Zero panic**, one-shot, `corridor_charge_done` saved and never replayed; creature C held off
+  (`protected_player_rect` = the corridor) for the charge + 1 s. Log `VOID corridor charge FIRED`.
+  **Replaces:** nothing — the return trips for the slat were empty. **Proves:** `check_void` — fires once on
+  a southbound entry after the loop is broken, never on the northbound first pass, `_panic` unchanged with
+  `RandomAmbient` unregistered (Issue 240), C protected; `walk_void_live` on the return leg.
+- **The cradle figure rises from the cradle's visual centre with the shared `jumpscare`** (capture 5):
+  `arm()` takes the assembly's bounding-box centre, not the node origin; the `CradleSting` emitter loads
+  `jumpscare` (−2.83 dBFS RMS) at **−10.3 dB / unit 4.0 on Master** (`_make_sting`, shared with the charge),
+  the gain that lands it where `cradle_sting` (−10.09 dBFS at −3.0 dB) was measured. `cradle_sting.wav`
+  stays on disk, unplayed. **Proves:** `check_void` — the figure's home is within 0.2 m of the assembly's
+  centre (measured 0.055 m; the node origin it used to rise from was y 0.00); a screenshot at the peak.
+
 ### Verification
+
+**Pass 5 measured (2026-09-21, the builder; the parent's re-run is in DECISIONS):** `check_void` 206/0 ·
+`check_void_alignment` 130/0 · `check_void_frames -- --seeds 1` 29/0 · `walk_void` 100/0 · `walk_void_live`
+101/0, 0 deaths · `check_reachable` 42 targets, 38 reachable, 2 inert, 1 contained, 0 unreachable, **1
+waived** (`InvertedTable_Archive`, see DECISIONS) · `check_doorways` 15, 2 gated · `check_shell_sealed` 231
+points, 0 escaping · `check_wall_overlap -- Void` 0 findings (150 boxes / 41 flat / 426 solid props) ·
+`check_note_mounting` 236/0 · `check_transition_race` 29/0 · `check_void_stare` 27/0 · `check_stalker_motion`
+51/0.
 
 **Pass 4 measured (2026-09-20, the builder; the parent's re-run is in DECISIONS):** `check_void` 142/0 ·
 `check_void_frames` 75/0 over six seeds · `check_void_alignment` 128/0 · `walk_void` 93/0 ·
@@ -254,7 +311,22 @@ tolerances came from and is kept outside the suite.
 ## NEEDS A PLAYTEST
 
 Four passes on 2026-09-20; the first three were hand-played the same day (the third and fourth runs
-completed the level). **Pass 4 has not been hand-played.** What it needs a human for:
+completed the level). **Pass 5 (2026-09-21) has not been hand-played, and neither has pass 4's Hall of
+Frames** — the fifth run won the level through Issue 242 without entering it. Pass 5 needs a human for:
+- **The Ward gurney** — does it read as a gurney from the Hall1 doorway (4 m) and from 2.4 m; does the
+  0.10 m drop + grind on E register as "I did that", and do you then turn and find the right frame changed?
+- **The wedged shard** — visible from the Archive's doorway? Does *"It is wedged fast."* read as a puzzle,
+  and does the clatter behind you land?
+- **The corridor charge**, walking back south after the loop note — does 25 m of run-up read as a scare
+  or as a cutscene, and does the shared `jumpscare` at −10.3 dB sit right in the mix?
+- **The cradle** — the figure rises from the middle of the cradle on the shared `jumpscare`: louder or
+  quieter than pass 4's?
+- **The Sanctum** — E on the twist note before the frames, from the wall and from in front: *"The stone
+  covers it."* and nothing opens. After the hidden note: *"E — Read the page."*
+- ⚠️ **Known, not fixed (pass 5 open question 2):** the Archive's inverted table and Hall3's door heap are
+  walk-through (collision layer 2, since sight mode shipped); the heap intrudes 10–14 cm into Hall3's lane,
+  so making them solid re-measures `walk_void` and `check_doorways`. A later pass's call.
+Pass 4 still needs a human for:
 - **The cradle's giving scare** — the sting sits on Master under a `HoldBreath` dip, the figure lunges to
   0.6 m; judged from a guard and a screenshot, never felt. And whether the three answers (the distant
   grind, the drawing's plan, the plate's new line) send you to the Morgue's west wall.
@@ -360,6 +432,56 @@ file gets the quietest gain), the south whisper rides C's level over the same �
 footstep echo uses `unit_size 2.0 + max_db 0` so at its fixed 2 m the gain is exactly 1.0. None heard
 in a room.
 
+### Built 2026-09-21 — pass 5 (one level-improver; the parent's sound, docs)
+
+**Files.** New `void_twist_note.gd` (extends `note.gd`, asks `level.plate_stands()`); `void_sanctum_plate.gd`
+0.90 × 1.10 × 0.06 at x −17.74; `void_fragments.gd:gurney()` (2 rails, 4 legs, 4 caster discs, head board,
+mattress, 2 straps — boxes, bone; pose tilt 0.85 / yaw 1.72 / roll 0.22, the first pose at 77° rendered as
+a pale rectangle and was re-posed to 49° broadside); `void_rearrangement.gd` touch mode builds the gurney
+and plays the receipt (hang node −0.10 m, yaw 6°, 0.4 s, `stone_grind` −9.0 dB / unit 2.0 AT the gurney ≈
+−6.5 dB at 1.5 m, a shade louder than the distant answer's −8.3 dB); `void_shard.gd` `wedge()` /
+`free_into_basin(announce)` / `is_freed()` — wedged at (−3.19, 0.74, 21.66) on the doorway side, 0.52 m
+above the table's collider (Issue 230), basin (−3.4, 0.42, 22.0) unchanged, `shard_clatter` (−22.46 dBFS)
+at −3.0 dB / unit 3.0; `void_cradle_figure.gd` `arm(player, source, sting)` with `_bbox_centre()` and a
+`charge` mode (`arm_charge`, +66 lines against ~130 for a new file); `level_3.gd` `CHARGE_AREA_POS`
+(12.5, 1.65, 42.0) / size (3, 3.3, 2) polled, `CHARGE_FIGURE_AT` (12.5, 0, 16.5), rush 24.4 m in 1.0 s,
+creature C's `protected_player_rect` = the corridor for the beat + 1 s then restored to the tile rect,
+`_make_sting()` (shared `jumpscare` −10.3 dB / unit 4.0 Master) for `CradleSting` and `ChargeSting`,
+`snap_to_strike()` for captures.
+
+**Measured.** Gurney AABB x −3.69..−1.89, y 0.13..2.27, z 12.61..13.68 — 5 cm clear of `FoldedFrame_Ward_L`
+(z 13.73), neither a CSG box, so `check_wall_overlap` could never have said a word. Its touch volume (0.80 ×
+0.60 × 0.45 at world y 1.25..1.85, z 13.08..13.53) passes 0.33 m ABOVE the bed-slat approach ray — the first
+draft swallowed the slat, caught by the control, not by eye. Cradle figure home (−15.728, 0.948, 34.300)
+against the assembly's bbox centre (−15.739, 0.948, 34.246): 0.055 m.
+
+**Five positive controls run red then green** (the refusal removed → 7 stances open the page; the wedged
+guard removed; the receipt's early return; the southbound guard; `_bbox_centre` → the node origin), each
+with the modified file proven changed by sha (the twist note is a new file, so `git diff` is empty by
+construction). **The parent's re-run:** the wedged guard removed by hand — `check_void` red on "…and E on it
+REFUSES" (the deadline check cascades), green again at 206 / 0 with the file byte-identical; the first
+attempt matched nothing and ran green, again — check the diff is non-empty before reading a control.
+Full suite 122 passed, 1 failed: **`check_darkness`, the parallel Breach session's uncommitted
+`lock_flashlight()` in `level_6_breach.gd:_ready()`** — not this level.
+
+**Rulings on the builder's questions.** (1) The plate cannot close the grazing band and the spec said it
+would — the spec is corrected, not the geometry: the refusal is the gate, the plate is defence in depth,
+and the guard asserts the band is NOT empty. (2) The Archive table and the door heap are walk-through
+(layer 2, overwritten in `_ready()` since sight mode shipped) — **left as shipped**, recorded in NEEDS A
+PLAYTEST; making them solid moves Hall3's lane and is a later pass. (3) The reachability sweep's one
+waiver on `InvertedTable_Archive` is accepted: the alternative is re-adding the interact volume that
+swallowed the shard's ray. (4) `walk_void`'s 2 m corridor detour stays — the shipping route uses the
+step-through, so nothing else walks the corridor southbound. (5) `check_void` plants `_loop_broken` to run
+the charge before the lap stages; the walks cover it in the genuinely broken state.
+
+**Bugs the build found (docs/ISSUES_SOLUTIONS.md 244–246, plus Issue 228 a fourth and fifth time).** A
+sight-mode rearranger ran the touch-mode branch of its own `_ready()` for its whole life, because
+`arm_on_sight` is set on the line AFTER `add_child` — each carried a spurious interact volume and a stray
+box, and had its layer overwritten. `Object.call()` on a renamed method unwinds the function and fails
+nothing: `check_void` printed PASS with eight checks gone, its count floor 80 below the real count. Its
+reload guard was an ordering test on stage labels that are not ordered. Two new stages staged their own
+deaths on creature C (Issue 228).
+
 ### Built 2026-09-20 — pass 4 (one level-improver; the parent's assets, guard, docs)
 
 **Measured.** FrameHall added +7 CSG boxes exactly (its floor, ceiling, three walls, the new bridge, and
@@ -409,6 +531,46 @@ found by geometry now. Issue 228 recurred in a brand-new stage the same day. The
 deaths in nine at the twist note were creature E through the child room's doorway, not F. A zero-panic
 claim cannot be measured with `RandomAmbient` running. And a five-point ring has no free bearing, so
 the re-scramble is pairwise.
+
+### Pass 5 rulings — 2026-09-20 23:33 run (945 s, 7 deaths, not completed, eight captures)
+
+Evidence `backlogs/captures/08-void-2026-09-20e/`. **Measured:** the twist note was read at 889.9 s with
+no frame step, no settle and no hidden-note read — the plate never retracted; the plate is a 0.60 × 0.80
+slab 3 cm in front of the note, and from a grazing stance along the Sanctum's west wall (capture 8 at
+(−17.5, 0, 20.9)) parallax slides it off the page, which the screenshot shows peeking out beside the
+slab. The Hall of Frames was never entered (0 position samples in x < −21, z 44..50) — the bug handed the
+player the ending first. The Ward answer fired 33 s after the touch in life 1 (the right frame stayed in
+view) and within 10 ms in later lives; the shard appeared 4.4 / 11 / 5.6 s after the table came into
+sight, always on a look-away. No drawer pulled, no step-through, second run running. Deaths: E at the
+child room's south doorway / inside the Sanctum ×3 (one 5.5 s after the cradle lunge — Issue 239's
+hazard), B in the Ward ×3, C in the loop corridor ×1.
+
+- **Difficulty is fine — the user's words (capture 6): "*Even though I am losing frequently — the
+  difficulty is fine, the level should not be simple.*"** No constant moved; E's 1 s hold-off after the
+  cradle lunge stays (offered a 6 s hold-off, declined by recommendation and ruling).
+- **A cause shows a receipt; the change still happens off-screen.** Two runs in a row read the
+  off-screen rule as "*nothing happened*" / "*this shard did not appear immediately*". The touched
+  object now reacts under your eyes (the gurney drops 0.10 m with a grind) before the right frame
+  answers off-screen; the shard is visible from the start, wedged, and the look-away frees it. Rejected:
+  making both immediate and on-screen (drops the level's one rule for two props); sound only (the 18:30
+  run already had the grind and it was not noticed).
+- **The Ward's suspended fragment is a hospital gurney hung nose-down**, geometry only, bone family:
+  "*Objects in this level, even though they should be broken and corrupted, they still should represent
+  some objects.*" Rejected: a wheelchair fused into the wall (small silhouette), an upside-down crib
+  (pre-empts the cradle), a generated image on a quad (reads flat from the side for a thing you walk
+  around).
+- **The corridor charge costs zero panic** — the loop corridor is walked three times, twice on the
+  return for the slat, and the user asked for "*a sudden jumpscare with 3d animation*" there. A +10
+  version was offered and declined: the pass already rules that a scare with a number attached can be
+  optimised against. Not a pursuer (no collider, no rule, one-shot); creature C is held off for it.
+- **The cradle figure rises from the assembly's visual centre and uses the shared `jumpscare`** at
+  −10.3 dB (jumpscare −2.83 dBFS RMS against cradle_sting's −10.09 at −3.0 dB). The pass-4 concern that a
+  fatal sting reused for a survivable scare teaches the fatal sound is free was stated once and
+  overruled: the Corridor's silhouette and KONTUR's blackout figure already use `jumpscare` for
+  survivable in-world figures, so this is the game's existing practice, not a new precedent.
+- **The twist note refuses while the plate stands.** Not a ruling — a bug (capture 8). A blocker 3 cm
+  in front of a target does not block at a grazing angle; the target is gated itself, and the plate is
+  widened to cover the page from every stance. The level was winnable without the minigame.
 
 ### Pass 4 rulings — 2026-09-20 18:30 run, grilled on an Opus games-research menu
 
