@@ -154,6 +154,9 @@ func _process(delta: float) -> bool:
 	if _level == null:
 		_level = current_scene
 		_player = _level.get_node_or_null("Player") as CharacterBody3D
+		# Weapon geometry is tested after acquisition; the pickup has its own live test.
+		_level.call("_recover_flashlight", false)
+		_player.get("flashlight").visible = true
 		_creature = _find("creature_object12.gd")
 		_consts = _level.get_script().get_script_constant_map()
 		_ok("the level, the player and Object 12 all exist",

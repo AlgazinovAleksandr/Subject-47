@@ -168,7 +168,7 @@ func _process(delta: float) -> bool:
 	_check("X1: the creature's death is overridden by the level", cb.is_valid(), "")
 	cb.call()
 	_check("X1: the player is pinned for it", bool(player.call("is_input_frozen")), "")
-	_check("X1: an arm is in the world (GrabArm)", lvl.get_node_or_null("GrabArm") != null, "")
+	_check("Breach: rigged kill replaces the primitive arm", lvl.get("_kill_sequence") != null, "")
 	_check("X1: no Screamer panel yet (the grab comes first)", not bool(scr.get("_is_triggering")), "")
 	_phase = 1
 	_t = 0.0
@@ -178,20 +178,18 @@ func _process(delta: float) -> bool:
 func _tick_grab(delta: float) -> bool:
 	_t += delta
 	var scr := root.get_node("/root/Screamer")
-	var arm := current_scene.get_node_or_null("GrabArm") as Node3D
+	var kill: Node = current_scene.get("_kill_sequence")
+	var arm := kill.get("actor") as Node3D if kill else null
 	var cam := _grab_player.get_node_or_null("Camera3D") as Camera3D
 	if arm and cam:
 		_hand_min = minf(_hand_min, arm.global_position.distance_to(cam.global_position))
 	if bool(_grab_player.call("is_input_frozen")):
 		_frozen_seen = true
 	if bool(scr.get("_is_triggering")):
-		_check("X1: the hand reached the lens (min %.2f m <= 0.5)" % _hand_min, _hand_min <= 0.5, "")
-		var d := Vector2(_grab_player.global_position.x - _grab_door.global_position.x,
-			_grab_player.global_position.z - _grab_door.global_position.z).length()
-		_check("X1: the player was hauled to the leaf (%.2f m <= 0.45)" % d, d <= 0.45, "")
-		_check("X1: the leaf is SHUT on the lens", bool(_grab_door.call("is_closed")), "")
-		_check("X1: pinned throughout", _frozen_seen, "")
-		_check("X1: the funnel ran within 1.5 s (%.2f s)" % _t, _t <= 1.5, "")
+		_check("Breach: both physical impacts fired", kill.get("impacts") == 2, "")
+		_check("Breach: the door closes at the second impact", bool(_grab_door.call("is_closed")), "")
+		_check("Breach: pinned throughout", _frozen_seen, "")
+		_check("Breach: rigged kill reaches the funnel within 1.8 s", _t <= 1.8, "%.2f s" % _t)
 		return _finish()
 	if _t > 2.5:
 		_check("X1: the grab ends in Screamer.trigger()", false, "still not triggering at %.1f s" % _t)

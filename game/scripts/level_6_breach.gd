@@ -5,9 +5,8 @@ extends Node3D
 # .tscn-minimal / PRESERVE-whitelist pattern kontur.gd established: the .tscn keeps
 # only Environment/AmbientPlayer/Player, everything else is built here in _ready().
 #
-# Familiarization window: Object 12 stays dormant at its patrol start for
-# FAMILIARIZATION_TIME seconds (Mr.X pacing — learn the layout before the threat
-# appears), then activates and roams the level for good.
+# Object 12 gives the player eight seconds to orient, then hunts while the player
+# searches for the missing flashlight in Archive B's fixed hiding cabinet.
 #
 # Win/lose: the ONLY permanent win condition is luring the creature into the
 # PurgeChamber (see purge_chamber.gd) — light-as-weapon only staggers it temporarily,
@@ -22,13 +21,13 @@ const KONTUR_TEX := "res://assets/textures/level_5_kontur/"
 const _DOOR_SCRIPT := preload("res://scripts/door.gd")
 const _NOTE_SCRIPT := preload("res://scripts/note.gd")
 
-# The familiarization window exists so the player can learn the layout before the threat
-# appears — which is only worth paying for ONCE. On a retry they already know the rooms,
-# so the wait is dead time; the window shortens instead of disappearing, because the
-# first seconds after a restart are also when the player is re-orienting at the entrance.
-# Attempt count comes from GameState.level_attempts (survives the death, cleared per run).
-const FAMILIARIZATION_FIRST := 30.0   # first attempt at this level in this run
-const FAMILIARIZATION_RETRY := 10.0   # every attempt after a death here
+# Both attempts leave a brief arrival pause; recovery should happen under threat.
+const FAMILIARIZATION_FIRST := 8.0   # brief arrival pause; the flashlight search happens under threat
+const FAMILIARIZATION_RETRY := 8.0
+const FLASHLIGHT_ROOM := "ArchiveB"
+var _flashlight_found := false
+var _flashlight_cabinet: HidingSpot
+var _flashlight_clue: Node3D
 const PATROL_LOOP := ["Junction1", "Atrium", "Junction2", "WardB", "Corridor1"]
 # ⚠️ 18.0, MARRIED TO `player.gd:FLASH_RANGE` (2026-09-03) — the same argument this file already
 # makes one line below for the CONE, made for the reach. The torch went 15 -> 18 m in the darkness
@@ -175,7 +174,8 @@ func _ready() -> void:
 	add_child(_creature_voice)
 	_creature_voice.configure(_creature, _player(), _slam_doors)
 
-	GameState.set_objective("OBJECT 12 HAS NOT NOTICED YOU YET — MOVE.")
+	_player().lock_flashlight()
+	GameState.set_objective("YOUR FLASHLIGHT IS MISSING. SEARCH THE CABINETS.")
 	_restore_progress()
 
 
@@ -268,11 +268,13 @@ func _place_player() -> void:
 # have already won is the purest form of the BACKLOG #30 complaint.
 
 func save_progress() -> Dictionary:
-	return {"creature_defeated": _creature_defeated}
+	return {"creature_defeated": _creature_defeated, "flashlight_found": _flashlight_found}
 
 
 func _restore_progress() -> void:
 	var data := GameState.get_level_progress(6)
+	if bool(data.get("flashlight_found", data.get("creature_defeated", false))):
+		_recover_flashlight(false)
 	if not bool(data.get("creature_defeated", false)):
 		return
 	_creature_defeated = true
@@ -349,32 +351,30 @@ func _spawn_creature() -> void:
 	_creature.set_portals(ROOMS, DOORS)
 	_creature.staggered.connect(_on_creature_staggered)
 	_creature.recovered.connect(_on_creature_recovered)
-	_creature.death_override = _on_contact_death   # X1: the grab through the door
+	_creature.death_override = _on_contact_death   # rigged contact kill, including door contact
 
 
-# ⭐ X1 (2026-09-14, the user's pick: "grab through the door"). When Object 12 reaches you
-# while you are standing at a slam door — the place the level TEACHES you to stand — the
-# death is a grab: an arm comes through the gap, you are hauled to the leaf, the leaf slams
-# on the lens (the Screamer's black), then the funnel. Every other contact death is the
-# unchanged `Screamer.trigger()`. Zero new panic, no new rule; the death is the same death,
-# staged. ⚠️ `_on_contact_death()` is the creature's `death_override` and MUST end in
-# `Screamer.trigger()` on every path — the tests watch `_is_triggering`.
+# The rigged kill is level-owned and only starts from confirmed contact.
 const GRAB_DOOR_DIST := 1.5
-const GRAB_REACH_TIME := 0.35
-const GRAB_PULL_TIME := 0.3
-const GRAB_PULL_TO := 0.3       # m from the door plane the player ends at
-const GRAB_HAND_STOP := 0.35    # m from the lens the hand stops at
-const GRAB_ARM_LEN := 0.9
-var _grab_arm: Node3D = null
+var _kill_sequence: Node3D = null
 
 
 func _on_contact_death() -> void:
-	var p := _player()
-	var door: SlamDoor = _nearest_slam_door(p.global_position, GRAB_DOOR_DIST) if p else null
-	if door == null or p == null or Screamer.is_lunging():
-		Screamer.trigger()
+	if is_instance_valid(_kill_sequence):
 		return
-	_grab_death(door, p)
+	var token := GameState.begin_transition("death")
+	if token < 0:
+		return
+	var p := _player()
+	if p == null or p.get_node_or_null("Camera3D") == null:
+		Screamer.trigger("", false, token)
+		return
+	var door := _nearest_slam_door(p.global_position, GRAB_DOOR_DIST)
+	p.turn_to_face(_creature.get_creature_position() + Vector3(0, 1.5, 0), 0.1)
+	_kill_sequence = preload("res://scripts/breach_kill_sequence.gd").new()
+	_kill_sequence.name = "Object12Kill"
+	p.get_node("Camera3D").add_child(_kill_sequence)
+	_kill_sequence.start(p, _creature, door, token)
 
 
 func _nearest_slam_door(pos: Vector3, within: float) -> SlamDoor:
@@ -389,135 +389,6 @@ func _nearest_slam_door(pos: Vector3, within: float) -> SlamDoor:
 			best_d = flat
 			best = d
 	return best
-
-
-func _grab_death(door: SlamDoor, p: CharacterBody3D) -> void:
-	if _grab_arm != null:
-		return
-	p.freeze_input()
-	p.velocity = Vector3(0, p.velocity.y, 0)
-	var n: Vector3 = (door as Node3D).global_transform.basis.z
-	n.y = 0.0
-	n = n.normalized() if n.length() > 0.01 else Vector3(0, 0, 1)
-	var plane: Vector3 = (door as Node3D).global_position
-	plane.y = p.global_position.y
-	var rel: Vector3 = p.global_position - plane
-	var side: float = 1.0 if rel.dot(n) >= 0.0 else -1.0
-	var cam := p.get_node_or_null("Camera3D") as Camera3D
-	var lens: Vector3 = cam.global_position if cam else p.global_position + Vector3(0, 1.6, 0)
-	# The arm starts BEHIND the leaf (the creature's side) and comes through the gap.
-	var start: Vector3 = plane - n * side * 0.6 + Vector3(0, 1.25, 0)
-	_grab_arm = _build_grab_arm()
-	add_child(_grab_arm)
-	_grab_arm.global_position = start
-	_grab_arm.look_at(lens, Vector3.UP)
-	HoldBreath.dip(get_tree(), GRAB_REACH_TIME + GRAB_PULL_TIME + 0.4)
-	p.turn_to_face(plane + Vector3(0, 1.3, 0), 0.25)
-	_play_at_pos("creature_growl_near", plane + Vector3(0, 1.4, 0), 4.0)
-	var to_hand: Vector3 = lens + (start - lens).normalized() * GRAB_HAND_STOP
-	var tw := create_tween()
-	tw.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tw.tween_property(_grab_arm, "global_position", to_hand, GRAB_REACH_TIME)
-	tw.tween_callback(func() -> void:
-		if is_instance_valid(p):
-			p.jolt_camera(0.25, 0.3)
-		# The grip: from here the hand rides with the lens while the player is hauled.
-		if cam and is_instance_valid(_grab_arm):
-			var gt: Transform3D = _grab_arm.global_transform
-			_grab_arm.get_parent().remove_child(_grab_arm)
-			cam.add_child(_grab_arm)
-			_grab_arm.global_transform = gt
-	)
-	# The haul: the player root to the leaf, the arm keeping its grip on the lens.
-	var pull_to: Vector3 = plane + n * side * GRAB_PULL_TO
-	pull_to.y = p.global_position.y
-	tw.tween_property(p, "global_position", pull_to, GRAB_PULL_TIME).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tw.tween_callback(func() -> void:
-		if is_instance_valid(door):
-			door.slam_shut()
-		_play_at_pos("door_slam", plane + Vector3(0, 1.1, 0), 6.0)
-		Screamer.trigger()
-	)
-
-
-func _build_grab_arm() -> Node3D:
-	var arm := Node3D.new()
-	arm.name = "GrabArm"
-	var mat := StandardMaterial3D.new()
-	# ⚠️ DARK. At 0.35 m from the lens the torch puts enormous irradiance on the surface;
-	# the creature's own tint (0.35, 0.4, 0.32) rendered as cream-white tubes. A grab is a
-	# black shape with red in it against the lit room, not a lit object.
-	mat.albedo_color = Color(0.06, 0.07, 0.05)
-	mat.roughness = 1.0
-	mat.metallic_specular = 0.0
-	mat.emission_enabled = true
-	mat.emission = CreatureObject12.EMISSION_TINT
-	mat.emission_energy_multiplier = 0.18
-	# forearm along -Z (the arm's forward), hand at the end
-	var fa := MeshInstance3D.new()
-	fa.name = "Forearm"
-	var cm := CylinderMesh.new()
-	cm.top_radius = 0.045
-	cm.bottom_radius = 0.06
-	cm.height = GRAB_ARM_LEN
-	fa.mesh = cm
-	fa.material_override = mat
-	fa.rotation.x = PI / 2.0
-	fa.position = Vector3(0, 0, GRAB_ARM_LEN * 0.5)
-	arm.add_child(fa)
-	var hand := MeshInstance3D.new()
-	hand.name = "Hand"
-	var hb := BoxMesh.new()
-	hb.size = Vector3(0.13, 0.035, 0.15)
-	hand.mesh = hb
-	hand.material_override = mat
-	hand.position = Vector3(0, 0, -0.02)
-	arm.add_child(hand)
-	# Fingers: splayed, two segments each, the distal one curling in toward the lens — a
-	# claw closing on the camera rather than four tubes seen end-on.
-	for i in range(4):
-		var spread: float = -0.55 + i * 0.36
-		var knuckle := Node3D.new()
-		knuckle.name = "Finger%d" % i
-		knuckle.position = Vector3(-0.05 + i * 0.033, 0.0, -0.07)
-		knuckle.rotation = Vector3(-0.35, 0.0, spread)
-		arm.add_child(knuckle)
-		var f := MeshInstance3D.new()
-		var fm := CylinderMesh.new()
-		fm.top_radius = 0.009
-		fm.bottom_radius = 0.012
-		fm.height = 0.09
-		f.mesh = fm
-		f.material_override = mat
-		f.rotation.x = PI / 2.0
-		f.position = Vector3(0, 0, -0.045)
-		knuckle.add_child(f)
-		var tip_pivot := Node3D.new()
-		tip_pivot.position = Vector3(0, 0, -0.09)
-		tip_pivot.rotation.x = 0.9
-		knuckle.add_child(tip_pivot)
-		var t := MeshInstance3D.new()
-		var tm2 := CylinderMesh.new()
-		tm2.top_radius = 0.007
-		tm2.bottom_radius = 0.009
-		tm2.height = 0.07
-		t.mesh = tm2
-		t.material_override = mat
-		t.rotation.x = PI / 2.0
-		t.position = Vector3(0, 0, -0.035)
-		tip_pivot.add_child(t)
-	var th := MeshInstance3D.new()
-	th.name = "Thumb"
-	var tm := CylinderMesh.new()
-	tm.top_radius = 0.01
-	tm.bottom_radius = 0.013
-	tm.height = 0.11
-	th.mesh = tm
-	th.material_override = mat
-	th.rotation = Vector3(PI / 2.0 + 0.2, 0, -0.9)
-	th.position = Vector3(0.085, 0.0, -0.04)
-	arm.add_child(th)
-	return arm
 
 
 func _play_at_pos(base_name: String, pos: Vector3, volume_db: float) -> void:
@@ -568,7 +439,7 @@ func _tick_familiarization(delta: float) -> void:
 	if _familiarization_t >= _familiarization_time:
 		_creature_awake = true
 		_creature.activate()
-		GameState.set_objective("IT IS AWAKE.")
+		GameState.set_objective("TRAP OBJECT 12 IN THE PURGE CHAMBER." if _flashlight_found else "IT IS AWAKE. FIND YOUR FLASHLIGHT IN THE CABINETS.")
 		ScreenText.scrawl(get_tree(), "IT IS AWAKE.", 3.0, 40)
 
 
@@ -581,6 +452,8 @@ func _tick_noise() -> void:
 
 
 func _tick_light_weapon(delta: float) -> void:
+	if not _flashlight_found:
+		return
 	var p := _player()
 	if not p or not _creature or not p.has_method("is_flashlight_on"):
 		return
@@ -655,6 +528,33 @@ func _add_hiding_spot(room: String, side: Vector2, kind: String) -> void:
 	# that same formula generalized to all four sides.
 	spot.rotation.y = atan2(-side.x, -side.y)
 	add_child(spot)
+	if room == FLASHLIGHT_ROOM:
+		_flashlight_cabinet = spot
+		spot.name = "FlashlightCabinet_ArchiveB"
+		_flashlight_clue = preload("res://scripts/breach_flashlight_clue.gd").new()
+		spot.add_child(_flashlight_clue)
+
+
+func _tick_flashlight_recovery() -> void:
+	var p := _player()
+	if not _flashlight_found and p and p.is_hidden() and p.get("_hide_spot") == _flashlight_cabinet:
+		_recover_flashlight(true)
+
+
+func _recover_flashlight(show_pickup: bool = true) -> void:
+	if _flashlight_found:
+		return
+	_flashlight_found = true
+	var p := _player()
+	p.unlock_flashlight()
+	p.flashlight.visible = false
+	_flashlight_clue.collect(p, show_pickup)
+	GameState.set_objective("IT IS SEALED. THE BREACH AT THE END OF THE CORRIDOR IS OPEN." if _creature_defeated else "TRAP OBJECT 12 IN THE PURGE CHAMBER.")
+	if show_pickup:
+		ScreenText.toast(get_tree(), "FLASHLIGHT FOUND — F TO SWITCH IT ON", Color(0.75, 0.85, 0.76), 3.0)
+		var log_node := get_node_or_null("/root/DebugLog")
+		if log_node:
+			log_node.note("BREACH FLASHLIGHT recovered in ArchiveB; player remains hidden")
 
 
 # ---------------------------------------------------------------- slam doors
@@ -1203,6 +1103,9 @@ func _start_ambience() -> void:
 # ---------------------------------------------------------------- main loop
 
 func _process(delta: float) -> void:
+	if is_instance_valid(_kill_sequence):
+		return
+	_tick_flashlight_recovery()
 	_tick_familiarization(delta)
 	_tick_slam_doors()
 	if not is_instance_valid(_door_scare) or not _door_scare.torch_is_interrupted():

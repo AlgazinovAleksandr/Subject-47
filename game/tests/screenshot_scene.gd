@@ -73,7 +73,11 @@ const SHOTS := {
 		[Vector3(-2.5, 0, 12.6), Vector3(-2.52, 0.10, 13.60), "void_anchor_slat"],
 		[Vector3(7.0, 0, 43.9), Vector3(7.08, 0.11, 44.62), "void_anchor_latch"],
 		[Vector3(8.0, 0, 13.2), Vector3(8.0, 0.1, 15.3), "void_loopin_frame"],
-		[Vector3(-3.4, 0, 20.6), Vector3(-3.4, 0.42, 22.0), "void_shard_basin", "reveal_shard"],
+		# ⭐ pass 5: the shard is WEDGED and visible from frame 0, and a look-away frees it into
+		# the basin. Both states, from the stance the Archive is entered on.
+		[Vector3(-3.4, 0, 20.6), Vector3(-3.19, 0.74, 21.66), "void_shard_wedged"],
+		[Vector3(-2.2, 0, 20.9), Vector3(-3.19, 0.74, 21.66), "void_shard_wedged_angle"],
+		[Vector3(-3.4, 0, 20.6), Vector3(-3.4, 0.42, 22.0), "void_shard_basin", "free_shard"],
 		[Vector3(-19.4, 0, 50.4), Vector3(-19.4, 0.9, 51.6), "void_open_drawer", "open_page_drawer"],
 		[Vector3(-14, 0, 36.0), Vector3(-15.2, 0.8, 34.0), "void_child_room_wide"],
 		[Vector3(-17.4, 0, 30.4), Vector3(-11.0, 1.4, 35.6), "void_child_room_corner"],
@@ -86,7 +90,28 @@ const SHOTS := {
 		# the same door broken (`void_exit_door` above).
 		[Vector3(-14, 0, 22.6), Vector3(-14, 1.1, 19.5), "void_exit_door_assembled", "assemble_exit"],
 		[Vector3(-13.2, 0, 22.2), Vector3(-14, 1.3, 19.6), "void_exit_door_assembled_angle"],
-		[Vector3(-16.2, 0, 25.6), Vector3(-17.72, 1.3, 24.5), "void_sanctum_plate"],
+		[Vector3(-16.2, 0, 25.6), Vector3(-17.74, 1.3, 24.5), "void_sanctum_plate"],
+		# ⭐ pass 5: the 0.90 x 1.10 plate face-on, and from the grazing stance along the west
+		# wall that capture 8 was taken from — the one where the page used to show beside it.
+		[Vector3(-16.4, 0, 24.5), Vector3(-17.84, 1.3, 24.5), "void_plate_face_on"],
+		[Vector3(-17.5, 0, 22.2), Vector3(-17.84, 1.3, 24.5), "void_plate_grazing"],
+		[Vector3(-17.5, 0, 20.9), Vector3(-17.84, 1.3, 24.5), "void_plate_grazing_far"],
+		# ⭐ pass 5: the Ward's hanging gurney, before and after the touch drops it 0.10 m.
+		# ⚠️ 2.4 m BACK, not 1.5: the prop is 2 m long and at interact range it fills the frame
+		# with one rail. The first pose was the complaint it answers, in a bigger size.
+		[Vector3(-2.6, 0, 10.9), Vector3(-2.6, 1.3, 13.3), "void_ward_gurney"],
+		[Vector3(-1.0, 0, 12.2), Vector3(-2.6, 1.4, 13.3), "void_ward_gurney_angle"],
+		[Vector3(0.2, 0, 10.6), Vector3(-2.6, 1.3, 13.3), "void_ward_gurney_from_the_door"],
+		[Vector3(-2.6, 0, 10.9), Vector3(-2.6, 1.3, 13.3), "void_ward_gurney_touched", "gurney_receipt"],
+		# ⭐ pass 5: the corridor charge, from the north end looking down all 25 m of it — the
+		# figure standing under the dead lamp, and the last frame of its rush.
+		[Vector3(12.5, 0, 41.5), Vector3(12.5, 1.5, 16.5), "void_corridor_south_view"],
+		[Vector3(12.5, 0, 41.5), Vector3(12.5, 1.5, 16.5), "void_charge_rush", "charge_fire"],
+		[Vector3(12.5, 0, 41.5), Vector3(12.5, 1.5, 16.5), "void_charge_peak", "charge_rush"],
+		# ⭐ pass 5: the cradle figure at the peak of its lunge, rising from the cradle's own
+		# centre instead of from the floor in front of it.
+		[Vector3(-14.9, 0, 33.4), Vector3(-15.75, 1.0, 34.3), "void_cradle_before_lunge"],
+		[Vector3(-14.9, 0, 33.4), Vector3(-15.75, 1.0, 34.3), "void_cradle_figure_peak", "cradle_peak"],
 		# ── 2026-09-20 pass 4: the sixteenth room, the frames, the figure, the new tells ──
 		# ⚠️ `open_secret` FIRST, or every shot below is of a wall.
 		[Vector3(-20.0, 0, 47.5), Vector3(-25.0, 1.4, 47.5), "void_secret_doorway", "open_secret"],
@@ -206,10 +231,33 @@ func _action(what: String) -> void:
 	if lvl == null:
 		return
 	match what:
-		"reveal_shard":
+		"free_shard":
 			var sh = lvl.call("shard")
 			if sh:
-				sh.call("reveal")
+				sh.call("free_into_basin", false)
+		"gurney_receipt":
+			var wf2 = lvl.get_node_or_null("WardFragment")
+			if wf2:
+				wf2.call("interact")
+		# ⚠️ FIRED THROUGH THE LEVEL'S OWN ONE-SHOT, and the camera is already parked by the
+		# PRECEDING shot — `_action()` runs before `_place()`, so a beat that aims at the camera
+		# must be set up one shot after the pose it is judged from.
+		"charge_fire":
+			lvl.set("_charge_done", false)
+			lvl.call("_fire_corridor_charge")
+		"charge_rush":
+			var cf = lvl.get_node_or_null("ChargeFigure")
+			if cf == null:
+				lvl.set("_charge_done", false)
+				lvl.call("_fire_corridor_charge")
+				cf = lvl.get_node_or_null("ChargeFigure")
+			if cf:
+				cf.call("snap_to_strike")
+		"cradle_peak":
+			lvl.call("_fire_cradle_lunge")
+			var kf = lvl.get_node_or_null("CradleFigure")
+			if kf:
+				kf.call("snap_to_strike")
 		"open_page_drawer":
 			var d = lvl.call("page_drawer")
 			if d:

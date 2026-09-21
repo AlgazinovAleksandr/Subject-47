@@ -60,6 +60,12 @@ var _walked_in := false
 var _solved_seeds := 0
 var _dwells_entered := 0
 var _drops_checked := 0
+var _watched_id := ""
+var _entered_slot := 0
+var _last_slot := 0
+var _last_ids: Array = []
+var _watched_violations := 0
+var _watched_samples := 0
 var _trace := false
 var _trace_panic := 0.0
 var _last_delta := 0.0
@@ -311,6 +317,7 @@ func _begin_leg() -> void:
 func _approach(t: int) -> void:
 	_leg_ticks += t
 	var slot := _target_slot()
+	_last_slot = slot
 	var u: Node3D = _hall.call("unit", slot)
 	_steer(u.global_position)
 	if float(_hall.call("dwell_seconds")) > 0.05:
@@ -369,6 +376,7 @@ func _after_drop(what: String) -> void:
 
 func _after_wrong() -> void:
 	_did_wrong = true
+	_entered_slot = _last_slot
 	var s: int = int(_seeds[_seed_i])
 	var wrong: int = int(_hall.call("wrong_count"))
 	_after_drop("wrong step %d" % wrong)
@@ -394,18 +402,42 @@ func _after_wrong() -> void:
 			_ok("seed %d: …and it is a photograph too" % s, _rule_bearing(w) == "")
 	# ⚠️ The lamp is driven by the hall's own `_tick_lamp`, which runs at the TOP of its
 	# `_process` — so it is still at its old level in the frame the wrong step fires. Sampling it
-	# here measured 0.25 against an expected 0.0 on the first build. Wait a beat, then look away:
-	# the re-scramble is the prop's own off-screen beat, never a call.
-	_place(_p.global_position, Vector3(-19.0, 1.2, 47.5))   # face the doorway, east
+	# here measured 0.25 against an expected 0.0 on the first build.
+	# ⚠️ AND THE PLAYER IS STOPPED AND POINTED AT THE FRAME THEY JUST GOT THROWN OUT OF. The
+	# re-scramble exchanges pairs of UNWATCHED frames, so it completes from any stance (a player
+	# can see at most three of the five from anywhere in a 6 x 6 room), and leaving the camera on
+	# one is what makes the next stage a real control on the level's one rule.
+	# ⚠️ STOPPED is load-bearing: `_approach` leaves `ai_move_dir` pointing into the frame, the
+	# frames have NO collider, and a player left walking goes straight through the opening and out
+	# the back — measured, and it put the camera facing the wall with 0 of 5 frames in view and,
+	# on another seed, all five in view at once, which deadlocks the pair exchange.
+	_place(_hall.call("front_point", _entered_slot),
+		(_hall.call("unit", _entered_slot) as Node3D).global_position + Vector3(0, 1.2, 0))
 	_leg_ticks = 0
 	_wait = 4
 	_stage = "wrong_lamp"
 
 
 func _wrong_lamp() -> void:
-	_ok("seed %d: a wrong step kills the room's lamp" % int(_seeds[_seed_i]),
+	var s: int = int(_seeds[_seed_i])
+	_ok("seed %d: a wrong step kills the room's lamp" % s,
 		float(_hall.call("lamp_energy")) <= 0.001,
 		"energy %.2f" % float(_hall.call("lamp_energy")))
+	# ⚠️ THE LEVEL'S CORE RULE, CONTROLLED PER FRAME: nothing ever changes while you are looking
+	# at it. The re-scramble exchanges pairs of UNWATCHED frames, so "the order is unchanged while
+	# the player looks" is false by design and would be the wrong control — the right one is that
+	# the frame the camera is ON does not change under it. The player has been standing in front
+	# of one for four ticks and it is still watched.
+	var watching := 0
+	for i in range(5):
+		if bool(_hall.call("looking_at", i)):
+			watching += 1
+	_ok("seed %d: CONTROL: the player is watching at least one frame while it re-scrambles" % s,
+		watching >= 1, "%d of 5 in view" % watching)
+	_last_ids = (_hall.call("frame_ids") as Array).duplicate()
+	_watched_violations = 0
+	_watched_samples = 0
+	_watched_id = ""
 	_leg_ticks = 0
 	_stage = "look_away"
 
@@ -437,10 +469,23 @@ func _rule_bearing(n: Node) -> String:
 # them, so an all-at-once rule would never fire at all.
 func _look_away(t: int) -> void:
 	_leg_ticks += t
+	# ⚠️ SAMPLED EVERY FRAME, over the whole re-scramble, on EVERY slot. The level's one rule is
+	# that nothing changes while you are looking at it; the honest test of it is to watch each
+	# frame's memory and its watched-ness together, not to check one slot once.
+	var ids: Array = _hall.call("frame_ids")
+	_watched_samples += 1
+	for i in range(ids.size()):
+		if String(ids[i]) != String(_last_ids[i]) and bool(_hall.call("looking_at", i)):
+			_watched_violations += 1
+			_watched_id = "slot %d went %s -> %s IN VIEW" % [i, _last_ids[i], ids[i]]
+	_last_ids = ids.duplicate()
 	if not bool(_hall.call("rescramble_pending")):
 		_ok("seed %d: looking away re-scrambled the frames off-screen" % int(_seeds[_seed_i]),
 			_hall.call("diorama_figure") == null,
 			"order now %s" % str(_hall.call("frame_ids")))
+		_ok("seed %d: CONTROL: no frame changed while it was in view (%d frames sampled)"
+			% [int(_seeds[_seed_i]), _watched_samples],
+			_watched_violations == 0 and _watched_samples >= 8, _watched_id)
 		_k = int(_hall.call("progress"))
 		_begin_leg()
 		return

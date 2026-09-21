@@ -170,7 +170,8 @@ Shader (not a texture): `assets/materials/backrooms/glitch_wall.gdshader` — th
 | `level_6_breach/hiding_cabinet_front.png` | Cabinet front elevation (RGBA) | `hiding_spot.gd` (`prop_kind = "cabinet"`) — also THE NIGHTMARE's two hiding spots | done |
 | `level_6_breach/hiding_desk_front.png` | Desk front elevation | `hiding_spot.gd` (`prop_kind = "desk"`) | done |
 | `level_6_breach/object12_sign.png` | Facility warning sign plate | Level 6 — `_make_sign()` | done |
-| `level_6_breach/level_6_jumpscare.jpg` | Level 6 fatal screamer (user-supplied; genuinely JPEG, hence the honest `.jpg`) | `screamer.gd` `LEVEL_SCREAMERS[6]` | done |
+| `level_6_breach/object12_kill_closeup.png` | Generated close-up matching the actual hollow-crown mesh: hollow ridged face, organic crown, damp olive skin, claws reaching toward the lens. Built-in image_gen, 2026-09-20; prompt retained in `assets_src/textures/level_6_breach/` | `breach_kill_sequence.gd`: brief animated impact inserts within the rigged contact kill | done |
+| `level_6_breach/level_6_jumpscare.jpg` | Level 6 fatal screamer (user-supplied; genuinely JPEG, hence the honest `.jpg`) | `screamer.gd` `LEVEL_SCREAMERS[6]`; still used for generic panic death, suppressed after Object 12's rigged contact kill | done |
 | `level_6_breach/screamer_breach.png` | Superseded generated screamer | Replaced by `level_6_jumpscare.jpg` | to_be_added |
 
 ### level_9_dungeon/  (Level 7 — THE NIGHTMARE)

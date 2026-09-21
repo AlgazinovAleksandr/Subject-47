@@ -2,12 +2,35 @@
 
 ## Testing
 
+`check_breach_flashlight.gd` covers missing/owned F behavior, physical walking from the entry
+through Records to the fixed Archive B cabinet and out to Ward B, real E-ray hiding/pickup,
+hidden contact safety, unowned weapon suppression, one-time collection, normal return, death
+reset and older completed saves. `-- --screenshots` renders entry/clue/pickup to
+`/tmp/breach_flashlight/`. Creature activation runs on the real clock; the creature is parked
+for deterministic geometry/interaction checks. Existing weapon and hiding harnesses explicitly
+start after recovery.
+
+`check_breach_kill.gd` drives Object 12's real contact check with hidden, closed-door and distance
+controls, then verifies the rig/skin identity, camera-visible mesh layer, animated arm reach,
+two timed impacts, artwork/HUD visibility, one fatal restart and restored player input. Duplicate
+contact and competing fatal requests cannot interrupt the owned sequence. Navigating during a
+second wind-up frees the old rig and cannot restart/count a death in the replacement scene.
+Run with `-- --screenshots` and a renderer to record phases in `/tmp/breach_attack/`.
+
 `check_breach_playtest.gd` (2026-09-20) covers the supernatural door sequence and hiding-memory
 policy through real E-rays, physical door collision, timed light/audio restoration, overlapping
 effects, F-off, entering cover and scene removal. It drives 120 simulated seconds of hidden
 movement and relocation and carries a live legacy-policy control that targets the cabinet.
 `-- --legacy-hiding` deliberately disables the policy and must fail; `-- --screenshots` requires
 a render target and writes matched material and door-phase evidence to `/tmp/breach_sep20/`.
+
+`check_breach_voice.gd` covers the supplied three voices plus a separately layered chase
+background. Its 42 checks include AudioEffectCapture measurements of both decoded chase streams,
+actual background loop wrap, music continuing between screams, death/loss-of-chase/hiding/door/
+stagger/purge suppression, scene removal, hidden safety and visible recoil without collider motion.
+It drives the real E interaction and door silence clock. `-- --screenshots` renders settled and
+mid-impact door frames to the same evidence directory. These checks prove playback and lifecycle;
+the user judges the mix by listening in a manual playtest.
 
 ```bash
 tools/run_tests.sh          # the whole headless suite, one summary table
@@ -335,3 +358,36 @@ wall-clock deadline (Issue 224's hole). ⚠️ Issues 232 and 233 — a page the
 open drawer, and an assembled door that was a red grid because a seam lives in the mesh size — were
 caught only by reading the screenshots; every guard was green on both. `check_flood_drowned` flaked once
 in two full-suite runs (a Backrooms 2.0 s knock window, unrelated); filed as cross-level X70.
+
+
+### The Void's 2026-09-20 pass 4 — the frames harness, and two lessons that recurred the same day
+
+`check_void_frames` (75 checks, six seeded scrambles, ~110 s; `-- --seeds N` narrows it, `-- --trace`
+prints panic transitions) is the `maze-tester` shape for THE HALL OF FRAMES: every scramble solvable by
+the answer order, a wrong step never strands (the player lands on floor inside the room), every dwell
+reachable from a human stance, the finish reachable, the note refuses while carrying (control) and
+reads empty-handed, the figure never carries a collider or a `ScaryObject`, and no frame changes while
+it is in view (control: the observation check removed → fails and names the slot). `check_void` (142)
+proves the Morgue's west wall solid at frame 0 and that the plug is what stops it, E suppressed during
+the lunge (control), the drawing's swap, the open drawer, the reacting Hall2 frame, the loop swap.
+⚠️ Both Void guards **unregister `RandomAmbient`** before any zero-panic assertion (Issue 240). ⚠️ Issue
+228 recurred in a brand-new stage the same day it was filed (Issue 238), and `walk_void_live`'s three
+deaths in nine were the room NEXT to the one the bot was in (Issue 239) — a stare stance must have no
+line of sight to any other stalker and stay outside `GAZE_RANGE`. The screenshot pass now runs five
+in-scene actions before shooting (settle the hall, open the door, swap the drawing…), so the images are
+of states the guards reached, not poses.
+
+**The Void, pass 5 (2026-09-21).** `check_void` grew to 206 checks: a thirteen-stance sweep along the
+Sanctum's west wall proves the twist note opens nothing while the stone stands (control: the refusal
+removed → seven stances open the page) **and asserts the grazing band is NOT empty** — the plate cannot
+close it, and a guard that assumed it could would be lying (Issue 242); the wedged shard refuses, frees on
+the table's rearrangement and is takeable after; the gurney's touch volume passes 0.33 m above the
+bed-slat approach ray (the first draft swallowed the slat — caught by the control); the corridor charge
+fires once southbound, never northbound, with `_panic` unchanged and creature C protected. ⚠️ Three
+lessons about the harness itself: `Object.call()` on a renamed method unwinds the stage and fails
+nothing — `check_void` printed PASS with eight checks gone, so its count floor is now within ten of the
+real count (Issue 245); its reload guard compared stage LABELS as if they were ordered (Issue 246); and two
+brand-new stages staged their own deaths on creature C (Issue 228, a fourth and fifth time). `walk_void`
+gained a 2 m corridor detour, because the shipping route uses the step-through and nothing else walks
+the corridor southbound. The parent re-ran the wedged-guard control by hand; the first attempt matched
+nothing and ran green — **a control with an empty diff proves nothing, check the diff first.**

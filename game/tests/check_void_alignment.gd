@@ -262,6 +262,13 @@ func _run() -> void:
 	# ⭐ pass 4: the plate is the HIDDEN NOTE'S now, so what a snapshot has to carry is that the
 	# page was read — `_notes_read` and the `hidden_note_read` key — not that the cradle was done.
 	_ok("navigation restore keeps the twist note exposed", _level.get_node_or_null("SanctumPlate") == null)
+	# ⭐ pass 5: the plate is no longer the only gate — the note refuses on its own (Issue 242).
+	# A restore has to keep the two consistent: no stone, no refusal.
+	var tw2 = _level.call("twist_note")
+	_ok("…and the note's own gate came back OPEN with it (prompt '%s')"
+		% (tw2.call("prompt_text") if tw2 != null else "-"),
+		tw2 != null and not bool(_level.call("plate_stands"))
+		and String(tw2.call("prompt_text")) == "E — Read the page.")
 	_ok("…and the secret wall stays open across the return", bool(_level.call("secret_open")))
 
 	# ⭐ Coming back through the ending's door with a CLEARED snapshot. This is the case the
@@ -562,24 +569,30 @@ func _chain() -> void:
 	await _ticks(2)
 	_ok("CONTROL: E on the cradle without the shard completes nothing", not cradle.done)
 
-	# ⭐ THE SHARD IS IN THE ARCHIVE NOW (pass 3), inside the inverted table's legs-up basin and
-	# not in the world at all until that table re-poses itself off-screen. Driven through the
-	# PROP'S OWN BEAT — arm it by sight, then look away — never by calling `reveal()`: the whole
-	# question is whether a player who does what the level asks ends up with a shard.
+	# ⭐ THE SHARD IS IN THE ARCHIVE (pass 3), inside the inverted table's legs-up basin, and
+	# since pass 5 it is VISIBLE there from frame 0 and WEDGED FAST (Issue 243: an object that
+	# does not exist until you look away reads as a bug — two captures said so). Driven through
+	# the PROP'S OWN BEAT — arm it by sight, then look away — never by freeing it with a call:
+	# the whole question is whether a player who does what the level asks ends up with a shard.
 	var shard := _level.get_node("SlabShard")
 	var table := _level.get_node("InvertedTable_Archive")
 	_place(Vector3(-3.4, 0, 20.6), shard.global_position)
 	await _ticks(3)
-	_ok("CONTROL: the shard is not in the world before the table moves",
-		not bool(shard.call("is_revealed")) and not shard.visible)
-	_ok("CONTROL: …and the shipping E-ray cannot find it either",
-		_player.call("ai_interact_target") != shard,
-		)
+	_ok("CONTROL: the shard is visible and wedged before the table moves",
+		not bool(shard.call("is_freed")) and shard.visible
+		and String(shard.call("prompt_text")) == "It is wedged fast.")
+	_ok("CONTROL: …and the shipping E-ray finds it and is refused",
+		_player.call("ai_interact_target") == shard)
+	_player.call("ai_interact")
+	await _ticks(2)
+	_ok("CONTROL: …so E on it takes nothing",
+		not bool(shard.call("is_freed")) and not bool(_level.call("has_shard")))
 	_ok("looking at the table from inside the Archive arms it", bool(table.get("armed")))
 	_player.call("ai_look_at", Vector3(-3.4, 1.3, 18.2))
 	await _ticks(4)
-	_ok("looking away re-poses it and the shard is exposed",
-		bool(table.get("spent")) and bool(shard.call("is_revealed")) and shard.visible)
+	_ok("looking away re-poses it and the shard comes loose into the basin",
+		bool(table.get("spent")) and bool(shard.call("is_freed")) and shard.visible
+		and shard.global_position.distance_to(Vector3(-3.4, 0.42, 22.0)) < 0.05)
 	_place(Vector3(-3.4, 0, 20.9), shard.global_position)
 	await _ticks(3)
 	_ok("the shard in the table's basin is reachable through the real ray",

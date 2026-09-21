@@ -4,11 +4,68 @@
 
 ## SPEC
 
-### 🔨 PLANNED — 2026-09-20 second replay: Object 12's voice and door impacts
+### Shipped — 2026-09-21 fixed flashlight recovery in Archive B
+
+The player starts without a usable flashlight. Recover it by entering the existing hiding
+cabinet in ArchiveB (west wing, z 37.5), always the same cabinet on every attempt. The cabinet
+contains a physical flashlight and leaks a faint intermittent beam. Entering collects it once,
+leaves the player hidden, and keeps the recovered light off until F. Other cabinets remain
+ordinary hiding spots. Existing emergency lighting makes doorways navigable without the torch.
+The arrival grace becomes 8 seconds on first and repeat attempts, then normal patrol/detection
+hunt the player during the search. Finding the flashlight is not required to activate the purge;
+skilled escapes without it remain possible. Before recovery neither F nor the light weapon works.
+The objective states the missing flashlight, then returns to the trap/escape goal after recovery.
+Ordinary level navigation preserves recovery; death resets it in the same fixed cabinet. Old
+already-purged saves imply recovery so completed visits do not demand another search. Use the
+player's existing lock/unlock API, with no shared player or hiding behavior changes.
+`check_breach_flashlight.gd` walks the western route with physical movement, uses the real E ray
+on ordinary and pickup cabinets, checks F and hidden contact, walks the Ward B connection,
+and reloads normal/death/older-completed progress. Rendered entry, clue and pickup were inspected.
+
+### Shipped — 2026-09-20 contact kill: Object 12 at the lens
+
+The user approved a more brutal animated kill and matching generated artwork after confirming
+the supplied audio works. Only confirmed lethal contact starts this presentation; range, line of
+sight, hiding safety and difficulty stay unchanged. `breach_kill_sequence.gd` replaces the primitive door hand / immediate
+generic face with a short close-range attack using the actual hollow-crown mesh, skin and rig:
+snap toward the attacker, forward surge, clawing grip, two forceful camera impacts, then black.
+The built-in image generator produced `object12_kill_closeup.png` from a close-up of the actual
+model (`screenshot_breach_reference.gd`); the prompt is retained in `assets_src/textures/level_6_breach/`.
+The 1.45 s sequence uses a two-bone reach on each arm, a forward surge, camera recoil/FOV motion,
+and impacts at 0.48 and 0.98 s. Brief artwork inserts (0.16 and 0.26 s) animate scale/rotation/shake
+at those impacts, returning to the rig between them. HUD and interaction prompts hide during the
+attack. A local fill light preserves readability with the torch off. The scene's fatal transition
+is reserved before animation, chase audio stops, and the existing Screamer performs one restart
+with both its static image and extra sting disabled. The user's chase scream and `impact_thud`
+play during the attack. Door contact retains a slam on the second impact. The physical player
+is no longer dragged into the door collider. `check_breach_kill.gd` verifies real contact/hidden/
+blocked controls, rig/camera motion, artwork visibility, a single death/restart, duplicate and
+competing callbacks, and stale-scene cancellation. Rendered phase captures were inspected.
+
+### Shipped — 2026-09-20 supplied recordings and layered chase
+
+The user's four recordings are preserved under `assets_src/audio/level_6_breach/`,
+with prepared game WAV copies under `game/assets/audio/level_6_breach/`. The chase has two
+simultaneous players: a repeating stereo background at the listener and a positional monster
+scream. `tools/prepare_breach_audio.py` decodes to float, trims trailing silence, folds voices to
+mono and normalizes peaks to −1.5 dBFS before PCM conversion; pitch and dynamics are retained.
+The background retains stereo and has a 0.35 s crossfade at its loop seam. Calls do not overlap
+themselves and leave gaps after completion. Door roars accompany the existing thuds; hiding uses
+the supplied search howl without changing AI knowledge. Music stops for door battering, hiding,
+stagger, purge, death (including the door grab), loss of chase and scene exit. The supernatural
+silent tail cuts both players. Playback gains are music −8 dB, chase scream −3 dB, batter −4 dB,
+search −5 dB, with distance attenuation on voices. Chase calls leave 3–5 s after their duration;
+search calls leave 5–8 s. Durations: background 14.30 s, chase scream 4.35 s, batter 6.71 s,
+search 4.80 s. The batter recording is interrupted by the existing door silence, not allowed to
+extend the door hold. `check_breach_voice.gd` passes 42 checks headless and rendered, including
+actual decoded audio from both chase layers, loop wrap, transitions, long-clip gaps,
+the real door sequence, hidden safety and scene cleanup. Human listening still judges the mix.
+
+### Shipped — 2026-09-20 second replay: Object 12's voice and door impacts
 
 The user confirmed hiding and the shorter door hold now work, but requested three distinct
-monster screams and stronger door presentation. A Breach-owned voice controller will use
-three new procedural vocal assets: a rising chase scream, a strained door-battering roar
+monster screams and stronger door presentation. A Breach-owned voice controller uses
+three vocal assets (now the user's supplied recordings): a rising chase scream, a door-battering roar
 layered with the existing punches, and a frustrated searching howl while the player is hidden.
 Voices follow the creature's actual position, with irregular gaps, distance attenuation and
 one voice at a time. Hidden calls imply searching but never update AI knowledge or damage.
@@ -19,8 +76,9 @@ playing voice discontinuously across the map. Calls resume naturally from the ne
 Each batter impact also displaces the visible door leaves briefly (recoil, then settle), with
 escalating force. The blocker and interaction volumes stay fixed. Impact signals feed the
 presentation only; hold duration, blackout timing and the newly-confirmed hiding policy remain.
-Verify real streamed audio, distinct clips, spatial following, silence/stagger/purge suppression,
-hidden safety and cooldowns; render a mid-impact door and compare with its settled pose.
+Real streamed audio, distinct clips, spatial following, silence/stagger/purge suppression,
+hidden safety and cooldowns are guarded by `check_breach_voice.gd`; settled and mid-impact
+door renders were inspected. The recoil holds its peak 0.05 s so it reads at lower frame rates.
 
 ### Shipped — 2026-09-20 hand-playtest follow-up
 
@@ -60,15 +118,11 @@ back into the spine). **The seal room is ExitVault; the exit is in the Incinerat
 creature west, seal it there, then return to the spine and its far end. Visual arc
 extends KONTUR's two-tier skin system to three: facility → structural rupture → organic decay,
 ending at a scorched-steel Incinerator.
-- ⭐⭐ **THE GRAB THROUGH THE DOOR (2026-09-14, `BACKLOG_Sep_14.md` X1, the user's pick).** When
-  Object 12's contact lands while the player is within `GRAB_DOOR_DIST` 1.5 m of a `SlamDoor`, the
-  death is staged: `CreatureObject12.death_override` → `_on_contact_death()` → `_grab_death()` — a
-  dark clawed arm from parts (`GrabArm`, albedo 0.06, red vein emission) comes through the gap to
-  `GRAB_HAND_STOP` 0.35 m from the lens, reparents to the camera, the player is hauled to
-  `GRAB_PULL_TO` 0.3 m from the leaf, `SlamDoor.slam_shut()`, `door_slam`, then `Screamer.trigger()`
-  — every path ends in the funnel. Contact away from a door is the unchanged `trigger()`.
-  `check_level6_breach.gd` is phased now and drives both (control: the room centre furthest from
-  every door); `screenshot_breach_grab.gd` renders it.
+- **Door-contact presentation** (original X1, 2026-09-14; revised by the user's 2026-09-20 request).
+  `CreatureObject12.death_override` → `_on_contact_death()` now starts the same rigged kill in
+  rooms and at doors. `GRAB_DOOR_DIST` 1.5 m still chooses the nearby door for a second-impact
+  slam. The old primitive hand and physical player haul are superseded. `check_level6_breach.gd`
+  drives the door variant; `check_breach_kill.gd` drives the room variant and safety controls.
 - ⭐⭐ **DORMANT MEANS STILL SINCE 2026-09-07.** Object 12 played `shamble` at 0.5x while inactive —
   **0.515 m of hip excursion and a 57.9° arm swing** per cycle, the most mobile clip in the asset —
   while standing **16.0 m dead ahead of the player spawn, heading 0.0°, with unobstructed line of
@@ -167,18 +221,14 @@ ending at a scorched-steel Incinerator.
   architrave profile (`slam_door.gd`'s jamb 0.08 / depth 0.26 / metallic 0.3) on the exit casing,
   and **the nine bare `RoomBuilder` openings are framed too** — built in `level_6_breach.gd`, never
   in `RoomBuilder` (shared by five levels), and with **no colliders**.
-- ⚠️ **The 30 s window is 30 s of an inert exhibit.** While dormant the creature cannot see
+- **During the 8 s arrival grace the creature is inert.** While dormant it cannot see
   (`_detect_player` never runs), cannot hear (`notify_noise` returns early), cannot be hurt
   (`apply_light_damage` returns early) and cannot kill (`_contact` returns early) — and
   `activate()` permits contact on the very next tick. `backlogs/06-breach.md` C2.
-- **Familiarization window** (level-owned): Object 12 stays dormant at its Junction1 spawn until the
-  timer elapses (Mr.X pacing — learn the layout before the threat appears), then `activate()`s and
-  roams the level for the rest of the run. The window is **`FAMILIARIZATION_FIRST = 30 s` on the
-  first attempt and `FAMILIARIZATION_RETRY = 10 s` on every attempt after a death here**
-  (2026-07-27) — the window buys *learning the layout*, which a player only has to do once, so
-  after a death it collapses to just enough time to re-orient at the entrance. Which one applies is
-  chosen in `_ready()` from `GameState.get_level_attempts(6)` (see **Level attempts** below), never
-  from a level-script local: the level scene is rebuilt from `_ready()` on every restart
+- **Arrival grace** (level-owned): Object 12 stays dormant at Junction1 until the timer elapses,
+  then activates for the rest of the run. **`FAMILIARIZATION_FIRST = 8 s` and
+  `FAMILIARIZATION_RETRY = 8 s`** (2026-09-21) let the player orient at the entrance while
+  leaving the flashlight search under threat. This replaces the previous 30/10-second waits.
 - **`creature_object12.gd`** (`class_name CreatureObject12`) — a five-state machine
   (`PATROL → INVESTIGATE → CHASE → SEARCH → STAGGERED`), structurally descended from
   `creature_stalker.gd`'s build pattern (`ScaryObject → StaticBody3D → CollisionShape3D`, GLB
@@ -198,7 +248,8 @@ ending at a scorched-steel Incinerator.
   scan converging on the stub player produced exactly this false-blind result
 - **Light-as-weapon** (`apply_light_damage()`, driven every frame by `level_6_breach.gd`'s
   `_tick_light_weapon()`, which owns the geometric "is the player aiming a lit flashlight at it
-  within FOV+LOS" check — the creature script itself stays graph/geometry-agnostic): sustained aim
+  within FOV+LOS" check — the creature script itself stays graph/geometry-agnostic): available
+  only after recovering the flashlight from Archive B. Sustained aim
   drains a `SHIELD_MAX=100` pool at `SHIELD_DRAIN_RATE=40/s` (~2.5s to empty); hitting 0 drops it
   into `STAGGERED` for `randf_range(STAGGER_MIN 5, STAGGER_MAX 7)` s — a **temporary repel, not a
   kill** (shield fully regenerates on recovery). ⚠️ **Draining and staggering both require
@@ -269,10 +320,18 @@ ending at a scorched-steel Incinerator.
   layer at `-14dB` mirroring `kontur.gd`'s optional `kontur_music` node — this is where the
   user-provided `mystical_sound.mp3` lives (as `ambient_breach_layer.mp3`), deliberately **never**
   the primary bed since an arbitrary sourced `.mp3` isn't guaranteed loop-clean. SFX generated by
-  `tools/make_sfx_level6.py` into `game/assets/audio/level_6_breach/`
+  `tools/make_sfx_level6.py` into `game/assets/audio/level_6_breach/`. The separately controlled
+  chase background and three supplied creature voices follow the 2026-09-20 entry above.
 - Win: lure Object 12 into the Purge Chamber and seal it. Fail: creature contact, panic bar fills
 
 ## DECISIONS & GOTCHAS
+
+**2026-09-21 fixed placement.** The user chose a consistent middle-area cabinet. Archive B
+requires a detour, connects to both the western loop and Ward B, and reuses safe hiding instead
+of adding a vulnerable search animation. Collecting never forces the player to emerge or turn
+on the torch. The former first-attempt grace could outlast the entire direct walk to the item;
+eight seconds leaves orientation time while making the search a hunted phase. The purge remains
+usable without the flashlight; recovering it after sealing preserves the escape objective.
 
 ⚠️ **Dated ⭐ entries live at the TOP of SPEC, not here.** They carry the level's *current* state and
 override the older prose beneath them — that is how `CLAUDE.md` was written, and why entries say
@@ -289,6 +348,12 @@ abandoned. Anything describing what the level *is* belongs in SPEC.
 interruption over physical door destruction. The old search-memory tension rule no longer applies
 after successful hiding. No panic tax, forced camera turn, new pursuer or new death path was added.
 The material pass keeps the existing mesh/skin; its realism still needs the user's judgement.
+
+**Supplied recordings.** The chase MP3 decodes above full scale in float (peak about +19.77 dBFS);
+direct int16 conversion would clip it. Normalize before conversion, never after. Keep the original
+MP3/WAV files unchanged for future editing. The old procedural generator now writes only into
+`assets_src/audio/level_6_breach/procedural_archive/`, preventing accidental replacement of the
+user's search or batter sounds. New supplied recordings are prepared by `tools/prepare_breach_audio.py`.
 
 ### Superseded (moved out of SPEC verbatim, 2026-09-19 audit)
 
@@ -317,6 +382,16 @@ stays in SPEC.
 
 ## NEEDS A PLAYTEST
 
+- Judge the flashlight search: enough light to navigate, a noticeable cabinet clue, and enough
+  hiding opportunities before recovery. The fixed Archive B location should reward exploration
+  on the first attempt and route knowledge on retries.
+
+- Judge the new 1.45 s contact attack: does the claw reach, generated close-up and two-impact
+  rhythm feel forceful and match Object 12? Try contact in a room and beside an open door,
+  including with the torch off. Automated timing/restart checks do not judge fear.
+- Judge the supplied scream/background balance during a chase, the roar alongside door punches,
+  and the searching howl from inside a locker. Both chase layers produced nonzero decoded audio
+  simultaneously in the guard; that measures playback, not subjective loudness or fear.
 - Replay the shorter doors: does silence → blackout → crash feel frightening and leave enough
   escape time? Compare the creature's revised surface under a moving torch and from a locker.
 - Hide at several spots and judge whether the wandering/relocation leaves a useful window to

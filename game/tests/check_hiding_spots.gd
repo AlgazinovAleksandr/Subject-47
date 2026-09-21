@@ -134,6 +134,9 @@ func _process(delta: float) -> bool:
 	if _level == null:
 		_level = current_scene
 		_player = _level.get_node_or_null("Player") as CharacterBody3D
+		# Exercise hiding with an owned torch; initial recovery is tested separately.
+		_level.call("_recover_flashlight", false)
+		_player.get("flashlight").visible = true
 		_collect()
 		# ⚠️⚠️ STOP THE FAMILIARIZATION TIMER, or this test kills its own player. The first run
 		# teleported the player from spot to spot for longer than `FAMILIARIZATION_FIRST` 30 s;
