@@ -144,6 +144,16 @@ func _make_lid(nm: String, top: bool) -> Panel:
 # for exactly ONE frame as they part a second fractured figure stands at arm's length. It is a
 # photograph — no collider, no ScaryObject, no rule (SCARY.md P3). The stalkers keep their own rule
 # throughout: the camera never moved, so a watched one stays frozen through the blink.
+# ⭐ 2026-09-22 pass 6. The recurring room's stage-3 arrival asks for the blink directly: the same
+# two eyelids, the same sound, no stalker — so no watcher figure — and no stare bookkeeping (it is not
+# a fired hallucination, `fired_count()` does not move). Refused while a blink is already running.
+func blink_now(p: CharacterBody3D) -> void:
+	if _busy or p == null or not is_instance_valid(p):
+		return
+	_dbg("HALLUCINATION blink (on demand)")
+	_blink(p, null)
+
+
 func _blink(p: CharacterBody3D, stalker: Node) -> void:
 	_busy = true
 	_blink_layer.visible = true

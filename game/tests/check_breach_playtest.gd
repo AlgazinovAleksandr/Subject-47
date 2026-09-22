@@ -43,6 +43,7 @@ func _run() -> void:
 	# SlamDoor's clearance fitting runs at 1.5 s; photograph the settled geometry.
 	await _wait(1.8)
 	_level = current_scene
+	preload("res://tests/lib/breach_hunt_fixture.gd").enter(_level)
 	_level.set_process(false)
 	_creature = _level.get("_creature")
 	_creature.set_process(false)

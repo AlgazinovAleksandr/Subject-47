@@ -49,6 +49,7 @@ func _rms(effect: AudioEffectCapture) -> float:
 func _run() -> void:
 	await create_timer(1.8).timeout
 	var level: Node = current_scene
+	preload("res://tests/lib/breach_hunt_fixture.gd").enter(level)
 	level.set_process(false)
 	var creature: Node = level.get("_creature")
 	creature.set_process(false)
@@ -66,8 +67,9 @@ func _run() -> void:
 	var clips: Dictionary = voice.get("_streams")
 	_ok("all three clips imported and distinct", clips.size() == 3 and clips.values()[0] != clips.values()[1] and clips.values()[1] != clips.values()[2])
 	for kind in clips:
-		_ok("%s has actual non-looping audio" % kind, clips[kind] is AudioStreamWAV and clips[kind].get_length() > 1.0 and clips[kind].loop_mode == AudioStreamWAV.LOOP_DISABLED)
-	_ok("supplied chase recording replaces prototype", clips["chase"].resource_path.ends_with("breach_voice_scream_chase.wav") and clips["chase"].get_length() > 4.0)
+		var nonlooping: bool = (clips[kind] is AudioStreamWAV and clips[kind].loop_mode == AudioStreamWAV.LOOP_DISABLED) or (clips[kind] is AudioStreamOggVorbis and not clips[kind].loop)
+		_ok("%s has actual non-looping audio" % kind, nonlooping and clips[kind].get_length() > 1.0)
+	_ok("requested crate scream is used unchanged", clips["chase"].resource_path == "res://assets/audio/level_backrooms/crate_jumpscare.ogg")
 	_ok("supplied batter and search recordings loaded", clips["batter"].get_length() > 6.0 and clips["search"].get_length() > 4.5)
 	_ok("background is stereo with a complete loop", music.stream is AudioStreamWAV and music.stream.stereo and music.stream.loop_mode == AudioStreamWAV.LOOP_FORWARD and absf(music.stream.loop_end / float(music.stream.mix_rate) - music.stream.get_length()) < 0.01)
 	voice.call("_process", 0.1)
@@ -86,6 +88,27 @@ func _run() -> void:
 	print("CHASE MIX RMS voice=%.5f music=%.5f" % [voice_rms, music_rms])
 	_ok("both chase layers produce decoded audio", voice_rms > 0.001 and music_rms > 0.001)
 	_ok("music and scream both contribute to the mix", absf(linear_to_db(voice_rms / maxf(music_rms, 0.000001))) < 18.0)
+	# A near-field sample missed a scream disappearing while the player ran away.
+	# Listen facing away at realistic chase distances, with both clips at the same phase.
+	for distance in [3.5, 18.0, 30.0]:
+		body.global_position = player.global_position + Vector3(0, 0, distance)
+		voice.set("_last_position", body.global_position)
+		voice.call("_process", 0.0)
+		player.call("ai_look_at", player.global_position + Vector3(0, 1.5, -10))
+		speaker.play(0.0)
+		music.play(0.0)
+		await create_timer(0.1).timeout
+		voice_capture.clear_buffer()
+		music_capture.clear_buffer()
+		await create_timer(0.4).timeout
+		var vocal := _rms(voice_capture)
+		var bed := _rms(music_capture)
+		var relative := linear_to_db(vocal / maxf(bed, 0.000001))
+		print("RETREAT MIX %.1fm voice=%.5f music=%.5f relative=%.2fdB" % [distance, vocal, bed, relative])
+		_ok("retreat %.1fm scream stays audible above music" % distance, vocal > 0.05 and bed > 0.005 and relative >= 1.0 and relative < 15.0)
+	body.global_position = Vector3(0, 0, 12.8)
+	voice.set("_last_position", body.global_position)
+	voice.call("_process", 0.0)
 	var calls: int = voice.get("_plays")["chase"]
 	var music_position := music.get_playback_position()
 	voice.call("_process", 0.1)

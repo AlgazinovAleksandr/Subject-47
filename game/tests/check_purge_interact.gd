@@ -61,6 +61,7 @@ func _process(delta: float) -> bool:
 		if not current_scene:
 			return false
 		_level = current_scene
+		preload("res://tests/lib/breach_hunt_fixture.gd").enter(_level)
 		_player = _level.get_node_or_null("Player")
 		return false
 

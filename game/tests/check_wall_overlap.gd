@@ -243,7 +243,17 @@ const CONFIG := {
 		# The quads are the five dioramas' backdrops plus the folded frame's suspended sheet; the
 		# solids are the SecretPlug's face, the five frame shells (4 bars each) and the five
 		# dioramas. A floor a whole prop family could vanish under is not a sample size.
-		"min_boxes": 146, "min_quads": 38, "min_solids": 400,
+		# ⭐ 2026-09-22 pass 7: 150 / 43 / 509 measured at stage 0. The quads are the sixth
+		# doorway's black opening and its watcher's face art; the solids are that doorway's four
+		# bars, the false-ceiling slab, the watcher's fragments and the 1:1 memory's treads and
+		# stringers — all built hidden in `build()`, and this file counts hidden meshes too.
+		# ⚠️ AND THE ROOM IS MEASURED AT THREE HEIGHTS. The false ceiling descends to 2.7 m at
+		# stage 3 and 2.2 m at stage 5, and the 1:1 memory and the sixth door only exist at 4-5;
+		# a sweep that only ever saw frame 0 would certify geometry that is somewhere else for
+		# most of the puzzle. `states` drives the level's own `frame_hall().apply_stage(n)`.
+		"states": [["", "", 0], [" s3", "frame_hall.apply_stage", 3],
+			[" s5", "frame_hall.apply_stage", 5]],
+		"min_boxes": 146, "min_quads": 41, "min_solids": 480,
 	},
 }
 
@@ -275,11 +285,18 @@ func _initialize() -> void:
 				continue
 			var cfg: Dictionary = CONFIG.get(s["key"], {})
 			for sd in cfg.get("seeds", [1]):
-				_rows.append({
-					"key": s["key"], "label": String(s["label"]),
-					"path": String(s["path"]), "settle": float(s["settle"]),
-					"seed": int(sd), "cfg": cfg,
-				})
+				# ⚠️ `states` (2026-09-22): a scene may declare EXTRA runs of itself in a state
+				# it can only be driven into. Geometry that MOVES is geometry this file has been
+				# blind to for its whole life — the Void's recurring room now lowers a 5.6 m
+				# ceiling slab two notches, and a sweep that only ever measures frame 0 would
+				# certify a room whose ceiling is somewhere else for most of the puzzle.
+				# Each entry is [label, method, arg]; the method is called on the loaded level.
+				for st in cfg.get("states", [["", "", 0]]):
+					_rows.append({
+						"key": s["key"], "label": String(s["label"]) + String(st[0]),
+						"path": String(s["path"]), "settle": float(s["settle"]),
+						"seed": int(sd), "cfg": cfg, "state": st,
+					})
 	if _rows.is_empty():
 		print("WALL-OVERLAP FAIL: no scene matched '%s'" % _only)
 		quit(1)
@@ -324,6 +341,19 @@ func _process(delta: float) -> bool:
 	# (Issue 52) and every level here builds itself there.
 	if _t < float(_rows[_row]["settle"]):
 		return false
+	# ⚠️ DRIVEN THROUGH THE LEVEL'S OWN METHOD, after the scene has settled and before anything
+	# is measured — never a hand-placed imitation of the state.
+	var st: Array = _rows[_row].get("state", ["", "", 0])
+	if String(st[1]) != "" and current_scene != null:
+		var target: Variant = current_scene
+		if String(st[1]).find(".") >= 0:
+			var parts := String(st[1]).split(".")
+			target = current_scene.call(parts[0])
+			if target != null and is_instance_valid(target):
+				target.call(parts[1], st[2])
+		elif current_scene.has_method(String(st[1])):
+			current_scene.call(String(st[1]), st[2])
+		print("  STATE: %s(%s)" % [st[1], str(st[2])])
 	var bad := _measure_scene()
 	_bad_total += bad
 	_summary.append("%-10s seed %-4d %s (%d finding%s)"

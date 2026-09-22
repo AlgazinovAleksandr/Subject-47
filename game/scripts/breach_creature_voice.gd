@@ -2,13 +2,13 @@ extends Node
 
 # Presentation only. Never writes an AI target, player panic, or the hidden flag.
 const CLIPS := {
-	"chase": "breach_voice_scream_chase",
+	"chase": "res://assets/audio/level_backrooms/crate_jumpscare.ogg",
 	"batter": "breach_voice_batter",
 	"search": "breach_voice_search",
 }
 const CHASE_BACKGROUND := "breach_voice_chase_background"
 const CHASE_MUSIC_DB := -8.0
-const VOICE_DB := {"chase": -3.0, "batter": -4.0, "search": -5.0}
+const VOICE_DB := {"chase": -6.0, "batter": -4.0, "search": -5.0}
 var _creature: Node
 var _player: CharacterBody3D
 var _doors: Array = []
@@ -31,9 +31,10 @@ func configure(creature: Node, player: CharacterBody3D, doors: Array) -> void:
 	_voice.max_distance = 45.0
 	_voice.max_db = -2.0
 	_voice.volume_db = -3.0
+	_voice.bus = "Master"
 	add_child(_voice)
 	for kind in CLIPS:
-		_streams[kind] = GameState.load_audio(CLIPS[kind])
+		_streams[kind] = load(CLIPS[kind]) if CLIPS[kind].begins_with("res://") else GameState.load_audio(CLIPS[kind])
 	_music = AudioStreamPlayer.new()
 	_music.name = "ChaseBackground"
 	_music.volume_db = CHASE_MUSIC_DB
@@ -123,6 +124,12 @@ func _process(delta: float) -> void:
 	if stream == null:
 		return
 	_voice.stream = stream
+	# Keep the pursuit cry directional but audible while running away. The score
+	# does not attenuate, so normal world falloff buried the voice at 18–30 metres.
+	# max_distance adds its own fade even with ATTENUATION_DISABLED.
+	_voice.attenuation_model = AudioStreamPlayer3D.ATTENUATION_DISABLED if mode == "chase" else AudioStreamPlayer3D.ATTENUATION_INVERSE_DISTANCE
+	_voice.max_distance = 0.0 if mode == "chase" else 45.0
+	_voice.attenuation_filter_db = 0.0 if mode == "chase" else -24.0
 	_voice.pitch_scale = randf_range(0.94, 1.05)
 	_voice.volume_db = VOICE_DB[mode]
 	_voice.play()

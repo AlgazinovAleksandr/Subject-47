@@ -4,7 +4,253 @@
 
 ## SPEC
 
+### 🔨 PLANNED — 2026-09-23 approach redesign: its traces, its sounds, one glimpse
+
+**Why.** 2026-09-22 hand playtest, all six J-captures inside the approach:
+- *"This first part of the corridor is too boring."*
+- *"the corridor itself is cool but it clearly lacks the scary parts, and it does not represent what
+  will happen next. Shall we have like hallucinations of the creature you will see later, the same
+  textures as there, some other kinds of things?"*
+
+The diagnosis:
+- The 60 m ApproachService is dead straight, with lamps spaced exactly every 8 m.
+- The whole route carries four one-off events (a rattle, two pipe groans, one lamp flicker), and not
+  one of them relates to Object 12.
+
+**Rulings changed by the user (2026-09-23), overriding the 2026-09-22 entry below:**
+- **The approach may show Object 12's traces, its sounds, and exactly ONE partial glimpse.**
+  - This replaces *"no visible creature or active pursuit"*, *"No monster silhouette"* and *"hidden,
+    inactive and silent"*.
+  - Full hallucinations were offered and not chosen. The player has already seen Object 12 in
+    KONTUR's glass cell, so the approach's job is dread of meeting it loose, not a first reveal.
+- **The REAL creature is unchanged.**
+  - The AI, `breach_creature_voice.gd`, patrol, relocation and contact all stay dormant, and its body
+    stays hidden until the seal.
+  - Every approach beat uses its own one-shot speakers. The glimpse is a separate visual-only puppet.
+- **Length stays 60–90 s at 4 m/s**, denser rather than longer. No forced waits, no item puzzle, no
+  timed locks.
+
+**The route, beat by beat.** Every beat fires once per run.
+
+| ≈ Time | Room | Beats |
+|---|---|---|
+| 0–15 s | ApproachService | **The straight line is broken.** Two jogs and/or hanging strip curtains, so the far end is never in view. Lamps come in uneven clusters with one dead gap. **Motion lamps:** each clunks on as the player comes within ~6 m, which teaches the rule. At ~40 m **one lamp ~20 m ahead clunks on by itself**, holds ~2 s, and dies (the rule breaks, so something else is here). A shift board with names crossed out; barrier tape strung *facing inward*, toward containment. **PA line 1.** |
+| 15–22 s | ApproachPumpReturn | **The distant door tell**, through the wall. The same sequence the hunt's `breach_door_scare.gd` plays: Object 12's batter roar and pounding, muffled → silence → the local lamps dip → a crash. Learned here as a story event, recognised later as the hunt's warning. |
+| 22–35 s | ApproachObservation + bays | **Seal panel "98 %".** **Light is a weapon, taught by the walls:** residue stops exactly at each working lamp's light edge, and the lamps along its path are smashed. **Hiding works:** one cabinet is deeply gouged outside but held, with scratched tallies inside. **Bay B's pressure shutter cycles** (the item the 2026-09-22 entry specced and never built); nothing is behind it. **PA line 2**, glitching. |
+| 35–45 s | ApproachDamaged | **Compression:** the ceiling drops to ~2.4 m, cluttered with ducts. No crouch exists, so none is required. **It hears you:** a loose floor grating clangs underfoot → ~2 s → heavy knocks answer from the duct overhead → a scrape travels *away ahead* with dust sifting from the duct seam. This teaches the hunt's rule (it follows sound, `creature_object12.gd:notify_noise`). **Seal panel "61 %".** |
+| 45–55 s | ApproachPlenum | **Release, and the peak.** A sealed door with a fogged porthole. **A victim heard, never seen:** a technician hammers and begs → Object 12's roar, muffled → a scream → **the building answers** (dust falls from the trays, the receivers ring, the duct rattle and pipe groan fire as responses, a lamp flickers on the roar) → a thump → silence → a heavy drag, receding. One residue patch visibly grows. No figure and no shadow under the door; the shadow is the Corridor's. |
+| 55–65 s | ApproachContainment | **Object 12's breached cell:** an "OBJECT 12" stencil, the door **bent outward**, dents and finger drags at crown height (2.6 m), drag marks leading toward the hunt wing, **seal panel dead "— — —"**. **PA line 3 cuts off mid-word.** |
+| 65–75 s | ApproachThreshold | The ambience ducks to near-silence. **The glimpse:** as the player turns the dogleg corner, long fingers of the real hollow-crown model withdraw up into a ceiling duct with a scream (the user chose the scream). Then quiet → the bulkhead slams behind them → the hunt. |
+
+**The glimpse puppet** follows `breach_kill_sequence.gd:55-66`:
+- `CreatureAnim.build()` on a plain `Node3D`, with a **duplicated** material (the wound flash tweens
+  the shared one).
+- It shows only a hand and forearm.
+- No collider and no `ScaryObject`, so it adds zero panic and cannot kill.
+- It is never emissive (`SCARY.md` §8.8), never faces the player, never approaches.
+- Freed after the beat. The real `_creature` is never moved or shown.
+
+**Sounds.** The user's recordings in `game/assets/audio/level_6_breach/new_sounds/`, with the mapping
+confirmed by the user:
+
+| File | Beat |
+|---|---|
+| `door_part1_sound` + `door_part_2_scream` | the technician |
+| `creature_sound` | the roar behind his door |
+| `loud_scream` | the scream the building answers |
+| `monster_knock` (2–3 knocks cut from it) | the duct answer |
+| `creature_crawl` | the receding duct scrape |
+| `metal_crash` | the door tell's crash |
+| `lamp_on` / `lamp_off_break` | motion lamps / the self-waking lamp dying and the smashed lamps |
+| `motor` | the bay shutter |
+| `ventilation` | the breathing bed |
+| `dust` | falling dust |
+| `loud_screamer` | the hand |
+
+- **Generated** (the user's call): the drag, the grating clang and a 10–15 one-shot machinery pool,
+  from a new seeded generator. The machinery pool subsumes the old one-shot rattle, plays mostly from
+  behind, and never uses footstep-like sounds.
+- **The PA's three lines** use KONTUR's announcer voice pipeline, so the Breach is the same facility
+  still talking. This is the Breach half of the accepted `GAME_MECHANICS_IDEAS.md` N4. The lines are
+  statements, never instructions or cues:
+  1. *"Containment status, Wing C. Object Twelve: secured. Seal integrity ninety-eight percent."*
+  2. *"Seal integrity… sixty-one percent. Personnel on site… two hundred twelve… twelve…"*
+  3. *"Object Twelve is not in its—"*
+- Supplied originals are copied unchanged to `assets_src/audio/level_6_breach/approach/`.
+- Prepared game copies go through `tools/prepare_breach_audio.py`, which normalises in float first.
+  Measured true peaks: `loud_screamer` **+4.8 dBTP**, `loud_scream` +3.9, `metal_crash` +2.3,
+  `door_part_2_scream` +1.7. Direct int16 conversion would clip them.
+- The approach's speakers stop asking for a nonexistent `"SFX"` bus, which silently falls back to
+  Master. The silence beats duck the `Ambience` bus.
+
+**Also fixed in this pass:**
+- The "OBJECT 12 / CONTAINMENT WING" label is clipped by the bulkhead rails, which sit inside its
+  depth (J-capture 6).
+- The unlit, illegible "CONTAINMENT SERVICES →" label (J-capture 3).
+
+**Guard rails:**
+- No new panic term and no posture requirement.
+- None of the Corridor motifs listed below.
+- The facility stays grounded, so this pass does **not** resolve the unreality-curve question.
+
+**Proof:**
+- `check_breach_approach.gd` gets a physical walk that asserts:
+  - panic stays exactly 0 for the whole approach
+  - the real creature stays hidden, voiceless and dormant until the seal
+  - every beat fires exactly once, in route order
+  - the puppet carries no collider or `ScaryObject` and is freed
+  - the bulkhead still blocks retreat
+  - retries still skip the approach
+- The authored route measures 60–90 s at 4 m/s.
+- Rendered frames (read as images): room 1's lamp rhythm, the self-waking lamp, the cell, the
+  porthole, the hand at its peak.
+
+### Shipped — 2026-09-23 the flashlight lives in EastVault; the first-attempt grace is 20 s
+
+This overrides the room and the grace in the 2026-09-21 entry below; the pickup mechanics are
+unchanged.
+
+**Where the flashlight is.** `FLASHLIGHT_ROOM` is **EastVault**: the existing cabinet on the east wall
+of the east-wing dead end, facing the WardA doorway at (10, 24).
+- It is 33.1 m in a straight line from the purge door, and about 35 m walking across the spine. So
+  recovering the light and luring Object 12 into ExitVault are two separate journeys through opposite
+  wings.
+- The ArchiveB cabinet is an ordinary hiding spot.
+- Nothing in the level names the location. The cabinet's leaking beam is the only clue.
+- The cabinet is named `FlashlightCabinet_<room>`, and the DebugLog line names the room.
+
+**The grace.** `FAMILIARIZATION_FIRST` is **20 s**, and `FAMILIARIZATION_RETRY` stays **8 s**. A
+retry resumes at the sealed checkpoint, where the 8 s tests route knowledge.
+
+**What proves it: `check_breach_flashlight.gd`, 47 checks.**
+- It asserts the EastVault position, the distance to the purge, and that ArchiveB is ordinary.
+- It measures the creature still dormant at 8.2 s and awake at 20.2 s on a first attempt, and dormant
+  at 7.6 s and awake by 8.4 s on a retry.
+- It walks Junction1 → Atrium → WardA → EastVault physically and collects through the real E ray.
+- It leaves the wing through the WardA ↔ Junction2 loop doorway.
+
+**How visible the clue is**, measured by `probe_breach_eastvault_view.gd`. Renders read as images; the
+numbers are 95th-percentile / mean luminance of the cabinet region, dark → lit:
+
+| Where the player stands | Result |
+|---|---|
+| In line with the EastVault doorway, WardA at z ≈ 24, 8.8 m away | **28 → 55 / 11 → 22**: the pulse doubles the cabinet's brightness |
+| WardA's north end (7, 29) | No change: the cabinet is out of line of sight |
+| The Atrium entrance (4.6, 21) | No change: out of line of sight |
+
+So the beam rewards looking INTO EastVault, not passing through WardA. That fits the user's no-hint
+ruling. Whether it's enough on a cold first run is in NEEDS A PLAYTEST.
+
+### Shipped — 2026-09-23 the approach's walls are built once
+
+J-captures 3, 4 and 5 (*"Here we have a bug with the textures"*, *"Here also a bug with overlapping
+textures"*) were **12 coincident wall pairs**.
+- Abutting approach rooms of different ceiling heights each built a full slab on their shared plane,
+  because `RoomBuilder` keyed its dedup on height as well. Six planes are affected, each split by its
+  doorway:
+
+  | Plane | Rooms (height) |
+  |---|---|
+  | z −65 | Service 3.6 / PumpReturn 4.0 |
+  | x −46 | Observation 3.4 / PumpReturn 4.0 |
+  | x −94 | Inspection 3.4 / Damaged 3.8 |
+  | x −62 | Damaged 3.8 / Plenum 5.2 |
+  | x −26 | Plenum 5.2 / Containment 3.4 |
+  | z −23 | Containment 3.4 / Threshold 3.0 |
+
+- The shared builder now keeps each plane's coverage with its heights and builds only what rises
+  above an existing wall. This is Issue 266, specced in `spec/systems/scripts.md`.
+- `check_wall_overlap.gd`: the Breach went from 12 findings to **0**. The full sweep is 14 scene-runs
+  and 0 findings.
+- **Ownership of a shared stretch follows build order.** The earlier room in `ROOMS + APPROACH.ROOMS`
+  owns it. So where a tall tiled room abuts a lower skinned one, the lower room's side of that wall
+  shows the taller room's skin.
+
+### Shipped — 2026-09-21 chase and kill audio correction
+
+The user hears the chase background but not the scream, and the contact kill lacks its intended
+jumpscare sound. Object 12 now uses the exact existing
+`res://assets/audio/level_backrooms/crate_jumpscare.ogg` for its chase vocal, layered over
+`breach_voice_chase_background.wav`. The confirmed-contact attack uses the exact
+`res://assets/audio/level_6_breach/level_6_jumpscare.wav`.
+The chase vocal keeps directional panning but disables distance attenuation, the secondary
+maximum-distance fade and attenuation filtering while chasing; batter/search retain their
+normal spatial falloff. The selected chase clip plays at −6 dB against the existing −8 dB score;
+the much hotter kill recording plays at −8 dB on Master, outside the ambience dip and through
+the existing limiter. Door silence, hiding, stagger, purge, death ownership and scene cleanup
+remain guarded. The requested files are reused unchanged. Rendered checks measure the voice
+about 8.3 dB above the music at 3.5, 18 and 30 m while facing away. Kill playback and both impacts
+peak at 0.826 in the complete output. The strengthened tests failed before the correction.
+
+### Shipped — 2026-09-22 containment approach before the hunt (audited 2026-09-23)
+
+> ⚠️ **Partly superseded by the 2026-09-23 🔨 PLANNED redesign above.** Its "no visible creature",
+> "No monster silhouette" and "hidden, inactive and silent" rules are replaced there.
+>
+> **Audit against this entry (2026-09-23, reading the code in `breach_approach.gd`):**
+> - **Built:** the physical route kept out of the creature's navigation graph, the dormant creature,
+>   the bulkhead with its solid blocker, the grace starting at the seal (measured 8.0 s in the
+>   playtest log), `static var _hunt_checkpoint`, the back door, and `check_breach_approach.gd` in
+>   the suite.
+> - **Partial:** the "intermittent" rattle is a single one-shot. The pipework is one duct and one
+>   manifold. Every walkable room except Damaged and Containment uses the default wall skin.
+> - **Never built:** the bay's cycling pressure shutter (a one-off lamp flicker stands in for it) and
+>   a passing wall-overlap sweep.
+> - This entry was never closed.
+
+The user requests an atmospheric route before the existing Entry, with no visible creature or
+active pursuit. Several connected corridors establish the facility through textures, localized
+sounds and environmental details. The final bend conceals the existing hunting wing. Crossing
+into the existing start area closes a physical door behind the player and prevents retreat;
+only then does the existing arrival grace and flashlight hunt begin. Monster voice, relocation,
+contact and patrol must remain inactive throughout the approach. Preserve the fixed Archive B
+flashlight and the current hunt/purge/exit layout.
+
+Approved pacing: 60–90 seconds of exploration, with maintenance, observation and damaged
+containment passages, without forced waiting or another item puzzle. Approved retry behavior:
+after reaching the hunt, death resumes at the sealed threshold. The user approved these choices
+and explicitly requires separation from Level 3's Corridor (2026-09-21).
+
+**Distinct identity, checked against `03-corridor.md`:** this is a failed industrial containment
+plant, with oversized ventilation plenums, pressure vessels, cable trays, empty inspection bays
+and mechanical pressure cycling. No hotel wallpaper/carpet, paintings, grandfather clocks,
+mirrors, Manager, running silhouettes, footsteps following the player, bells/keys/false exits,
+trap spurs, blind-room puzzle, shut-in escape QTE, or repeating supernatural corridor loop.
+The requested final seal is a single containment bulkhead establishing the hunt boundary;
+it never traps the player in a side room or requires escape input. Environmental beats come
+from visible machinery, with no new panic terms or posture requirements.
+
+Implementation: append a physically connected approach south of Entry using the existing
+RoomBuilder; preserve the current hunt room graph for creature routing. Keep Object 12 hidden,
+inactive and silent until the player has physically cleared the threshold. Delay its existing
+eight-second activation timer until then. A level-local checkpoint survives death after reaching
+the hunt and clears for a fresh run; ordinary navigation persists approach completion with the
+level snapshot. The old back door moves to the approach entrance. Verify the complete route,
+the sealing collider, pre-threshold inactivity, post-threshold timing, retries and a new run.
+
+Sequence:
+
+- Maintenance passage: cold emergency lighting, exposed pipework, an intermittent mechanical
+  rattle from a visible loose fitting. The player can move freely and inspect the space.
+- Observation passage: dirty observation windows into abandoned equipment bays; a pressure
+  shutter cycles mechanically in one bay while the walking route stays lit. No monster silhouette.
+- Damaged containment passage: the existing ruptured/organic materials become more prominent;
+  a low structural groan leads into a final dogleg, followed by a brief quiet section.
+- Threshold: enter the existing Entry, let the player clear the doorway, then close and latch
+  a heavy containment door behind them. A physical blocker prevents return. Restore the
+  present missing-flashlight objective and start the existing eight-second arrival grace here.
+
+The route must earn its time through distinct spaces, not long identical hallways, mandatory
+reading or timed locks. Keep full player control during the sealing beat. The approach needs
+readable emergency lighting because the flashlight is still missing. A prototype walk should
+measure travel time at the existing 4 m/s walking speed before claiming a 60–90-second duration.
+Verification must walk through the physical threshold, attempt retreat against the closed door,
+prove no creature sight/audio/contact before entry, and test retries, new runs and return visits.
+
 ### Shipped — 2026-09-21 fixed flashlight recovery in Archive B
+
+> ⚠️ **The room and the first-attempt grace below are history.** They are superseded by the
+> 2026-09-23 entry above: EastVault; 20 s first, 8 s retry. The pickup mechanics are unchanged.
 
 The player starts without a usable flashlight. Recover it by entering the existing hiding
 cabinet in ArchiveB (west wing, z 37.5), always the same cabinet on every attempt. The cabinet
@@ -36,8 +282,9 @@ and impacts at 0.48 and 0.98 s. Brief artwork inserts (0.16 and 0.26 s) animate 
 at those impacts, returning to the rig between them. HUD and interaction prompts hide during the
 attack. A local fill light preserves readability with the torch off. The scene's fatal transition
 is reserved before animation, chase audio stops, and the existing Screamer performs one restart
-with both its static image and extra sting disabled. The user's chase scream and `impact_thud`
-play during the attack. Door contact retains a slam on the second impact. The physical player
+with both its static image and extra sting disabled. `level_6_jumpscare.wav` and `impact_thud`
+play during the attack (the selected kill sound replaced the chase scream on 2026-09-21).
+Door contact retains a slam on the second impact. The physical player
 is no longer dragged into the door collider. `check_breach_kill.gd` verifies real contact/hidden/
 blocked controls, rig/camera motion, artwork visibility, a single death/restart, duplicate and
 competing callbacks, and stale-scene cancellation. Rendered phase captures were inspected.
@@ -47,17 +294,17 @@ competing callbacks, and stale-scene cancellation. Rendered phase captures were 
 The user's four recordings are preserved under `assets_src/audio/level_6_breach/`,
 with prepared game WAV copies under `game/assets/audio/level_6_breach/`. The chase has two
 simultaneous players: a repeating stereo background at the listener and a positional monster
-scream. `tools/prepare_breach_audio.py` decodes to float, trims trailing silence, folds voices to
+scream (replaced by the requested Backrooms clip on 2026-09-21). `tools/prepare_breach_audio.py` decodes to float, trims trailing silence, folds voices to
 mono and normalizes peaks to −1.5 dBFS before PCM conversion; pitch and dynamics are retained.
 The background retains stereo and has a 0.35 s crossfade at its loop seam. Calls do not overlap
 themselves and leave gaps after completion. Door roars accompany the existing thuds; hiding uses
 the supplied search howl without changing AI knowledge. Music stops for door battering, hiding,
 stagger, purge, death (including the door grab), loss of chase and scene exit. The supernatural
-silent tail cuts both players. Playback gains are music −8 dB, chase scream −3 dB, batter −4 dB,
-search −5 dB, with distance attenuation on voices. Chase calls leave 3–5 s after their duration;
-search calls leave 5–8 s. Durations: background 14.30 s, chase scream 4.35 s, batter 6.71 s,
+silent tail cuts both players. Playback gains are music −8 dB, chase scream −6 dB, batter −4 dB,
+search −5 dB, with distance attenuation on batter/search only. Chase calls leave 3–5 s after their duration;
+search calls leave 5–8 s. Durations: background 14.30 s, batter 6.71 s,
 search 4.80 s. The batter recording is interrupted by the existing door silence, not allowed to
-extend the door hold. `check_breach_voice.gd` passes 42 checks headless and rendered, including
+extend the door hold. `check_breach_voice.gd` passes 45 checks headless and rendered, including
 actual decoded audio from both chase layers, loop wrap, transitions, long-clip gaps,
 the real door sequence, hidden safety and scene cleanup. Human listening still judges the mix.
 
@@ -65,9 +312,9 @@ the real door sequence, hidden safety and scene cleanup. Human listening still j
 
 The user confirmed hiding and the shorter door hold now work, but requested three distinct
 monster screams and stronger door presentation. A Breach-owned voice controller uses
-three vocal assets (now the user's supplied recordings): a rising chase scream, a door-battering roar
+three vocal assets (the chase selection is updated above): a chase scream, a door-battering roar
 layered with the existing punches, and a frustrated searching howl while the player is hidden.
-Voices follow the creature's actual position, with irregular gaps, distance attenuation and
+Voices follow the creature's actual position, with irregular gaps, distance attenuation on batter/search and
 one voice at a time. Hidden calls imply searching but never update AI knowledge or damage.
 Door voice has priority over chase/search and stops with the pounding for the supernatural
 silent tail. Purge, stagger, death and scene exit stop the voice; relocation cannot drag a
@@ -326,7 +573,30 @@ ending at a scorched-steel Incinerator.
 
 ## DECISIONS & GOTCHAS
 
-**2026-09-21 fixed placement.** The user chose a consistent middle-area cabinet. Archive B
+**2026-09-23: flashlight placement and grace, reversed on purpose.**
+- **Placement.** On 2026-09-21 the user chose a middle-area cabinet (ArchiveB). On 2026-09-23 they
+  reversed that:
+  > "the flashlight should not be the same place where you need to seal the monster … they need to be
+  > at different parts of the level".
+
+  The 2026-09-22 log measured a 49 s hunt with 0 deaths, contaminated by a briefing that named the
+  cabinet. Candidates considered:
+  - EastCell: only ~20 m from the purge via WardC.
+  - EastLock: ~21 m from the start and 7 m from the creature's spawn, so it's collected before the
+    creature wakes.
+  - EastVault: chosen.
+- **The torch hint.** The user declined a hint in the approach (a technician's "…the east lockers—")
+  and declined a wayfinding sign.
+- **The grace.** The user chose 20 s over 12 and 15. This knowingly undoes the 2026-09-21 reason
+  below, "the former first-attempt grace could outlast the entire direct walk to the item", for a
+  first attempt only. Do not re-tighten it without the user.
+
+**2026-09-23: the double walls were caught by a guard nobody ran.** `check_wall_overlap.gd` would have
+failed the approach on the day it was built. Closing a spec entry is when that sweep gets run, and the
+2026-09-22 entry was never closed. That's why the rule above says a change is not finished until its
+spec says so.
+
+**2026-09-21 fixed placement.** (Superseded 2026-09-23; kept for its reasoning.) The user chose a consistent middle-area cabinet. Archive B
 requires a detour, connects to both the western loop and Ward B, and reuses safe hiding instead
 of adding a vulnerable search animation. Collecting never forces the player to emerge or turn
 on the torch. The former first-attempt grace could outlast the entire direct walk to the item;
@@ -382,9 +652,11 @@ stays in SPEC.
 
 ## NEEDS A PLAYTEST
 
-- Judge the flashlight search: enough light to navigate, a noticeable cabinet clue, and enough
-  hiding opportunities before recovery. The fixed Archive B location should reward exploration
-  on the first attempt and route knowledge on retries.
+- Judge the flashlight search, now in the **EastVault** cabinet with a 20 s first grace: is there
+  enough light to navigate, is the leaking beam noticeable from WardA, and are there enough hiding
+  opportunities before recovery? Then judge the lure across the spine to ExitVault. ⚠️ Brief the
+  player WITHOUT naming the cabinet. The 2026-09-22 run was contaminated because the briefing named
+  it.
 
 - Judge the new 1.45 s contact attack: does the claw reach, generated close-up and two-impact
   rhythm feel forceful and match Object 12? Try contact in a room and beside an open door,

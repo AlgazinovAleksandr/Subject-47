@@ -26,6 +26,14 @@ const SIGHT_DOT := 0.6
 # (the Ward frame's rule). The level derives the restored world from `spent` instead.
 signal rearranged
 
+# ⭐ 2026-09-22 pass 6. Emitted by `interact()` the moment the touch lands, BEFORE the off-screen
+# answer — so a level can hang a second, deliberately ON-SCREEN consequence on the same press.
+# The Ward uses it to grind the strapped box open a metre away: capture #2 of the 23:47 run asked
+# for "*a magical button that will open the magical box having this piece*", and a receipt that
+# only moves the thing you touched still does not say what touching it was FOR.
+# ⚠️ NOT emitted by `restore_state()` — a snapshot must never replay a one-shot beat.
+signal touched
+
 @export var arm_on_sight := false
 
 var spent := false
@@ -141,6 +149,7 @@ func interact() -> void:
 		armed = true
 		_play_receipt()
 		_dbg("VOID ward fragment ARMED (%s)" % name)
+		touched.emit()
 
 
 func _build_receipt_grind() -> void:

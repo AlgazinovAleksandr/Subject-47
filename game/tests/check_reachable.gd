@@ -212,12 +212,16 @@ const CONFIG := {
 			# aliased to `move_aside_instantly()`, so this sweep uses the level's own path (the
 			# LabLocker rule) and then probes the page exactly where a lap-2 player meets it.
 			"LoopNote": "appears at lap 2 of the corridor loop; reveal() puts it in the world",
-			# ⭐ 2026-09-20 pass 3. The shard has no mesh and no collider until the Archive's
-			# inverted table rearranges itself off-screen — a gate in TIME again, like the loop
-			# note, and it carries `reveal()` aliased to `move_aside_instantly()` so this sweep
-			# uses the level's own path. Without the row it is merely DORMANT here, i.e. not
-			# measured at all, and the level's whole far-wing chain would go unprobed.
-			"SlabShard": "hidden in the inverted table's basin until the table rearranges off-screen",
+			# ⭐ 2026-09-22 pass 6: `SlabShard` IS NO LONGER A GATE and its row is gone rather
+			# than left as a comment. It is in the world, visible and takeable from frame 0 —
+			# pass 3 hid it until the table re-posed and pass 5 wedged it, and both read to a
+			# playtester as a bug. A gate row for a prop that is not gated is a lie the next
+			# reader has to disprove.
+			# ⭐ 2026-09-22 pass 6: the Ward box. The bed slat lies INSIDE it and the shut lid is
+			# a real collider, so the slat is CONTAINED (the Lab's HintPage-in-a-drawer shape)
+			# rather than unreachable. `move_aside_instantly()` grinds the lid back silently —
+			# the level's own path, never a deleted collider (the LabLocker rule).
+			"WardBox": "sealed until the Ward gurney is touched; move_aside_instantly() opens the lid",
 			# ⭐ 2026-09-20 pass 4. A SIXTEENTH room behind the Morgue's west wall, built at
 			# _ready() like every other one and then plugged, so the shell is sealed from frame 0
 			# and the wall is a real wall. The plug carries `move_aside_instantly()` — without

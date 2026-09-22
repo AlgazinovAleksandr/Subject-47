@@ -54,6 +54,7 @@ func _process(delta: float) -> bool:
 
 func _load() -> void:
 	_scene = current_scene
+	preload("res://tests/lib/breach_hunt_fixture.gd").enter(_scene)
 	_player = _scene.get_node_or_null("Player") as CharacterBody3D
 	for c in _scene.get_children():
 		if c.get_class() == "StaticBody3D" and c.has_method("get_creature_position"):

@@ -6498,3 +6498,292 @@ froze the new charge forever, because its phases are 5 and 6.
 **Fix:** a `_bootstrapped` bool, and the guard names the two stages it means. **When numbers are labels,
 never compare them.**
 
+## Issue 247 — Nonzero audio at close range did not prove an audible pursuit scream (2026-09-21)
+
+**Symptom:** the Breach player heard the chase music but not the scream, and reported the contact
+kill lacked its jumpscare sound. They selected `level_backrooms/crate_jumpscare.ogg` for chase
+and `level_6_breach/level_6_jumpscare.wav` for the kill.
+
+**Measured cause:** the score is listener-centred while the voice attenuated with distance.
+Decoded voice/music balance while facing away was +5.55 dB at 3.5 m, −4.95 dB at 18 m and
+−14.52 dB at 30 m. The contact animation loaded the former chase recording instead of the
+selected kill recording. `HoldBreath` was not muting the kill: it ducks Ambience, while the
+attack already played on Master.
+
+**Fix:** load the exact requested assets unchanged. Keep directional chase panning, disable its
+distance attenuation and filtering, and also clear `max_distance` because it adds a separate
+fade even with attenuation disabled. Batter/search retain their original spatial falloff.
+Use −6 dB for the selected chase cue and −8 dB for the much hotter kill cue, with the kill
+explicitly on Master. The corrected voice is about 8.3 dB over the score at all three tested
+distances. Kill RMS during the ambience dip rises from .13525 to .28493; the complete Master
+mix through both impacts peaks at .82631, below clipping.
+
+**Why the old guards passed:** they checked distinct assets and nonzero playback at 3.5 m,
+but did not pin the kill asset or measure voice/music balance during retreat. Strengthened
+rendered guards fail against the original code, then pass 45 voice and 35 kill checks.
+Audibility requires a relative-level measurement from the player's actual listening conditions.
+
+## Issue 247 — A stand-still rule inside a walk-through space reads as a wall (2026-09-22)
+
+**Symptom:** the sixth Void playtest reached the Hall of Frames for the first time and left it after 105
+s with one step logged: *"I cannot walk in the doors, I think it should be a bug."*
+
+**Cause:** the frames have no colliders, so the player could walk through any of them — and did, in 0.15
+s, which is nothing to a rule that needs 1.2 s of standing still inside a 0.44 m-deep volume. Every
+affordance said "walk through" (an open doorway, a thing beyond it, no resistance) and the only thing
+the rule rewarded was the one action nobody tries in a doorway. The dwell was borrowed from Hall2's
+step-through, where it works because that frame lies FLAT on the floor and standing on it is the
+natural thing to do.
+
+**Fix (pass 6):** the step is the crossing itself — walk through the door and you are elsewhere (the same
+room, one stage stranger, after a cut to black). **A rule must reward the action the geometry invites.**
+⚠️ A second lesson from the same run's analysis: the playtest log records positions ONLY on `DEBUG
+CAPTURE` lines (the poller writes `PANIC`/`STATIONARY` lines at events, not on a timer). A "sample count"
+was claimed for pass 5 that could not have been measured; counts must come from a line the log actually
+writes, and the correction is in the spec and backlog.
+
+## Issue 248 — A threshold with no band is a threshold a still object crosses (2026-09-22)
+
+**Symptom:** the recurring room's first crossing test — `prev_local_z < 0 and now >= 0` — stepped a
+player who had been teleported to stand dead centre in a doorway, without them moving. The one thing
+the mechanic replaced a dwell to guarantee was false on its first run.
+
+**Cause:** at local z = 0 the capsule's settling jitter crosses zero every few frames.
+
+**Fix:** a hysteresis latch — arm at 0.25 m in front, fire at 0.25 m behind; jitter cannot span 0.5 m.
+
+## Issue 249 — Arming must be wider than firing, or a diagonal approach has a 2.4 cm window (2026-09-22)
+
+**Symptom:** a frame walked cleanly through registered nothing; the harness parked 901 ticks 0.8 m behind
+it.
+
+**Cause:** arming required the lateral offset inside the opening as well as the plane, and on a diagonal
+path the offset comes inside a hair before the plane — 2.4 cm of travel against 6.7 cm per physics tick
+at `time_scale 6`. The window fell between two samples.
+
+**Fix:** arm anywhere in front within 0.95 m laterally; fire only inside the opening.
+
+## Issue 250 — A guard written for the old mechanic is a bug in the new one (2026-09-22)
+
+**Symptom:** every second harness leg of the recurring room lost its crossing.
+
+**Cause:** pass 4's 0.35 s post-arrival cooldown, needed because a dwell could instantly re-fire, reset the
+latch every frame it ran. In game the nearest frame plane is 1.5 m from the entrance and a sprinting
+player covers it in 0.23 s — inside the window: a swallowed input for anyone who arrives inside it.
+
+**Fix:** removed. The latch plus the teleport's own disarm is the complete guard.
+
+## Issue 251 — A gate is only a gate if the thing it hits can speak (2026-09-22)
+
+**Symptom:** the Ward box's *"The box is sealed."* could never appear: `ai_interact_target` returned
+nothing from every stance, although the ray demonstrably hit the lid.
+
+**Cause:** the lid's collider hung on a StaticBody3D of its own so it would swing with the slab, and
+`player.gd:_is_interactable()` throws away a hit on a body with no `interact()`. The prompt path ended
+in null.
+
+**Fix:** the lid's shape lives on the box body (disabled when it opens); the slab still swings on the
+pivot for the picture.
+
+## Issue 252 — `set_deferred("disabled")` loses to a sweep that opens gates and probes in the same frame (2026-09-22)
+
+**Symptom:** `check_reachable` reported the slat UNREACHABLE — "20 cells in range, nearest 0.69 m" —
+with the gate row present and `move_aside_instantly()` called.
+
+**Cause:** deferred calls land at the end of the frame; the sweep opens its gates and probes at once.
+
+**Fix:** the silent/restore path writes `disabled` directly (it is never inside a query flush); the
+E-press path keeps the deferral.
+
+## Issue 253 — From eye height you cannot aim into a deep open box either (2026-09-22)
+
+**Symptom:** with a 0.40 m interior and a 0.62 m rim, the slat in the open box was reachable from one of
+six swept stances — the near wall's top edge cut the descending E-ray everywhere else. Issue 232's twin.
+
+**Fix:** the rim came down to 0.42 m and the slat pokes above it; all six stances reach it.
+
+## Issue 254 — A GDScript lambda captures by value, so a flag set under the black never reaches the coroutine (2026-09-22)
+
+**Symptom:** the recurring room's stage-3 arrival (the blink and the doorway figure) would never have
+fired, silently.
+
+**Cause:** the arrival flag was a local assigned inside the `while_black` Callable; the coroutine that
+runs after the cut read its own captured copy.
+
+**Fix:** a member, with the reason beside it. **State that crosses a Callable boundary lives on the
+object, never in a local.**
+
+## Issue 255 — A scare must own the camera, or the player's back is a free pass (2026-09-22)
+
+**Symptom:** the Void's corridor charge fired at z 27.2 exactly as designed and the playtester saw
+nothing: *"I was going backwards and I did not see the jumpscare."*
+
+**Cause:** the beat was built as a thing in the world and left the camera to the player. Every other
+in-world figure in the game — the Corridor's lunger (0.18 s), the Backrooms runner (0.45 s), the HOLD
+apparitions — takes the camera with `player.gd:turn_to_face()` first; the Void's did not.
+
+**Fix (pass 7):** `turn_to_face(figure, 0.25)` on the trigger, the rush starting when the turn lands,
+input not frozen. **Where a beat is one-shot, the camera is part of the beat.**
+
+## Issue 256 — A ladder whose first rungs are invisible from the only stance starts at rung three (2026-09-22)
+
+**Symptom:** *"The visual effects are really good but they start appearing after I get something like
+the third door correct."* Nine wrong doors, every one at stages 0–2.
+
+**Cause (measured by the research subagent, not judged):** the Void never takes the torch away, so the
+player's 1.6-energy, 18 m, shadow-casting torch lights whatever they face at 0.37, against 0.036 from
+the room's shadowless 0.12 lamp — the lamp is not a channel. Stage 1's whole effect was that lamp
+falling 0.25 → 0.12: 8.7 % of the light on the doors, delivered inside a 0.3 s cut to black. Stage 2's
+echo copies stood concentric behind their dioramas (0.74× apparent size, same axis) against a 0.02
+backdrop. Stage 4's walls are ~85 % occluded from the entrance by the frames themselves. The first
+rung that bypasses the light budget is stage 3's full-screen blink — exactly where the effects were
+said to begin.
+
+**Fix (pass 7):** every rung carries something full-screen or silhouette-scale inside the torch cone:
+pale backdrops (albedo, never emission — §8.8's own prescription), a held camera roll, echoes stepped
+sideways, the floor, a descending ceiling the lamp can be seen on, a sixth door. **Before ranking an
+effect by taste, compute what the torch does to it.** Godot's omni falloff is `(1 − (d/range)⁴)² / d`;
+a room lamp at 0.12 loses to a torch at 1.6 on every surface the player is looking at.
+
+## Issue 257 — A camera property with two owners is a property with no owner (2026-09-22)
+
+**Symptom:** the recurring room's held camera roll was right on arrival and silently wrong afterwards;
+the settle's "roll is zeroed" assert read −0.0012 rad.
+
+**Cause:** `level_3.gd:_tick_shake()` also writes `camera.rotation.z` — an absolute sine about zero,
+wiping the roll for the length of every shake — and then stops writing when its 0.4 s expires, leaving
+whatever the last sample was. The −0.0012 residue exists in the shipped game with no roll in play.
+
+**Fix:** the level owns the value (`set_camera_roll()`); the shake displaces about it and restores it on
+the frame it ends; the room writes through the level, never at the node. **Two writers of one transform
+component is a bug even when both are correct in isolation.**
+
+## Issue 258 — A scare lit from inside is a scare lit from behind (2026-09-22)
+
+**Symptom:** the cradle beat's premise is *"in the complete darkness you will see only it"*; the first
+two builds' renders showed the cradle's slats as the brightest thing in frame and the figure a dark mass.
+
+**Cause:** the lamp sat at the prop's bounding-box centre — "inside the cradle" — which is 0.85 m below
+and 0.20 m behind the one surface the beat is about, because the figure's mask hangs forward toward the
+viewer. A point light behind a forward-facing slab lights its edge.
+
+**Fix:** the lamp at rim − 0.45 and 0.35 m toward the player, energy 0.60 → 0.40; falloff at 0.50 m gives
+0.75 luminance on the mask, under Issue 21's clamp. **Place a light relative to the SURFACE the beat is
+about, never the prop's centroid — and read the render; no arithmetic on "inside the cradle" catches it.**
+
+## Issue 259 — `Area3D.monitoring` is the honest way to suspend a zone (2026-09-22)
+
+**Symptom:** the cradle beat puts the torch out for 3.9 s inside a `DarkZone` without charging the 3/s
+of Issue 18. The obvious `exit_dark_zone()` now / `enter_dark_zone()` later leaves the player's counter
+permanently wrong for anyone who walks out of the room mid-beat.
+
+**Measured:** Godot 4.6.3 emits `body_exited` for everything inside on `monitoring = false` in the same
+frame, and `body_entered` for whatever is inside on `monitoring = true`. The zone self-corrects on both
+edges. With the hold removed, panic across the beat goes 0.0007 → 0.3890 (19.5 of 50 points).
+
+**Fix:** toggle `monitoring` on every `DarkZone` in the level and touch no counter. **A suspension that
+has to be undone later must be undone by the thing that did it, not by a second write.**
+
+## Issue 260 — A screenshot tool's frame budget is a wall-clock assumption (2026-09-22)
+
+**Symptom:** the shot of the charge's camera turn was a close-up of a wall: yaw at capture −1.32 rad,
+54 % through a 180° sweep.
+
+**Cause:** `screenshot_scene.gd` captured 12 frames after setup on the assumption that 12 frames is
+0.2 s; windowed at 3024 × 1701 it is nearer 0.4 s, and neither is a property of the tool. It never
+mattered for static poses; it matters the moment a shot photographs a 0.25 s tween. Also: `charge_rush`
+freezes its figure for the capture and left it standing one metre from the next stance.
+
+**Fix:** the cycle is per shot (`hold` shots 40 frames, static 14), and a shot that freezes state clears
+it before the next.
+
+## Issue 261 — A heading taken from where someone is looking is only valid when you know where they are looking (2026-09-22)
+
+**Symptom:** with pass 7's turn in place the corridor figure stood facing 180° away for its 0.25 s "it
+notices you" turn.
+
+**Cause:** `arm_charge()` took its initial yaw from the camera's forward vector — right once the camera is
+on the figure, wrong at the instant the beat is armed, which since pass 7 may be a player walking
+backwards.
+
+**Fix:** `_face_point(player.global_position)` for the initial facing. A position cannot be facing the
+wrong way.
+
+## Issue 262 — GDScript `==` on two Arrays is element-wise, not identity (2026-09-22)
+
+Caught in review: `for arr in [_stages, _echoes]: … if arr == _stages` would give the echo the front
+copy's scale on any frame the two arrays happened to compare equal. Index explicitly.
+
+## Issue 263 — A rule stated to the player was hand-typed, not derived from the level (2026-09-23)
+
+**Symptom:** the recurring room's rule is "walk through the doors in the order you first met their
+rooms". Its answer, typed in pass 4, was Threshold → Ward → Archive → LoopIn → Hall1. The eighth
+playtester: *"You see the stairs after the lamps, and here the right order is that the stairs are last.
+If it is indeed a mistake, please check and correct."*
+
+**Cause:** the stair into the ceiling stands in Hall1 at (1.0, 0, 7.0) — the first corridor after the
+Threshold, met SECOND on any path through the level. Nothing in four passes of guards compared the
+answer to the level's geometry, because the answer was a constant and the guards proved the constant
+solved the room. Seven playtests did not catch it either: the earlier ones never reached the room, and
+the seventh solved it by elimination.
+
+**Fix:** the answer is `shards → stair → frame → table → chairs`, and `check_void` now reads each
+diorama's source prop from the level and asserts the answer is sorted by the path's order. **When a
+puzzle's answer is "something about the level", derive it from the level in a guard — a constant that
+merely solves its own puzzle proves nothing about whether the puzzle is honest.**
+
+## Issue 264 — A guard that reads a deleted constant by key throws, abandons its function, and still prints green (2026-09-23)
+
+**Symptom:** `check_void.gd` printed "315 checks, 0 failed" for two passes with `SCRIPT ERROR: Invalid
+access to property or key 'LUNGE_TIME'` buried in stdout.
+
+**Cause:** pass 7 retired the cradle's rush and deleted `void_cradle_figure.gd:LUNGE_TIME`; a pass-5 stage
+still read `fconsts["LUNGE_TIME"]`. A missing Dictionary key throws, GDScript abandons the rest of the
+function, and every check below that line had not run since. A runtime SCRIPT ERROR is not a failed
+`_ok()`, and `tools/run_tests.sh` greps for PARSE errors only (Issue 245's cousin).
+
+**Fix:** assert the retirement with `has()`, which cannot throw, plus the constants that exist.
+**Deleting a constant is an API change: grep the tests. A guard that reads anything by key uses
+`has()` / `get(default)` — a throw in a test is invisible, a red is not.**
+
+## Issue 265 — A harness measured a teleport's destination several physics ticks late, because `ai_move_dir` is latched (2026-09-23)
+
+**Symptom:** `check_void_frames` failed about one run in four: "right step 5 put the player back at the
+room's entrance — at (−23.5, 0, 47.5), entrance (−21.9, 0.1, 47.5)".
+
+**Cause:** the room teleports the player inside its 0.3 s cut; the harness polls in the idle step at
+`time_scale 6`, so several physics ticks pass between polls, and `ai_move_dir` is a latched value that
+keeps driving the body on every one of them. The bot walked up to 1.6 m past the entrance before the
+check ran. The assertion was right; the measurement was late. Not a game bug — a human holding W keeps
+walking after the arrival too; what must hold is that the room PUT them at the entrance.
+
+**Fix:** the walker stops driving the body while `is_stepping()` is true and measures after. Issue 182's
+lesson again: **a latched value is an input that keeps applying.**
+
+
+## Issue 266 — Two abutting rooms of DIFFERENT heights each built a full wall on their shared plane (2026-09-23)
+
+**Symptom:** the user's J-captures 3–5 in the Breach's new approach: *"Here we have a bug with the
+textures"*, *"Here also a bug with overlapping textures"*. At two doorways a dark ruptured/organic skin
+tore through the white tile along jagged, stair-stepped contours that changed as the camera moved.
+
+**Cause:** Issue 23 fixed coincident walls by subtracting covered INTERVALS, but keyed the coverage on
+`axis|plane|HEIGHT`. Two abutting rooms of different ceiling heights therefore never saw each other's
+coverage, and each built its own 0.2 m slab on the shared plane. Nothing had mixed heights until the
+approach varied its ceilings (3.0–5.2 m): six shared planes, each split by its doorway, gave
+`check_wall_overlap.gd -- Breach` **12 ZFIGHT pairs**. The approach had shipped without a passing sweep.
+
+**Fix:** `room_builder.gd:_emit_wall_segment` keys coverage on `axis|plane` and stores each wall's height
+(`[lo, hi, h]`). `_uncovered_pieces()` cuts the new span at every covered end point, takes the tallest
+existing wall over each piece as its `base`, and builds only `base → h`: nothing where an existing wall is
+at least as tall, and only the strip ABOVE a lower one. Contiguous pieces on the same base are merged
+before the `SEG_MIN` filter, so an unrelated wall's end point cannot punch a sliver gap into a run.
+Measured: the Breach 12 → 0 findings. The full sweep is 14 scene-runs and 0 findings, so no other level
+changed, because none had mixed heights.
+
+**Why the tests missed it:** the guard did catch it, but nobody ran it after the approach was built.
+The approach's spec entry was never closed, and closing it is where the sweep would have been run.
+
+**General lesson:** a dedup key has to contain exactly the fields that make two things *different
+objects*, no more. Every extra field in the key is a way for two copies of the same surface to miss each
+other. Here, height changed how tall the wall is, not which wall it is.

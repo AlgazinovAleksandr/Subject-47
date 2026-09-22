@@ -1,0 +1,29 @@
+Level 6 approach decals — flux-1-schnell (level-3-image-generator), 8 steps, 2026-09-23.
+Keyed into RGBA by tools/make_breach_approach_art.py. Rejected attempts are not kept.
+
+residue_trail_raw.jpg
+  top-down photograph of a smeared trail of thick dark black-green organic slime residue, glossy
+  wet streaks and blotches with ragged edges, isolated on a plain pure white background, even flat
+  lighting, high contrast
+
+residue_pool_raw.jpg
+  top-down photograph of a single large irregular puddle of dark tarry black-brown organic residue
+  with glossy wet sheen and ragged splattered edges, isolated on a plain pure white background,
+  flat even lighting, high contrast
+
+drag_smear_raw.jpg
+  top-down photograph of one long dark wet smear where a heavy body was dragged across a floor,
+  dark black-brown greasy streaks narrowing into long finger trails at one end, isolated on a
+  plain pure white background, flat lighting
+
+claw_gouge_raw.jpg   (only the inner diagonal slashes are used; the torn border is cropped off)
+  four deep parallel diagonal claw slash marks gouged into dented metal, dark jagged torn grooves
+  with scraped shiny edges, flat top view, isolated on a plain pure white background, high contrast
+
+finger_drags_raw.jpg
+  four long parallel finger scratch marks dragged down through dark grime and black residue, thin
+  dark streaks with smudged ends, isolated on a plain pure white background, flat even lighting,
+  high contrast
+
+Rejected: a green-screen gouge prompt (flux drew a paper tear on pale green, not a keyable
+screen) and "three round dents" (flux drew bullet holes). The cell door's dents are geometry.

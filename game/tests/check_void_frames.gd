@@ -1,28 +1,37 @@
 extends SceneTree
 
-# THE HALL OF FRAMES (level_3.tscn, the sixteenth room) — the maze-tester shape, applied to a
-# puzzle whose arrangement is different on every load.
+# THE RECURRING ROOM (level_3.tscn, the sixteenth room) — the maze-tester shape, applied to a
+# puzzle whose arrangement is different on every load and whose verb is WALKING.
 #
 #   Godot --headless --path game --script res://tests/check_void_frames.gd
 #   Godot --headless --path game --script res://tests/check_void_frames.gd -- --seeds 3
 #
 # WHAT IT ASSERTS, and why each one is here rather than in check_void.gd:
 #
-#   * SIX SEEDED SCRAMBLES, each SOLVED by the answer order through the real 1.2 s dwell. A
+#   * SIX SEEDED SCRAMBLES, each SOLVED by the answer order through the real crossing. A
 #     generated arrangement proved solvable once is a generated arrangement proved nothing
 #     (check_maze_gen.gd's rule).
-#   * EVERY DWELL IS ENTERED ON FOOT from a human stance — the player is put down 1.0 m in front
-#     of the frame, on the floor, and WALKS the last metre under `ai_move_dir` with the real
-#     body and the real collision. Issue 226: a guard that teleports to the exact answer has not
-#     tested the question. Seed 1 additionally walks in from the secret doorway.
-#   * A WRONG STEP NEVER STRANDS. After EVERY drop — right or wrong — a downward physics ray
-#     must find floor under the player and the FrameHall's rect must contain them. A puzzle with
-#     no fail state that can drop you inside a wall has a fail state.
-#   * THE FIGURE IS A PHOTOGRAPH. Its whole subtree is walked for a CollisionObject3D, a
-#     CollisionShape3D and a ScaryObject ancestor; all three must be absent, every time. The one
-#     thing this must never quietly become is a sixth creature (SCARY.md §8.3).
-#   * THE THIRD WRONG STEP'S FIGURE LASTS EXACTLY ONE PROCESS FRAME, counted by the hall itself
-#     rather than polled (polling can sample either side of the hide and prove nothing).
+#   * EVERY STEP IS WALKED. The player is put down 1.0 m in FRONT of the frame, on the floor,
+#     and walks THROUGH it under `ai_move_dir` with the real body and the real collision, to a
+#     stance 1.0 m out of its back. Issue 226: a guard that teleports to the answer has not
+#     tested the question — and here the question is literally "can you walk through it".
+#   * A WRONG STEP NEVER STRANDS. After EVERY arrival — right or wrong — a downward physics ray
+#     must find floor under the player, the FrameHall's rect must contain them, and they must be
+#     at the room's own entrance. A puzzle with no fail state that can drop you inside a wall has
+#     a fail state.
+#   * BRUTE FORCE IS BOUNDED. On one seed the harness plays a blind but rational player: it
+#     identifies a door by the MEMORY in it (never by its position — a wrong step reshuffles the
+#     five), eliminates each memory it has seen refused at each place in the order, and never
+#     repeats a known-wrong guess. ⚠️ 25, NOT the 15 pass 4 published: a wrong step now resets
+#     the answer to the BEGINNING, so every retry at place k costs k correct crossings to get
+#     back there. Worst case = sum over k of 1 + (4-k)*(k+1) = 5 + 7 + 7 + 5 + 1 = 25. The 15
+#     was the bound for a wrong step that only re-scrambled and left progress alone.
+#   * EVERY FIGURE IS A PHOTOGRAPH. The subtree of the wrong step's figure and of stage 3's
+#     doorway figure is walked for a CollisionObject3D, a CollisionShape3D and a ScaryObject
+#     ancestor; all three must be absent, every time. The one thing these must never quietly
+#     become is a sixth creature (SCARY.md §8.3).
+#   * THE WRONG STEP'S FIGURE LASTS EXACTLY ONE PROCESS FRAME, counted by the room itself rather
+#     than polled (polling can sample either side of the hide and prove nothing).
 #   * THE NOTE REFUSES WHILE AN ANCHOR IS CARRIED — with the control run first, so "it opened"
 #     cannot be confused with "it always opens".
 #
@@ -32,8 +41,11 @@ extends SceneTree
 const SCENE := "res://scenes/level_3.tscn"
 const DEADLINE_MS := 300000
 const SEEDS := [101, 202, 303, 404, 505, 606]
-const STEP_BUDGET := 900          # physics ticks one dwell leg may take
+const STEP_BUDGET := 900          # physics ticks one crossing leg may take
 const SETTLE_TICKS := 14
+# ⚠️ 25, and the arithmetic is in the header: a wrong door resets the answer, so the worst case
+# is 5 + 7 + 7 + 5 + 1 crossings, not pass 4's 15. Measured on seed 404.
+const BRUTE_LIMIT := 25
 
 var _seeds: Array = []
 var _seed_i := 0
@@ -58,17 +70,14 @@ var _wrong_before := 0
 var _did_wrong := false
 var _walked_in := false
 var _solved_seeds := 0
-var _dwells_entered := 0
-var _drops_checked := 0
-var _watched_id := ""
-var _entered_slot := 0
-var _last_slot := 0
-var _last_ids: Array = []
-var _watched_violations := 0
-var _watched_samples := 0
+var _legs_walked := 0
+var _arrivals_checked := 0
+var _brute_crossings := 0
+var _brute_known: Array = []      # answer position -> memories already refused there
+var _brute_chosen: Array = []     # memories already accepted in this run
+var _brute_id := ""
 var _trace := false
 var _trace_panic := 0.0
-var _last_delta := 0.0
 
 
 func _initialize() -> void:
@@ -96,7 +105,6 @@ func _ticks() -> int:
 
 
 func _process(_delta: float) -> bool:
-	_last_delta = _delta
 	if _started_at == 0:
 		_started_at = Time.get_ticks_msec()
 	elif Time.get_ticks_msec() - _started_at > DEADLINE_MS:
@@ -126,9 +134,10 @@ func _process(_delta: float) -> bool:
 		return false
 	match _stage:
 		"walk_in": _walk_in(t)
-		"approach": _approach(t)
-		"wrong_lamp": _wrong_lamp()
-		"look_away": _look_away(t)
+		"cross": _cross(t)
+		"wait_cut": _wait_cut()
+		"after_wrong": _after_wrong()
+		"brute": _brute(t)
 		"settling": _settled()
 		"note": _note_checks()
 		"next": _next_seed()
@@ -145,7 +154,7 @@ func _bootstrap() -> bool:
 	_p = _level.get_node_or_null("Player") as CharacterBody3D
 	_hall = _level.call("frame_hall")
 	if _p == null or _hall == null:
-		_ok("the player and the Hall of Frames both exist", false)
+		_ok("the player and the recurring room both exist", false)
 		return false
 	# ⚠️ The five stalkers are removed. This is a geometry-and-logic harness that parks a player
 	# in one room for a minute; Issue 89 is a harness that photographs its own death and keeps
@@ -159,12 +168,10 @@ func _bootstrap() -> bool:
 			removed += 1
 	_ok("five stalkers removed for the frames harness", removed == 5, "%d removed" % removed)
 	# ⚠️ AND `RandomAmbient` IS UNREGISTERED, which is not tidying — it is what makes this file's
-	# zero-panic assertions mean anything. That autoload is GLOBAL and fires one of three events
-	# on a random timer in every level, two of which are `add_panic(8.0)` and `add_panic(12.0)`.
-	# The first build of this harness reported "the page costs no panic — panic 0.072" and the
-	# spike turned out to be a `painting_fall` landing during the settle: the room was innocent
-	# and the measurement was not. Retuning that autoload would change every level's pressure at
-	# once and is not this pass's call; silencing it FOR THE HARNESS is.
+	# zero-panic assertions mean anything (Issue 240). That autoload is GLOBAL and fires one of
+	# three events on a random timer in every level, two of which are `add_panic(8.0)` and
+	# `add_panic(12.0)`. The first build of the pass-4 harness reported "the page costs no panic
+	# — panic 0.072" and the spike turned out to be a `painting_fall` landing during the settle.
 	root.get_node("RandomAmbient").call("register_player", null)
 	_rect = _level.call("_room_rect", "FrameHall")
 	_p.set("ai_active", true)
@@ -181,11 +188,12 @@ func _bootstrap() -> bool:
 # ── structure, once ─────────────────────────────────────────────────────────────
 func _structural() -> void:
 	_structural_done = true
-	print("--- the room and the five frames ---")
+	print("--- the room and the five doors ---")
 	_ok("FrameHall is 6 x 6 at x -27..-21, z 44..50",
 		_rect.size.is_equal_approx(Vector2(6, 6)) and _rect.position.is_equal_approx(Vector2(-27, 44)),
 		str(_rect))
-	# Issue 18: the puzzle is solved by standing still, so nothing here may charge for standing.
+	# Issue 18: the puzzle is solved by walking about a dark room, so nothing here may charge for
+	# being in it — no DarkZone (which would tax the torch being off) and no DreadZone.
 	var inside_dread := false
 	var inside_dark := false
 	var centre := Vector2(-24, 47)
@@ -216,26 +224,43 @@ func _structural() -> void:
 		_sorted(ids) == _sorted(answer), "%s vs %s" % [_sorted(ids), _sorted(answer)])
 	var overlaps := 0
 	var outside := 0
+	var facing := 0
+	var entrance: Vector3 = _hall.call("entrance_point")
 	for i in range(5):
 		var u: Node3D = _hall.call("unit", i)
 		if not _rect.has_point(Vector2(u.global_position.x, u.global_position.z)):
 			outside += 1
-		var fp: Vector3 = _hall.call("front_point", i)
-		if not _rect.has_point(Vector2(fp.x, fp.z)):
-			outside += 1
+		for pt in [_hall.call("front_point", i), _hall.call("back_point", i)]:
+			if not _rect.has_point(Vector2((pt as Vector3).x, (pt as Vector3).z)):
+				outside += 1
+		# ⭐ EVERY FRONT FACES THE ENTRANCE (pass 6). The step is a crossing FROM THE FRONT, so a
+		# frame whose back is turned to the door you arrive by is a frame you have to walk round
+		# before you can use it — and its diorama, the thing that names it, is not visible from
+		# the stance the room always puts you in.
+		var front := -u.global_transform.basis.z
+		front.y = 0.0
+		var toward := entrance - u.global_position
+		toward.y = 0.0
+		if front.normalized().dot(toward.normalized()) > 0.5:
+			facing += 1
 		for j in range(i + 1, 5):
 			var v: Node3D = _hall.call("unit", j)
 			if u.global_position.distance_to(v.global_position) < 1.2:
 				overlaps += 1
-	_ok("every frame AND every drop-out point is inside the room", outside == 0, "%d outside" % outside)
+	_ok("every frame AND both of its stances are inside the room", outside == 0, "%d outside" % outside)
+	_ok("all five doors face the entrance you are always put back at", facing == 5,
+		"%d of 5" % facing)
 	_ok("no two frames are inside 1.2 m of each other", overlaps == 0, "%d pairs" % overlaps)
 	# ⚠️ The doorway lane must be clear, or the secret room is a sealed room.
 	var lane_blocked := 0
 	for i in range(5):
-		var u: Node3D = _hall.call("unit", i)
-		if absf(u.global_position.z - 47.5) < 1.3 and u.global_position.x > -23.0:
+		var u2: Node3D = _hall.call("unit", i)
+		if absf(u2.global_position.z - 47.5) < 1.3 and u2.global_position.x > -23.0:
 			lane_blocked += 1
 	_ok("no frame stands across the doorway lane at z 47.5", lane_blocked == 0)
+	_ok("the entrance is inside the room and on the Morgue doorway's line",
+		_rect.has_point(Vector2(entrance.x, entrance.z)) and absf(entrance.z - 47.5) < 0.01,
+		str(entrance))
 	var note = _level.call("hidden_note")
 	_ok("the page at the corridor's end is NOT in the world yet",
 		note != null and not bool(note.call("is_revealed")) and not note.visible)
@@ -254,11 +279,15 @@ func _sorted(a: Array) -> Array:
 # ── one seed ────────────────────────────────────────────────────────────────────
 func _begin_seed() -> void:
 	var s: int = int(_seeds[_seed_i])
-	_hall.call("restore_state", {"order": _hall.call("frame_ids"), "progress": 0, "wrong": 0,
-		"solved": false, "seed": s})
+	_hall.call("restore_state", {"order": _hall.call("frame_ids"), "progress": 0, "stage": 0,
+		"wrong": 0, "solved": false, "seed": s})
 	_hall.call("apply_scramble", s)
 	_k = 0
 	_did_wrong = false
+	_brute_crossings = 0
+	_brute_known = [[], [], [], [], []]
+	_brute_chosen = []
+	_brute_id = ""
 	_walked_in = _seed_i != 0
 	print("--- seed %d: %s ---" % [s, str(_hall.call("frame_ids"))])
 	_ok("seed %d: a scramble was applied and the five memories survived it" % s,
@@ -269,18 +298,26 @@ func _begin_seed() -> void:
 		_place(Vector3(-20.4, 0.1, 47.5), Vector3(-24.0, 1.2, 47.5))
 		_stage = "walk_in"
 		_leg_ticks = 0
-	else:
-		_begin_leg()
+		return
+	# ⭐ SEED 4 PLAYS THE WORST LEGAL STRATEGY: slot 0, slot 1, slot 2 … restart on every wrong
+	# one, learn nothing. The whole room has to fall inside BRUTE_LIMIT crossings.
+	if _seed_i == 3:
+		_begin_brute()
+		return
+	_begin_leg()
 
 
 func _walk_in(t: int) -> void:
 	_leg_ticks += t
-	var target := Vector3(-23.6, 0.0, 47.5)
+	var target := Vector3(-22.6, 0.0, 47.5)
 	_steer(target)
 	if Vector2(_p.global_position.x - target.x, _p.global_position.z - target.z).length() < 0.6:
 		_ok("the secret room is enterable on foot through the freed doorway",
 			_rect.has_point(Vector2(_p.global_position.x, _p.global_position.z)),
 			"walked to %v in %d ticks" % [_p.global_position, _leg_ticks])
+		_ok("…and walking in past the doorway steps nothing",
+			int(_hall.call("progress")) == 0 and int(_hall.call("wrong_count")) == 0,
+			"stage %d, %d wrong" % [int(_hall.call("progress")), int(_hall.call("wrong_count"))])
 		_walked_in = true
 		_begin_leg()
 		return
@@ -291,83 +328,101 @@ func _walk_in(t: int) -> void:
 		_begin_leg()
 
 
-# Put the player down 1.0 m in front of the frame it is about to enter — a stance on the floor,
-# the same one the game itself drops them at after a right step — then WALK the last metre.
+# Put the player down 1.0 m in FRONT of the frame it is about to walk through, aim them at the
+# matching stance 1.0 m out of its BACK, and let them walk. ⚠️ The whole leg is under the real
+# body: the crossing is a geometric fact about where the capsule has been.
+var _target_slot := -1
+var _target_back := Vector3.ZERO
+
+
 func _begin_leg() -> void:
 	var answer: Array = _hall.call("answer_order")
-	var want: String = String(answer[_k])
+	var want: String = String(answer[mini(int(_hall.call("progress")), answer.size() - 1)])
 	# Seed 2 makes a deliberate WRONG step first: a frame that is not the one the order wants.
-	if _seed_i == 1 and _k == 0 and not _did_wrong:
+	if _seed_i == 1 and not _did_wrong:
 		want = String(answer[2])
-	# Seed 3 flails: three wrong steps in a row, so the behind-you figure has to fire.
-	if _seed_i == 2 and not _did_wrong and _hall.call("wrong_count") < 3:
-		want = String(answer[(_hall.call("wrong_count") + 1) % 5])
-		if want == String(answer[_hall.call("progress")]):
-			want = String(answer[(_hall.call("progress") + 2) % 5])
-	var slot: int = _hall.call("slot_of", want)
-	var fp: Vector3 = _hall.call("front_point", slot)
-	var u: Node3D = _hall.call("unit", slot)
-	_place(fp, u.global_position + Vector3(0, 1.2, 0))
+	# Seed 3 flails: three wrong steps in a row.
+	if _seed_i == 2 and not _did_wrong and int(_hall.call("wrong_count")) < 3:
+		want = String(answer[(int(_hall.call("wrong_count")) + 1) % 5])
+		if want == String(answer[int(_hall.call("progress"))]):
+			want = String(answer[(int(_hall.call("progress")) + 2) % 5])
+	_aim_at_slot(int(_hall.call("slot_of", want)))
+
+
+func _aim_at_slot(slot: int) -> void:
+	_target_slot = slot
+	_target_back = _hall.call("back_point", slot)
+	_place(_hall.call("front_point", slot), _target_back + Vector3(0, 1.2, 0))
 	_progress_before = int(_hall.call("progress"))
 	_wrong_before = int(_hall.call("wrong_count"))
 	_leg_ticks = 0
-	_stage = "approach"
+	_legs_walked += 1
+	_stage = "cross"
 
 
-func _approach(t: int) -> void:
+func _cross(t: int) -> void:
 	_leg_ticks += t
-	var slot := _target_slot()
-	_last_slot = slot
-	var u: Node3D = _hall.call("unit", slot)
-	_steer(u.global_position)
-	if float(_hall.call("dwell_seconds")) > 0.05:
-		_dwells_entered += 1
+	# ⚠️ STOP WALKING THE MOMENT THE ROOM IS MID-STEP (2026-09-23 pass 8) — an intermittent this
+	# file has carried since the crossing replaced the dwell, measured at roughly 1 run in 4:
+	# "seed 101: right step 5 put the player back at the room's entrance — at (-23.5, 0, 47.5),
+	# entrance (-21.9, 0.1, 47.5)". The room teleports the player to the entrance INSIDE its 0.3 s
+	# black, and `ai_move_dir` is a LATCHED value — it keeps driving the body on every physics
+	# tick until something writes it again. This harness polls in the IDLE step with
+	# `Engine.time_scale = 6.0`, so an arbitrary number of physics ticks can pass between two
+	# polls, and the bot walked up to 1.6 m WEST of the entrance it had just been put at before
+	# the check ran. The assertion was right and the measurement was late.
+	# ⚠️ IT IS NOT A GAME BUG: a human holding W through a frame also keeps walking after the
+	# arrival, which is correct. What has to hold is that the ROOM put them at the entrance, so
+	# the harness stops holding W for the duration of the step and measures that.
+	if bool(_hall.call("is_stepping")):
+		_p.set("ai_move_dir", Vector2.ZERO)
+		_p.velocity = Vector3.ZERO
+		return
+	_steer(_target_back)
 	var progress := int(_hall.call("progress"))
 	var wrong := int(_hall.call("wrong_count"))
+	if wrong > _wrong_before:
+		_p.set("ai_move_dir", Vector2.ZERO)
+		_p.velocity = Vector3.ZERO
+		_stage = "after_wrong"
+		_wait = 20             # past the 0.3 s cut, so the arrival can be measured
+		return
 	if progress > _progress_before:
-		_after_drop("right step %d" % progress)
+		_p.set("ai_move_dir", Vector2.ZERO)
+		_p.velocity = Vector3.ZERO
+		_after_arrival("right step %d" % progress)
 		_k = progress
 		if bool(_hall.call("is_solved")):
 			_stage = "settling"
 			_wait = 220          # the 1.5 s settle tween, with room to spare
 			return
-		_begin_leg()
-		return
-	if wrong > _wrong_before:
-		_after_wrong()
+		_stage = "wait_cut"
 		return
 	if _leg_ticks > STEP_BUDGET:
-		_ok("seed %d: the dwell at slot %d fired inside its budget" % [int(_seeds[_seed_i]), slot],
-			false, "%d ticks standing in it, dwell %.2f s, at %v"
-				% [_leg_ticks, float(_hall.call("dwell_seconds")), _p.global_position])
+		_ok("seed %d: the crossing at slot %d fired inside its budget"
+			% [int(_seeds[_seed_i]), _target_slot], false,
+			"%d ticks walking through it, at %v" % [_leg_ticks, _p.global_position])
 		_stage = "next"
 
 
-func _target_slot() -> int:
-	var answer: Array = _hall.call("answer_order")
-	var want: String = String(answer[mini(_k, 4)])
-	if _seed_i == 1 and _k == 0 and not _did_wrong:
-		want = String(answer[2])
-	if _seed_i == 2 and not _did_wrong and int(_hall.call("wrong_count")) < 3:
-		want = String(answer[(int(_hall.call("wrong_count")) + 1) % 5])
-		if want == String(answer[int(_hall.call("progress"))]):
-			want = String(answer[(int(_hall.call("progress")) + 2) % 5])
-	return int(_hall.call("slot_of", want))
-
-
-# ⚠️ AFTER EVERY DROP, RIGHT OR WRONG. "Zero fail state" is a claim about where the player ends
-# up, and the only honest test of it is a physics ray and the room's own rect.
-func _after_drop(what: String) -> void:
-	_drops_checked += 1
+# ⚠️ AFTER EVERY ARRIVAL, RIGHT OR WRONG. "Zero fail state" is a claim about where the player
+# ends up, and the only honest test of it is a physics ray, the room's own rect and the stated
+# entrance.
+func _after_arrival(what: String) -> void:
+	_arrivals_checked += 1
 	var at: Vector3 = _p.global_position
 	var q := PhysicsRayQueryParameters3D.create(at + Vector3(0, 0.6, 0), at - Vector3(0, 0.6, 0), 1)
 	q.exclude = [_p.get_rid()]
 	var hit: Dictionary = _level.get_world_3d().direct_space_state.intersect_ray(q)
 	var inside: bool = _rect.has_point(Vector2(at.x, at.z))
+	var entrance: Vector3 = _hall.call("entrance_point")
 	if not inside or hit.is_empty():
 		_ok("seed %d: %s left the player standing on floor inside the room"
 			% [int(_seeds[_seed_i]), what], false,
 			"at %v, inside=%s, floor=%s" % [at, inside, hit.get("collider", "NOTHING")])
+	if Vector2(at.x - entrance.x, at.z - entrance.z).length() > 0.4:
+		_ok("seed %d: %s put the player back at the room's entrance"
+			% [int(_seeds[_seed_i]), what], false, "at %v, entrance %v" % [at, entrance])
 	var panic := float(_p.call("get_panic_ratio"))
 	if panic > 0.001:
 		_ok("seed %d: %s cost no panic" % [int(_seeds[_seed_i]), what], false,
@@ -376,70 +431,127 @@ func _after_drop(what: String) -> void:
 
 func _after_wrong() -> void:
 	_did_wrong = true
-	_entered_slot = _last_slot
 	var s: int = int(_seeds[_seed_i])
 	var wrong: int = int(_hall.call("wrong_count"))
-	_after_drop("wrong step %d" % wrong)
-	_ok("seed %d: a wrong step does NOT advance the answer" % s,
-		int(_hall.call("progress")) == _progress_before,
-		"progress %d" % int(_hall.call("progress")))
-	_ok("seed %d: …and marks the frames to re-scramble on the next look-away" % s,
-		bool(_hall.call("rescramble_pending")))
-	var fig: Node3D = _hall.call("diorama_figure")
-	_ok("seed %d: …and stands a figure in a diorama" % s, fig != null)
+	_after_arrival("wrong step %d" % wrong)
+	_ok("seed %d: a wrong door resets the answer to the beginning" % s,
+		int(_hall.call("progress")) == 0, "stage %d" % int(_hall.call("progress")))
+	_ok("seed %d: …and the room is back at stage 0 with it" % s,
+		absf(float(_hall.call("lamp_energy")) - 0.25) < 0.14
+		and not bool(_hall.call("hum_playing"))
+		and not bool(_hall.call("walls_corrupt")),
+		"lamp %.2f hum %s walls %s" % [float(_hall.call("lamp_energy")),
+			_hall.call("hum_playing"), _hall.call("walls_corrupt")])
+	var fig: Node3D = _hall.call("watcher")
+	_ok("seed %d: …and a figure stood at arm's length on the fade-in" % s, fig != null)
 	if fig:
 		var bad := _rule_bearing(fig)
 		_ok("seed %d: …which is a PHOTOGRAPH — no collider, no ScaryObject, no rule" % s,
 			bad == "", bad)
-	if wrong % 3 == 0:
-		_ok("seed %d: the third wrong step put a figure behind the player" % s,
-			_hall.call("watcher") != null)
-		_ok("seed %d: …for EXACTLY one process frame" % s,
-			int(_hall.call("watcher_frames")) == 1,
-			"%d frames" % int(_hall.call("watcher_frames")))
-		var w: Node3D = _hall.call("watcher")
-		if w:
-			_ok("seed %d: …and it is a photograph too" % s, _rule_bearing(w) == "")
-	# ⚠️ The lamp is driven by the hall's own `_tick_lamp`, which runs at the TOP of its
-	# `_process` — so it is still at its old level in the frame the wrong step fires. Sampling it
-	# here measured 0.25 against an expected 0.0 on the first build.
-	# ⚠️ AND THE PLAYER IS STOPPED AND POINTED AT THE FRAME THEY JUST GOT THROWN OUT OF. The
-	# re-scramble exchanges pairs of UNWATCHED frames, so it completes from any stance (a player
-	# can see at most three of the five from anywhere in a 6 x 6 room), and leaving the camera on
-	# one is what makes the next stage a real control on the level's one rule.
-	# ⚠️ STOPPED is load-bearing: `_approach` leaves `ai_move_dir` pointing into the frame, the
-	# frames have NO collider, and a player left walking goes straight through the opening and out
-	# the back — measured, and it put the camera facing the wall with 0 of 5 frames in view and,
-	# on another seed, all five in view at once, which deadlocks the pair exchange.
-	_place(_hall.call("front_point", _entered_slot),
-		(_hall.call("unit", _entered_slot) as Node3D).global_position + Vector3(0, 1.2, 0))
-	_leg_ticks = 0
-	_wait = 4
-	_stage = "wrong_lamp"
+	_ok("seed %d: …for EXACTLY one process frame per wrong step" % s,
+		int(_hall.call("watcher_frames")) == wrong,
+		"%d frames over %d wrong steps" % [int(_hall.call("watcher_frames")), wrong])
+	_k = 0
+	_stage = "wait_cut"
 
 
-func _wrong_lamp() -> void:
-	var s: int = int(_seeds[_seed_i])
-	_ok("seed %d: a wrong step kills the room's lamp" % s,
-		float(_hall.call("lamp_energy")) <= 0.001,
-		"energy %.2f" % float(_hall.call("lamp_energy")))
-	# ⚠️ THE LEVEL'S CORE RULE, CONTROLLED PER FRAME: nothing ever changes while you are looking
-	# at it. The re-scramble exchanges pairs of UNWATCHED frames, so "the order is unchanged while
-	# the player looks" is false by design and would be the wrong control — the right one is that
-	# the frame the camera is ON does not change under it. The player has been standing in front
-	# of one for four ticks and it is still watched.
-	var watching := 0
-	for i in range(5):
-		if bool(_hall.call("looking_at", i)):
-			watching += 1
-	_ok("seed %d: CONTROL: the player is watching at least one frame while it re-scrambles" % s,
-		watching >= 1, "%d of 5 in view" % watching)
-	_last_ids = (_hall.call("frame_ids") as Array).duplicate()
-	_watched_violations = 0
-	_watched_samples = 0
-	_watched_id = ""
-	_leg_ticks = 0
-	_stage = "look_away"
+# ── a blind but rational player, on one seed ────────────────────────────────────
+#
+# ⚠️ IT GUESSES BY MEMORY, NEVER BY POSITION, and that distinction is the mechanic. A wrong door
+# reshuffles all five, so "try slot 0, then slot 1" is not a strategy at all — it is a random
+# walk, and the first draft of this stage measured one (16 crossings and still at stage 0 on a
+# room that is solvable in 5). What a player can actually do is remember that the hung SHARDS
+# were refused as the first door and never offer them there again. That is what this plays.
+func _begin_brute() -> void:
+	print("  brute force: a blind player who eliminates by MEMORY, restarting on each wrong door")
+	_brute_crossings = 0
+	_brute_next()
+
+
+func _brute_next() -> void:
+	# ⚠️ ALPHABETICAL, NOT `answer_order()`. The first draft iterated the answer itself and
+	# "solved the room in 5 crossings" — it was reading the solution off the array it was meant
+	# to be blind to. A fixed order the level does not share is what a player who knows nothing
+	# actually has.
+	var answer: Array = _sorted(_hall.call("answer_order"))
+	var place: int = int(_hall.call("progress"))
+	var ruled: Array = _brute_known[place]
+	var pick := ""
+	for id in answer:
+		var s := String(id)
+		if _brute_chosen.has(s) or ruled.has(s):
+			continue
+		pick = s
+		break
+	if pick == "":
+		_ok("seed %d: the blind player always has a door left to try" % int(_seeds[_seed_i]),
+			false, "place %d, chosen %s, ruled out %s" % [place, str(_brute_chosen), str(ruled)])
+		_stage = "next"
+		return
+	_brute_id = pick
+	_aim_at_slot(int(_hall.call("slot_of", pick)))
+	_stage = "brute"
+
+
+func _brute(t: int) -> void:
+	_leg_ticks += t
+	# The same latched-input race as `_cross()` — see its note. The brute-force sweep makes up to
+	# 25 crossings per seed, so it is the arm MOST likely to hit it.
+	if bool(_hall.call("is_stepping")):
+		_p.set("ai_move_dir", Vector2.ZERO)
+		_p.velocity = Vector3.ZERO
+		return
+	_steer(_target_back)
+	var progress := int(_hall.call("progress"))
+	var wrong := int(_hall.call("wrong_count"))
+	if progress > _progress_before or wrong > _wrong_before:
+		_brute_crossings += 1
+		_p.set("ai_move_dir", Vector2.ZERO)
+		_p.velocity = Vector3.ZERO
+		_after_arrival("brute crossing %d" % _brute_crossings)
+		if wrong > _wrong_before:
+			(_brute_known[_progress_before] as Array).append(_brute_id)
+			_brute_chosen = []
+		else:
+			_brute_chosen.append(_brute_id)
+		if bool(_hall.call("is_solved")):
+			_ok("seed %d: a blind player solved the room in %d crossings (<= %d)"
+				% [int(_seeds[_seed_i]), _brute_crossings, BRUTE_LIMIT],
+				_brute_crossings <= BRUTE_LIMIT)
+			_stage = "settling"
+			_wait = 220
+			return
+		if _brute_crossings > BRUTE_LIMIT:
+			_ok("seed %d: a blind player solves the room in <= %d crossings"
+				% [int(_seeds[_seed_i]), BRUTE_LIMIT], false,
+				"%d crossings and still at stage %d" % [_brute_crossings, progress])
+			_stage = "next"
+			return
+		# ⚠️ The next leg is chosen in `_wait_cut`, not here, so it cannot begin while the cut
+		# is still running (see the note there).
+		_stage = "wait_cut"
+		return
+	if _leg_ticks > STEP_BUDGET:
+		_ok("seed %d: the brute-force crossing at slot %d fired inside its budget"
+			% [int(_seeds[_seed_i]), _target_slot], false, "%d ticks" % _leg_ticks)
+		_stage = "next"
+
+
+# ⚠️ THE NEXT LEG DOES NOT START UNTIL THE CUT IS OVER, and that is a HARNESS rule the first
+# build got wrong in a way worth writing down. The step is detected the instant the stage
+# advances — which happens INSIDE the 0.3 s black — so a harness that immediately teleports the
+# player to the next frame's front stance is placing them while the coroutine is still running.
+# When it resumes it disarms every threshold (correctly: it has just teleported the player to
+# the entrance), and at `Engine.time_scale = 6.0` the bot has already walked 1.2 m past the next
+# frame's plane by then. Measured: one crossing, then 901 ticks parked 0.8 m behind a door that
+# would never fire. A real player is FROZEN for the whole cut and cannot reproduce it.
+func _wait_cut() -> void:
+	if bool(_hall.call("is_stepping")):
+		return
+	if _seed_i == 3:
+		_brute_next()
+		return
+	_begin_leg()
 
 
 func _rule_bearing(n: Node) -> String:
@@ -463,51 +575,20 @@ func _rule_bearing(n: Node) -> String:
 	return ", ".join(found)
 
 
-# ⚠️ The player is turned to face the doorway and LEFT there. The re-scramble exchanges pairs of
-# frames the camera cannot see, so it completes over a second or so rather than in one frame —
-# which is the mechanic, not a delay: in a room this size there is no bearing that sees none of
-# them, so an all-at-once rule would never fire at all.
-func _look_away(t: int) -> void:
-	_leg_ticks += t
-	# ⚠️ SAMPLED EVERY FRAME, over the whole re-scramble, on EVERY slot. The level's one rule is
-	# that nothing changes while you are looking at it; the honest test of it is to watch each
-	# frame's memory and its watched-ness together, not to check one slot once.
-	var ids: Array = _hall.call("frame_ids")
-	_watched_samples += 1
-	for i in range(ids.size()):
-		if String(ids[i]) != String(_last_ids[i]) and bool(_hall.call("looking_at", i)):
-			_watched_violations += 1
-			_watched_id = "slot %d went %s -> %s IN VIEW" % [i, _last_ids[i], ids[i]]
-	_last_ids = ids.duplicate()
-	if not bool(_hall.call("rescramble_pending")):
-		_ok("seed %d: looking away re-scrambled the frames off-screen" % int(_seeds[_seed_i]),
-			_hall.call("diorama_figure") == null,
-			"order now %s" % str(_hall.call("frame_ids")))
-		_ok("seed %d: CONTROL: no frame changed while it was in view (%d frames sampled)"
-			% [int(_seeds[_seed_i]), _watched_samples],
-			_watched_violations == 0 and _watched_samples >= 8, _watched_id)
-		_k = int(_hall.call("progress"))
-		_begin_leg()
-		return
-	if _leg_ticks > STEP_BUDGET:
-		_ok("seed %d: the re-scramble happened once the player looked away"
-			% int(_seeds[_seed_i]), false, "still pending after %d ticks" % _leg_ticks)
-		_stage = "next"
-
-
 func _settled() -> void:
 	var s: int = int(_seeds[_seed_i])
 	_solved_seeds += 1
 	_ok("seed %d: the answer order solves it" % s, bool(_hall.call("is_solved"))
-		and int(_hall.call("progress")) == 5, "progress %d" % int(_hall.call("progress")))
+		and int(_hall.call("progress")) == 5, "stage %d" % int(_hall.call("progress")))
 	var xs: Array = []
 	var line := true
 	for i in range(5):
 		var u: Node3D = _hall.call("unit", i)
 		xs.append(snappedf(u.global_position.x, 0.01))
-		if absf(u.global_position.x - (-24.0)) > 0.05 or absf(u.rotation.y) > 0.02:
+		if absf(u.global_position.x - (-24.0)) > 0.05 or absf(u.rotation.y) > 0.02 \
+				or absf(u.rotation.z) > 0.02:
 			line = false
-	_ok("seed %d: the five frames line up into one corridor" % s, line, str(xs))
+	_ok("seed %d: the five frames line up into one corridor, upright" % s, line, str(xs))
 	var note = _level.call("hidden_note")
 	_ok("seed %d: …and the page at its end is in the world" % s,
 		note != null and bool(note.call("is_revealed")) and note.visible)
@@ -571,7 +652,7 @@ func _next_seed() -> void:
 	if _seed_i >= _seeds.size():
 		_finish()
 		return
-	# A fresh load per seed: the settle frees the dioramas and disables the dwell areas, so an
+	# A fresh load per seed: the settle frees the dioramas and retires the thresholds, so an
 	# in-place reset would measure a room this level cannot actually be in.
 	_loaded = false
 	_settle = 0
@@ -581,12 +662,12 @@ func _next_seed() -> void:
 
 
 func _finish() -> void:
-	_ok("every seed was solved by the answer order", _solved_seeds == _seeds.size(),
+	_ok("every seed was solved", _solved_seeds == _seeds.size(),
 		"%d of %d" % [_solved_seeds, _seeds.size()])
-	_ok("the dwell clock really ran (sample size)", _dwells_entered >= 20 * _seeds.size(),
-		"%d frames with a running clock" % _dwells_entered)
-	_ok("every drop was checked for floor and containment",
-		_drops_checked >= 5 * _seeds.size(), "%d drops" % _drops_checked)
+	_ok("every leg was really walked (sample size)", _legs_walked >= 5 * _seeds.size(),
+		"%d legs walked through a frame" % _legs_walked)
+	_ok("every arrival was checked for floor, containment and the entrance",
+		_arrivals_checked >= 5 * _seeds.size(), "%d arrivals" % _arrivals_checked)
 	_report()
 
 
@@ -605,7 +686,7 @@ func _place(at: Vector3, look: Vector3) -> void:
 func _steer(target: Vector3) -> void:
 	var dir := target - _p.global_position
 	dir.y = 0.0
-	if dir.length() < 0.25:
+	if dir.length() < 0.15:
 		_p.set("ai_move_dir", Vector2.ZERO)
 		return
 	var local := _p.global_basis.inverse() * dir.normalized()
@@ -614,7 +695,7 @@ func _steer(target: Vector3) -> void:
 
 
 func _report() -> bool:
-	if _checks < 10 + 4 * _seeds.size():
+	if _checks < 12 + 4 * _seeds.size():
 		print("  FAIL only %d checks ran — did a stage abort?" % _checks)
 		_fails += 1
 	print("  %d checks, %d failed" % [_checks, _fails])

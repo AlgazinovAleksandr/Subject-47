@@ -133,6 +133,7 @@ func _process(delta: float) -> bool:
 		return false
 	if _level == null:
 		_level = current_scene
+		preload("res://tests/lib/breach_hunt_fixture.gd").enter(_level)
 		_player = _level.get_node_or_null("Player") as CharacterBody3D
 		# Exercise hiding with an owned torch; initial recovery is tested separately.
 		_level.call("_recover_flashlight", false)

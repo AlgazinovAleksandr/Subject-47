@@ -93,7 +93,7 @@ func _process(_delta: float) -> bool:
 			_ok("player exists", false)
 			return _report()
 		_structural()
-		_drawing_begin()
+		_drawer_cycle_begin()
 		return false
 	# ⚠️ `_stage < 9` WAS NOT A "BEFORE THE END" TEST. The stage numbers are labels, not an
 	# order — 21, 40, 60 and 75–84 all run before stage 9's fall — so this guard covered eight
@@ -114,20 +114,35 @@ func _process(_delta: float) -> bool:
 	if _stage == 41:
 		_watch_flicker(t)
 		return false
+	# ⭐ pass 7: the charge's turn is a ONE-FRAME claim and has to be polled, not waited for.
+	if _stage == 77:
+		_charge_watch(t)
+		return false
 	if _wait > 0:
 		_wait -= t
 		return false
 	match _stage:
+		# ⭐ pass 8: the drawer that opens, shuts and opens again, with the page riding in it.
+		110: _drawer_opened()
+		111: _drawer_closed()
+		112: _drawer_reopened()
+		# ⭐ pass 8: the cradle BURNS. 92/96/97 watch the fire alone, 98 catches the figure
+		# mid-rise, 93 is the hold.
+		96: _cradle_fire_ramped()
+		97: _cradle_fire_peak()
+		98: _cradle_rising()
 		68: _drawing_control()
 		69: _drawing_released()
 		70: _cradle_begin()
-		71: _cradle_rising()
-		72: _cradle_lunged()
+		92: _cradle_dark()
+		93: _cradle_shown()
+		94: _cradle_restored()
+		95: _cradle_handback()
 		73: _cradle_control()
 		74: _cradle_after()
 		75: _charge_begin()
 		76: _charge_north_control()
-		77: _charge_fired()
+		# 77 is polled above (_charge_watch).
 		78: _charge_after()
 		79: _charge_once()
 		80: _shard_begin()
@@ -135,6 +150,13 @@ func _process(_delta: float) -> bool:
 		82: _shard_freed()
 		83: _gurney_moved()
 		84: _twist_opened()
+		85: _room_begin()
+		86: _room_wrong_walk()
+		87: _room_wrong_done()
+		88: _room_still_begin()
+		89: _room_still_done()
+		90: _room_right_walk()
+		91: _room_solved()
 		1: _begin_watch_only()
 		2: _end_watch_only()
 		21: _head_frozen_begin()
@@ -270,6 +292,7 @@ func _structural() -> void:
 	_pass3_checks()
 	_pass4_checks()
 	_pass5_checks()
+	_pass8_answer_order()
 	# ⚠️ `RandomAmbient` IS UNREGISTERED FOR THE REST OF THIS FILE, and it is not tidying: that
 	# autoload is global, fires on a random timer in every level, and two of its three events are
 	# `add_panic(8.0)` and `add_panic(12.0)`. `check_void_frames` reported "the page costs no
@@ -363,14 +386,13 @@ func _pass3_checks() -> void:
 	_ok("…and the page is a child of the drawer, so it slides out with the front",
 		page != null and page_drawer.is_ancestor_of(page))
 
-	# ── the shard lives in the Archive, not under the Morgue slab. ⚠️ Since pass 5 it is
-	# VISIBLE from frame 0 and refuses (Issue 243); `_pass5_checks` owns the wedged pose and the
-	# refusal, and this row only keeps pass 3's claim: it is in the Archive's table, not the
-	# Morgue, and it is not takeable yet.
+	# ── the shard lives in the Archive, not under the Morgue slab. ⚠️ Since pass 6 it is simply
+	# TAKEABLE there from frame 0 — `_pass6_checks` owns that — and this row keeps pass 3's
+	# claim: it is in the Archive's table and not in the Morgue.
 	var shard = _level.call("shard")
 	var table := _level.get_node_or_null("InvertedTable_Archive")
-	_ok("the shard starts in the Archive's table, not under the Morgue slab, and is not free",
-		shard != null and not bool(shard.call("is_freed"))
+	_ok("the shard starts in the Archive's table, not under the Morgue slab",
+		shard != null
 		and Vector2(shard.global_position.x, shard.global_position.z).distance_to(
 			Vector2(-3.4, 22.0)) < 0.6,
 		str(shard.global_position) if shard else "missing")
@@ -956,7 +978,8 @@ func _report() -> bool:
 	# of `_pass3_checks()` (the shard, the slab page, the whole exit-door assembly) and this file
 	# printed "134 checks, 0 failed / RESULT: PASS". A floor 80 checks below the real count cannot
 	# catch that. Keep this within ~10 of the true total whenever checks are added.
-	if _checks < 195:
+	# ⭐ 195 -> 252 (2026-09-22 pass 6), against a measured 260; -> 307 (pass 7, measured 315).
+	if _checks < 307:
 		print("  FAIL only %d checks ran — did a stage abort?" % _checks)
 		_fails += 1
 	print("  %d checks, %d failed" % [_checks, _fails])
@@ -1118,6 +1141,11 @@ var _e_rect := Rect2()
 var _e_start := Vector3.ZERO
 var _panic_before := 0.0
 var _cradle_fig: Node = null
+# ⭐ pass 7's cradle beat: the panic reading taken before the camera is even turned, the lamp
+# energies the room was burning at, and whether the turn landed.
+var _shadow_panic := 0.0
+var _shadow_lights0: Array = []
+var _shadow_yaw_ok := false
 
 
 func _cradle_begin() -> void:
@@ -1143,8 +1171,32 @@ func _cradle_begin() -> void:
 		String(cradle.call("prompt_text")).begins_with("E —"),
 		"'%s'" % cradle.call("prompt_text"))
 	_panic_before = float(_p.call("get_panic_ratio"))
+	# ⭐ pass 7: SAMPLED BEFORE THE PRESS, because the beat starts synchronously inside
+	# `interact()` — the lights are already at 0 and the zone already inert by the line after.
+	_shadow_yaw_ok = false
+	_shadow_panic = float(_p.call("get_panic_ratio"))
+	_shadow_lights0 = []
+	for l in (_level.call("child_room_lights") as Array):
+		_shadow_lights0.append(float((l as Light3D).light_energy))
+	_ok("the child room has lights to put out, and they are burning (%d)"
+		% _shadow_lights0.size(), _shadow_lights0.size() >= 1
+		and float(_shadow_lights0[0]) > 0.0, str(_shadow_lights0))
+	_ok("…and the torch is ON, so the blackout has something to take",
+		bool(_p.call("is_flashlight_on")))
+	_ok("…and both DarkZones are live before the beat (they are what must not charge)",
+		bool(_level.call("child_dark_zone_live")) and int(_p.get("_dark_zones")) >= 1
+		and int(_level.call("dark_zones_live")) == 2,
+		"%d live zones, player counts %d" % [int(_level.call("dark_zones_live")),
+			int(_p.get("_dark_zones"))])
 	_p.call("ai_interact")
 	_ok("E on the cradle completes it", bool(cradle.get("done")))
+	# ⚠️ AND NOW LOOK AWAY, which is what makes the camera assert mean anything. The stance this
+	# stage presses E from is already pointed at the cradle, so "the camera ends up on the
+	# cradle" would be true of a beat that never touched it. `ai_look_at` writes `rotation.y`
+	# directly; `turn_to_face`'s tween owns the same property and an absolute destination
+	# computed at call time, so if the beat is doing the work the view comes back by itself.
+	_p.call("ai_look_at", Vector3(-11.0, 1.3, 30.0))
+	_p.get_node("Camera3D").force_update_transform()
 	# ⭐ ALL THREE ANSWERS AT ONCE — that is what makes it a payoff rather than a tween.
 	# ⚠️ The physical sweep for the wall lives one stage on: the plug is `queue_free()`d, which
 	# lands at the END of the frame, so a ray fired here measures the pre-free physics state.
@@ -1158,55 +1210,126 @@ func _cradle_begin() -> void:
 	_ok("…and the plate's line has become a pointer instead of a refusal",
 		String(_level.get_node("SanctumPlate").call("prompt_text"))
 			== "Something else was opened instead.")
-	_stage = 71
-	_wait = 30          # 0.5 s: inside the 0.6 s HoldBreath silence, before the rise
+	_stage = 92
+	_wait = 30          # 0.5 s: the turn has landed, the room is dark, nothing has appeared
 
 
-func _cradle_rising() -> void:
+# ⭐ THE CRADLE BEAT (2026-09-22 pass 7) — a shadow in the dark, not a lunge.
+#
+# ⚠️ THREE SAMPLES, NOT ONE, and the middle one is the whole point. The claim is not "a figure
+# appeared" — it is that for a full second there is NOTHING, with the room's lights at zero and
+# the torch out, and then one dim light inside the cradle is the only thing in the world. A test
+# that only looked at the end state would pass against a beat with no darkness in it at all.
+func _cradle_dark() -> void:
+	# The camera. A scare must own it (Issue 255) — and unlike the charge, this one has a target
+	# that never moves, so the bearing is exact.
+	var box: AABB = _level.call("cradle_bbox")
+	var at: Vector3 = box.position + box.size * 0.5 + Vector3(0, 0.9, 0)
+	_shadow_yaw_ok = _yaw_error_to(at) < 5.0
+	_ok("the beat turns the camera onto the cradle (within 5 deg)", _shadow_yaw_ok,
+		"%.1f deg off" % _yaw_error_to(at))
+	# The dark second.
+	var lit := 0
+	for l in (_level.call("child_room_lights") as Array):
+		if float((l as Light3D).light_energy) > 0.0001:
+			lit += 1
+	_ok("every light in the child room is at 0 during the dark second (%d checked)"
+		% (_level.call("child_room_lights") as Array).size(),
+		lit == 0 and (_level.call("child_room_lights") as Array).size() >= 1,
+		"%d still burning" % lit)
+	_ok("…and the torch is out with it", not bool(_p.call("is_flashlight_on")))
+	_ok("…and the level says the room is dark", bool(_level.call("shadow_dark")))
+	# ⭐ pass 8. There is no "second of nothing" any more: the fire is lit in the same breath as
+	# the blackout, and at 0.5 s it is a small fire with its light still ramping. What must NOT
+	# have happened yet is the figure — it rises at t = 3.0 s and not before.
+	var fire0: Node = _level.get_node_or_null("CradleFire")
+	_cradle_fire_node = fire0
+	_ok("the cradle is BURNING half a second in — the beat's only light source",
+		fire0 != null and float(fire0.call("light_energy")) > 0.05
+		and bool(_level.call("cradle_light_on")),
+		"fire %s, energy %.3f" % [fire0 != null,
+			float(fire0.call("light_energy")) if fire0 else -1.0])
+	_ok("…with its light still RAMPING, not already at the top",
+		fire0 != null and float(fire0.call("light_energy")) < 0.75,
+		"%.3f" % (float(fire0.call("light_energy")) if fire0 else -1.0))
+	_ok("…and NOTHING has risen out of it yet: no figure in the room",
+		_level.get_node_or_null("CradleFigure") == null)
+	# ⚠️ ISSUE 18. `DarkChildRoom` is a DarkZone over this room and `player.gd` charges
+	# DARK_PANIC_RATE 3/s while the torch is off inside one. Measured with a probe on this very
+	# stance: with the zone live, 4 s of torch-off moved panic 0.03 -> 8.37; with the zone held
+	# off, 8.3667 -> 8.3667, exactly. So the zone being inert is the mechanism, and it is asserted
+	# as a fact about the WORLD (the area is not monitoring, the player counts no dark zone) and
+	# not merely as "panic did not move".
+	# ⚠️ ALL of them, not just this room's: the beat does not freeze input and DarkMorgue is two
+	# seconds' walk away, so holding one zone would only move the charge.
+	_ok("EVERY DarkZone is held OFF for the beat — Issue 18, never tax the posture",
+		not bool(_level.call("child_dark_zone_live")) and int(_p.get("_dark_zones")) == 0
+		and int(_level.call("dark_zones_live")) == 0,
+		"child %s, %d live zones, player counts %d" % [_level.call("child_dark_zone_live"),
+			int(_level.call("dark_zones_live")), int(_p.get("_dark_zones"))])
+	_ok("…so the dark second costs ZERO panic",
+		absf(float(_p.call("get_panic_ratio")) - _shadow_panic) < 0.001,
+		"%.4f -> %.4f" % [_shadow_panic, float(_p.call("get_panic_ratio"))])
+	_stage = 96
+	_wait = 60          # t = 1.5 s: the ramp is over and the fire is still alone
+
+
+func _cradle_shown() -> void:
 	_cradle_fig = _level.get_node_or_null("CradleFigure")
-	var e = _stalkers.get("E")
+	var lamp: OmniLight3D = _level.call("cradle_light")
+	var box: AABB = _level.call("cradle_bbox")
+	var fire: Node = _level.get_node_or_null("CradleFire")
 	_ok("the Morgue's west wall is PHYSICALLY open (a ray, not a flag)",
 		_secret_ray().is_empty(), "ray hit %s" % _secret_ray().get("collider", "nothing"))
-	_ok("a sixth figure exists during the beat", _cradle_fig != null)
-	_ok("…and it has not lunged yet (the 0.6 s silence comes first)",
-		_cradle_fig != null and not bool(_cradle_fig.call("has_lunged")))
-	# ⭐ pass 5: it rises out of the CRADLE, not out of the floor in front of it (capture #5,
-	# *"make this 3d jumpscare look more centralised to the middle of this object"*). Measured
-	# against the cradle's own mesh bounding box, computed independently here — never against
-	# the number the level passed in.
-	var cradle := _level.get_node_or_null("Cradle_ChildRoom") as Node3D
-	var centre: Vector3 = _world_aabb(cradle).position + _world_aabb(cradle).size * 0.5
-	var home: Vector3 = _cradle_fig.call("home") if _cradle_fig else Vector3.ZERO
-	_ok("…and its home is the cradle's VISUAL centre, not the node origin on the floor",
-		_cradle_fig != null and home.distance_to(centre) < 0.2 and home.y > 0.6,
-		"home %v vs bbox centre %v (origin was y %.2f)" % [home, centre,
-			cradle.global_position.y if cradle else -1.0])
-	# …and the sting it carries is the shared jumpscare at the measured gain, on Master.
-	var cs := _level.get_node_or_null("CradleSting") as AudioStreamPlayer3D
-	_ok("…with the SHARED jumpscare on Master at -10.3 dB (cradle_sting stays on disk, unplayed)",
-		cs != null and cs.stream != null
-		and String(cs.stream.resource_path).find("jumpscare") >= 0
-		and absf(cs.volume_db + 10.3) < 0.01 and cs.bus == "Master",
-		"%s %.1f dB bus %s" % [cs.stream.resource_path if cs and cs.stream else "-",
-			cs.volume_db if cs else 0.0, cs.bus if cs else "-"])
-	# ⚠️ §8.11: creature E stands two metres from the cradle and the player is about to be
-	# blinded by a figure filling the frame. It is suppressed with the tile hall's own mechanism.
-	var rect: Rect2 = e.get("protected_player_rect")
-	var child: Rect2 = _level.call("_room_rect", "ChildRoom")
-	_ok("creature E is suppressed for the beat, by the child room's rect",
-		rect.is_equal_approx(child), "%s vs %s" % [rect, child])
-	_ok("…so its gaze pressure is zero while it is held off",
-		absf(float(e.get_node("ScaryObject").scare_intensity)) < 0.001
-		if e.get_node_or_null("ScaryObject") else true)
-	_stage = 72
-	_wait = 50          # past the 0.25 s rise and the 0.35 s lunge
-
-
-func _cradle_lunged() -> void:
-	var fig := _cradle_fig
-	_ok("the figure lunged", fig == null or not is_instance_valid(fig)
-		or bool(fig.call("has_lunged")))
-	if fig != null and is_instance_valid(fig):
+	_ok("the fire is still burning while the face stands in it", fire != null)
+	_ok("an ORANGE light is burning INSIDE the cradle, and it is the FIRE'S",
+		bool(_level.call("cradle_light_on")) and lamp != null
+		and box.grow(0.05).has_point(lamp.global_position)
+		and fire != null and fire.is_ancestor_of(lamp)
+		and lamp.light_color.r > lamp.light_color.b,
+		"%s at %v vs cradle %v+%v" % [lamp != null, lamp.global_position if lamp else Vector3.ZERO,
+			box.position, box.size])
+	# ⚠️ ENERGY, RANGE **AND DECAY** ASSERTED. This is the one light in the frame and the mask it
+	# lights is a ~0.95-albedo surface half a metre away: at Godot's DEFAULT `omni_attenuation`
+	# of 1.0 the irradiance is `energy * (1 - (d/range)^4)^2 / d`, which at 0.9 energy and 0.62 m
+	# is 1.45 — a flat white face with no detail in it (Issue 21 / SCARY.md §8.8). At decay 0.0
+	# the `/d` term is gone and the irradiance can never exceed the energy itself, at any
+	# distance. The decay is therefore part of the no-clamp claim and not a style choice.
+	_ok("…at <= 1.05 energy over a 3.0 m range with NO 1/d core (decay 0), and nothing emissive on the figure",
+		lamp != null and lamp.light_energy <= 1.051 and absf(lamp.omni_range - 3.0) < 0.01
+		and absf(lamp.omni_attenuation) < 0.001
+		and _no_emission(_cradle_fig) if _cradle_fig else false,
+		"%.2f energy / %.1f m / decay %.2f" % [lamp.light_energy if lamp else -1.0,
+			lamp.omni_range if lamp else -1.0, lamp.omni_attenuation if lamp else -1.0])
+	# …and the arithmetic that claim rests on, computed here from the live geometry rather than
+	# quoted: the brightest the mask can be lit is the light's own energy.
+	if lamp != null:
+		var mask_n := _find_named(_cradle_fig, "Mask") as Node3D if _cradle_fig else null
+		var dm: float = lamp.global_position.distance_to(mask_n.global_position) if mask_n else -1.0
+		var irr: float = lamp.light_energy * pow(1.0 - pow(dm / lamp.omni_range, 4.0), 2.0) \
+			if dm > 0.0 else -1.0
+		_ok("…so the irradiance landing on the mask is UNDER the 1.0 that clamps to white",
+			irr > 0.3 and irr < 1.0, "mask %.3f m from the flames, irradiance %.3f" % [dm, irr])
+	_ok("…and the room is still black around it: every lamp at 0, the torch out",
+		not bool(_p.call("is_flashlight_on")) and _lit_child_lights() == 0,
+		"%d lamps lit" % _lit_child_lights())
+	_ok("a figure is in the cradle", _cradle_fig != null)
+	if _cradle_fig != null:
+		# ⚠️ MEASURED AGAINST THE CRADLE'S OWN MESH BOUNDING BOX, computed here rather than taken
+		# from the number the level passed in. "Crouched in the cradle" is a claim about geometry.
+		var fig := _cradle_fig as Node3D
+		var flat := Vector2(fig.global_position.x - (box.position.x + box.size.x * 0.5),
+			fig.global_position.z - (box.position.z + box.size.z * 0.5)).length()
+		_ok("…standing in the cradle's own footprint, sunk below its rim",
+			flat < 0.25 and fig.global_position.y < box.position.y,
+			"%.2f m off centre, origin y %.2f vs cradle floor %.2f"
+			% [flat, fig.global_position.y, box.position.y])
+		# …and its MASK is at the rim: that is the image, and it is what "crouched" means here.
+		var mask := _find_named(fig, "Mask") as Node3D
+		var rim: float = box.position.y + box.size.y
+		_ok("…with its mask at the cradle's rim, not towering over it",
+			mask != null and absf(mask.global_position.y - rim) < 0.25,
+			"mask y %.3f vs rim %.3f" % [mask.global_position.y if mask else -99.0, rim])
 		# P3: a photograph, not a creature. No collider anywhere in it, no ScaryObject.
 		var bad := ""
 		var stack: Array = [fig]
@@ -1217,14 +1340,83 @@ func _cradle_lunged() -> void:
 			for k in c.get_children():
 				stack.append(k)
 		_ok("…and it is a PHOTOGRAPH: no collider, no ScaryObject, no rule", bad == "", bad)
-	_ok("the giving scare cost ZERO panic",
-		absf(float(_p.call("get_panic_ratio")) - _panic_before) < 0.001,
-		"%.4f -> %.4f" % [_panic_before, float(_p.call("get_panic_ratio"))])
+	# The sound. ⚠️ -2.0 dB SINCE PASS 8, AND IT IS THE USER'S CALL: capture #3 asked for
+	# *"the jumpscare itself should be louder"*. `apparition_snarl.ogg` peaks at 0.0 dBFS, so
+	# -2.0 dB is 2 dB under the file's own ceiling — there is no louder setting that is not
+	# clipping, and this asserts the exact number so a later pass cannot drift it quietly.
+	var cs := _level.get_node_or_null("CradleSnarl") as AudioStreamPlayer3D
+	# ⭐ 2026-09-23: the user's own `void_fire_jumpscare.mp3` (peak 0.0 dBFS) — -2.0 dB is still the ceiling.
+	_ok("…and the user's `void_fire_jumpscare` is playing on Master at -2.0 dB (NOT the corridor's sting)",
+		cs != null and cs.stream != null
+		and String(cs.stream.resource_path).find("void_fire_jumpscare") >= 0
+		and absf(cs.volume_db + 2.0) < 0.01 and cs.bus == "Master" and cs.playing,
+		"%s %.1f dB bus %s playing %s" % [cs.stream.resource_path if cs and cs.stream else "-",
+			cs.volume_db if cs else 0.0, cs.bus if cs else "-", cs.playing if cs else false])
+	# ⚠️ §8.11: creature E stands two metres from the cradle and the player has just been blinded.
+	var e = _stalkers.get("E")
+	var rect: Rect2 = e.get("protected_player_rect")
+	var child: Rect2 = _level.call("_room_rect", "ChildRoom")
+	_ok("creature E is suppressed for the beat, by the child room's rect",
+		rect.is_equal_approx(child), "%s vs %s" % [rect, child])
+	_ok("…so its gaze pressure is zero while it is held off",
+		absf(float(e.get_node("ScaryObject").scare_intensity)) < 0.001
+		if e.get_node_or_null("ScaryObject") else true)
+	_ok("the lit half of the beat costs ZERO panic too",
+		absf(float(_p.call("get_panic_ratio")) - _shadow_panic) < 0.001,
+		"%.4f -> %.4f" % [_shadow_panic, float(_p.call("get_panic_ratio"))])
+	_stage = 94
+	_wait = 150         # past the 2.0 s hold, the 0.3 s fade and the 0.4 s tail
+
+
+func _cradle_restored() -> void:
+	var lights: Array = _level.call("child_room_lights")
+	var back := 0
+	for i in range(lights.size()):
+		if i < _shadow_lights0.size() \
+				and absf(float((lights[i] as Light3D).light_energy)
+					- float(_shadow_lights0[i])) < 0.0001:
+			back += 1
+	_ok("every child-room lamp is back at the energy it was burning at (%d of %d)"
+		% [back, lights.size()], back == lights.size() and lights.size() >= 1)
+	_ok("…and the torch is back on", bool(_p.call("is_flashlight_on")))
+	_ok("…and the light in the cradle is out", not bool(_level.call("cradle_light_on")))
+	_ok("…and the figure is gone — one shot, nothing left in the room",
+		_level.get_node_or_null("CradleFigure") == null)
+	# ⭐ pass 8. The fire is an EVENT: it exists for the beat and then it is not in the world at
+	# all. A flame node left behind would be the level's only emissive prop, burning forever in
+	# a room the player walks back through.
+	_ok("…and so is the fire — no CradleFire node, and nothing still holding its light",
+		_level.get_node_or_null("CradleFire") == null
+		and _level.call("cradle_light") == null)
+	_ok("…and the loop it was playing stopped with it",
+		_level.get_node_or_null("CradleFire/CradleFireLoop") == null)
+	_ok("…and a restore can never replay it", bool(_level.call("lunge_spent")))
+	# ⚠️ THE ZONE COMES BACK, and it must: holding it off for good would silently delete the
+	# child room's darkness rule for the rest of the level. Godot re-emits `body_entered` when
+	# `monitoring` is written back to true, so the player's own counter is the proof, not the flag.
+	_ok("BOTH DarkZones are live again and the player is registered in this one",
+		bool(_level.call("child_dark_zone_live")) and int(_p.get("_dark_zones")) >= 1
+		and int(_level.call("dark_zones_live")) == 2,
+		"child %s, %d live zones, player counts %d" % [_level.call("child_dark_zone_live"),
+			int(_level.call("dark_zones_live")), int(_p.get("_dark_zones"))])
+	_ok("THE WHOLE BEAT — 0.3 s turn, 3.0 s of fire, a 0.5 s rise, a 2.0 s hold, a 0.3 s fade and a 0.4 s tail — cost ZERO panic",
+		absf(float(_p.call("get_panic_ratio")) - _shadow_panic) < 0.001,
+		"%.4f -> %.4f" % [_shadow_panic, float(_p.call("get_panic_ratio"))])
+	# ⚠️ E is protected for the beat + 1 s; at this sample that second is still running, which is
+	# what the next stage waits out. Asserting the handback here would be asserting the clock.
+	_stage = 95
+	_wait = 80
+
+
+func _cradle_handback() -> void:
+	var e = _stalkers.get("E")
+	var rect: Rect2 = e.get("protected_player_rect")
+	_ok("once the beat is over E's suppression is HANDED BACK to the tile hall's rect",
+		rect.is_equal_approx(_e_rect), "%s vs %s" % [rect, _e_rect])
 	# ── CONTROL: it is the RECT that holds E off, not distance or luck ───────────────────
 	# ⚠️ 4.5 m and 0.4 s, deliberately. Issue 228: at 3.0 m/s a wait beside a creature is a
 	# DISTANCE, and check_void's own D control once staged its own death by standing 3.7 m away
 	# for 1.5 s. 0.4 s buys E 1.2 m against CONTACT_DIST 1.25 — 3.3 m of air.
-	var e = _stalkers.get("E")
 	e.set("protected_player_rect", Rect2())
 	e.set("_awakened", true)
 	e.set("_age", 10.0)
@@ -1234,6 +1426,36 @@ func _cradle_lunged() -> void:
 	_e_start = (e.get("_body") as Node3D).global_position
 	_stage = 73
 	_wait = 24
+
+
+# The bearing error, in degrees, between where the camera is actually pointed and a world point.
+func _yaw_error_to(at: Vector3) -> float:
+	var cam := _p.get_node("Camera3D") as Camera3D
+	var fwd := -cam.global_transform.basis.z
+	var to: Vector3 = at - cam.global_position
+	fwd.y = 0.0
+	to.y = 0.0
+	if fwd.length() < 0.001 or to.length() < 0.001:
+		return 999.0
+	return rad_to_deg(absf(fwd.normalized().angle_to(to.normalized())))
+
+
+func _lit_child_lights() -> int:
+	var n := 0
+	for l in (_level.call("child_room_lights") as Array):
+		if float((l as Light3D).light_energy) > 0.0001:
+			n += 1
+	return n
+
+
+func _find_named(n: Node, nm: String) -> Node:
+	if String(n.name) == nm:
+		return n
+	for c in n.get_children():
+		var f := _find_named(c, nm)
+		if f != null:
+			return f
+	return null
 
 
 func _cradle_control() -> void:
@@ -1260,12 +1482,9 @@ func _cradle_control() -> void:
 
 func _cradle_after() -> void:
 	var e = _stalkers.get("E")
-	var rect: Rect2 = e.get("protected_player_rect")
-	_ok("once the beat is over E's suppression is HANDED BACK to the tile hall's rect",
-		rect.is_equal_approx(_e_rect), "%s vs %s" % [rect, _e_rect])
-	_ok("the figure is gone — one shot, nothing left in the room",
-		_level.get_node_or_null("CradleFigure") == null)
-	_ok("a restore can never replay it", bool(_level.call("lunge_spent")))
+	_ok("…and after the control the rect is E's again, not the empty one",
+		(e.get("protected_player_rect") as Rect2).is_equal_approx(_e_rect),
+		"%s vs %s" % [e.get("protected_player_rect"), _e_rect])
 	# Hand the level back to the rest of the file exactly as it found it.
 	_level.set("_shard_taken", false)
 	_level.set("_cradle_done", false)
@@ -1389,43 +1608,76 @@ func _pass5_checks() -> void:
 	_ok("the touch prompt names the object now",
 		ward != null and String(ward.call("prompt_text")) == "E — Touch the hanging gurney.",
 		"'%s'" % (ward.call("prompt_text") if ward else ""))
+	_pass6_checks()
 
-	# ── the shard is in the world from frame 0, wedged ────────────────────────────────────
+	# ── ⭐ pass 6: the shard is in the world from frame 0 and simply TAKEABLE ──────────────
 	var shard = _level.call("shard")
-	_ok("the shard EXISTS and is VISIBLE at frame 0 (it used to spawn on a look-away)",
-		shard != null and shard.visible and not bool(shard.call("is_freed")))
-	_ok("…wedged in the inverted table's underside, above the table's own collider",
-		shard != null and shard.global_position.y > 0.6
-		and shard.global_position.distance_to(Vector3(-3.190, 0.74, 21.663)) < 0.02,
+	_ok("the shard EXISTS and is VISIBLE at frame 0", shard != null and shard.visible)
+	_ok("…lying in the inverted table's basin, above the table's own collider (Issue 230)",
+		shard != null and shard.global_position.y > 0.4
+		and shard.global_position.distance_to(Vector3(-3.4, 0.42, 22.0)) < 0.02,
 		str(shard.global_position) if shard else "missing")
-	_ok("…and it says so instead of offering E",
-		shard != null and String(shard.call("prompt_text")) == "It is wedged fast.",
+	_ok("…and it OFFERS E from frame 0 — pass 5's wedge is retired (capture #4)",
+		shard != null and bool(shard.call("is_freed"))
+		and String(shard.call("prompt_text")) == "E — Take the shard.",
 		"'%s'" % (shard.call("prompt_text") if shard else ""))
-	_ok("…and its clatter resolves through GameState.load_audio",
-		gs.call("load_audio", "shard_clatter") != null)
+	# ⚠️ `shard_clatter.wav` was DELETED with the wedge: it existed only to announce the
+	# release. A stale `load_audio("shard_clatter")` would return null forever and say nothing,
+	# so the guard asserts the file is gone rather than that it loads.
+	_ok("…and `shard_clatter` is gone from the project with the beat that used it",
+		gs.call("load_audio", "shard_clatter") == null)
 
 	# ── the corridor charge: the trigger volume, and nothing armed yet ────────────────────
+	# ⭐ z 26, not 42 (pass 6, capture #3): 60 % of the way back down a corridor that runs
+	# z 44 -> 14.
 	var area := _level.call("charge_area") as Area3D
 	var ashape: BoxShape3D = (area.get_child(0) as CollisionShape3D).shape as BoxShape3D if area else null
-	_ok("the corridor charge's trigger covers x 11..14, z 41..43",
+	_ok("the corridor charge's trigger covers x 11..14, z 25..27 (60 % of the walk back)",
 		area != null and ashape != null
-		and absf(area.position.x - 12.5) < 0.01 and absf(area.position.z - 42.0) < 0.01
+		and absf(area.position.x - 12.5) < 0.01 and absf(area.position.z - 26.0) < 0.01
 		and absf(ashape.size.x - 3.0) < 0.01 and absf(ashape.size.z - 2.0) < 0.01,
 		"%s %s" % [area.position if area else "-", ashape.size if ashape else "-"])
+	# ⚠️ `Object.get()` does not see a script CONSTANT — the constant map does.
+	var lconsts: Dictionary = _level.get_script().get_script_constant_map()
+	var fig_at: Vector3 = lconsts.get("CHARGE_FIGURE_AT", Vector3.ZERO)
+	_ok("…and the figure stands 9.5 m further south, under the dead lamp",
+		absf(fig_at.z - 16.5) < 0.01 and area != null
+		and absf(area.position.z - fig_at.z - 9.5) < 0.01, "figure z %.1f" % fig_at.z)
+	# The rush is the CHARGE's clock, and the cradle's is a different one.
+	# ⚠️ FIXED 2026-09-23 (pass 8). This line read `fconsts["LUNGE_TIME"]`, a constant PASS 7
+	# DELETED when it retired the cradle's rush — so from that pass on the lookup threw
+	# "Invalid access to property or key 'LUNGE_TIME' on a base object of type 'Dictionary'",
+	# GDScript abandoned the rest of `_pass5_checks()` at that line, and the file still printed
+	# a green summary because a runtime SCRIPT ERROR is not a failed `_ok()` and
+	# `run_tests.sh` only greps for PARSE errors. Everything below this point in the function
+	# had not run since. It now asserts the RETIREMENT as well, which is the claim that went
+	# stale, and `has()` cannot throw.
+	var fconsts: Dictionary = load("res://scripts/void_cradle_figure.gd").get_script_constant_map()
+	_ok("…and the rush is 0.6 s over a 0.25 s turn",
+		absf(float(fconsts["CHARGE_TIME"]) - 0.6) < 0.001
+		and absf(float(fconsts["TURN_TIME"]) - 0.25) < 0.001,
+		"charge %.2f turn %.2f" % [fconsts.get("CHARGE_TIME", -1.0), fconsts.get("TURN_TIME", -1.0)])
+	_ok("…and the cradle's old LUNGE_TIME is gone, not merely unused (pass 7 retired the rush)",
+		not fconsts.has("LUNGE_TIME"), str(fconsts.keys()))
+	# ⭐ pass 8: the cradle's clock is a RISE now, and it is the level that owns its numbers.
+	_ok("…while the cradle rises 0.80 m over 0.50 s (the level's own constants)",
+		absf(float(lconsts.get("SHADOW_RISE_FROM", -1.0)) - 0.80) < 0.001
+		and absf(float(lconsts.get("SHADOW_RISE", -1.0)) - 0.50) < 0.001,
+		"%.2f m / %.2f s" % [lconsts.get("SHADOW_RISE_FROM", -1.0), lconsts.get("SHADOW_RISE", -1.0)])
 	_ok("…it watches the PLAYER layer only and is not itself solid",
 		area != null and area.collision_mask == 1 and area.collision_layer == 0)
 	_ok("…and nothing has fired at load", not bool(_level.call("corridor_charge_done"))
 		and _level.get_node_or_null("ChargeFigure") == null)
-	_ok("…and the shared jumpscare it uses resolves through GameState.load_audio",
-		gs.call("load_audio", "jumpscare") != null)
-	# ⚠️ -10.3 dB is measured, not chosen: jumpscare is -2.83 dBFS RMS against cradle_sting's
-	# -10.09, so it takes 7.26 dB less gain to land where pass 4 measured the old sting.
+	_ok("…and the user's corridor sting resolves through GameState.load_audio",
+		gs.call("load_audio", "void_corridor_jumpscare") != null)
+	# ⚠️ -12.3 dB is measured, not chosen (2026-09-23): the shared jumpscare delivered -13.1 dBFS at
+	# -10.3 dB; the user's file is -0.8 dBFS mean, so -12.3 dB lands it exactly there.
 	_level.call("_fire_corridor_charge")
 	var sting := _level.get_node_or_null("ChargeSting") as AudioStreamPlayer3D
-	_ok("the charge's sting is the SHARED jumpscare, on Master, at the measured -10.3 dB",
+	_ok("the charge's sting is the user's `void_corridor_jumpscare`, on Master, at the measured -12.3 dB",
 		sting != null and sting.stream != null
-		and String(sting.stream.resource_path).find("jumpscare") >= 0
-		and absf(sting.volume_db + 10.3) < 0.01 and sting.bus == "Master",
+		and String(sting.stream.resource_path).find("void_corridor_jumpscare") >= 0
+		and absf(sting.volume_db + 12.3) < 0.01 and sting.bus == "Master",
 		"%s %.1f dB bus %s" % [sting.stream.resource_path if sting and sting.stream else "-",
 			sting.volume_db if sting else 0.0, sting.bus if sting else "-"])
 	# …and put the level back: this file fires the charge FOR REAL later, from inside the volume.
@@ -1488,6 +1740,465 @@ func _no_scary(n: Node) -> bool:
 	return true
 
 
+# ⭐ THE RECURRING ROOM, WALKED (2026-09-22 pass 6).
+#
+# ⚠️ EVERY STEP HERE IS A REAL CROSSING under `ai_move_dir` with the real body. The whole point
+# of this pass is that the verb is walking; a harness that called `_step()` would be testing the
+# function that the 23:47 playtester could not reach. The five stalkers were removed at stage 3.
+# ⚠️ `RandomAmbient` was unregistered at bootstrap (Issue 240), which is what lets the
+# zero-panic assertions below mean anything.
+var _room_hall: Node = null
+var _room_panic := 0.0
+var _room_order: Array = []
+var _room_lit_samples := 0
+var _room_lit_violations := 0
+var _room_lit_detail := ""
+var _room_ticks := 0
+var _room_target := Vector3.ZERO
+var _room_wrong_id := ""
+var _room_stage_seen: Array = []
+var _room_order0: Array = []
+var _room_pending_stage := 0
+# ⚠️ THE PEAK, not the sample. Stage 5 is applied and the 1.5 s settle immediately starts
+# tweening the lean back out of it, so a value read a few frames later is already 0.09.
+var _room_max_lean := 0.0
+# ⚠️ AND THE PEAK DIORAMA SCALE, for exactly the same reason: `_settle()` starts tweening both
+# copies down to 0.001 in the frame stage 5 is applied, so a value read six ticks later is
+# already 0.28. The first draft read the instantaneous value and went red at 0.281.
+var _room_max_scale := 0.0
+
+
+func _room_begin() -> void:
+	print("--- the recurring room: a wrong door ---")
+	_room_hall = _level.call("frame_hall")
+	_level.call("_open_secret_door")
+	_p.set("ai_active", true)
+	_room_panic = float(_p.call("get_panic_ratio"))
+	_room_stage_seen = []
+	# A door that is NOT the one the answer wants first.
+	var answer: Array = _room_hall.call("answer_order")
+	_room_wrong_id = String(answer[2])
+	_aim_room(int(_room_hall.call("slot_of", _room_wrong_id)))
+	_room_order = (_room_hall.call("frame_ids") as Array).duplicate()
+	_room_order0 = _room_order.duplicate()
+	_room_max_lean = 0.0
+	_room_max_scale = 0.0
+	_room_pending_stage = 0
+	_room_lit_samples = 0
+	_room_lit_violations = 0
+	_room_lit_detail = ""
+	_stage = 86
+
+
+func _aim_room(slot: int) -> void:
+	_p.set("ai_move_dir", Vector2.ZERO)
+	_p.velocity = Vector3.ZERO
+	_p.global_position = _room_hall.call("front_point", slot)
+	_p.force_update_transform()
+	_room_target = _room_hall.call("back_point", slot)
+	_p.call("ai_look_at", _room_target + Vector3(0, 1.2, 0))
+	_p.get_node("Camera3D").force_update_transform()
+	_room_ticks = 0
+
+
+func _steer_room() -> void:
+	var dir: Vector3 = _room_target - _p.global_position
+	dir.y = 0.0
+	if dir.length() < 0.15:
+		_p.set("ai_move_dir", Vector2.ZERO)
+		return
+	var local: Vector3 = _p.global_basis.inverse() * dir.normalized()
+	_p.set("ai_move_dir", Vector2(local.x, local.z))
+
+
+# ⚠️ THE LEVEL'S ONE RULE, SAMPLED EVERY FRAME: nothing ever changes while you are looking at
+# it. Pass 4 could only satisfy a weakened form of that (Issue 241 — a five-frame room has no
+# free bearing, so it exchanged pairs the camera could not see). The cut satisfies the original:
+# while the order is moving the screen is BLACK, so this asserts that no sample in which the
+# panel was down showed a different order from the sample before it.
+func _room_sample_lit() -> void:
+	var ids: Array = _room_hall.call("frame_ids")
+	var black: bool = bool(_level.call("cut_is_black"))
+	if not black:
+		_room_lit_samples += 1
+		for i in range(ids.size()):
+			if String(ids[i]) != String(_room_order[i]):
+				_room_lit_violations += 1
+				_room_lit_detail = "slot %d went %s -> %s with the screen LIT" \
+					% [i, _room_order[i], ids[i]]
+	_room_order = ids.duplicate()
+
+
+func _room_wrong_walk() -> void:
+	_room_ticks += 1
+	_room_sample_lit()
+	_steer_room()
+	if int(_room_hall.call("wrong_count")) > 0 and not bool(_room_hall.call("is_stepping")):
+		_p.set("ai_move_dir", Vector2.ZERO)
+		_p.velocity = Vector3.ZERO
+		_stage = 87
+		_wait = 4
+		return
+	if _room_ticks > 900:
+		_ok("walking through a wrong door registers a step", false,
+			"900 ticks, at %v" % _p.global_position)
+		_stage = 88
+
+
+func _room_wrong_done() -> void:
+	_ok("WALKING through a door is the step — no dwell, no posture",
+		int(_room_hall.call("wrong_count")) == 1 and int(_room_hall.call("crossings")) == 1,
+		"%d crossings" % int(_room_hall.call("crossings")))
+	_ok("…and a wrong door drops the room back to stage 0",
+		int(_room_hall.call("stage")) == 0)
+	_ok("…and puts the player back at the room's entrance",
+		_p.global_position.distance_to(_room_hall.call("entrance_point")) < 0.4,
+		"at %v" % _p.global_position)
+	_ok("…and the five doors were reshuffled: the order really differs",
+		(_room_hall.call("frame_ids") as Array) != _room_order0,
+		"%s -> %s" % [str(_room_order0), str(_room_hall.call("frame_ids"))])
+	# ⚠️ THE ONE-RULE CONTROL, and it asserts its own sample size: "0 samples … PASS" has
+	# happened in this project.
+	_ok("CONTROL: no door changed in any frame where the screen was LIT (%d lit samples)"
+		% _room_lit_samples,
+		_room_lit_violations == 0 and _room_lit_samples >= 8, _room_lit_detail)
+	_ok("…and the cut really happened", int(_room_hall.call("cuts")) == 1
+		and not bool(_level.call("cut_is_black")))
+	# The figure at arm's length, for exactly one rendered frame, with no rule of any kind.
+	var fig: Node3D = _room_hall.call("watcher")
+	_ok("a figure stood at arm's length on the fade-in", fig != null)
+	if fig:
+		var bad := ""
+		var stack: Array = [fig]
+		while not stack.is_empty():
+			var n: Node = stack.pop_back()
+			if n is CollisionObject3D or n is CollisionShape3D or n is ScaryObject:
+				bad += n.name + " "
+			for k in n.get_children():
+				stack.append(k)
+		_ok("…and it is a PHOTOGRAPH: no collider, no ScaryObject, no rule", bad == "", bad)
+		# ⚠️ MEASURED HORIZONTALLY. The figure's ORIGIN sits 0.40 m below the player's feet so
+		# that its 2.05 m mask lands on the 1.65 m eye line (`void_cradle_figure.gd`'s own
+		# convention), which makes the straight-line distance to the camera 2.1 m for a figure
+		# that is 0.6 m in front of it. The first draft measured the diagonal and read as a fail.
+		var cam := _p.get_node("Camera3D") as Camera3D
+		var flat: float = Vector2(fig.global_position.x - cam.global_position.x,
+			fig.global_position.z - cam.global_position.z).length()
+		_ok("…0.6 m in front of the camera, not across the room", flat < 1.0, "%.2f m" % flat)
+	_ok("…for EXACTLY one process frame",
+		int(_room_hall.call("watcher_frames")) == 1,
+		"%d frames" % int(_room_hall.call("watcher_frames")))
+	_ok("the wrong door costs ZERO panic",
+		absf(float(_p.call("get_panic_ratio")) - _room_panic) < 0.001,
+		"%.4f -> %.4f" % [_room_panic, float(_p.call("get_panic_ratio"))])
+	_stage = 88
+
+
+# ⚠️ THE CONTROL THAT MATTERS MOST: the thing this pass replaced was a 1.2 s STAND-STILL dwell,
+# and the playtester's complaint was that walking through did nothing. Standing dead centre in
+# an opening — the posture the old mechanic REQUIRED — must now do nothing at all, including
+# when the body's own settling jitter crosses the plane.
+func _room_still_begin() -> void:
+	print("--- the recurring room: standing still in a doorway ---")
+	var slot: int = int(_room_hall.call("slot_of",
+		String((_room_hall.call("answer_order") as Array)[0])))
+	_p.set("ai_move_dir", Vector2.ZERO)
+	_p.velocity = Vector3.ZERO
+	_p.global_position = (_room_hall.call("unit", slot) as Node3D).global_position \
+		+ Vector3(0, 0.1, 0)
+	_p.force_update_transform()
+	_room_ticks = int(_room_hall.call("crossings"))
+	_stage = 89
+	_wait = 130          # a little over two seconds, against the retired 1.2 s dwell
+
+
+func _room_still_done() -> void:
+	_ok("CONTROL: 2 s standing DEAD CENTRE in a doorway steps nothing",
+		int(_room_hall.call("crossings")) == _room_ticks
+		and int(_room_hall.call("stage")) == 0,
+		"%d crossings, stage %d" % [int(_room_hall.call("crossings")),
+			int(_room_hall.call("stage"))])
+	print("--- the recurring room: five right doors ---")
+	_aim_room(int(_room_hall.call("slot_of",
+		String((_room_hall.call("answer_order") as Array)[0]))))
+	_stage = 90
+
+
+# Walk the answer. After each right door the stage's own state is asserted, so the ladder is
+# measured rung by rung rather than at the end.
+func _room_right_walk() -> void:
+	_room_ticks += 1
+	_room_max_lean = maxf(_room_max_lean, float(_room_hall.call("lean")))
+	_room_max_scale = maxf(_room_max_scale, float(_room_hall.call("diorama_scale", 0)))
+	# ⚠️ ASSERTED ONE BEAT LATE, on purpose. Stage 3's blink and its doorway figure are placed
+	# AFTER the cut comes down — they are things you see for one rendered frame, and placing
+	# them under the black would be one frame of a black screen — so the hall has not yet
+	# counted the figure in the frame the stage number changes. The first draft read 0 frames
+	# and was measuring the ordering, not the beat.
+	if _room_pending_stage > 0:
+		var pend := _room_pending_stage
+		_room_pending_stage = 0
+		_assert_stage(pend)
+		if bool(_room_hall.call("is_solved")):
+			_stage = 91
+			_wait = 200
+			return
+		_aim_room(int(_room_hall.call("slot_of",
+			String((_room_hall.call("answer_order") as Array)[pend]))))
+		return
+	_steer_room()
+	if bool(_room_hall.call("is_stepping")):
+		_p.set("ai_move_dir", Vector2.ZERO)
+		_p.velocity = Vector3.ZERO
+		return
+	var st: int = int(_room_hall.call("stage"))
+	if st > 0 and not _room_stage_seen.has(st):
+		_room_stage_seen.append(st)
+		_p.set("ai_move_dir", Vector2.ZERO)
+		_p.velocity = Vector3.ZERO
+		_room_pending_stage = st
+		_wait = 6
+		return
+	if _room_ticks > 1400:
+		_ok("the five right doors were walked inside the budget", false,
+			"stage %d at %v" % [st, _p.global_position])
+		_stage = 91
+		_wait = 10
+
+
+# The lamp tweens at LAMP_RATE 1.2/s and `_assert_stage` runs six ticks after the arrival, so
+# "it has dropped to 0.12" is a claim about a value in motion. Accept anything that has left the
+# base and is heading for the target — and say which, rather than widening a tolerance silently.
+func _lamp_settled(h: Node, want: float) -> bool:
+	var e: float = float(h.call("lamp_energy"))
+	return e <= 0.25 - 0.01 and e >= want - 0.001
+
+
+# "" if the subtree carries no collider, no CollisionShape3D and no ScaryObject; the offending
+# node names otherwise. P3: every figure in this room is a photograph.
+func _rule_free(n: Node) -> String:
+	if n == null:
+		return "missing"
+	var bad := ""
+	var stack: Array = [n]
+	while not stack.is_empty():
+		var c: Node = stack.pop_back()
+		if c is CollisionObject3D or c is CollisionShape3D or c is ScaryObject:
+			bad += c.name + " "
+		for k in c.get_children():
+			stack.append(k)
+	return bad
+
+
+func _assert_stage(st: int) -> void:
+	var h := _room_hall
+	_ok("right door %d: the player is back at the entrance, one stage stranger" % st,
+		_p.global_position.distance_to(h.call("entrance_point")) < 0.4
+		and int(h.call("stage")) == st, "at %v" % _p.global_position)
+	# ⭐ THE PASS-7 LADDER, RUNG BY RUNG, FROM THE ENTRANCE STANCE. Every rung below was chosen
+	# because it is full-screen or silhouette-scale INSIDE THE TORCH CONE — the previous ladder's
+	# first two rungs were an 8.7 % change in a lamp the player's own torch beats ten to one, and
+	# an echo copy standing geometrically inside its own original (Issue 256).
+	# The camera roll is asserted on EVERY rung, because it is the one channel with five notches.
+	# ⚠️ THE BASE **AND** THE CAMERA NODE. The base is what the room commands; the live value is
+	# what the player's eye actually has, and the two are only equal because `_tick_shake()` was
+	# taught to displace the base instead of replacing it. Reading only one of them would let a
+	# roll that never reached the camera pass.
+	_ok("right door %d: the camera is HELD at %.3f rad of roll" % [st, h.call("roll_for", st)],
+		absf(float(h.call("camera_roll")) - float(h.call("roll_for", st))) < 0.0005
+		and absf(float(h.call("camera_roll_live")) - float(h.call("roll_for", st))) < 0.01,
+		"base %.4f, camera %.4f" % [float(h.call("camera_roll")),
+			float(h.call("camera_roll_live"))])
+	match st:
+		1:
+			# ⚠️ NOT the lamp: at stage 1 the lamp is deliberately UNTOUCHED now. What stage 1
+			# is, is five 1.40 x 2.20 m panels going from albedo 0.02 to 0.55 behind the five
+			# memories — the one change that improves the contrast of the thing the player is
+			# already staring at, at full torch strength.
+			var pale := 0
+			for i in range(5):
+				if (h.call("backdrop_albedo", i) as Color).is_equal_approx(
+						Color(0.55, 0.53, 0.48)):
+					pale += 1
+			_ok("stage 1: all five backdrops go PALE (albedo 0.02 -> 0.55), %d of 5" % pale,
+				pale == 5, str(h.call("backdrop_albedo", 0)))
+			_ok("…with NO emission anywhere in the room (SCARY.md §8.8: silhouette, not glow)",
+				_no_emission(h))
+			_ok("…the room hums, and a whisper starts in the doorway behind your head",
+				bool(h.call("hum_playing")) and bool(h.call("back_whisper_playing")))
+			# …and the lamp has NOT dropped yet: that rung moved to stage 3.
+			_ok("…and the lamp has NOT moved (its drop belongs to stage 3 now)",
+				absf(float(h.call("lamp_energy")) - 0.25) < 0.02,
+				"%.3f" % float(h.call("lamp_energy")))
+		2:
+			_ok("stage 2: the dioramas tilt and a second copy is visible",
+				absf(float((h.call("unit", 0) as Node3D).get_node("Diorama_"
+					+ String((h.call("frame_ids") as Array)[0])).rotation.z) - 0.18) < 0.001
+				and (h.call("echo", 0) as Node3D).visible)
+			# ⭐ ITEM 3: the echo STEPS SIDEWAYS. The offset is the entire rung — at 0 lateral
+			# offset the copy is inside the original's silhouette and cannot be seen at all.
+			var off: Vector3 = h.call("echo_offset", 0)
+			_ok("…and it stands 0.28 m to the SIDE at full scale, not concentric behind",
+				absf(off.x - 0.28) < 0.001 and absf(off.z - (0.48 + 0.10)) < 0.001
+				and absf(float(h.call("diorama_scale", 0)) - 1.0) < 0.001,
+				"echo at %v" % off)
+			_ok("…and the room's own FLOOR carries the corrupted texture now",
+				bool(h.call("floor_corrupt"))
+				and String(h.call("floor_texture_name")) == "wall_void_corrupt.png",
+				"'%s'" % h.call("floor_texture_name"))
+			_ok("…and the lamp takes its first colour notch, at unchanged energy",
+				(h.call("lamp_color") as Color).is_equal_approx(Color(0.66, 0.47, 1.0))
+				and absf(float(h.call("lamp_energy")) - 0.25) < 0.02,
+				"%s at %.3f" % [h.call("lamp_color"), float(h.call("lamp_energy"))])
+		3:
+			_ok("stage 3: whispers come from two of the doors",
+				int(h.call("whispers_playing")) == 2,
+				"%d playing" % int(h.call("whispers_playing")))
+			_ok("…and a figure stood in a NON-answer doorway for one frame",
+				int(h.call("door_figure_frames")) >= 1,
+				"%d frames" % int(h.call("door_figure_frames")))
+			# ⭐ ITEM 4: a ceiling that is not the ceiling comes down, and the lamp with it.
+			_ok("…and a false ceiling has descended to 2.70 m with the lamp on it",
+				absf(float(h.call("slab_y")) - 2.7) < 0.001
+				and absf(float(h.call("lamp_y")) - 2.5) < 0.001,
+				"slab %.2f, lamp %.2f" % [float(h.call("slab_y")), float(h.call("lamp_y"))])
+			_ok("…and THAT is where the lamp's drop to 0.12 lives now", _lamp_settled(h, 0.12),
+				"%.3f" % float(h.call("lamp_energy")))
+		4:
+			_ok("stage 4: the room's own walls swap to the corrupted texture",
+				bool(h.call("walls_corrupt"))
+				and String(h.call("wall_texture_name")) == "wall_void_corrupt.png",
+				"'%s'" % h.call("wall_texture_name"))
+			# ⭐ ITEMS 7 + 8: a SIXTH door, dead centre of the one stance this room has, with
+			# something standing in it. ⚠️ Once, never one-per-rung: a door per stage would be an
+			# anomaly counter (§8.2), which is the thing this room's header forbids.
+			var sixth: Node3D = h.call("sixth_door")
+			_ok("…and a SIXTH doorway is standing in the far wall, dead centre",
+				bool(h.call("sixth_door_visible")) and sixth != null
+				and absf(sixth.global_position.z - 47.0) < 0.01
+				and sixth.global_position.x < -26.8,
+				str(sixth.global_position) if sixth else "missing")
+			var watcher: Node3D = h.call("sixth_watcher")
+			_ok("…with a motionless figure in it, which is a PHOTOGRAPH: no collider, no rule",
+				watcher != null and _rule_free(watcher) == "", _rule_free(watcher))
+			_ok("…and the dioramas have grown to 1.25x",
+				absf(float(h.call("diorama_scale", 0)) - 1.25) < 0.001,
+				"%.3f" % float(h.call("diorama_scale", 0)))
+			_ok("…and the lamp takes its second colour notch",
+				(h.call("lamp_color") as Color).is_equal_approx(Color(0.57, 0.33, 1.0)),
+				str(h.call("lamp_color")))
+		5:
+			# ⚠️ THE PEAK LEAN, because the settle's 1.5 s tween starts in the same frame and is
+			# already unwinding it — which is the design (the room reaches its worst state and
+			# the last door is what takes the lean back out of it).
+			_ok("stage 5: the doors leaned 0.10 rad and every whisper is on",
+				absf(_room_max_lean - 0.10) < 0.005
+				and int(h.call("whispers_playing")) == 5,
+				"peak lean %.3f, %d whispers" % [_room_max_lean,
+					int(h.call("whispers_playing"))])
+			_ok("…the ceiling takes its second notch to 2.20 m, and the lamp with it",
+				absf(float(h.call("slab_y")) - 2.2) < 0.001
+				and absf(float(h.call("lamp_y")) - 2.0) < 0.001,
+				"slab %.2f, lamp %.2f" % [float(h.call("slab_y")), float(h.call("lamp_y"))])
+			# ⚠️ THE COMMANDED VALUE **AND** THE OBSERVED PEAK. `_settle()` starts tweening both
+			# copies down to 0.001 in the very frame stage 5 is applied, so by the harness's next
+			# tick the node reads 1.479 and no tolerance on the observation alone is honest. The
+			# room is asked what it commanded (exactly 1.5) and the node is required to have got
+			# most of the way there before the settle took it.
+			_ok("…the dioramas are jammed in their openings at 1.5x",
+				absf(float(h.call("grow_applied")) - 1.5) < 0.0001 and _room_max_scale > 1.4,
+				"commanded %.3f, observed peak %.3f"
+				% [float(h.call("grow_applied")), _room_max_scale])
+			# ⭐ ITEM 9: one memory out of its frame, at 1:1, in the room with you.
+			var mem: Node3D = h.call("memory")
+			_ok("…and the LAST door's memory is standing in the room at 1:1",
+				bool(h.call("memory_visible")) and mem != null and _no_scary(mem),
+				"missing" if mem == null else "carries a ScaryObject")
+			if mem != null:
+				var mb := _world_aabb(mem)
+				# ⚠️ A PHYSICS QUERY, NOT A PROPERTY. "Geometry only" is a claim about what the
+				# world does, and a disabled CollisionShape3D is one property away from being a
+				# 3.4 m wall in the room the puzzle is solved in. This fires a real ray straight
+				# through the middle of the prop, in the layer mask the player's own body uses,
+				# and requires it to come out the other side.
+				var q := PhysicsRayQueryParameters3D.create(
+					Vector3(mb.position.x - 0.5, 1.2, mb.position.z + mb.size.z * 0.5),
+					Vector3(mb.position.x + mb.size.x + 0.5, 1.2,
+						mb.position.z + mb.size.z * 0.5))
+				q.collision_mask = 1
+				var hit := _p.get_world_3d().direct_space_state.intersect_ray(q)
+				_ok("…and a ray goes straight THROUGH it: geometry only, nothing solid",
+					hit.is_empty(), "ray hit %s" % hit.get("collider", "nothing"))
+				# ⚠️ Clear of the entrance stance's own capsule (radius 0.4) and of the east
+				# column's shells, and inside the room. A 1:1 prop in a 6 x 6 room is a placement
+				# problem before it is an effect — `ceiling_stair()` is 3.40 m long against a
+				# 5.80 m room, so "wholly outside the z 47.5 lane" is geometrically impossible
+				# and the honest test is the two clearances that matter.
+				var gap: float = (-21.9) - (mb.position.x + mb.size.x)
+				_ok("…between the entrance and the east column, and clear of both",
+					mb.position.x > -23.30 and mb.position.x + mb.size.x < -22.30
+					and mb.position.z > 44.15 and mb.position.z + mb.size.z < 49.85,
+					"aabb %v + %v (%.2f m of air to the entrance stance)"
+					% [mb.position, mb.size, gap])
+
+
+func _room_solved() -> void:
+	_ok("five right doors settle the room", bool(_room_hall.call("is_solved")))
+	# ⭐ THE SETTLE'S OWN LEDGER (pass 7). Pass 6's ruling stands — the room STAYS corrupted, or
+	# the last door reads as an undo — so the floor and the walls keep the corrupt texture and
+	# the lamp keeps its colour with only its energy resolving. What goes is everything whose
+	# staying would read as a mistake over the page the corridor settles onto.
+	_ok("…the camera roll is zeroed, on the level's base AND on the camera node",
+		absf(float(_room_hall.call("camera_roll"))) < 0.0005
+		and absf(float(_room_hall.call("camera_roll_live"))) < 0.01,
+		"base %.4f, camera %.4f" % [float(_room_hall.call("camera_roll")),
+			float(_room_hall.call("camera_roll_live"))])
+	_ok("…the false ceiling, the sixth door, its watcher and the 1:1 memory are all FREED",
+		_room_hall.call("slab") == null and _room_hall.call("sixth_door") == null
+		and _room_hall.call("sixth_watcher") == null and _room_hall.call("memory") == null,
+		"slab %s, sixth %s, memory %s" % [_room_hall.call("slab"),
+			_room_hall.call("sixth_door"), _room_hall.call("memory")])
+	_ok("…and nothing is left of them in the tree either",
+		_room_hall.get_node_or_null("FalseCeiling") == null
+		and _room_hall.get_node_or_null("SixthDoor") == null
+		and _room_hall.get_node_or_null("MemoryAtFullSize") == null)
+	_ok("…the floor and the walls STAY corrupt (the last door is not an undo)",
+		bool(_room_hall.call("walls_corrupt")) and bool(_room_hall.call("floor_corrupt"))
+		and String(_room_hall.call("floor_texture_name")) == "wall_void_corrupt.png")
+	_ok("…the lamp keeps its colour and comes back to the light at 1.0",
+		(_room_hall.call("lamp_color") as Color).is_equal_approx(Color(0.57, 0.33, 1.0))
+		and float(_room_hall.call("lamp_energy")) > 0.9
+		and absf(float(_room_hall.call("lamp_y")) - 2.8) < 0.001,
+		"%s at %.2f, y %.2f" % [_room_hall.call("lamp_color"),
+			float(_room_hall.call("lamp_energy")), float(_room_hall.call("lamp_y"))])
+	_ok("…and the hum and the whisper behind you stay",
+		bool(_room_hall.call("hum_playing")) and bool(_room_hall.call("back_whisper_playing")))
+	var note = _level.call("hidden_note")
+	_ok("…and the page at the corridor's end is in the world",
+		note != null and bool(note.call("is_revealed")) and note.visible)
+	_p.set("ai_move_dir", Vector2.ZERO)
+	_p.velocity = Vector3.ZERO
+	_p.global_position = Vector3(-24.0, 0.1, 48.7)
+	_p.force_update_transform()
+	_p.call("ai_look_at", (note as Node3D).global_position)
+	_p.get_node("Camera3D").force_update_transform()
+	var t: Node = _p.call("ai_interact_target")
+	_ok("…and it is reachable by the shipping ray from inside the settled corridor",
+		t == note or (t != null and (note as Node3D).is_ancestor_of(t)),
+		"ray hit %s" % (t.name if t else "nothing"))
+	_ok("the whole room — five rights, one wrong, five stages — cost ZERO panic",
+		absf(float(_p.call("get_panic_ratio")) - _room_panic) < 0.001,
+		"%.4f -> %.4f" % [_room_panic, float(_p.call("get_panic_ratio"))])
+	# ⭐ AND A RESTORE APPLIES A STAGE WITHOUT REPLAYING IT.
+	var snap: Dictionary = _level.call("save_progress")
+	_ok("the snapshot carries `frame_stage` and `ward_box_open`",
+		snap.has("frame_stage") and int(snap["frame_stage"]) == 5
+		and bool(snap.get("ward_box_open", false)),
+		"stage %s, box %s" % [snap.get("frame_stage"), snap.get("ward_box_open")])
+	_p.set("ai_active", false)
+	_stage = 60
+
+
 # ── THE CORRIDOR CHARGE, driven through the shipping trigger ──────────────────────────────
 #
 # ⚠️ IT RUNS HERE, WITH ALL FIVE STALKERS STILL ALIVE, because half of what it has to prove is
@@ -1495,27 +2206,32 @@ func _no_scary(n: Node) -> bool:
 # is set by hand for the beat and put back: it is the exact flag a snapshot restore sets, no rung
 # of the loop ladder is touched, and the real southbound walk into the real Area3D is what fires
 # the charge. Nothing here calls `_fire_corridor_charge()`.
-# ⚠️ AND CREATURE C IS MOVED FIRST. C stands at (13.15, 41) — INSIDE the trigger volume — so
-# teleporting the player in would be teleporting them onto a lethal stalker (Issue 228: a wait
-# beside a creature is a distance). It is relocated through the level's own `relocate_safely()`,
-# which is what the loop's own creep uses, and the next lap puts it back.
+# ⚠️ CREATURE C NO LONGER HAS TO BE MOVED, and that is a consequence of the trigger moving to
+# z 26 (pass 6). While the volume sat at z 41..43 it CONTAINED C's stance at (13.15, 41), so
+# teleporting the player in was teleporting them onto a lethal stalker (Issue 228: a wait beside
+# a creature is a distance) and the stage had to relocate it. At z 25..27 the player is 14 m from
+# C for the whole beat, so nothing is moved and nothing has to be put back.
 var _charge_panic := 0.0
 var _charge_fig: Node = null
 var _c_rect := Rect2()
+# ⭐ pass 7: the bearing at the frame the charge fires and at the frame the rush begins, and how
+# far the figure had moved by the latter.
+var _charge_ticks := 0
+var _charge_yaw_at_fire := -1.0
+var _charge_yaw_at_rush := -1.0
+var _charge_moved_at_rush := -1.0
 
 
 func _charge_begin() -> void:
-	print("--- the corridor charge (the walk back) ---")
+	print("--- the corridor charge at 60 % of the walk back (z 26) ---")
 	var c = _stalkers.get("C", null)
 	_c_rect = c.get("protected_player_rect") if c else Rect2()
-	if c and is_instance_valid(c):
-		c.call("relocate_safely", Vector3(13.15, 0.0, 24.0))
 	_level.set("_loop_broken", true)
 	_p.set("ai_active", true)
-	_p.global_position = Vector3(12.5, 0.1, 41.6)
+	_p.global_position = Vector3(12.5, 0.1, 25.6)
 	_p.force_update_transform()
 	# NORTHBOUND first: the way IN. The beat answers the walk back and must not fire here.
-	_p.call("ai_look_at", Vector3(12.5, 1.3, 48.0))
+	_p.call("ai_look_at", Vector3(12.5, 1.3, 34.0))
 	_p.set("ai_move_dir", Vector2(0.0, -1.0))
 	_charge_panic = float(_p.call("get_panic_ratio"))
 	_stage = 76
@@ -1528,15 +2244,49 @@ func _charge_north_control() -> void:
 		and _level.get_node_or_null("ChargeFigure") == null,
 		"player at z %.2f, velocity z %.2f" % [_p.global_position.z, _p.velocity.z])
 	_ok("…and the control really did cross the volume northbound",
-		_p.velocity.z > 0.5 and _p.global_position.z > 41.0,
+		_p.velocity.z > 0.5 and _p.global_position.z > 26.0,
 		"z %.2f, vz %.2f" % [_p.global_position.z, _p.velocity.z])
-	# …and now turn round. This is the leg capture #4 is about.
-	_p.global_position = Vector3(12.5, 0.1, 42.6)
+	# …and now walk the leg BACKWARDS, which is the leg capture 1 of the 02:13 run is about:
+	# *"I was going backwards and I did not see the jumpscare."* The player faces NORTH, away
+	# from where the figure stands, and moves SOUTH through the trigger. `ai_move_dir` is in the
+	# body's own frame, so (0, +1) is "walk backwards" exactly as S does in game.
+	_p.global_position = Vector3(12.5, 0.1, 26.6)
 	_p.force_update_transform()
-	_p.call("ai_look_at", Vector3(12.5, 1.3, 20.0))
-	_p.set("ai_move_dir", Vector2(0.0, -1.0))
+	_p.call("ai_look_at", Vector3(12.5, 1.3, 34.0))     # facing AWAY from the figure at z 16.5
+	_p.get_node("Camera3D").force_update_transform()
+	_p.set("ai_move_dir", Vector2(0.0, 1.0))
+	_ok("…and the stance for the charge really is facing AWAY (%.0f deg off the figure)"
+		% _yaw_error_to(Vector3(12.5, 1.65, 16.5)),
+		_yaw_error_to(Vector3(12.5, 1.65, 16.5)) > 90.0)
+	_charge_ticks = 0
+	_charge_yaw_at_rush = -1.0
+	_charge_moved_at_rush = -1.0
+	_charge_yaw_at_fire = -1.0
 	_stage = 77
-	_wait = 20
+
+
+# ⭐ POLLED, NOT WAITED (2026-09-22 pass 7). The claim is *"the camera faces the figure before the
+# rush moves it"*, and that is a statement about ONE FRAME — the frame `_begin_charge()` runs on.
+# A fixed `_wait` samples whenever it happens to land and would read a camera that the rush's own
+# `_face_player()` has since dragged round, which proves nothing. This walks every tick, records
+# the bearing at the instant the figure fires AND how far it had moved by then, and stops.
+func _charge_watch(_t: int) -> void:
+	_charge_ticks += 1
+	var fig := _level.get_node_or_null("ChargeFigure")
+	if fig == null:
+		if _charge_ticks > 240:
+			_ok("the backwards walk fired the charge inside the budget", false,
+				"240 ticks at z %.2f, vz %.2f" % [_p.global_position.z, _p.velocity.z])
+			_stage = 78
+			_wait = 10
+		return
+	if _charge_yaw_at_fire < 0.0:
+		_charge_yaw_at_fire = _yaw_error_to(Vector3(12.5, 1.65, 16.5))
+	if not bool(fig.call("has_lunged")):
+		return
+	_charge_yaw_at_rush = _yaw_error_to(Vector3(12.5, 1.65, 16.5))
+	_charge_moved_at_rush = (fig as Node3D).global_position.distance_to(Vector3(12.5, 0, 16.5))
+	_charge_fired()
 
 
 func _charge_fired() -> void:
@@ -1545,7 +2295,21 @@ func _charge_fired() -> void:
 	_ok("walking SOUTH through the trigger fires the charge",
 		bool(_level.call("corridor_charge_done")) and _charge_fig != null,
 		"at z %.2f, vz %.2f" % [_p.global_position.z, _p.velocity.z])
-	_ok("…with the figure standing 25 m down the corridor under the dead lamp",
+	# ⭐ ISSUE 255: A SCARE MUST OWN THE CAMERA. The player walked in with their back to this and
+	# the beat turned them round; the bearing is read at the exact frame the rush begins, and the
+	# figure is proved to have STILL BEEN AT ITS POST at that frame, so the camera came to the
+	# figure rather than the figure coming into a camera that never moved.
+	_ok("…from a stance facing away (%.0f deg), the camera faces the figure within 5 deg BEFORE "
+		% _charge_yaw_at_fire + "the rush begins",
+		_charge_yaw_at_rush >= 0.0 and _charge_yaw_at_rush < 5.0
+		and _charge_yaw_at_fire > 90.0,
+		"%.1f deg off at the rush" % _charge_yaw_at_rush)
+	_ok("…and the figure had not started moving yet when that was true",
+		_charge_moved_at_rush >= 0.0 and _charge_moved_at_rush < 0.6,
+		"%.2f m travelled" % _charge_moved_at_rush)
+	_ok("…and the input was never frozen for it (this level freezes only for the cut)",
+		not bool(_p.call("is_input_frozen")))
+	_ok("…with the figure standing 9.5 m down the corridor under the dead lamp",
 		_charge_fig != null
 		and (_charge_fig as Node3D).global_position.distance_to(Vector3(12.5, 0, 16.5)) < 1.2
 		or bool(_charge_fig.call("has_lunged")) if _charge_fig else false,
@@ -1569,12 +2333,10 @@ func _charge_fired() -> void:
 	_ok("the charge costs ZERO panic",
 		absf(float(_p.call("get_panic_ratio")) - _charge_panic) < 0.001,
 		"%.4f -> %.4f" % [_charge_panic, float(_p.call("get_panic_ratio"))])
-	# ⚠️ STOP WALKING. Issue 228 for the third time on this level: the next wait is 2.8 s, the
-	# player was walking south at 4 m/s, and C had been parked at z 24 to clear the trigger
-	# volume — 11 m of walking straight into a lethal stalker. It killed the test's player.
-	# ⚠️ AND C STAYS PARKED UNTIL THE ONE-SHOT CONTROL IS DONE. Sending it home here put it at
-	# (13.15, 41), 1.9 m from the stance the control re-enters at: awakened, lunge, dead, and the
-	# file ran itself twice. A wait next to a creature is a distance, and so is a teleport.
+	# ⚠️ STOP WALKING. Issue 228 for the third time on this level: the next wait is 2.8 s and the
+	# player was walking south at 4 m/s. Since pass 6 they are walking AWAY from C (which is at
+	# z 41 and never moved for this stage), but a bot left walking for three seconds ends up
+	# somewhere nobody chose, which is how two of this file's stages staged their own deaths.
 	_p.set("ai_move_dir", Vector2.ZERO)
 	_p.velocity = Vector3.ZERO
 	_stage = 78
@@ -1593,7 +2355,7 @@ func _charge_after() -> void:
 		absf(float(_p.call("get_panic_ratio")) - _charge_panic) < 0.001,
 		"%.4f -> %.4f" % [_charge_panic, float(_p.call("get_panic_ratio"))])
 	# CONTROL: walk the same leg again. It is one-shot.
-	_p.global_position = Vector3(12.5, 0.1, 42.6)
+	_p.global_position = Vector3(12.5, 0.1, 26.6)
 	_p.force_update_transform()
 	_p.call("ai_look_at", Vector3(12.5, 1.3, 20.0))
 	_p.set("ai_move_dir", Vector2(0.0, -1.0))
@@ -1605,24 +2367,207 @@ func _charge_once() -> void:
 	_ok("CONTROL: a second southbound pass fires nothing",
 		_level.get_node_or_null("ChargeFigure") == null
 		and bool(_level.call("corridor_charge_done")))
-	# Hand the level back exactly as it was found: the loop is not broken yet, and C goes home.
+	# Hand the level back exactly as it was found: the loop is not broken yet. C never moved.
 	_level.set("_loop_broken", false)
-	var c = _stalkers.get("C", null)
-	if c and is_instance_valid(c):
-		c.call("relocate_safely", Vector3(13.15, 0.0, 41.0))
 	_p.set("ai_move_dir", Vector2.ZERO)
 	_p.set("ai_active", false)
 	_stage = 1
 
 
-# ── THE WEDGED SHARD, through the prop's own off-screen beat ──────────────────────────────
+# ⭐ THE PASS-6 STRUCTURE: the recurring room and the Ward box, at frame 0.
+func _pass6_checks() -> void:
+	print("--- pass 6: the recurring room and the Ward box ---")
+	var hall: Node = _level.call("frame_hall")
+	_ok("the recurring room exists and starts at stage 0",
+		hall != null and int(hall.call("stage")) == 0 and not bool(hall.call("is_solved")))
+	# ⚠️ THREE WALL BOXES, counted. Stage 4 swaps the room's own walls to a corrupted texture,
+	# and the boxes are found by GEOMETRY because RoomBuilder names every wall "Wall" and Godot
+	# replaces duplicate names (Issue 237). The x = -21 plane is the MORGUE's 10 m wall and is
+	# deliberately NOT one of them; if a later footprint edit makes this count 1 or 5, the rung
+	# has quietly changed size and this says so.
+	_ok("…and it owns exactly 3 wall boxes (x -27, z 44, z 50 — never the Morgue's x -21)",
+		(hall.call("wall_boxes") as Array).size() == 3,
+		"%d boxes" % (hall.call("wall_boxes") as Array).size())
+	# ⭐ pass 7: …AND ONE FLOOR, found by the same geometric rule. It is the biggest torch-lit
+	# surface in the room and it carries stage 2. Asserted the same way and for the same reason
+	# as the wall count: a later footprint edit must not silently drop a rung.
+	var fl: CSGBox3D = hall.call("floor_box")
+	_ok("…and exactly one FLOOR box, 6 x 6 under the room at y -0.1",
+		fl != null and absf(fl.size.x - 6.0) < 0.01 and absf(fl.size.z - 6.0) < 0.01
+		and fl.position.y < 0.0,
+		str(fl.position) + " " + str(fl.size) if fl else "missing")
+	_ok("…carrying the level's own wall texture at stage 0",
+		String(hall.call("wall_texture_name")) == "wall_void.png",
+		"'%s'" % hall.call("wall_texture_name"))
+	_ok("…and the floor its own, un-corrupted",
+		not bool(hall.call("floor_corrupt"))
+		and String(hall.call("floor_texture_name")) == "floor_void.png",
+		"'%s'" % hall.call("floor_texture_name"))
+	# ── the pass-7 ladder's new hardware, at frame 0 ──────────────────────────────────────
+	_ok("the false ceiling exists, parked at 3.0 m, 0.10 m clear of every wall's inner face",
+		hall.call("slab") != null and absf(float(hall.call("slab_y")) - 3.0) < 0.001,
+		"%.2f" % float(hall.call("slab_y")))
+	var slab_box := _world_aabb(hall.call("slab") as Node3D)
+	_ok("…and it is 5.6 x 5.6 inside a 6 x 6 room, so it cannot overlap anything",
+		absf(slab_box.size.x - 5.6) < 0.01 and absf(slab_box.size.z - 5.6) < 0.01
+		and slab_box.position.x > -26.9 and slab_box.position.x + slab_box.size.x < -21.1
+		and slab_box.position.z > 44.1 and slab_box.position.z + slab_box.size.z < 49.9,
+		"%v + %v" % [slab_box.position, slab_box.size])
+	_ok("the sixth door and the memory are BUILT and hidden at stage 0",
+		hall.call("sixth_door") != null and not bool(hall.call("sixth_door_visible"))
+		and hall.call("memory") != null and not bool(hall.call("memory_visible")))
+	# ⚠️ IT IS A VISUAL AGAINST THE WALL, NEVER AN OPENING. `check_shell_sealed` proves the shell
+	# is intact; this proves the shell was never asked to be anything else — every piece of the
+	# sixth door's geometry lives INSIDE the room, clear of the x = -26.9 wall face.
+	var sixth_box := _world_aabb(hall.call("sixth_door") as Node3D)
+	_ok("…and every millimetre of the sixth door is inside the room, clear of the far wall",
+		sixth_box.position.x > -26.9 and sixth_box.position.x + sixth_box.size.x < -21.1,
+		"x %.3f..%.3f against the wall face at -26.900"
+		% [sixth_box.position.x, sixth_box.position.x + sixth_box.size.x])
+	_ok("…and the backdrops are BLACK at stage 0 (albedo 0.02), not pale",
+		(hall.call("backdrop_albedo", 0) as Color).is_equal_approx(Color(0.02, 0.018, 0.026)),
+		str(hall.call("backdrop_albedo", 0)))
+	_ok("…and the corrupted texture it swaps to really imported (Issue 25)",
+		ResourceLoader.exists("res://assets/textures/level_4_void/wall_void_corrupt.png")
+		and load("res://assets/textures/level_4_void/wall_void_corrupt.png") != null)
+	_ok("…and `room_hum` resolves through GameState.load_audio",
+		root.get_node("GameState").call("load_audio", "room_hum") != null)
+	# The cut's own panel: present, black, full-rect, PROCESS_MODE_ALWAYS and NOT up at frame 0.
+	var rect := _level.get_node_or_null("VoidCutLayer/CutRect") as ColorRect
+	_ok("the cut's black panel exists and is down at frame 0",
+		rect != null and not rect.visible and rect.color.is_equal_approx(Color(0, 0, 0, 1)))
+	_ok("…on a CanvasLayer that keeps processing while the tree is paused",
+		rect != null and rect.get_parent() is CanvasLayer
+		and (rect.get_parent() as CanvasLayer).process_mode == Node.PROCESS_MODE_ALWAYS)
+
+	# ── the Ward box ──────────────────────────────────────────────────────────────────────
+	var box = _level.call("ward_box")
+	_ok("`FoldedFrame_Ward_L` is a sealed strapped box now (capture #1)",
+		box != null and _level.get_node_or_null("FoldedFrame_Ward_L") == null)
+	var bx := _world_aabb(box as Node3D)
+	_ok("…about 1.9 x 0.7 x 0.7 and standing on the floor at (-2.6, 14.5)",
+		absf(bx.size.x - 1.94) < 0.05 and bx.size.y < 0.85 and absf(bx.size.z - 0.76) < 0.05
+		and bx.position.y > -0.01 and bx.position.y < 0.02, str(bx))
+	_ok("…and NOTHING in it is emissive (this level has no glow to spend)", _no_emission(box))
+	_ok("…and it has no ScaryObject ancestor: zero panic, like everything else in the Ward",
+		_no_scary(box))
+	# Silhouette carries a prop (Issue 35): runners, base, four walls, a lid, four straps.
+	var parts := {"WardBoxRunner": 0, "WardBoxSide": 0, "WardBoxEnd": 0, "WardBoxLidSlab": 0,
+		"WardBoxStrap": 0, "WardBoxBuckle": 0}
+	var stack: Array = [box]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is MeshInstance3D:
+			for k in parts.keys():
+				if String(n.name).begins_with(k):
+					parts[k] = int(parts[k]) + 1
+		for c in n.get_children():
+			stack.append(c)
+	_ok("…built from parts: 2 runners, 2 sides, 2 ends, a lid and 4 strap pieces",
+		int(parts["WardBoxRunner"]) == 2 and int(parts["WardBoxSide"]) == 2
+		and int(parts["WardBoxEnd"]) == 2 and int(parts["WardBoxLidSlab"]) == 1
+		and int(parts["WardBoxStrap"]) == 4, str(parts))
+	# ⚠️ COINCIDENT SURFACES. The lid slab's underside must clear the walls' top faces — two
+	# visible surfaces in one plane is this project's most common bug class.
+	var lid := (box as Node3D).get_node_or_null("WardBoxLid/WardBoxLidSlab") as MeshInstance3D
+	var rim: float = float(_level.get_script().get_script_constant_map().get("ROOM_H", 0.0))
+	var fconst: Dictionary = load("res://scripts/void_fragments.gd").get_script_constant_map()
+	var lid_bottom: float = float(fconst["BOX_LID_Y"]) - 0.035
+	_ok("…and the lid's underside clears the box rim by %.3f m (>= 0.02 required)"
+		% (lid_bottom - float(fconst["BOX_RIM_Y"])),
+		lid != null and lid_bottom - float(fconst["BOX_RIM_Y"]) >= 0.02)
+	_ok("…the box is SEALED at frame 0 and says so", not bool(box.call("is_open"))
+		and String(box.call("prompt_text")) == "The box is sealed."
+		and bool(box.call("can_interact")))
+	# ── and the bed slat is inside it ─────────────────────────────────────────────────────
+	var slat := _level.get_node_or_null("Anchor_slat") as Node3D
+	_ok("the bed slat lies INSIDE the box, not at a frame's mouth",
+		slat != null and bx.has_point(slat.global_position), str(slat.global_position))
+	_ok("…and it refuses BY NAME while the lid is down (Issue 242: gate the target)",
+		slat != null and bool(slat.call("is_sealed"))
+		and String(slat.call("prompt_text")) == "The box is sealed.",
+		"'%s'" % (slat.call("prompt_text") if slat else ""))
+	slat.call("interact")
+	_ok("CONTROL: …so E straight on the slat takes nothing",
+		String(_level.call("carried_anchor")) == "",
+		"carrying '%s'" % _level.call("carried_anchor"))
+
+	# ── A RESTORE APPLIES A STAGE WITHOUT REPLAYING IT ────────────────────────────────────
+	# ⚠️ Driven through `restore_state()`, the method `_restore_progress()` calls — never by
+	# `apply_stage()` directly, because the claim is about the SNAPSHOT path. A snapshot that
+	# blinked the player and stood a figure in a doorway would be a restore replaying a one-shot
+	# (the Ward frame's rule), and the ladder's whole design is that every rung is reversible.
+	var order0: Array = (hall.call("frame_ids") as Array).duplicate()
+	var director := _level.get_node_or_null("StareDirector")
+	var blinks0: int = int(director.call("fired_count")) if director else 0
+	hall.call("restore_state", {"order": order0, "progress": 4, "stage": 4, "wrong": 2,
+		"solved": false, "seed": 80920})
+	_ok("a restore puts the room back at the stage it was left in",
+		int(hall.call("stage")) == 4 and bool(hall.call("walls_corrupt"))
+		and bool(hall.call("hum_playing")) and int(hall.call("whispers_playing")) == 2
+		and absf(float(hall.call("lamp_energy")) - 0.12) < 0.001,
+		"stage %d, lamp %.2f, %d whispers" % [int(hall.call("stage")),
+			float(hall.call("lamp_energy")), int(hall.call("whispers_playing"))])
+	_ok("…without replaying stage 3's one-shots: no blink, no figure in a doorway",
+		hall.call("door_figure") == null
+		and (director == null or int(director.call("fired_count")) == blinks0))
+	_ok("…and it keeps the permutation it was saved with",
+		(hall.call("frame_ids") as Array) == order0)
+	hall.call("restore_state", {"order": order0, "progress": 0, "stage": 0, "wrong": 0,
+		"solved": false, "seed": 80920})
+	_ok("…and stage 0 restores EVERY rung: lamp, hum, whispers, walls, lean, duplicates",
+		int(hall.call("stage")) == 0 and not bool(hall.call("walls_corrupt"))
+		and String(hall.call("wall_texture_name")) == "wall_void.png"
+		and not bool(hall.call("hum_playing")) and int(hall.call("whispers_playing")) == 0
+		and absf(float(hall.call("lean"))) < 0.001
+		and not (hall.call("echo", 0) as Node3D).visible
+		and absf(float(hall.call("lamp_energy")) - 0.25) < 0.001,
+		"lamp %.2f, tex '%s', lean %.3f" % [float(hall.call("lamp_energy")),
+			hall.call("wall_texture_name"), float(hall.call("lean"))])
+	# ⭐ …AND EVERY PASS-7 RUNG WITH THEM. Reversibility is not a nicety here: a wrong door drops
+	# the room to stage 0 and the player has to be able to TELL that it did. One rung that did
+	# not come back would be a ladder that only ever went up.
+	_ok("…and so does the pass-7 half: backdrops, roll, floor, ceiling, colour, echo offset",
+		(hall.call("backdrop_albedo", 0) as Color).is_equal_approx(Color(0.02, 0.018, 0.026))
+		and absf(float(hall.call("camera_roll"))) < 0.0005
+		and not bool(hall.call("floor_corrupt"))
+		and String(hall.call("floor_texture_name")) == "floor_void.png"
+		and absf(float(hall.call("slab_y")) - 3.0) < 0.001
+		and absf(float(hall.call("lamp_y")) - 2.8) < 0.001
+		and (hall.call("lamp_color") as Color).is_equal_approx(Color(0.72, 0.58, 1.0))
+		and absf(float(hall.call("diorama_scale", 0)) - 1.0) < 0.001
+		and not bool(hall.call("sixth_door_visible"))
+		and not bool(hall.call("memory_visible"))
+		and not bool(hall.call("back_whisper_playing")),
+		("roll %.4f, floor '%s', slab %.2f, lamp y %.2f %s, scale %.2f, sixth %s, memory %s"
+			% [float(hall.call("camera_roll")), hall.call("floor_texture_name"),
+			float(hall.call("slab_y")), float(hall.call("lamp_y")), hall.call("lamp_color"),
+			float(hall.call("diorama_scale", 0)), hall.call("sixth_door_visible"),
+			hall.call("memory_visible")]))
+	# ⚠️ AND A RESTORE AT STAGE 4 CARRIES THE ROLL AND THE SIXTH DOOR, because the snapshot path
+	# never walks the ladder — a player who walks back into the room must find the room they
+	# left, not the room as it was built.
+	hall.call("restore_state", {"order": order0, "progress": 4, "stage": 4, "wrong": 2,
+		"solved": false, "seed": 80920})
+	_ok("a restore at stage 4 brings the roll, the ceiling, the sixth door and the colour back",
+		absf(float(hall.call("camera_roll")) - 0.04) < 0.0005
+		and absf(float(hall.call("slab_y")) - 2.7) < 0.001
+		and bool(hall.call("sixth_door_visible"))
+		and (hall.call("lamp_color") as Color).is_equal_approx(Color(0.57, 0.33, 1.0)),
+		"roll %.4f, slab %.2f, sixth %s" % [float(hall.call("camera_roll")),
+			float(hall.call("slab_y")), hall.call("sixth_door_visible")])
+	hall.call("restore_state", {"order": order0, "progress": 0, "stage": 0, "wrong": 0,
+		"solved": false, "seed": 80920})
+
+
+# ── THE SHARD, THE BOX AND THE GURNEY'S RECEIPT ───────────────────────────────────────────
 var _shard_panic := 0.0
 var _hang_y0 := 0.0
 var _hang_yaw0 := 0.0
 
 
 func _shard_begin() -> void:
-	print("--- the wedged shard and the gurney's receipt ---")
+	print("--- the shard, the table's scare, and the box the gurney opens ---")
 	var shard = _level.call("shard")
 	_p.set("ai_active", true)
 	_p.set("ai_move_dir", Vector2.ZERO)
@@ -1633,15 +2578,14 @@ func _shard_begin() -> void:
 	var t: Node = _p.call("ai_interact_target")
 	# ⚠️ THE REAL RAY. Issue 230: the table's own collider used to swallow this ray, and a basin
 	# the eye can enter and the E-ray cannot is the fault the whole prop was rebuilt for.
-	_ok("the wedged shard is what the interact ray finds from the Archive floor",
+	_ok("the shard is what the interact ray finds from the Archive floor at frame 0",
 		t == shard, "ray hit %s" % (t.name if t else "nothing"))
+	_ok("…and it offers E rather than refusing (pass 5's wedge is retired)",
+		String(shard.call("prompt_text")) == "E — Take the shard.",
+		"'%s'" % shard.call("prompt_text"))
 	_shard_panic = float(_p.call("get_panic_ratio"))
-	_p.call("ai_interact")
-	_ok("…and E on it REFUSES: it is still there and nothing is carried",
-		is_instance_valid(shard) and not bool(shard.call("is_freed"))
-		and not bool(_level.call("has_shard")))
-	_ok("…at zero cost", absf(float(_p.call("get_panic_ratio")) - _shard_panic) < 0.001)
-	# Now look AT the table: `arm_on_sight` arms on one clear frame inside 8 m.
+	# Now look AT the table: `arm_on_sight` arms on one clear frame inside 8 m. The scare must
+	# still happen; it must simply not gate anything.
 	var table := _level.get_node_or_null("InvertedTable_Archive") as Node3D
 	_p.call("ai_look_at", table.global_position + Vector3(0, 0.6, 0))
 	_stage = 81
@@ -1652,9 +2596,8 @@ func _shard_watched() -> void:
 	var table := _level.get_node_or_null("InvertedTable_Archive")
 	var shard = _level.call("shard")
 	_ok("looking at the table arms it", bool(table.get("armed")))
-	_ok("CONTROL: and while it is WATCHED the shard has not moved",
-		not bool(shard.call("is_freed")) and shard.global_position.y > 0.6,
-		str(shard.global_position))
+	_ok("CONTROL: and while it is WATCHED nothing about it has changed",
+		not bool(table.get("spent")) and bool(shard.call("is_freed")))
 	_p.call("ai_look_at", Vector3(-1.0, 1.3, 19.0))   # turn away, still in the Archive
 	_stage = 82
 	_wait = 12
@@ -1663,41 +2606,36 @@ func _shard_watched() -> void:
 func _shard_freed() -> void:
 	var table := _level.get_node_or_null("InvertedTable_Archive")
 	var shard = _level.call("shard")
-	_ok("looking away re-posed the table", bool(table.get("spent")))
-	_ok("…and THAT is what shook the shard down into the basin",
-		bool(shard.call("is_freed"))
-		and shard.global_position.distance_to(Vector3(-3.4, 0.42, 22.0)) < 0.05,
+	_ok("looking away STILL re-poses the table — the P11 scare survives", bool(table.get("spent")))
+	_ok("…and the shard did not move with it: the beat gates nothing now",
+		shard.global_position.distance_to(Vector3(-3.4, 0.42, 22.0)) < 0.05,
 		str(shard.global_position))
-	_ok("…and it carries the clatter that announces it",
-		shard.get_node_or_null("ShardClatter") != null)
-	_ok("…and the prompt finally offers E",
-		String(shard.call("prompt_text")) == "E — Take the shard.",
-		"'%s'" % shard.call("prompt_text"))
-	# …and it is takeable through the real ray, exactly as before.
+	# …and it is takeable through the real ray.
 	_p.global_position = Vector3(-3.4, 0.1, 20.9)
 	_p.force_update_transform()
 	_p.call("ai_look_at", shard.global_position)
 	_p.get_node("Camera3D").force_update_transform()
 	var t: Node = _p.call("ai_interact_target")
-	_ok("the freed shard is reachable by the ray from the basin's own approach",
+	_ok("the shard is reachable by the ray from the basin's own approach",
 		t == shard, "ray hit %s" % (t.name if t else "nothing"))
 	_p.call("ai_interact")
 	_ok("…and E takes it", bool(_level.call("has_shard")))
 	_level.set("_shard_taken", false)
 	_level.call("_update_carried")
 
-	# ── the Ward: the slat must still be the first thing the ray finds from its approach ──
+	# ── the Ward: the SHUT box is what the ray finds on the slat's approach ───────────────
 	var slat := _level.get_node_or_null("Anchor_slat") as Node3D
-	_p.global_position = Vector3(-2.5, 0.1, 12.5)
+	var box = _level.call("ward_box")
+	_p.global_position = SLAT_STANCE
 	_p.force_update_transform()
 	_p.call("ai_look_at", slat.global_position)
 	_p.get_node("Camera3D").force_update_transform()
 	var st: Node = _p.call("ai_interact_target")
-	# ⚠️ THE GURNEY HANGS 0.3 m FROM THIS RAY. Its touch volume is deliberately 1.05 m off the
-	# floor so this approach passes under it — the ray takes the NEAREST hit, and the bed slat
-	# gates the Morgue seal, so swallowing it would be a hard softlock.
-	_ok("CONTROL: the bed slat is still the ray's first hit from its own approach",
-		st == slat or (slat != null and st != null and slat.is_ancestor_of(st)),
+	# ⚠️ Defence in depth, and this is the HALF THAT IS PHYSICAL: the shut lid's collider stops
+	# a descending ray before it reaches the slat inside. The refusal on the slat itself (see
+	# `_pass6_checks`) is the half that survives a grazing angle (Issue 242).
+	_ok("CONTROL: with the box shut the ray finds the BOX, and it explains itself",
+		st == box and String(st.call("prompt_text")) == "The box is sealed.",
 		"ray hit %s" % (st.name if st else "nothing"))
 
 	# ── and the gurney answers the touch under the player's eyes ──────────────────────────
@@ -1715,13 +2653,25 @@ func _shard_freed() -> void:
 	_shard_panic = float(_p.call("get_panic_ratio"))
 	_p.call("ai_interact")
 	_ok("E arms the Ward's answer", bool(ward.get("armed")))
+	_ok("…and the SAME press opens the box, in view across the room",
+		bool(_level.call("ward_box_open")) and bool(box.call("is_open")))
 	_stage = 83
-	_wait = 40          # past the 0.4 s receipt tween
+	_wait = 90          # past the 0.4 s receipt tween AND the 0.18 + 0.8 s lid
+
+
+# ⚠️ FROM THE NORTH, and that is measured. The gurney's touch volume sits at y 1.25..1.85 over
+# z 13.08..13.53 — a ray from the SOUTH to a slat now lying at z 14.56 passes straight through
+# it and the ray takes the nearest hit, so the approach had to move to the other side of the
+# box. From (-2.6, 15.9) the ray clears the box's north wall top (y 0.42) by 7 cm — and six
+# swept stances between 1.5 m and 2.2 m all reach it, which the first, deeper box did not.
+const SLAT_STANCE := Vector3(-2.6, 0.1, 15.9)
 
 
 func _gurney_moved() -> void:
 	var ward := _level.get_node_or_null("WardFragment") as Node3D
 	var hang := ward.get_node("HangingGurney/GurneyHang") as Node3D
+	var box = _level.call("ward_box")
+	var slat := _level.get_node_or_null("Anchor_slat") as Node3D
 	# ⭐ THE RECEIPT (Issue 243). Two playtests in a row called this touch "nothing happens",
 	# because the only answer was five metres away and off-screen. The thing you touch moves.
 	_ok("…and the gurney DROPS 0.10 m under the player's own eyes",
@@ -1732,7 +2682,27 @@ func _gurney_moved() -> void:
 		"%.2f deg" % rad_to_deg(hang.rotation.y - _hang_yaw0))
 	_ok("…with a grind at the gurney itself, not across the room",
 		ward.get_node_or_null("GurneyGrind") != null)
-	_ok("the receipt costs ZERO panic",
+	# ⭐ pass 6: and the box, 1.2 m away, has ground its lid all the way back IN VIEW.
+	_ok("the box's lid has swung fully open, with its own grind at the box",
+		absf(float(box.call("lid_angle")) + 2.1) < 0.02
+		and (box as Node3D).get_node_or_null("WardBoxGrind") != null,
+		"%.3f rad" % float(box.call("lid_angle")))
+	_ok("…and the box goes INERT, so the prompt now belongs to what is inside it",
+		not bool(box.call("can_interact")))
+	_ok("…and the slat stops refusing", not bool(slat.call("is_sealed")))
+	_p.global_position = SLAT_STANCE
+	_p.force_update_transform()
+	_p.call("ai_look_at", slat.global_position)
+	_p.get_node("Camera3D").force_update_transform()
+	var st: Node = _p.call("ai_interact_target")
+	_ok("the bed slat is what the ray finds now, from the same stance that found the box",
+		st == slat or (slat != null and st != null and slat.is_ancestor_of(st)),
+		"ray hit %s" % (st.name if st else "nothing"))
+	_p.call("ai_interact")
+	_ok("…and E takes it", String(_level.call("carried_anchor")) == "slat",
+		"carrying '%s'" % _level.call("carried_anchor"))
+	_level.call("consume_anchor", "slat")
+	_ok("the whole box beat costs ZERO panic",
 		absf(float(_p.call("get_panic_ratio")) - _shard_panic) < 0.001,
 		"%.4f -> %.4f" % [_shard_panic, float(_p.call("get_panic_ratio"))])
 	_twist_gate()
@@ -1816,5 +2786,399 @@ func _twist_opened() -> void:
 	_ok("…and E finally opens it", bool(ui.get("is_open")) and bool(gs.get("twist_read")))
 	ui.call("_close")
 	gs.set("twist_read", false)
-	_p.set("ai_active", false)
-	_stage = 60
+	_room_begin()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════
+# ⭐ PASS 8 (2026-09-23) — the answer's order, the drawers that shut, and the cradle's fire.
+# ═══════════════════════════════════════════════════════════════════════════════════════
+
+# ⚠️ THIS IS THE GUARD THAT WOULD HAVE CAUGHT THE PASS-4 MISTAKE, AND IT IS BUILT SO THAT IT
+# COULD FAIL. The recurring room's answer is "the order you met the five things", and from pass 4
+# to pass 7 it was `shards, frame, table, chairs, stair` while the stair stood in HALL1 — the
+# second room on the only path out of the Threshold. The 23:10 playtester photographed it.
+#
+# So this reads the five SOURCE PROPS' real world positions out of the live level, locates each
+# one inside `level_3.gd:ROOMS` by rect, and asserts `ANSWER` is those five ids sorted by the
+# room's index in that table. `ROOMS` is itself in walk order — Threshold, Hall1, PocketA, Ward,
+# Archive, LoopIn, … — so the ordering key is the level's own structure and not a second copy of
+# the answer written in the test.
+#
+# ⚠️ IT IS DELIBERATELY NOT A z-SORT. LoopIn's fused chairs stand at z 16.87, NORTH of the
+# Archive's inverted table at z 22.0: the Archive is a dead end you walk into and back out of
+# before the loop, so a guard keyed on z would demand `shards, stair, frame, chairs, table` and
+# be green on a wrong answer. The room index is the honest key and the z values are printed
+# beside it so a reader can see why they disagree.
+func _pass8_answer_order() -> void:
+	print("--- pass 8: the answer is the level's own order ---")
+	var hall: Node = _level.call("frame_hall")
+	if hall == null:
+		_ok("the recurring room exists", false)
+		return
+	var answer: Array = hall.call("answer_order")
+	var dioramas: Dictionary = hall.get_script().get_script_constant_map()["DIORAMAS"]
+	var rooms: Array = _level.get_script().get_script_constant_map()["ROOMS"]
+	# id -> the node in the level that the diorama is a memory OF.
+	var sources := {
+		"shards": "HungShards_Threshold",
+		"stair": "CeilingStair_Hall1",
+		"frame": "FoldedFrame_Ward_R",
+		"table": "InvertedTable_Archive",
+		"chairs": "FusedChairs_LoopIn",
+	}
+	_ok("every diorama in the room has a source prop named for this guard",
+		sources.size() == answer.size() and sources.size() == dioramas.size(),
+		"%d sources / %d answer / %d dioramas" % [sources.size(), answer.size(), dioramas.size()])
+	var keyed: Array = []     # [room index, id]
+	var zs: Array = []
+	var located := 0
+	for id in sources:
+		var node := _level.get_node_or_null(String(sources[id])) as Node3D
+		if node == null:
+			_ok("the source prop '%s' for diorama '%s' is in the level" % [sources[id], id], false)
+			continue
+		var at: Vector3 = node.global_position
+		var idx := -1
+		var hits := 0
+		var room_name := ""
+		for i in range(rooms.size()):
+			var r: Dictionary = rooms[i]
+			var pos: Vector2 = r["pos"]
+			var size: Vector2 = r["size"]
+			var rect := Rect2(pos - size * 0.5, size)
+			if rect.has_point(Vector2(at.x, at.z)):
+				hits += 1
+				if idx < 0:
+					idx = i
+					room_name = String(r["name"])
+		_ok("'%s' (%s) stands in exactly one room of the level's table: %s at z %.2f"
+			% [id, sources[id], room_name, at.z], hits == 1, "%d rooms contain it" % hits)
+		# …and it is the room the DIORAMAS table claims, which is what the player is asked to
+		# remember. A diorama labelled for a room its source is not in is the same bug wearing
+		# a different hat.
+		_ok("…and that is the room its diorama names (%s)"
+			% String((dioramas[id] as Dictionary)["room"]),
+			room_name == String((dioramas[id] as Dictionary)["room"]),
+			"%s vs %s" % [room_name, (dioramas[id] as Dictionary)["room"]])
+		if idx >= 0:
+			keyed.append([idx, String(id)])
+			zs.append("%s z %.2f (room #%d)" % [id, at.z, idx])
+			located += 1
+	_ok("all five source props were located (sample size, not a silent zero)", located == 5,
+		"%d located" % located)
+	keyed.sort_custom(func(a, b): return int(a[0]) < int(b[0]))
+	var want: Array = []
+	for k in keyed:
+		want.append(String(k[1]))
+	# ⚠️ `==` on Arrays in GDScript is ELEMENT-WISE (Issue 262 learned this the hard way), so
+	# this really does compare the orders and not two references.
+	_ok("ANSWER is the five memories in the order the level's own ROOMS table meets them",
+		Array(answer) == want, "answer %s vs level order %s" % [answer, want])
+	print("      source z values: " + " · ".join(zs))
+	# And the explicit statement of what the correction was, so a regression names itself.
+	_ok("…which puts the Hall1 stair SECOND, not fifth (the pass-4 mistake)",
+		answer.size() == 5 and String(answer[1]) == "stair",
+		"answer[1] = '%s'" % (answer[1] if answer.size() > 1 else "-"))
+
+
+# ── the drawers shut again ───────────────────────────────────────────────────────────────
+# ⭐ Capture #1 of the 23:10 run: *"You can open those brown cells but you cannot close them."*
+# ⚠️ EVERY STEP GOES THROUGH THE REAL RAY AND THE REAL `ai_interact()`. A test that called
+# `interact()` on the node would prove the method runs and nothing about whether a player can
+# point at the thing — which is the ONLY interesting question here, because an open drawer's
+# interact volume had to shrink to the handle band so the page behind it stays readable.
+var _dr: Node3D = null
+var _dr_page: Node3D = null
+var _dr_home := Vector3.ZERO
+
+
+func _drawer_cycle_begin() -> void:
+	print("--- pass 8: a drawer that opens, shuts, and opens again ---")
+	_dr = _level.call("page_drawer") as Node3D
+	if _dr == null:
+		_ok("the page's drawer exists", false)
+		_drawing_begin()
+		return
+	_dr_page = _dr.get_node_or_null("DrawerPage") as Node3D
+	_dr_home = _dr.position
+	_ok("the page's drawer starts SHUT and offers the pull",
+		not bool(_dr.call("is_open"))
+		and String(_dr.call("prompt_text")) == "E — Pull the drawer.",
+		"'%s'" % _dr.call("prompt_text"))
+	_aim_at_drawer(0.0)
+	var t: Node = _p.call("ai_interact_target")
+	_ok("…and the ray finds it from a metre out", t == _dr,
+		"ray hit %s" % (t.name if t else "nothing"))
+	_p.call("ai_interact")
+	_ok("E pulls it", bool(_dr.call("is_open")))
+	_stage = 110
+	_wait = 24          # 0.4 s: past the 0.25 s slide
+
+
+func _drawer_opened() -> void:
+	_ok("…and once out, it offers the CLOSE instead",
+		String(_dr.call("prompt_text")) == "E — Close the drawer."
+		and bool(_dr.call("can_interact")),
+		"'%s'" % _dr.call("prompt_text"))
+	_ok("…and it really moved 0.35 m out of the carcass",
+		absf(_dr.position.z - (_dr_home.z + 0.35)) < 0.01,
+		"local z %.3f, home %.3f" % [_dr.position.z, _dr_home.z])
+	# ⚠️ THE PAGE FIRST, because this is the thing the shrink exists to protect. The handle band
+	# stands 0.09 m PROUD of a front that is 0.10 m in front of the page; if it covered the whole
+	# face the ray would stop on the drawer and the page would be unreadable (Issue 231).
+	_aim_at_page()
+	var t: Node = _p.call("ai_interact_target")
+	_ok("the page inside is what the ray finds, PAST the open drawer's own volume",
+		t == _dr_page, "ray hit %s" % (t.name if t else "nothing"))
+	_p.call("ai_interact")
+	var ui := root.get_node("NoteUI")
+	_ok("…and E reads it", bool(ui.get("is_open")))
+	if bool(ui.get("is_open")):
+		ui.call("_close")
+	# Now the handle. Aim 0.17 m lower — the band pass 8 shrank the volume to.
+	_aim_at_drawer(-0.17)
+	var h: Node = _p.call("ai_interact_target")
+	_ok("…and the handle band is pointable from the same metre out", h == _dr,
+		"ray hit %s" % (h.name if h else "nothing"))
+	_p.call("ai_interact")
+	_ok("E on the handle shuts it", not bool(_dr.call("is_open")))
+	_stage = 111
+	_wait = 24
+
+
+func _drawer_closed() -> void:
+	_ok("the drawer is home again", _dr.position.distance_to(_dr_home) < 0.01,
+		"local z %.3f vs home %.3f" % [_dr.position.z, _dr_home.z])
+	_ok("…and its prompt is the pull once more",
+		String(_dr.call("prompt_text")) == "E — Pull the drawer.",
+		"'%s'" % _dr.call("prompt_text"))
+	# ⚠️ THE PAGE WENT IN WITH IT. It is a CHILD of the drawer body, so "rides inside" is a
+	# claim about the world transform and is measured as one.
+	_ok("…and the page rode back in with it (it is inside the carcass again)",
+		_dr_page != null and _dr.is_ancestor_of(_dr_page)
+		and absf(_dr_page.global_position.z - 51.915) < 0.02,
+		"page z %.3f" % (_dr_page.global_position.z if _dr_page else -99.0))
+	# A shut drawer is a wall in front of the page again — the Issue-231 state, restored.
+	_aim_at_page()
+	var t: Node = _p.call("ai_interact_target")
+	_ok("…so the ray finds the FRONT again, not the page", t == _dr,
+		"ray hit %s" % (t.name if t else "nothing"))
+	# …and the snapshot no longer lists it.
+	var snap: Dictionary = _level.call("save_progress")
+	_ok("…and `drawers_opened` no longer names it",
+		not (snap.get("drawers_opened", []) as Array).has("Drawer4_1"),
+		str(snap.get("drawers_opened", [])))
+	_aim_at_drawer(0.0)
+	_p.call("ai_interact")
+	_ok("E opens it a second time", bool(_dr.call("is_open")))
+	_stage = 112
+	_wait = 24
+
+
+func _drawer_reopened() -> void:
+	_aim_at_page()
+	var t: Node = _p.call("ai_interact_target")
+	_ok("…and after a close and a re-open the page is STILL readable through the real ray",
+		t == _dr_page, "ray hit %s" % (t.name if t else "nothing"))
+	_p.call("ai_interact")
+	var ui := root.get_node("NoteUI")
+	_ok("…and E still opens it", bool(ui.get("is_open")))
+	if bool(ui.get("is_open")):
+		ui.call("_close")
+	var snap: Dictionary = _level.call("save_progress")
+	_ok("…and the snapshot names it again (the set is the OPEN set, both ways)",
+		(snap.get("drawers_opened", []) as Array).has("Drawer4_1"),
+		str(snap.get("drawers_opened", [])))
+	# ⚠️ AND THE RESTORE SHUTS WHAT IS NOT IN THE LIST. Without `close_instantly()` a snapshot
+	# taken with a drawer pushed in would leave it standing out on the way back, because
+	# `_wire_drawers()` pulls `OPEN_DRAWER` at build time on every load.
+	# ⚠️ Driven through `GameState.save_level_progress(8, …)` + the level's own
+	# `_restore_progress()`, which takes NO argument and reads the autoload — the real path a
+	# back-door return uses. A test that invented its own entry point would not have caught it.
+	var gs8 := root.get_node("GameState")
+	gs8.call("save_level_progress", 8, {"drawers_opened": []})
+	_level.call("_restore_progress")
+	var still_open := 0
+	for d in (_level.call("drawers") as Array):
+		if bool(d.call("is_open")):
+			still_open += 1
+	_ok("restoring an EMPTY open-set shuts every one of the seventeen", still_open == 0,
+		"%d of 17 still open" % still_open)
+	gs8.call("save_level_progress", 8, {"drawers_opened": ["Drawer4_1"]})
+	_level.call("_restore_progress")
+	var reopened := 0
+	for d in (_level.call("drawers") as Array):
+		if bool(d.call("is_open")):
+			reopened += 1
+	_ok("…and restoring a one-drawer set opens exactly that one, and only it",
+		bool(_dr.call("is_open")) and reopened == 1, "%d open" % reopened)
+	# …and leave the level as the rest of this file expects to find it.
+	gs8.call("save_level_progress", 8, {})
+	_drawing_begin()
+
+
+# A metre out from the drawer's front face, aiming at a point `dy` above its centre.
+func _aim_at_drawer(dy: float) -> void:
+	_p.set("ai_active", true)
+	_p.set("ai_move_dir", Vector2.ZERO)
+	var aim: Vector3 = _dr.to_global(Vector3(0, dy, 0.12))
+	var stand: Vector3 = aim + _dr.global_transform.basis.z * 1.0
+	_p.global_position = Vector3(stand.x, 0.1, stand.z)
+	_p.force_update_transform()
+	_p.call("ai_look_at", aim)
+	_p.get_node("Camera3D").force_update_transform()
+
+
+func _aim_at_page() -> void:
+	_p.set("ai_active", true)
+	_p.set("ai_move_dir", Vector2.ZERO)
+	var aim: Vector3 = _dr_page.global_position
+	var stand: Vector3 = aim + _dr.global_transform.basis.z * 1.0
+	_p.global_position = Vector3(stand.x, 0.1, stand.z)
+	_p.force_update_transform()
+	_p.call("ai_look_at", aim)
+	_p.get_node("Camera3D").force_update_transform()
+
+
+# ── the fire's own three samples ─────────────────────────────────────────────────────────
+# ⚠️ THREE, AND THE MIDDLE ONE IS THE CLAIM. "A fire appeared" would be true of a beat that put
+# the figure up in the same frame; what capture #3 asked for is *fire for like 3 seconds and
+# THEN this face appears from fire*, so the guard has to prove the fire is alone for those three
+# seconds and that the figure arrives after them. 96 is t = 1.5 s (the ramp is done), 97 is
+# t = 2.7 s (the fire is full size, still alone), 98 is mid-rise.
+var _cradle_fire_node: Node = null
+var _fire_e15 := 0.0
+var _fire_h15 := 0.0
+var _rise_y0 := 0.0
+
+
+func _cradle_fire_ramped() -> void:
+	var fire: Node = _level.get_node_or_null("CradleFire")
+	var lamp: OmniLight3D = _level.call("cradle_light")
+	_ok("the fire is the SAME node it was at 0.5 s — one fire, not a re-light per frame",
+		fire != null and fire == _cradle_fire_node)
+	_fire_e15 = float(fire.call("light_energy")) if fire else -1.0
+	_ok("by t = 1.5 s its light has ramped to >= 0.7 (0 -> 0.9 over the first second)",
+		_fire_e15 >= 0.7, "%.3f" % _fire_e15)
+	_ok("…and the ramp really was a ramp: it was under 0.75 at 0.5 s and is over 0.7 now",
+		_fire_e15 > 0.05)
+	_ok("…on an orange light, not the violet lamp pass 7 used",
+		lamp != null and lamp.light_color.r > 0.9 and lamp.light_color.b < 0.35,
+		str(lamp.light_color) if lamp else "missing")
+	# The flames themselves: six billboarded additive quads, none of them emissive over 1.0.
+	var qs: Array = fire.call("quads") if fire else []
+	_ok("…and there are six flame quads, all of them unshaded, additive and billboarded",
+		qs.size() == 6 and _flames_are_additive(qs), "%d quads" % qs.size())
+	_fire_h15 = _tallest_flame(qs)
+	_ok("…still GROWING at 1.5 s (the tallest quad is under its full height)",
+		_fire_h15 > 0.05 and _fire_h15 < 0.90, "tallest %.3f m" % _fire_h15)
+	_ok("…and still nothing has risen out of it",
+		_level.get_node_or_null("CradleFigure") == null)
+	# ⚠️ THE CRACKLE, ASSERTED BY NAME AND BY GAIN. `GameState.AUDIO_SUBDIRS` is a HARDCODED list
+	# and a base name that does not resolve fails SILENTLY — the beat would simply be a fire with
+	# no sound and nothing would say so. -4.9 dB is arithmetic: -19.7 dBFS RMS placed 8.0 dB over
+	# `room_hum`'s delivered -32.55 dBFS.
+	var fl := fire.get_node_or_null("CradleFireLoop") as AudioStreamPlayer3D if fire else null
+	_ok("…and `cradle_fire` is looping at the cradle at -4.9 dB on Ambience",
+		fl != null and fl.stream != null
+		and String(fl.stream.resource_path).find("cradle_fire") >= 0
+		and absf(fl.volume_db + 4.9) < 0.01 and fl.bus == AudioBuses.AMBIENCE and fl.playing,
+		"%s %.1f dB bus %s playing %s" % [fl.stream.resource_path if fl and fl.stream else "-",
+			fl.volume_db if fl else 0.0, fl.bus if fl else "-", fl.playing if fl else false])
+	_ok("…and it is looped IN CODE, since every .wav.import here is loop_mode=0",
+		fl != null and fl.is_connected("finished", Callable(fl, "play")))
+	_ok("the fire's first 1.5 s cost ZERO panic",
+		absf(float(_p.call("get_panic_ratio")) - _shadow_panic) < 0.001,
+		"%.4f -> %.4f" % [_shadow_panic, float(_p.call("get_panic_ratio"))])
+	_stage = 97
+	_wait = 72          # t = 2.7 s
+
+
+func _cradle_fire_peak() -> void:
+	var fire: Node = _level.get_node_or_null("CradleFire")
+	var qs: Array = fire.call("quads") if fire else []
+	var tall := _tallest_flame(qs)
+	_ok("by t = 2.7 s the fire is at full size — taller than it was at 1.5 s",
+		tall > _fire_h15, "%.3f m -> %.3f m" % [_fire_h15, tall])
+	_ok("…and it fills the crib: the tallest flame clears the cradle's rim",
+		_flame_top(fire, qs) > (_level.call("cradle_bbox") as AABB).position.y
+			+ (_level.call("cradle_bbox") as AABB).size.y,
+		"top y %.3f vs rim %.3f" % [_flame_top(fire, qs),
+			(_level.call("cradle_bbox") as AABB).position.y
+			+ (_level.call("cradle_bbox") as AABB).size.y])
+	# ⚠️ THE CLAIM CAPTURE 3 MADE: three seconds of fire, and THEN the face.
+	_ok("…and after 2.7 s of fire there is STILL no figure — the face comes after the fire",
+		_level.get_node_or_null("CradleFigure") == null)
+	_ok("…and the snarl has not fired either", _level.get_node_or_null("CradleSnarl") == null
+		or not bool((_level.get_node("CradleSnarl") as AudioStreamPlayer3D).playing))
+	_stage = 98
+	_wait = 21          # t = 3.05 s: a third of the way up
+
+
+func _cradle_rising() -> void:
+	var fig := _level.get_node_or_null("CradleFigure") as Node3D
+	var box: AABB = _level.call("cradle_bbox")
+	_ok("the figure is in the world now, one frame or two into the rise", fig != null)
+	if fig == null:
+		_stage = 93
+		_wait = 75
+		return
+	_rise_y0 = fig.global_position.y
+	var home_y: float = box.position.y + box.size.y - 2.12    # rim - MASK_Y
+	_ok("…and it is BELOW its final pose: it is coming up through the flames",
+		_rise_y0 < home_y - 0.05,
+		"y %.3f vs home %.3f" % [_rise_y0, home_y])
+	_ok("…and the level's own rise counter agrees it is part way up",
+		float(fig.call("rise_progress")) > 0.0 and float(fig.call("rise_progress")) < 1.0,
+		"%.3f" % float(fig.call("rise_progress")))
+	_ok("…and the snarl went with the rise, not with the fire",
+		_level.get_node_or_null("CradleSnarl") != null
+		and bool((_level.get_node("CradleSnarl") as AudioStreamPlayer3D).playing))
+	_ok("the rise costs ZERO panic too",
+		absf(float(_p.call("get_panic_ratio")) - _shadow_panic) < 0.001,
+		"%.4f -> %.4f" % [_shadow_panic, float(_p.call("get_panic_ratio"))])
+	_stage = 93
+	_wait = 66          # t = 4.15 s: risen, holding
+
+
+# Every flame quad must be UNSHADED + ADD + billboarded, and its albedo must stay inside the
+# clamp (Issue 21). Unshaded output IS albedo, so that is where the ceiling has to be read.
+func _flames_are_additive(qs: Array) -> bool:
+	if qs.is_empty():
+		return false
+	for q in qs:
+		var m := (q as MeshInstance3D).get_surface_override_material(0) as StandardMaterial3D
+		if m == null:
+			return false
+		if m.shading_mode != BaseMaterial3D.SHADING_MODE_UNSHADED:
+			return false
+		if m.blend_mode != BaseMaterial3D.BLEND_MODE_ADD:
+			return false
+		if m.billboard_mode != BaseMaterial3D.BILLBOARD_ENABLED or not m.billboard_keep_scale:
+			return false
+		if m.albedo_texture == null:
+			return false
+		if m.albedo_color.r > 1.0 or m.albedo_color.g > 1.0 or m.albedo_color.b > 1.0:
+			return false
+		if m.emission_enabled and m.emission_energy_multiplier > 1.0:
+			return false
+	return true
+
+
+func _tallest_flame(qs: Array) -> float:
+	var out := 0.0
+	for q in qs:
+		var qm := (q as MeshInstance3D).mesh as QuadMesh
+		if qm:
+			out = maxf(out, qm.size.y)
+	return out
+
+
+func _flame_top(fire: Node, qs: Array) -> float:
+	var out := -99.0
+	for q in qs:
+		var mi := q as MeshInstance3D
+		var qm := mi.mesh as QuadMesh
+		if qm:
+			out = maxf(out, mi.global_position.y + qm.size.y * 0.5)
+	return out

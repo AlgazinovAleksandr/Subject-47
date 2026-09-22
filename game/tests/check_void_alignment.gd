@@ -569,30 +569,26 @@ func _chain() -> void:
 	await _ticks(2)
 	_ok("CONTROL: E on the cradle without the shard completes nothing", not cradle.done)
 
-	# ⭐ THE SHARD IS IN THE ARCHIVE (pass 3), inside the inverted table's legs-up basin, and
-	# since pass 5 it is VISIBLE there from frame 0 and WEDGED FAST (Issue 243: an object that
-	# does not exist until you look away reads as a bug — two captures said so). Driven through
-	# the PROP'S OWN BEAT — arm it by sight, then look away — never by freeing it with a call:
-	# the whole question is whether a player who does what the level asks ends up with a shard.
+	# ⭐ THE SHARD IS IN THE ARCHIVE (pass 3), inside the inverted table's legs-up basin — and
+	# since 2026-09-22 pass 6 it is simply TAKEABLE there from frame 0. Pass 5's wedge, which
+	# refused until the table re-posed itself off-screen, read as a lock and not as a puzzle
+	# (capture #4: *"should not be that way"*), so it is gone. The table still rearranges; it
+	# just gates nothing any more, and this checks BOTH halves.
 	var shard := _level.get_node("SlabShard")
 	var table := _level.get_node("InvertedTable_Archive")
 	_place(Vector3(-3.4, 0, 20.6), shard.global_position)
 	await _ticks(3)
-	_ok("CONTROL: the shard is visible and wedged before the table moves",
-		not bool(shard.call("is_freed")) and shard.visible
-		and String(shard.call("prompt_text")) == "It is wedged fast.")
-	_ok("CONTROL: …and the shipping E-ray finds it and is refused",
-		_player.call("ai_interact_target") == shard)
-	_player.call("ai_interact")
-	await _ticks(2)
-	_ok("CONTROL: …so E on it takes nothing",
-		not bool(shard.call("is_freed")) and not bool(_level.call("has_shard")))
+	_ok("the shard is visible and OFFERS E from frame 0 (pass 5's wedge is retired)",
+		bool(shard.call("is_freed")) and shard.visible
+		and String(shard.call("prompt_text")) == "E — Take the shard.")
+	_ok("…and the shipping E-ray finds it", _player.call("ai_interact_target") == shard)
 	_ok("looking at the table from inside the Archive arms it", bool(table.get("armed")))
 	_player.call("ai_look_at", Vector3(-3.4, 1.3, 18.2))
 	await _ticks(4)
-	_ok("looking away re-poses it and the shard comes loose into the basin",
-		bool(table.get("spent")) and bool(shard.call("is_freed")) and shard.visible
-		and shard.global_position.distance_to(Vector3(-3.4, 0.42, 22.0)) < 0.05)
+	_ok("looking away still re-poses the table — a scare that now gates nothing",
+		bool(table.get("spent")))
+	_ok("…and the shard did not move with it",
+		shard.global_position.distance_to(Vector3(-3.4, 0.42, 22.0)) < 0.05)
 	_place(Vector3(-3.4, 0, 20.9), shard.global_position)
 	await _ticks(3)
 	_ok("the shard in the table's basin is reachable through the real ray",

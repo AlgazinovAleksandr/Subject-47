@@ -62,6 +62,7 @@ func _process(delta: float) -> bool:
 		return _tick_grab(delta)
 
 	var player := current_scene.get_node_or_null("Player") as CharacterBody3D
+	preload("res://tests/lib/breach_hunt_fixture.gd").enter(current_scene)
 	if not player:
 		print("FAIL: no Player node found")
 		quit(1)

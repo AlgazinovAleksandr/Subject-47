@@ -2,6 +2,13 @@
 
 ## Testing
 
+**2026-09-21 audio regression:** `check_breach_voice.gd` now has 45 checks, including exact
+`crate_jumpscare.ogg` identity and decoded voice/music balance at 3.5, 18 and 30 m while facing
+away. `check_breach_kill.gd` has 35 checks, including exact `level_6_jumpscare.wav` identity,
+decoded kill output during the ambience dip and complete Master output through both impacts.
+Both strengthened tests fail on the former implementation and pass rendered after correction.
+The older near-only, nonzero-playback checks could not prove audibility during retreat.
+
 `check_breach_flashlight.gd` covers missing/owned F behavior, physical walking from the entry
 through Records to the fixed Archive B cabinet and out to Ward B, real E-ray hiding/pickup,
 hidden contact safety, unowned weapon suppression, one-time collection, normal return, death
@@ -25,7 +32,7 @@ movement and relocation and carries a live legacy-policy control that targets th
 a render target and writes matched material and door-phase evidence to `/tmp/breach_sep20/`.
 
 `check_breach_voice.gd` covers the supplied three voices plus a separately layered chase
-background. Its 42 checks include AudioEffectCapture measurements of both decoded chase streams,
+background. Its 45 checks include AudioEffectCapture measurements of both decoded chase streams,
 actual background loop wrap, music continuing between screams, death/loss-of-chase/hiding/door/
 stagger/purge suppression, scene removal, hidden safety and visible recoil without collider motion.
 It drives the real E interaction and door silence clock. `-- --screenshots` renders settled and
@@ -391,3 +398,59 @@ brand-new stages staged their own deaths on creature C (Issue 228, a fourth and 
 gained a 2 m corridor detour, because the shipping route uses the step-through and nothing else walks
 the corridor southbound. The parent re-ran the wedged-guard control by hand; the first attempt matched
 nothing and ran green — **a control with an empty diff proves nothing, check the diff first.**
+
+**The Void, pass 6 (2026-09-22).** `check_void` 260 (floor 252 — within ten, per Issue 245) proves the
+recurring room by crossings: a walk-through at speed steps and standing still inside does not; each rung's
+state and stage 0's restoration (the wall material's texture included); the wrong door's reshuffle
+happened inside the black — the control samples 48 lit frames and names the slot if any door changed
+while the screen was lit; the one-frame figure had no collider; five rights settle and the note is
+reachable; panic 0.0000 with `RandomAmbient` unregistered; the box sealed → the slat refuses BY NAME →
+the same press opens it → takeable (control: `_on_ward_touched()` → `pass`, seven checks red); the charge
+at z 26 southbound only; the shard takeable at frame 0. `check_void_frames` walks 30 legs over six seeds
+and bounds a blind player at 25 crossings (measured 15 on seed 404) — ⚠️ its first brute-force strategy
+iterated `answer_order()` and "solved" in 5: a strategy that reads the solution measures nothing.
+Harness lessons: a guard that starts the next leg the instant the stage changes is acting inside the 0.3
+s cut, which a frozen player cannot do; a one-frame beat on the fade-in is not counted in that frame's
+`_process` — assert one beat late; a screenshot action that drives the ANIMATED open photographs the
+shut state; and `_ok()` called with the wrong arity is a parse error that exits 0 — `--check-only` is the
+only thing that catches it. The parent re-ran the sealed-gate control by hand (`is_sealed()` → false:
+three checks red, restored byte-identical, 260/0). ⚠️ The playtest log records positions ONLY on `DEBUG
+CAPTURE` lines; "did not happen" claims must rest on event lines (Issue 247).
+
+**The Void, pass 7 (2026-09-22).** `check_void` 315 (floor 307): the cradle beat in three samples
+(camera on the cradle within 5°; every child-room light at 0 and the torch off in the dark second; the
+cradle light on with the figure inside the cradle's AABB; all restored; panic 0.0007 → 0.0007 with
+`RandomAmbient` unregistered and every DarkZone held — control: the hold removed → 0.3890); the charge
+turn watched per frame (2.8° off at the rush from a stance 180° away — control: 180.0°); every rung of
+the ladder asserted from the entrance stance and stage 0 restoring all of it (control: rung 1's backdrop
+write removed → 0 of 5 pale; the floor made irreversible → "floor 'wall_void_corrupt.png'" at stage 0);
+the settle's frees (control: the slab kept). `check_wall_overlap.gd` gained an opt-in per-scene `states`
+key — the Void is swept at stage 0, 3 and 5, and the control (the slab at 3.35) reports "FalseCeiling ↔
+FrameHall_Ceiling −y faces coincide" in the s5 row only. `screenshot_scene.gd` gained `hold` shots whose
+action owns the camera and a per-shot frame cycle (Issue 260). The parent re-ran the DarkZone-hold
+control by hand (one-line diff, six red, restored, 315/0). ⚠️ The full suite's expected reds until the
+parallel Breach session lands: `check_darkness` and `check_wall_overlap`'s Breach rows.
+
+**The Void, pass 8 (2026-09-23).** `check_void` 381: the room's answer is DERIVED from the level — each
+diorama's source prop located inside `ROOMS` by position and the answer asserted as that list sorted by
+room index (a z-sort would be green on a wrong answer: the chairs are north of the table) — control: the
+pass-4 order → 2 red (Issue 263); the drawer cycle open → close → open with the page readable after, and
+the control that mattered: with the open drawer's full-face volume kept, `check_void`'s explicit ray
+went red ("the page inside is what the ray finds, PAST the open drawer's own volume") while
+**`check_reachable` stayed green** — the host rule classifies the page CONTAINED either way, so only an
+explicit ray sees a blocked page; the fire in three stages (lit at 0.5 s with the light still ramping,
+≥ 0.7 by 1.5 s, the same node throughout, orange not violet), the rise, the gain, the freeing, panic
+0.0007 → 0.0007 across 6.2 s with every DarkZone held (control: the hold removed → 0.6207, the charge
+beat 40 m away red too). Two harness lessons: a guard that read a constant pass 7 deleted threw and
+printed green for two passes — `run_tests.sh` catches parse errors, not runtime throws (Issue 264); and
+`check_void_frames` flaked one run in four because a latched `ai_move_dir` kept walking the bot past the
+entrance it had been teleported to before the poll (Issue 265) — the walker now stops driving while the
+room is stepping. The parent re-ran the fire control by hand (one-line diff, six red, restored, 381/0).
+
+⚠️ **`walk_void_live` is a real-creature walk and it can die (2026-09-23).** In the first full suite run
+with the editor closed it failed once — "the level did not reload mid-route (a death) at step 168", the
+stalker route variance the builder had already measured as peaks of 31–46 % — and passed twice in a row
+immediately after (peaks 55 % and 45 %). It is the one Void row that is not deterministic; a red on it
+is a re-run first and a finding only if it repeats. The hazard it walks through is Issue 239's (creature E
+at the child room's doorway). Expected suite reds owned by the parallel Breach session as of
+2026-09-23: `check_darkness`, `check_art_aspect` (a bulkhead face 1.44× stretched), `check_fixtures`.

@@ -5,8 +5,8 @@ extends Node3D
 # .tscn-minimal / PRESERVE-whitelist pattern kontur.gd established: the .tscn keeps
 # only Environment/AmbientPlayer/Player, everything else is built here in _ready().
 #
-# Object 12 gives the player eight seconds to orient, then hunts while the player
-# searches for the missing flashlight in Archive B's fixed hiding cabinet.
+# The industrial approach hides Object 12 entirely. Crossing its bulkhead starts
+# an eight-second grace, then the hunt for Archive B's fixed flashlight cabinet.
 #
 # Win/lose: the ONLY permanent win condition is luring the creature into the
 # PurgeChamber (see purge_chamber.gd) — light-as-weapon only staggers it temporarily,
@@ -20,11 +20,25 @@ const LAB_TEX := "res://assets/textures/level_1_lab/"
 const KONTUR_TEX := "res://assets/textures/level_5_kontur/"
 const _DOOR_SCRIPT := preload("res://scripts/door.gd")
 const _NOTE_SCRIPT := preload("res://scripts/note.gd")
+const APPROACH := preload("res://scripts/breach_approach.gd")
+# Survives scene death, but is reset on the first unsaved visit of each new run.
+# Ordinary navigation uses the snapshot below; no shared GameState changes are needed.
+static var _hunt_checkpoint := false
+var _approach_complete := false
+var _approach: Node3D
+var _approach_beds: Dictionary = {}
 
-# Both attempts leave a brief arrival pause; recovery should happen under threat.
-const FAMILIARIZATION_FIRST := 8.0   # brief arrival pause; the flashlight search happens under threat
+# ⚠️ DELIBERATE (2026-09-23, the user's call): 20 s to get your bearings on a FIRST attempt, 8 s on
+# a retry. This reverses the 2026-09-21 "8 s both" ruling. The accepted consequence: a first-timer
+# who happens to walk east first reaches the EastVault cabinet (~32 m) before the creature wakes.
+# A retry resumes at the sealed bulkhead, where route knowledge is what 8 s tests.
+const FAMILIARIZATION_FIRST := 20.0
 const FAMILIARIZATION_RETRY := 8.0
-const FLASHLIGHT_ROOM := "ArchiveB"
+# ⚠️ DELIBERATE (2026-09-23, the user's call): the flashlight lives in the OPPOSITE wing from the
+# purge chamber. In ArchiveB it sat two rooms from ExitVault, so recovering the light and luring
+# Object 12 were one short walk (the 2026-09-22 hunt was 49 s end to end). EastVault is ~35 m from
+# the purge door across the spine. No hint names it anywhere; the cabinet's leaking beam is the clue.
+const FLASHLIGHT_ROOM := "EastVault"
 var _flashlight_found := false
 var _flashlight_cabinet: HidingSpot
 var _flashlight_clue: Node3D
@@ -151,12 +165,19 @@ func _ready() -> void:
 	GameState.current_level = 6
 
 	_familiarization_time = FAMILIARIZATION_FIRST if GameState.get_level_attempts(6) == 0 else FAMILIARIZATION_RETRY
+	var progress := GameState.get_level_progress(6)
+	if GameState.get_level_attempts(6) == 0 and progress.is_empty() and not GameState.entered_from_ahead:
+		_hunt_checkpoint = false
+	_approach_complete = bool(progress.get("approach_complete", progress.get("flashlight_found", false) or progress.get("creature_defeated", false))) \
+		or (GameState.get_level_attempts(6) > 0 and _hunt_checkpoint) or GameState.entered_from_ahead
+	_hunt_checkpoint = _approach_complete
 
 	_clear_old_scene()
 	_build_geometry()
 	_place_player()
 	_spawn_lights()
 	_spawn_creature()
+	_creature._body.visible = _approach_complete
 	_spawn_hiding_spots()
 	_spawn_slam_doors()
 	_spawn_purge_chamber()
@@ -177,6 +198,34 @@ func _ready() -> void:
 	_player().lock_flashlight()
 	GameState.set_objective("YOUR FLASHLIGHT IS MISSING. SEARCH THE CABINETS.")
 	_restore_progress()
+	_approach = APPROACH.new()
+	_approach.name = "ContainmentApproach"
+	add_child(_approach)
+	_approach.committed.connect(_on_approach_committed)
+	_approach.configure(_builder, _player(), _approach_complete)
+	if not _approach_complete:
+		GameState.set_objective("FIND A WAY INTO CONTAINMENT.")
+		for child in get_children():
+			if child is AudioStreamPlayer and child.playing:
+				_approach_beds[child] = child.volume_db
+				child.volume_db -= 10.0
+
+
+func _on_approach_committed() -> void:
+	if _approach_complete:
+		return
+	_approach_complete = true
+	_hunt_checkpoint = true
+	_familiarization_t = 0.0
+	_creature._body.visible = not _creature_defeated
+	for bed in _approach_beds:
+		if is_instance_valid(bed):
+			bed.volume_db = _approach_beds[bed]
+	_approach_beds.clear()
+	GameState.set_objective("YOUR FLASHLIGHT IS MISSING. SEARCH THE CABINETS." if not _flashlight_found else "TRAP OBJECT 12 IN THE PURGE CHAMBER.")
+	var log_node := get_node_or_null("/root/DebugLog")
+	if log_node:
+		log_node.note("BREACH APPROACH sealed; hunt checkpoint reached")
 
 
 func _player() -> CharacterBody3D:
@@ -207,7 +256,7 @@ func _build_geometry() -> void:
 	_builder.floor_mat = _mat(LAB_TEX + "lab_floor.png", 0.4, Color(0.32, 0.32, 0.3))
 	_builder.ceil_mat = _mat(LAB_TEX + "lab_ceiling.png", 0.4, Color(0.22, 0.22, 0.2))
 	add_child(_builder)
-	_builder.build(_rooms_with_skins(), DOORS)
+	_builder.build(_rooms_with_skins(), DOORS + APPROACH.DOORS)
 
 
 # Negative V, like every other builder in this project — a positive uv1_scale.y
@@ -231,16 +280,16 @@ func _rooms_with_skins() -> Array:
 	var scorched := _mat(TEX + "breach_incinerator_wall.png", 0.4, Color(0.15, 0.13, 0.12))
 
 	var out: Array = []
-	for r in ROOMS:
+	for r in ROOMS + APPROACH.ROOMS:
 		var room: Dictionary = r.duplicate()
 		var n: String = room["name"]
 		if SCORCHED_ROOMS.has(n):
 			room["wall_mat"] = scorched
 			room["floor_mat"] = scorched
-		elif ORGANIC_ROOMS.has(n):
+		elif ORGANIC_ROOMS.has(n) or r.get("skin", "") == "organic":
 			room["wall_mat"] = organic
 			room["floor_mat"] = organic_floor
-		elif RUPTURED_ROOMS.has(n):
+		elif RUPTURED_ROOMS.has(n) or r.get("skin", "") == "ruptured":
 			room["wall_mat"] = ruptured
 		out.append(room)
 	return out
@@ -257,18 +306,17 @@ func _place_player() -> void:
 		p.global_position = EXIT_SPAWN
 		p.rotation = Vector3(0, 0, 0)
 	else:
-		p.global_position = ENTRY_SPAWN
-		p.rotation = Vector3(0, PI, 0)   # face +z, down the spine
+		p.global_position = ENTRY_SPAWN if _approach_complete else APPROACH.START_SPAWN
+		p.rotation = Vector3(0, PI if _approach_complete else APPROACH.START_YAW, 0)
 
 
 # ---------------------------------------------------------------- progress snapshot
 #
-# One boolean, as the exit lock is one boolean. If Object 12 has already been purged,
-# walking back to KONTUR and returning must not resurrect it — re-running a chase you
-# have already won is the purest form of the BACKLOG #30 complaint.
+# Navigation retains purge, flashlight and approach progress. The level-local
+# checkpoint retains only approach completion across a death; the hunt resets.
 
 func save_progress() -> Dictionary:
-	return {"creature_defeated": _creature_defeated, "flashlight_found": _flashlight_found}
+	return {"creature_defeated": _creature_defeated, "flashlight_found": _flashlight_found, "approach_complete": _approach_complete}
 
 
 func _restore_progress() -> void:
@@ -360,7 +408,7 @@ var _kill_sequence: Node3D = null
 
 
 func _on_contact_death() -> void:
-	if is_instance_valid(_kill_sequence):
+	if not _approach_complete or is_instance_valid(_kill_sequence):
 		return
 	var token := GameState.begin_transition("death")
 	if token < 0:
@@ -433,7 +481,7 @@ func _tick_familiarization(delta: float) -> void:
 	# creature that is already in the incinerator, and called `activate()` on the corpse. It was
 	# inert only because `lure_into_trap()` also calls `set_process(false)`, which is luck rather
 	# than a guard.
-	if _creature_defeated or _creature_awake:
+	if not _approach_complete or _creature_defeated or _creature_awake:
 		return
 	_familiarization_t += delta
 	if _familiarization_t >= _familiarization_time:
@@ -530,7 +578,7 @@ func _add_hiding_spot(room: String, side: Vector2, kind: String) -> void:
 	add_child(spot)
 	if room == FLASHLIGHT_ROOM:
 		_flashlight_cabinet = spot
-		spot.name = "FlashlightCabinet_ArchiveB"
+		spot.name = "FlashlightCabinet_" + room
 		_flashlight_clue = preload("res://scripts/breach_flashlight_clue.gd").new()
 		spot.add_child(_flashlight_clue)
 
@@ -554,7 +602,7 @@ func _recover_flashlight(show_pickup: bool = true) -> void:
 		ScreenText.toast(get_tree(), "FLASHLIGHT FOUND — F TO SWITCH IT ON", Color(0.75, 0.85, 0.76), 3.0)
 		var log_node := get_node_or_null("/root/DebugLog")
 		if log_node:
-			log_node.note("BREACH FLASHLIGHT recovered in ArchiveB; player remains hidden")
+			log_node.note("BREACH FLASHLIGHT recovered in %s; player remains hidden" % FLASHLIGHT_ROOM)
 
 
 # ---------------------------------------------------------------- slam doors
@@ -854,7 +902,8 @@ func _make_note(pos: Vector3, y_rot: float, text: String) -> void:
 const EXIT_DOOR_POS := Vector3(0, 1.2, 61.85)   # Incinerator back wall (spine's end)
 func _spawn_level_doors() -> void:
 	var back := _make_door("BackDoor", false, true)
-	back.position = Vector3(0, 1.2, -2.85)
+	back.position = APPROACH.BACK_DOOR_POS
+	back.rotation.y = PI / 2.0
 
 	# The bespoke organic exit door — its own texture, so the back door keeps the ordinary look.
 	_exit_door = _make_door("ExitDoor", true, false, TEX + "breach_door_exit.png")
@@ -1103,7 +1152,7 @@ func _start_ambience() -> void:
 # ---------------------------------------------------------------- main loop
 
 func _process(delta: float) -> void:
-	if is_instance_valid(_kill_sequence):
+	if not _approach_complete or is_instance_valid(_kill_sequence):
 		return
 	_tick_flashlight_recovery()
 	_tick_familiarization(delta)

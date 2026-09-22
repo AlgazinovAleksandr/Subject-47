@@ -629,8 +629,10 @@ static func long_drawer(level: Node3D, pos: Vector3, yaw: float, nm: String,
 # answer, in a bigger size. At 49 degrees, turned broadside to the room, you see the rails, the
 # four legs, the casters and the slumped pad: a gurney, tipped, hanging by one corner.
 # ⚠️ THE YAW IS PART OF THE POSE, and it is also what keeps the footprint out of the way: the
-# long axis runs along X, where the Ward is 10 m wide, so the prop spans z 12.9..13.7 and
-# clears both the bed slat's approach ray and `FoldedFrame_Ward_L`'s geometry at z 13.68.
+# long axis runs along X, where the Ward is 10 m wide, so the prop spans z 12.61..13.68.
+# ⭐ 2026-09-22: what it clears there is now the WARD BOX (z 14.13..14.89), 0.45 m north of it —
+# `FoldedFrame_Ward_L` is gone. The two are deliberately close: the gurney is the button and the
+# box is what it opens, and a cause and an effect 1.2 m apart are in the same glance.
 const GURNEY_TILT := 0.85        # radians, nose-down
 const GURNEY_YAW := 1.72         # PI/2 + 0.15: broadside to the room, but not square to it
 const GURNEY_ROLL := 0.22        # …and it hangs off one corner
@@ -646,10 +648,10 @@ static func gurney(parent: Node3D, pos: Vector3, yaw: float, nm: String,
 	var hang := Node3D.new()
 	hang.name = "GurneyHang"
 	hang.rotation = Vector3(GURNEY_TILT, GURNEY_YAW, GURNEY_ROLL)
-	# ⚠️ 12 cm off the pivot in -z, measured: at 0 the low end reaches z 13.80 and
-	# `FoldedFrame_Ward_L`'s own geometry starts at z 13.73. Two props sharing 7 cm of space is
-	# how this project's most common bug class starts (Issues 19/20/23/24/25/26), and neither of
-	# them is a CSG box, so `check_wall_overlap` would never have said a word about it.
+	# ⚠️ 12 cm off the pivot in -z, measured: at 0 the low end reaches z 13.80, and what stands
+	# to the north of it is the Ward box (its runners start at z 14.13). Two props sharing space
+	# is how this project's most common bug class starts (Issues 19/20/23/24/25/26), and neither
+	# of them is a CSG box, so `check_wall_overlap` would never have said a word about it.
 	hang.position.z = -0.12
 	root.add_child(hang)
 	var steel := fmat(family, BASE, 0.6, 0.2)
@@ -685,3 +687,98 @@ static func gurney(parent: Node3D, pos: Vector3, yaw: float, nm: String,
 	var loose := _box(hang, Vector3(0.10, 0.44, 0.025), Vector3(0.40, -0.06, 0.40), dark, "GurneyStrap1Loose")
 	loose.rotation = Vector3(0.0, 0.0, -0.35)
 	return root
+
+
+# ⭐ THE WARD BOX (2026-09-22 pass 6). `FoldedFrame_Ward_L` was the second of the Ward's two
+# suspended frames, and capture #1 of the 23:47 run photographed it: *"the object closer to the
+# monster looks like a bed, but the one … further away … still does not remind anything … like a
+# gift box"*. The player named the shape they wanted. It is now a sealed strapped stone box, and
+# the bed slat is INSIDE it — capture #2: *"Should it be like a magical button that will open the
+# magical box having this piece?"*
+#
+# ⚠️ BOXES ONLY, BONE FAMILY, NO EMISSION, NO `ScaryObject` — the Ward's own palette and the
+# level's rules. Silhouette carries it (Issue 35): two plinth runners proud of the carcass, a
+# base slab, four walls that leave a real open interior, a lid slab standing 2.5 cm CLEAR of the
+# rim (never coplanar — Issues 19/20/23/24/25/26), two straps over the lid and two more strapped
+# down the front with buckles. A flat box would read as a box, which is exactly the complaint.
+#
+# ⚠️ THE COLLISION IS THE WALLS, NOT THE BOUNDING BOX (Issue 230, the inverted slab's lesson). A
+# single block would make the interior a place the eye can enter and the E-ray cannot, and the
+# slat lives in there. Base + four walls + the LID'S OWN body, which rides the hinge: while the
+# lid is shut it is what a descending ray finds, and when it swings back the interior is open to
+# the ray. That is the gate, physically — `void_ward_box.gd` also refuses on the target itself,
+# because a blocker guards one viewing angle and a refusal guards all of them (Issue 242).
+const BOX_L := 1.90              # along local x
+const BOX_D := 0.66              # along local z (the carcass; the runners and lid overhang)
+const BOX_WALL := 0.07
+const BOX_FLOOR_Y := 0.22        # the interior floor — the top face of the base slab
+# ⚠️ A SHALLOW TRAY, NOT A CHEST, and the number is measured. The first build gave it 0.40 m of
+# interior with a 0.62 m rim, and the bed slat inside it was reachable from exactly ONE stance
+# out of six: the north wall's top edge cut the descending E-ray everywhere else. That is
+# Issue 232 again — from eye height you cannot see into a deep open box at all, and here you
+# could not aim into one either. At a 0.42 m rim the ray clears the wall by 7 cm from 2.4 m
+# back, and the slat lying on the floor pokes above the rim where it can be SEEN.
+const BOX_RIM_Y := 0.42          # the top of the four walls
+const BOX_LID_Y := 0.48          # the hinge, 2.5 cm of air over the rim at the slab's underside
+const BOX_HINGE_Z := -0.35       # the far side: the lid swings AWAY from the approach
+
+
+static func strapped_box(level: Node3D, pos: Vector3, yaw: float, nm: String,
+		family: String = "bone", script: Script = null) -> StaticBody3D:
+	# The base slab is the collider `_body()` gives us; the walls and the lid are added on top.
+	var body := _body(level, nm, pos, yaw,
+		Vector3(BOX_L, BOX_FLOOR_Y, BOX_D), Vector3(0, BOX_FLOOR_Y * 0.5, 0), script)
+	var stone := fmat(family, BASE)
+	var pale := fmat(family, PALE)
+	var dark := fmat(family, DARK)
+	# Two plinth runners, proud of the carcass in z so the box does not read as one slab.
+	var i := 0
+	for side in [-1.0, 1.0]:
+		_box(body, Vector3(0.32, 0.10, BOX_D + 0.06), Vector3(side * 0.60, 0.05, 0.0), dark,
+			"WardBoxRunner%d" % i)
+		i += 1
+	_box(body, Vector3(BOX_L, 0.12, BOX_D), Vector3(0, 0.16, 0), stone, "WardBoxBase")
+	var wall_h: float = BOX_RIM_Y - BOX_FLOOR_Y
+	var wall_y: float = (BOX_RIM_Y + BOX_FLOOR_Y) * 0.5
+	i = 0
+	for side in [-1.0, 1.0]:
+		_box(body, Vector3(BOX_L, wall_h, BOX_WALL),
+			Vector3(0, wall_y, side * (BOX_D * 0.5 - BOX_WALL * 0.5)), stone,
+			"WardBoxSide%d" % i)
+		_extra_collider(body, Vector3(BOX_L, wall_h, BOX_WALL),
+			Vector3(0, wall_y, side * (BOX_D * 0.5 - BOX_WALL * 0.5)))
+		_box(body, Vector3(BOX_WALL, wall_h, BOX_D - BOX_WALL * 2.0),
+			Vector3(side * (BOX_L * 0.5 - BOX_WALL * 0.5), wall_y, 0), pale,
+			"WardBoxEnd%d" % i)
+		_extra_collider(body, Vector3(BOX_WALL, wall_h, BOX_D - BOX_WALL * 2.0),
+			Vector3(side * (BOX_L * 0.5 - BOX_WALL * 0.5), wall_y, 0))
+		# The two straps that are still buckled down the front of the carcass. Their top runs
+		# ride the LID and go with it, which is what makes an opened box read as undone.
+		_box(body, Vector3(0.13, 0.34, 0.03),
+			Vector3(side * 0.45, 0.44, BOX_D * 0.5 + 0.005), dark, "WardBoxStrapFront%d" % i)
+		_box(body, Vector3(0.17, 0.10, 0.05),
+			Vector3(side * 0.45, 0.33, BOX_D * 0.5 + 0.02), pale, "WardBoxBuckle%d" % i)
+		i += 1
+	# ── the lid: a hinge node at the far edge, with the slab and its own body hung off it ──
+	var pivot := Node3D.new()
+	pivot.name = "WardBoxLid"
+	pivot.position = Vector3(0, BOX_LID_Y, BOX_HINGE_Z)
+	body.add_child(pivot)
+	var slab_at := Vector3(0, 0, -BOX_HINGE_Z + 0.01)
+	_box(pivot, Vector3(BOX_L + 0.04, 0.07, BOX_D + 0.06), slab_at, stone, "WardBoxLidSlab")
+	i = 0
+	for side in [-1.0, 1.0]:
+		_box(pivot, Vector3(0.13, 0.05, BOX_D + 0.10), slab_at + Vector3(side * 0.45, 0.055, 0.0),
+			dark, "WardBoxStrapTop%d" % i)
+		i += 1
+	# ⚠️ THE LID'S COLLIDER BELONGS TO THE BOX'S OWN BODY, and that is a fix, not a shortcut. The
+	# first build hung it on a StaticBody3D of its own under the hinge so it would swing with the
+	# slab — and measured `ai_interact_target -> nothing` from every stance, because the ray DID
+	# hit it and a body with no script is not interactable: `player.gd:_is_interactable()` throws
+	# the hit away and the box's own *"The box is sealed."* could never appear. A collider that
+	# swallows a ray on behalf of a prop must be ON that prop. `void_ward_box.gd` disables this
+	# shape when the lid opens; the slab itself still swings, on the pivot, for the picture.
+	var lid_col := _extra_collider(body, Vector3(BOX_L + 0.04, 0.07, BOX_D + 0.06),
+		Vector3(0, BOX_LID_Y, BOX_HINGE_Z) + slab_at)
+	lid_col.name = "WardBoxLidShape"
+	return body
