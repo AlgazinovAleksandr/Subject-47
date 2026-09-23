@@ -388,6 +388,19 @@ an observer who lies about *mechanics* is §8.6.
 [Analog horror](https://en.wikipedia.org/wiki/Analog_horror)
 **Cost:** S. **Panic:** none.
 
+**Build status (2026-09-23): 🟡 PARTIAL. The Breach half is BUILT.**
+- **What is built.** The Breach approach plays three authored lines (`approach_pa_1..3`, from
+  `tools/make_breach_pa.py`), degrading line by line: a clean status report, a glitching count, and a
+  line cut off mid-word.
+- **How.** It is KONTUR's announcer chain (the same "Daniel" voice), so the Breach is the same building
+  still talking. Lines play once, positional triggers along the route, non-positional on Master at
+  `kontur.gd`'s −5 dB (`spec/levels/06-breach.md`).
+- **Where that leaves N4.** Counting KONTUR's four rotating lines (`make_kontur_voice.py`) and the Lab's
+  `pa_trial4`, the facility levels now carry 8 lines. No pass has yet shaped them into one arc across
+  the three levels, which is what "degrading in register" asks for.
+- ⚠️ `make_pa_voice.py` was not used "unchanged", as the sketch below says: both newer tools copy its
+  chain into their own files, so neither can overwrite `pa_trial4`.
+
 Every note in this game **pauses the tree**, which means the storytelling channel and the threat
 channel are mutually exclusive by construction. The PA is the only channel that isn't — and the
 asset and the fiction are already here. *"We are watching"* is established in the first minute, and
@@ -797,7 +810,7 @@ Against that standard: **25 unbuilt rows → 9 survive.**
 
 19. **`SCARY.md` §4.1(e) — audible Object 12.** `creature_growl_near.wav` is already on disk, unused.
     A silent pursuer is the largest single fairness hole in the shipped game.
-20. **N4 the PA channel** — 6–10 lines through `tools/make_pa_voice.py`, unchanged.
+20. **N4 the PA channel** — 6–10 lines through `tools/make_pa_voice.py`, unchanged. *(2026-09-23: the Breach half is built, 3 lines. See N4's build status.)*
 21. **P10** the unseen thing in the Flood.
 22. **P8 effects 1 and 6 only** (see the split in §6.2).
 23. **Persistent save** — Continue = the start of the furthest level reached.

@@ -5,8 +5,9 @@ extends Node3D
 # .tscn-minimal / PRESERVE-whitelist pattern kontur.gd established: the .tscn keeps
 # only Environment/AmbientPlayer/Player, everything else is built here in _ready().
 #
-# The industrial approach hides Object 12 entirely. Crossing its bulkhead starts
-# an eight-second grace, then the hunt for Archive B's fixed flashlight cabinet.
+# The industrial approach (breach_approach.gd) shows Object 12's traces, its sounds and two
+# puppet glimpses, but never the creature itself. Crossing its bulkhead starts the arrival grace
+# (FAMILIARIZATION_FIRST / _RETRY), then the hunt for the fixed flashlight cabinet.
 #
 # Win/lose: the ONLY permanent win condition is luring the creature into the
 # PurgeChamber (see purge_chamber.gd) — light-as-weapon only staggers it temporarily,
@@ -39,6 +40,9 @@ const FAMILIARIZATION_RETRY := 8.0
 # Object 12 were one short walk (the 2026-09-22 hunt was 49 s end to end). EastVault is ~35 m from
 # the purge door across the spine. No hint names it anywhere; the cabinet's leaking beam is the clue.
 const FLASHLIGHT_ROOM := "EastVault"
+# How far (metres, flat) the creature must appear from the player when the grace ends, out of sight.
+# About two rooms; halved once if nothing qualifies, and left where it stands if even that fails.
+const SPAWN_UNSEEN_MIN := 16.0
 var _flashlight_found := false
 var _flashlight_cabinet: HidingSpot
 var _flashlight_clue: Node3D
@@ -177,7 +181,9 @@ func _ready() -> void:
 	_place_player()
 	_spawn_lights()
 	_spawn_creature()
-	_creature._body.visible = _approach_complete
+	# ⭐ ABSENT UNTIL THE GRACE ENDS (2026-09-23, the user's call). It used to stand visible and
+	# dormant in Junction1, the first thing the player saw through the Corridor1 doors.
+	_creature.set_present(false)
 	_spawn_hiding_spots()
 	_spawn_slam_doors()
 	_spawn_purge_chamber()
@@ -205,10 +211,14 @@ func _ready() -> void:
 	_approach.configure(_builder, _player(), _approach_complete)
 	if not _approach_complete:
 		GameState.set_objective("FIND A WAY INTO CONTAINMENT.")
+		_restore_approach_progress()
 		for child in get_children():
 			if child is AudioStreamPlayer and child.playing:
 				_approach_beds[child] = child.volume_db
 				child.volume_db -= 10.0
+		# The approach's silence beats dip these with its own Ambience layers, and hands them back
+		# at their approach level before `committed` fires, so the restore below stays the last word.
+		_approach.set_level_beds(_approach_beds.keys())
 
 
 func _on_approach_committed() -> void:
@@ -217,7 +227,7 @@ func _on_approach_committed() -> void:
 	_approach_complete = true
 	_hunt_checkpoint = true
 	_familiarization_t = 0.0
-	_creature._body.visible = not _creature_defeated
+	# Still absent: `_tick_familiarization` places it unseen when the grace ends.
 	for bed in _approach_beds:
 		if is_instance_valid(bed):
 			bed.volume_db = _approach_beds[bed]
@@ -316,7 +326,22 @@ func _place_player() -> void:
 # checkpoint retains only approach completion across a death; the hunt resets.
 
 func save_progress() -> Dictionary:
-	return {"creature_defeated": _creature_defeated, "flashlight_found": _flashlight_found, "approach_complete": _approach_complete}
+	var out := {"creature_defeated": _creature_defeated, "flashlight_found": _flashlight_found, "approach_complete": _approach_complete}
+	# ⭐ 2026-09-23 pass 3: the approach's two pieces of progress, so a player who leaves by the
+	# back door and returns finds the handle still taken and the porthole door still open.
+	if is_instance_valid(_approach) and _approach.has_method("progress_state"):
+		var st: Dictionary = _approach.progress_state()
+		out["approach_handle_taken"] = bool(st.get("handle_taken", false))
+		out["approach_porthole_open"] = bool(st.get("porthole_open", false))
+	return out
+
+
+func _restore_approach_progress() -> void:
+	var data := GameState.get_level_progress(6)
+	if _approach_complete or data.is_empty():
+		return
+	_approach.restore_state({"handle_taken": bool(data.get("approach_handle_taken", false)),
+		"porthole_open": bool(data.get("approach_porthole_open", false))})
 
 
 func _restore_progress() -> void:
@@ -328,6 +353,8 @@ func _restore_progress() -> void:
 	_creature_defeated = true
 	if is_instance_valid(_creature) and _creature.has_method("lure_into_trap"):
 		_creature.lure_into_trap()
+		# A won level keeps the body exactly as present as it was before the 2026-09-23 change.
+		_creature.set_present(true)
 	_refresh_exit()
 	GameState.set_objective("IT IS SEALED. THE BREACH AT THE END OF THE CORRIDOR IS OPEN.")
 
@@ -487,8 +514,13 @@ func _tick_familiarization(delta: float) -> void:
 	if _familiarization_t >= _familiarization_time:
 		_creature_awake = true
 		_creature.activate()
-		GameState.set_objective("TRAP OBJECT 12 IN THE PURGE CHAMBER." if _flashlight_found else "IT IS AWAKE. FIND YOUR FLASHLIGHT IN THE CABINETS.")
-		ScreenText.scrawl(get_tree(), "IT IS AWAKE.", 3.0, 40)
+		# ⚠️ DELIBERATE (2026-09-23, the user's call): it appears in a RANDOM hunt room, far and out
+		# of sight, UNANNOUNCED. No "IT IS AWAKE." scrawl and no objective change; the player learns
+		# it is loose from what they hear. Never in the flashlight room or the purge chamber.
+		var exclude := [_builder.room_center(FLASHLIGHT_ROOM), _builder.room_center("ExitVault")]
+		if not _creature.spawn_unseen(SPAWN_UNSEEN_MIN, exclude):
+			_creature.spawn_unseen(SPAWN_UNSEEN_MIN * 0.5, exclude)
+		_creature.set_present(true)
 
 
 func _tick_noise() -> void:

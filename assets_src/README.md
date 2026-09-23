@@ -100,6 +100,8 @@ Mirrors the destination path, so it is obvious what each source becomes:
 | `models/parasite/*.fbx` (three) | `game/assets/models/parasite.glb` (+ three extracted 1024² PNGs) | `tools/fbx_to_glb.py` (Blender) → `tools/merge_creature_glb.py --profile parasite --shrink` | local |
 | `audio/level_9_dungeon/*.mp3` (two) | `game/assets/audio/level_9_dungeon/parasite_jumpscare.wav`, `parasite_chase.wav` | `ffmpeg` → (chase) `tools/make_loop.py --xfade 2.0` | **yes** |
 | `textures/level_6_breach/breach_door_raw.jpg` | `game/assets/textures/level_6_breach/breach_door.png` | `tools/make_breach_door.py` | **yes** |
+| `textures/level_6_breach/approach/pass3/*.jpg` (prompts in `prompts.txt` beside them) | `game/assets/textures/level_6_breach/approach_technician_{closed,open}.png`, `approach_body_{facedown,guard}.png` | `tools/make_breach_pass3_art.py` (the eye pair is asserted to differ only at the eyes) | **yes** |
+| *(generated, no source file)* | `game/assets/video/breach_cctv_breakout.ogv`: a PLACEHOLDER. The user's clip replaces it, converted with the Theora recipe below | `tools/make_breach_cctv_placeholder.py` | — |
 | `audio/pre_remaster/*` | *originals of the stings `tools/remaster_scares.py` rewrote in place* | — | local |
 
 ### `models/hollow_crown/` — the creature, and the one place this folder's own rule is broken

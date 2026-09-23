@@ -1,0 +1,27 @@
+Object 12's containment tank (K-CELL, concept A "the glass tank") — flux-1-schnell
+(level-3-image-generator), 8 steps, 2026-09-23. Keyed / graded by tools/make_kontur_cell_art.py.
+The crack and the placard are procedural (Pillow) and have no raw.
+
+cell_blood_smear_raw.jpg   -> cell_blood_smear.png (inside of the glass)
+  close-up photograph of dried dark blood smeared across a pane of glass, a thick hand-wiped smear
+  with long vertical drips running straight down, dark brown-black and deep oxblood red, isolated
+  on a plain pure white background, flat even lighting, high contrast
+
+cell_claw_drags_raw.jpg    -> cell_claw_drags.png (inside of the glass) + the run under the gouges
+  four long parallel claw drag marks smeared straight downward through dried dark blood, streaks
+  thinning into long ragged tails at the bottom, dark brown-black and deep oxblood red, isolated on
+  a plain pure white background, flat even lighting, high contrast
+
+cell_floor_stain_raw.jpg   -> cell_floor_stain.png (round the drain, and the tank floor)
+  top-down photograph of one large irregular dark stain of dried blood and rusty water soaked into
+  the floor, ragged spreading edges and small splatter, isolated on a plain pure white background,
+  flat even lighting, high contrast
+
+cell_back_wall_raw.jpg     -> cell_back_wall.png (cropped to 1.66:2.30, lamp pool multiplied in)
+  front elevation of a dark industrial steel plate wall with rows of rivets along its seams, four
+  deep parallel diagonal gouges torn through the metal across the upper middle with bright scraped
+  silver edges, rust streaks running down, grimy, flat even lighting, straight on, square texture
+
+Rejected: the first back-wall prompt ("... inside a containment tank ... claw gouges ... dried
+blood runs") was refused by the API as NSFW. Dropping "blood" and "containment" passed. The blood
+under the gouges is composited in by the tool instead.

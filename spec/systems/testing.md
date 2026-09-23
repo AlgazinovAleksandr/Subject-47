@@ -9,6 +9,51 @@ decoded kill output during the ambience dip and complete Master output through b
 Both strengthened tests fail on the former implementation and pass rendered after correction.
 The older near-only, nonzero-playback checks could not prove audibility during retreat.
 
+`check_breach_porthole.gd` (2026-09-23 pass 3, 62 checks) proves the approach's new mechanics
+through the real player. It turns the wheel with `InputEventMouseMotion` pushed through
+`Viewport.push_input`, which reaches `_input` headless where `Input.parse_input_event` does not. It
+covers:
+- the collapse blocks physics rays;
+- 22 floor-prop classes are solid;
+- the handle's grip → eyes → whisper order;
+- the wheel turning, drifting back, ignoring a rub, and letting go;
+- the dark room's panic, pinned at the user's 42;
+- the shared breached `ContainmentCell`: its turn, its open front, and no doubled glass;
+- the snapshot.
+
+`check_breach_approach.gd` (81 checks since pass 3; it was 58 after the 2026-09-23 redesign and its legibility pass, whose 58th check asserts that the glimpse fires within 3–5 m and went red at 6.14 m against the old trigger) walks the shipping approach
+physically along `breach_approach.gd:WALK_POINTS`, sampling **every physics frame** (6,436 since
+pass 3; the walk stops at the porthole door for the handle and the wheel).
+- **Panic is exactly 0 on every frame BEFORE the dark room.** Inside the room it rises and never passes
+  42; after it, it only drains. This was "exactly 0 on every frame" until pass 3 gave the dark room the
+  approach's one, capped, panic term.
+- **The real creature is hidden, voiceless and dormant** on every frame until the seal.
+- **Beat order.** The approach's own `beat_log` must equal its route list (`ROUTE_BEATS`, nineteen
+  beats since pass 3), each once, in route order. The eighteen sequence steps must each fire once,
+  after their parent.
+- **The glimpse puppet** carries no collider and no `ScaryObject` above or below it, has its own
+  non-emissive material, and casts no shadow.
+  - A **negative control** stands in the Threshold facing away until the story channel is quiet, and
+    the glimpse must not fire.
+  - Facing up the Threshold then fires it, and the puppet must be freed **before** the seal. Asked
+    after the seal, this check passed with the free deleted.
+- **Bus routing.** The machinery layers must REPORT the Ambience bus. A check that the bus "exists"
+  passed with "SFX" (Issue 267).
+- **The seal** must stop every approach speaker.
+- Plus the original bulkhead ray, positive control, grace, return-visit, retry and new-run checks.
+
+**Proven to fail:** with five deliberate breaks in place (the shutter trigger removed, the puppet's
+free removed, the gaze gate removed, the bus renamed to "SFX", panic injected in one beat), six checks
+went red.
+
+`check_fixtures.gd`'s Breach row lost its "no fitting mesh" waiver on 2026-09-23. The waiver had
+been false since the approach gave its lamps housings. The row is measured now: 29 fittings at load,
+0 over emission 1.0, floor 24.
+
+`screenshot_breach_approach.gd` (needs a render target) drives the player through the real triggers
+and writes 26 frames of every beat to `backlogs/captures/breach-2026-09-23-approach/`. It stages;
+it does not assert.
+
 `check_breach_flashlight.gd` covers missing/owned F behavior, physical walking from the entry
 through Records to the fixed Archive B cabinet and out to Ward B, real E-ray hiding/pickup,
 hidden contact safety, unowned weapon suppression, one-time collection, normal return, death

@@ -187,7 +187,13 @@ const CONFIG := {
 		"ignore": {}, "min_cells": 18000, "min_targets": 9,
 	},
 	"SCENE_LEVEL_6_BREACH": {
-		"seeds": ["@player"], "gates": {}, "ignore": {},
+		# ⭐ 2026-09-23 pass 3: the approach's only way on is the porthole door, opened by fitting the
+		# dead technician's handle and turning the wheel three times. Before it opens, everything past
+		# it (the dark room, the cell chamber, the Threshold and the whole hunt) is behind a shut leaf.
+		# `check_breach_porthole.gd` proves the real E-ray + mouse-circle opening and the clear doorway.
+		"seeds": ["@player"], "gates": {
+			"PortholeLeafSolid": "the porthole door opens when its wheel is turned (handle from the technician)",
+		}, "ignore": {},
 		"min_cells": 18000, "min_targets": 8,
 	},
 	"SCENE_DUNGEON": {

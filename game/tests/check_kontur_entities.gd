@@ -653,7 +653,8 @@ func _check_occupant_material(cell: Node3D) -> void:
 		+ "which no ceiling can catch. ⚠️ THIS IS A FLOOR ON A PROXY: the authority is "
 		+ "`tests/screenshot_cell_visibility.gd`, which photographs the booth from 23 reachable "
 		+ "headings and requires the occupant to be visible and darker than what is behind it at "
-		+ "every one (last run: 3534-48253 px, contrast 0.228-0.611, occ/bg 0.39-0.77). It needs "
+		+ "every one (last run 2026-09-23, the glass tank: 2623-41239 px, contrast 0.355-0.662, "
+		+ "occ/bg 0.34-0.65). It needs "
 		+ "a display, so it is not in the suite and this is what stands in for it headlessly.")
 			% eff)
 	_ok("its emission cannot self-light it out of the dark",

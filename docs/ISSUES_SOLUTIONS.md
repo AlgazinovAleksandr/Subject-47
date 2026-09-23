@@ -6787,3 +6787,134 @@ The approach's spec entry was never closed, and closing it is where the sweep wo
 **General lesson:** a dedup key has to contain exactly the fields that make two things *different
 objects*, no more. Every extra field in the key is a way for two copies of the same surface to miss each
 other. Here, height changed how tall the wall is, not which wall it is.
+
+## Issue 267 — The approach's speakers asked for a bus that has never existed, and the property reads back "Master" (2026-09-23)
+
+**Symptom:** none audible. The Breach approach (2026-09-22) set every speaker to
+`bus = "SFX" if AudioServer.get_bus_index("SFX") >= 0 else "Master"`. This project has never had an
+"SFX" bus (`audio_buses.gd` creates `Ambience` and `Body` only), so every approach sound played on
+Master. The 2026-09-23 redesign needs its machinery and bed on `Ambience`, so that the silence beats
+(`HoldBreath.dip()`, which ducks Ambience) can actually take them down.
+
+**Cause:** two layers of silent fallback.
+- The approach's own ternary quietly chose Master.
+- Godot's `AudioStreamPlayer.bus` getter does the same thing: set it to a name with no bus, and
+  reading it back returns `"Master"`. The engine returns the stored name only if a bus by that name
+  exists.
+
+**Fix:** approach speakers use `AudioBuses.AMBIENCE` for the machinery pool, the ventilation bed, the
+lamp clunks, the shutter and the dust, and `"Master"` for story beats (`breach_approach.gd`).
+
+**Why a test would have missed it, and nearly did:** the first check written for this was "every
+approach speaker's `bus` is a bus that exists". It **stayed green with the bus deliberately renamed to
+"SFX"**, because the getter it reads can never return a nonexistent name. The check that caught the
+break was the positive one: "the breathing bed reports `Ambience`". `check_breach_approach.gd` now
+requires the machinery layers to REPORT Ambience, which they can only do if the bus exists.
+
+A sibling blind spot in the same test, caught the same way: "the glimpse puppet is freed" was asked
+after the bulkhead sealed. The seal frees the puppet anyway, so deleting the puppet's own
+`queue_free()` left the check green. It is now asked on the frames right after the withdraw, before
+the seal.
+
+**General lesson:** a property that falls back on a bad value cannot be used to detect the bad value.
+When the engine normalises an input, a guard has to assert the one outcome the correct input is the
+only way to produce. A cleanup that happens anyway later (a seal, a scene change) will pass any check
+made after it; ask your question before the next thing that would answer it for you.
+
+## Issue 268 — A prop that was only correct as an unturned child of the level with nothing in front of it (2026-09-23)
+**Symptom:** remaking KONTUR's containment cell as the glass tank (K-CELL) and turning it `PI/2` so its
+front faces the walking line surfaced four latent faults at once. Every one had been invisible while
+the booth stood unrotated with an open barred front:
+1. `_find_player()` read `get_node_or_null("../Player")`. That returns null under any nesting, and
+   the Breach is about to nest the same script under a `ContainmentApproach` node.
+2. Head tracking took a WORLD-space bearing (`player.global_position - global_position`) and applied
+   it as a LOCAL yaw. That was right only at rotation 0; turned `PI/2`, the occupant would stare 90°
+   away from the player.
+3. `charge()` lunged along a fixed local −z. On the unturned booth that was the face an AnteEast
+   arrival meets; on the turned tank it is sideways past them. Re-measured on a side approach, the
+   fixed 0.62 m put a hand **2.4 cm through the pane**.
+4. The charge's white flash (1.2 at t = 0, on ONE material shared by every pane) was harmless on the
+   old rear pane. Once a pane stood between the player and the creature it became an opaque grey
+   sheet (frame mean 0.25) for exactly the 0.16–0.34 s the body was at the glass.
+
+The rebuild also produced a fifth fault of its own. `emission_texture` = the albedo on Godot's
+default `EMISSION_OP_ADD` rendered the gouged back wall as a flat 0.69 slab, because ADD is
+(emission colour + texture) × energy. Bisected by render: emission 0 → 0.13, albedo texture off →
+0.22, torch off → 0.00. That is Issue 81's shape exactly.
+
+**Cause:** each fault was a coordinate-frame or staging assumption that held by accident (no
+rotation, no nesting, nothing in front of the creature). The ADD wash is a default that silently
+changes meaning once a texture is present.
+
+**Fix** (`containment_cell.gd`):
+- `_find_player` looks up the `"player"` group and falls back to the current scene's `Player`.
+- The bearing is `to_local(player)`.
+- `lunge_plan()` aims at the player and sizes the lunge from the occupant's real bone reach, stopping
+  it 0.12 m inside whichever pane lies between them. The head stops tracking for the lunge: turning
+  mid-lunge put a hand 6 cm through the glass.
+- Each pane has its own material, so the pop (0.22, 0.15 s) lands at impact, on the struck pane
+  only, and the crack goes on that pane.
+- Every self-lit art surface is `EMISSION_OP_MULTIPLY`.
+
+**Why the existing tests missed it:**
+- `check_kontur_entities` measures a STILL occupant from 23 poses. It never turns the cell, nests it
+  or charges it.
+- `check_kontur_blackout` asserts that the charge fires and costs zero panic, not where it goes or
+  what the player sees.
+- The first render showed faults 4 and 5 at once. Faults 1–3 needed `check_kontur_cell.gd`: a nested
+  tank under a parent turned 1 rad, and a side-on charge that must crack the RIGHT pane and no other.
+  Each was proven red with its fix reverted.
+- ⚠️ A reach THRESHOLD could not tell the sized lunge from the fixed one (−0.793 against −0.771 on the
+  same seed), because the occupant's pose at charge time varies by more than the difference. The
+  guard asserts the sizing rule itself, reach + distance = wall − margin, to 2 mm.
+
+**General lesson:**
+- A prop's local frame is unproven until the prop has been turned AND nested in a test. Any
+  "world" arithmetic in it is a latent bug that its first real placement will expose.
+- An effect tuned for one geometry (a flash on a pane BEHIND the subject) becomes a different effect
+  when the geometry in front of it changes. Re-render the beat; do not re-read the constant.
+
+## Issue 269 — The Breach approach's props were pictures of objects: 89 box visuals, 5 colliders (2026-09-23)
+
+**Symptom:** the user's J-capture 2 in the Plenum: *"Now you can just walk throught these objects, they are
+not like real ones"*. The player walked straight through a 1 m-radius, 3.4 m pressure receiver.
+
+**Cause:** `breach_approach.gd` built its props with `_box()` (a `MeshInstance3D` and nothing else) and
+`_pressure_vessel()` (a cylinder, two bands, a foot and a gauge, all meshes). A mesh has no physics presence;
+the player's `CharacterBody3D` only collides with a `CollisionObject3D`. The whole approach had five collision
+bodies: the two inspection-window barriers, the gouged cabinet's body, the bulkhead blocker and the lintels.
+So the receivers, the rack, the hanging locker door, the return riser and the window sills and mullions were
+all walk-through.
+
+**Fix:** `_solid_box()` is `_box()` plus `_collide()`: a `StaticBody3D` made a CHILD of the mesh, so it
+inherits every transform the mesh has (a hinge, a tilt, a tween). `_collide_cylinder()` covers the receivers
+and their feet. They are applied to everything floor-standing or at body height:
+- the 8 receivers
+- the bay rack
+- the window sills and mullions
+- the locker's hanging door
+- the return riser
+- the cable drops
+- the Containment wall damage
+- the cell-chamber jambs
+- the bulkhead rails
+- every pass-3 prop:
+  - the technician and the collapse
+  - the restraint chair, trolley, vial rack, specimen cart and bucket
+  - the two bodies, the desk and the toppled chair
+  - the grille housing, and the porthole frame and leaf
+
+Overhead props whose underside is above the player's 1.8 m stay meshes.
+
+**Why the tests missed it:**
+- `check_breach_approach.gd` walks the route's centreline, and the props were deliberately laid out off it.
+- `check_doorways` only asks about doorways.
+- `check_reachable` flood-fills standable space. A prop without a collider IS standable space, so a missing
+  collider can only make things more reachable, never less.
+- Nothing asked "is this solid-looking thing solid". `check_breach_porthole.gd` now does: for each of 22
+  floor-prop classes it fires a ray at the prop from all four sides, and requires the prop's OWN collider to
+  be the first hit from at least one of them. With the colliders removed it goes red (see the level spec).
+
+**General lesson:** hand-built `BoxMesh` geometry has no physics. A helper that makes a visual needs a
+sibling that makes it solid, and the default for anything at body height should be the solid one. A walk
+down a cleared lane cannot find a missing collider; only a ray aimed at the prop can.
