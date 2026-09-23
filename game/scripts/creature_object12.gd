@@ -440,6 +440,51 @@ func place_body(pos: Vector3, face_toward: Vector3) -> void:
 		_body.rotation.y = atan2(to.x, to.z)
 
 
+# ⭐ PRESENCE (2026-09-23, the user's call for the Breach: "I do not like that the creature is just
+# standing here at the moment the true level begins"). ABSENT means invisible AND without a collider:
+# `_body` is a StaticBody3D under the ScaryObject, so a merely-hidden body is an invisible wall at its
+# spawn and a glance at that empty doorway would still charge gaze panic.
+func set_present(on: bool) -> void:
+	if _body:
+		_body.visible = on
+	if _body_collider:
+		_body_collider.set_deferred("disabled", not on)
+
+
+# ⭐ SPAWN UNSEEN (2026-09-23). Put the body in a RANDOM room of the hunt graph that is at least
+# `min_dist` from the player, not the player's own room, not one of `exclude` (room centres), and
+# out of their sight (`_visible_to_player`, five sample points, frustum + line of sight). Returns
+# false, and moves nothing, when there is no graph (THE NIGHTMARE never calls `set_portals`) or no
+# candidate, so the caller decides the fallback.
+func spawn_unseen(min_dist: float, exclude: Array = []) -> bool:
+	if _rooms.is_empty() or not _ensure_player():
+		return false
+	var p := _player.global_position
+	var player_room := _room_at(p)
+	var candidates: Array[Vector3] = []
+	for i in range(_rooms.size()):
+		var c: Vector3 = _rooms[i]["c"]
+		if i == player_room or Vector2(c.x - p.x, c.z - p.z).length() < min_dist:
+			continue
+		var excluded := false
+		for e in exclude:
+			if Vector2(c.x - (e as Vector3).x, c.z - (e as Vector3).z).length() < 0.5:
+				excluded = true
+				break
+		if excluded or _visible_to_player(c):
+			continue
+		candidates.append(c)
+	if candidates.is_empty():
+		return false
+	var target: Vector3 = candidates.pick_random()
+	place_body(target, p)
+	if not _waypoints.is_empty():
+		_wp_index = _nearest_waypoint_index()
+	_log_hunt("SPAWNED UNSEEN at (%.1f, %.1f), %.1f m from the player" % [target.x, target.z,
+		Vector2(target.x - p.x, target.z - p.z).length()])
+	return true
+
+
 # Player sprinting or a slammed door within earshot — escalates PATROL -> INVESTIGATE.
 func notify_noise(pos: Vector3, radius: float) -> void:
 	if not _active or _state != State.PATROL:

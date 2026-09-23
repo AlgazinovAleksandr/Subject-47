@@ -20,7 +20,7 @@ func _initialize() -> void:
 	_run.call_deferred()
 
 func _process(_delta: float) -> bool:
-	if Time.get_ticks_msec() - _started > 90000:
+	if Time.get_ticks_msec() - _started > 150000:
 		print("FAIL flashlight test timed out")
 		quit(1)
 	return false
@@ -76,6 +76,7 @@ func _enter(spot: Node3D) -> void:
 func _run() -> void:
 	await create_timer(1.8).timeout
 	_bind()
+	preload("res://tests/lib/breach_hunt_fixture.gd").enter(_level)
 	var gs := root.get_node("GameState")
 	var cabinet: Node3D = _level.get("_flashlight_cabinet")
 	var fixed_position := cabinet.global_position
@@ -83,11 +84,23 @@ func _run() -> void:
 	_ok("objective explains the search", "MISSING" in String(gs.get("current_objective")))
 	_f()
 	_ok("F cannot summon the missing flashlight", not _player.call("is_flashlight_on"))
-	_ok("fixed cabinet is in the middle western wing", fixed_position.x < -7 and fixed_position.z > 30 and fixed_position.z < 40)
+	# ⚠️ 2026-09-23 (the user's call): the cabinet moved to EastVault, the east dead end, so the
+	# light and the purge chamber are in opposite wings. Measured from the purge door (-7, 48).
+	_ok("fixed cabinet is the EastVault dead end", fixed_position.x > 10 and fixed_position.z > 21 and fixed_position.z < 27)
+	_ok("cabinet is far from the purge door (%.1f m)" % Vector2(fixed_position.x + 7, fixed_position.z - 48).length(),
+		Vector2(fixed_position.x + 7, fixed_position.z - 48).length() > 25.0)
+	var archive_b: HidingSpot
+	for child in _level.get_children():
+		if child is HidingSpot and child.global_position.distance_to(Vector3(-9.78, 0, 37.5)) < 2:
+			archive_b = child
+	_ok("ArchiveB keeps an ORDINARY cabinet", archive_b != null and archive_b != cabinet)
 	_ok("arrival grace keeps creature dormant", not _level.get("_creature_awake"))
 	await _shot("01_entry_without_flashlight")
-	await create_timer(6.5).timeout
-	_ok("creature wakes during the search", _level.get("_creature_awake") and not _level.get("_flashlight_found"))
+	# ⚠️ FIRST attempt: 20 s (2026-09-23). The old 8 s mark must now pass with it still dormant.
+	await create_timer(8.2).timeout
+	_ok("first-attempt grace outlasts the old 8 s", not _level.get("_creature_awake"))
+	await create_timer(12.0).timeout
+	_ok("creature wakes at the 20 s first-attempt grace, during the search", _level.get("_creature_awake") and not _level.get("_flashlight_found"))
 	_creature.set_process(false)
 	_creature.call("_ensure_player")
 	var body: Node3D = _creature.get("_body")
@@ -119,7 +132,8 @@ func _run() -> void:
 	_player.call("ai_interact")
 	await process_frame
 	_ok("leaving other cabinet keeps torch missing", not _player.call("is_hidden") and _player.get("_flashlight_locked"))
-	for point in [Vector3(-7, 0, 14), Vector3(-7, 0, 22), Vector3(-7, 0, 30.5), Vector3(-7, 0, 37.5)]:
+	# Back across the spine and into the east wing: Junction1 -> Atrium -> WardA -> EastVault.
+	for point in [Vector3(0, 0, 14), Vector3(0, 0, 21), Vector3(7, 0, 21), Vector3(7, 0, 24), Vector3(13, 0, 24)]:
 		await _walk(point)
 	var clue: Node = _level.get("_flashlight_clue")
 	await _walk(cabinet.global_position + cabinet.global_basis.z * 1.1)
@@ -148,8 +162,8 @@ func _run() -> void:
 	_ok("repeated recovery does not reset F state", _player.call("is_flashlight_on"))
 	await create_timer(1.0).timeout
 	await _shot("04_recovered_light")
-	# The other approach is the loop through Ward B: walk its physical doorway too.
-	for point in [Vector3(-7, 0, 37), Vector3(0, 0, 37)]:
+	# The other way out of the east wing is the WardA <-> Junction2 loop: walk its physical doorway too.
+	for point in [Vector3(7, 0, 24), Vector3(7, 0, 30), Vector3(0, 0, 30)]:
 		await _walk(point)
 	var saved: Dictionary = _level.call("save_progress")
 	_ok("progress saves flashlight ownership", saved.get("flashlight_found", false))
@@ -166,6 +180,15 @@ func _run() -> void:
 	_bind()
 	_ok("death restart makes the flashlight missing again", not _level.get("_flashlight_found") and _player.get("_flashlight_locked"))
 	_ok("death restart keeps the exact cabinet location", _level.get("_flashlight_cabinet").global_position == fixed_position)
+	# ⚠️ RETRY: 8 s (2026-09-23). The checkpoint seals the approach on load, so the grace clock has
+	# been running since _ready(); align to it once, then assert on the creature's own state.
+	_ok("retry resumes at the sealed checkpoint", _level.get("_approach_complete"))
+	var already: float = float(_level.get("_familiarization_t"))
+	await create_timer(maxf(0.0, 7.6 - already)).timeout
+	_ok("retry grace still dormant just before 8 s", not _level.get("_creature_awake"))
+	await create_timer(0.8).timeout
+	_ok("retry grace wakes the creature at 8 s", _level.get("_creature_awake"))
+	_level.get("_creature").set_process(false)
 	# The creature can be sealed before recovering the optional defensive tool.
 	_level.set("_creature_defeated", true)
 	_level.call("_recover_flashlight", false)

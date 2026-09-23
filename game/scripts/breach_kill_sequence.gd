@@ -2,6 +2,7 @@ extends Node3D
 
 # Breach-only presentation after confirmed contact. No range checks or damage rules here.
 const ART := "res://assets/textures/level_6_breach/object12_kill_closeup.png"
+const KILL_SOUND := "res://assets/audio/level_6_breach/level_6_jumpscare.wav"
 const DURATION := 1.45
 const ACTOR_LAYER := 1 << 17 # layer 20 is reserved for mirror-only art and camera-culled
 var elapsed := 0.0
@@ -77,8 +78,11 @@ func start(player: CharacterBody3D, creature: Node, door: Node3D, token: int) ->
 	add_child(light)
 	_build_insert()
 	_voice = AudioStreamPlayer.new()
-	_voice.stream = GameState.load_audio("breach_voice_scream_chase")
-	_voice.volume_db = -2.0
+	_voice.stream = load(KILL_SOUND)
+	# This recording is much hotter than the chase vocal. Leave headroom for the
+	# two impacts; Master retains the shared limiter, outside the ambience dip.
+	_voice.volume_db = -8.0
+	_voice.bus = "Master"
 	add_child(_voice)
 	_voice.play()
 	_hit = AudioStreamPlayer.new()

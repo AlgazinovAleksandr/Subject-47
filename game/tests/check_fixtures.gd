@@ -87,10 +87,14 @@ const CONFIG := {
 	},
 	"SCENE_KONTUR": {"min_fittings": 3, "seeds": [7]},
 	"SCENE_LEVEL_6_BREACH": {
-		# ⚠️ 0 IS A FINDING, NOT A SETTING: the Breach hangs bare `OmniLight3D`s with no
-		# housing mesh at all, so there is nothing here for this guard to measure and nothing
-		# in the level to look at where the light comes from. backlogs/06-breach.md.
-		"no_fittings": "the Breach's lights are bare OmniLights with no fitting mesh",
+		# ⚠️ THE WAIVER IS GONE (2026-09-23). The HUNT's lamps are still bare `OmniLight3D`s,
+		# but the containment approach (`breach_approach.gd`, 2026-09-22, rebuilt 2026-09-23)
+		# hangs a housing on every lamp, at emission 0.4. So the waiver this row carried ("no
+		# fitting mesh") had been false since the approach shipped. Per this file's own rule, the
+		# level is MEASURED now. The motion lamps start dark with emission OFF, so the count at
+		# load is the always-on fittings: measured 29, none over the ceiling. The floor is a smoke
+		# alarm, not a tuning number.
+		"min_fittings": 24,
 	},
 	# ⚠️ THE NIGHTMARE has no electric light, but it does have the candle flame and the
 	# sconces, and those are emissive meshes sitting inside lights — the same thing, and the

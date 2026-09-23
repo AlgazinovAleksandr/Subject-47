@@ -59,6 +59,9 @@ TESTS=(
   check_breach_voice          # three spatial voices, silent-tail suppression, leaf recoil and hidden safety
   check_breach_kill           # real rig/contact, animated impacts, hidden safety and single scene-scoped restart
   check_breach_flashlight     # fixed mid-level pickup, physics route, E/F, hiding, resume and death reset
+  check_breach_approach       # full physical prelude, dormant creature, bulkhead and retry/new-run checkpoint
+  check_breach_hunt_start     # absent through the grace, then a random unseen far room (10 seeded starts)
+  check_breach_porthole       # pass 3: collapse, solid props, handle + wheel by mouse, the dark room's capped panic, the chamber
   check_audio_buses           # the silence architecture: Body survives a dip, beds nest
   check_scare_loudness        # the stings are LOUD, and the fatal path cuts to black first
   check_creature_model        # the ASSET: six clips, no root motion, not metal, not self-lit
@@ -150,6 +153,7 @@ TESTS=(
   check_kontur_signs          # the eight redacted signs are readable from the walking line AND still redacted
   check_kontur_entities       # Object 12 is inert; the mimic costs nothing to look at and can spend nothing
   check_kontur_blackout       # the black door blows the lights, Object 12 charges the glass (0 panic), lights restore; charge inert pre-gate-1
+  check_kontur_cell           # K-CELL: the glass tank, OCCUPIED vs BREACHED by physics (front ray, interior point, a capsule walks in), nested _find_player, the charge sized to the glass
   check_kontur_phones         # gate 6 = 3 phones: answer green, smash yellow/blue; blue panic; gate completion; only the ringing one charges
   check_kontur_condemn        # K2 (2026-09-13): a wrong action is fatal after ~20 s of rising dread, no flash
   check_kontur_figure_frame   # K4 (2026-09-13): the Blackout figure appears IN FRAME wherever the camera points when the torch goes off
@@ -171,7 +175,7 @@ TESTS=(
   check_note_audio            # 2026-09-13: a note / the journal keep the level's audio playing through the pause; panic still frozen
   check_void_alignment       # real-ray perspective alignment, safety, restore and optional Ward interaction
   check_void_stare           # 2026-09-20: whispers rise/fall with gaze, a 7 s stare fires ONE hallucination, panic untouched, no blink on the tiles
-  check_void_frames          # 2026-09-20 pass 4: THE HALL OF FRAMES — six seeded scrambles solvable, a wrong step never strands, the note refuses while carrying, the figure is a photograph
+  check_void_frames          # 2026-09-22 pass 6: THE RECURRING ROOM — six seeded shuffles solvable by crossings, every arrival at the entrance, the wrong door's arm's-length figure for one frame, a blind player bounded at 25 crossings
   walk_void_live             # real player completes Void with all five creatures active
   walk_void                   # THE VOID (2026-09-12): spawn -> notes -> the loop sends you back, then stops -> the tiles -> twist -> exit, all through the ray
   check_void                  # THE VOID: seam keeps heading+velocity, the bridge stalker never steps (with control), 6 lethal stalkers, 9 notes, snapshot, the fall

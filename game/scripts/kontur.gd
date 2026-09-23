@@ -2414,9 +2414,13 @@ func _spawn_containment_cell() -> void:
 	var cell := ContainmentCell.new()
 	cell.name = "ContainmentCell"
 	cell.position = CELL_POS
+	# ⭐ K-CELL (2026-09-23): the glass tank's FRONT is its local −z and its steel BACK is +z. Turned
+	# PI/2, the front (the placard, the drain, the pane Object 12 charges) faces WEST onto the walking
+	# line — K1b's measured 5.85 m face — and the gouged steel back stands against the Passage's east
+	# wall, where the old `LinerEast` stood. The footprint is square, so nothing a player can bump
+	# into moved. The state defaults to OCCUPIED; the Breach builds the same tank BREACHED.
+	cell.rotation.y = PI / 2.0
 	_cell = cell
-	# Faces -z, i.e. the door and the placard look back down the spine at someone walking
-	# in from the antechambers; the three glazed faces are the ones they pass.
 	add_child(cell)
 
 

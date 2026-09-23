@@ -31,6 +31,16 @@ var label := "a door handle"       # how the HUD's carried line names it
 var family := "tar"
 var pose := Vector3.ZERO           # rotation of the silhouette where it LIES in the world
 var level: Node = null             # the level owns the inventory, not GameState
+# ⭐ 2026-09-22 pass 6 — AN ANCHOR CAN BE SEALED INSIDE SOMETHING. The bed slat lies in the Ward
+# box, and the box's shut lid is a real collider a descending E-ray stops on. That is a blocker,
+# and Issue 242's ruling is that a blocker guards ONE viewing angle while a refusal on the target
+# guards all of them — so the slat refuses by name as well. `container` is any node answering
+# `container_method` with a bool; empty = not contained, which is what the other two anchors are.
+# ⚠️ The refusal costs NOTHING and `can_interact()` stays true, like every other gated
+# interactable in this level: a prompt that states a condition is not Issue 226's promise.
+var container: Node = null
+var container_method := "is_open"
+var sealed_text := ""
 
 var _gone := false
 
@@ -59,7 +69,17 @@ func can_interact() -> bool:
 	return not _gone
 
 
+func is_sealed() -> bool:
+	if container == null or not is_instance_valid(container):
+		return false
+	if not container.has_method(container_method):
+		return false
+	return not bool(container.call(container_method))
+
+
 func prompt_text() -> String:
+	if is_sealed():
+		return sealed_text
 	if level != null and String(level.call("carried_anchor")) != "":
 		return "Your hands are full."
 	return "E — Take %s." % label
@@ -67,6 +87,9 @@ func prompt_text() -> String:
 
 func interact() -> void:
 	if _gone or level == null:
+		return
+	if is_sealed():
+		_dbg("VOID anchor %s refused — sealed inside %s" % [anchor_id, container.name])
 		return
 	if String(level.call("carried_anchor")) != "":
 		_dbg("VOID anchor %s refused — already carrying %s" % [anchor_id, level.call("carried_anchor")])

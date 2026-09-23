@@ -55,7 +55,7 @@ var ceil_mat: Material
 var wall_height: float = DEFAULT_H
 
 var _rooms: Dictionary = {}        # name -> { pos, size, h }
-var _built_walls: Dictionary = {}  # "axis|plane|height" -> Array of covered [lo,hi]
+var _built_walls: Dictionary = {}  # "axis|plane" -> Array of covered [lo, hi, h]
 
 
 func build(rooms: Array, doorways: Array) -> void:
@@ -221,53 +221,74 @@ func _emit_wall_run(axis: String, fixed: float, span_min: float, span_max: float
 # texture bleeding through the other along a jagged contour. Exact-match dedup only
 # ever caught the equal-size case.
 #
-# Coverage is tracked per (axis, plane, height); whichever room builds first owns
-# the shared stretch, which is the documented behaviour for shared interior walls.
+# Coverage is tracked per (axis, plane); whichever room builds first owns the shared
+# stretch, which is the documented behaviour for shared interior walls.
+#
+# ⚠️ AND NOT PER HEIGHT (2026-09-23, Issue 266). The key used to be axis|plane|HEIGHT,
+# so two abutting rooms of DIFFERENT heights each built a full slab on their shared
+# plane — Issue 23's coincident-surface fault again, one key-field down. Nothing had
+# mixed heights until the Breach approach varied its ceilings (3.0–5.2 m), where the
+# wall-overlap sweep measured 12 ZFIGHT pairs and the user's captures showed one
+# skin tearing through the other. Coverage now remembers each wall's height: a later
+# room builds nothing where an existing wall is at least as tall, and only the strip
+# ABOVE a lower one where it is taller.
 func _emit_wall_segment(axis: String, fixed: float, a: float, b: float, h: float,
 		wmat: Material) -> void:
-	var key := "%s|%.2f|%.2f" % [axis, fixed, h]
+	var key := "%s|%.2f" % [axis, fixed]
 	var covered: Array = _built_walls.get(key, [])
-	for piece in _free_intervals(a, b, covered):
-		_emit_wall_box(axis, fixed, piece[0], piece[1], h, wmat)
-		covered.append(piece)
+	for piece in _uncovered_pieces(a, b, h, covered):
+		_emit_wall_box(axis, fixed, piece[0], piece[1], piece[2], h, wmat)
+	covered.append([a, b, h])
 	_built_walls[key] = covered
 
 
-# The parts of [a,b] not already inside one of `covered`'s [lo,hi] intervals.
-func _free_intervals(a: float, b: float, covered: Array) -> Array:
-	var pending: Array = [[a, b]]
+# The [lo, hi, base] pieces of [a,b] where the walls already on this plane stand lower
+# than h. `base` is the height of what is already there (0.0 where nothing is), so the
+# caller builds only from `base` up. Contiguous pieces on the same base are merged
+# BEFORE the SEG_MIN filter, so a sliver cut by an unrelated wall's end point cannot
+# punch a gap in an otherwise continuous run.
+func _uncovered_pieces(a: float, b: float, h: float, covered: Array) -> Array:
+	var cuts: Array = [a, b]
 	for c in covered:
-		var next: Array = []
-		for p in pending:
-			# No overlap — keep the piece whole.
-			if c[1] <= p[0] or c[0] >= p[1]:
-				next.append(p)
-				continue
-			# Keep whatever sticks out either side of the covered span.
-			if c[0] - p[0] > SEG_MIN:
-				next.append([p[0], c[0]])
-			if p[1] - c[1] > SEG_MIN:
-				next.append([c[1], p[1]])
-		pending = next
+		for edge in [c[0], c[1]]:
+			if edge > a and edge < b:
+				cuts.append(edge)
+	cuts.sort()
+	var runs: Array = []
+	for i in range(cuts.size() - 1):
+		var lo: float = cuts[i]
+		var hi: float = cuts[i + 1]
+		if hi - lo <= 0.0001:
+			continue
+		var mid := (lo + hi) * 0.5
+		var base := 0.0
+		for c in covered:
+			if c[0] <= mid and mid <= c[1]:
+				base = maxf(base, c[2])
+		if not runs.is_empty() and absf(runs[-1][1] - lo) < 0.0001 and absf(runs[-1][2] - base) < 0.0001:
+			runs[-1][1] = hi
+		else:
+			runs.append([lo, hi, base])
 	var out: Array = []
-	for p in pending:
-		if p[1] - p[0] > SEG_MIN:
-			out.append(p)
+	for r in runs:
+		if r[1] - r[0] > SEG_MIN and h - r[2] > SEG_MIN:
+			out.append(r)
 	return out
 
 
-func _emit_wall_box(axis: String, fixed: float, a: float, b: float, h: float,
+func _emit_wall_box(axis: String, fixed: float, a: float, b: float, base: float, h: float,
 		wmat: Material) -> void:
 	var center := (a + b) / 2.0
 	var length := b - a
+	var tall := h - base
 	var pos: Vector3
 	var size: Vector3
 	if axis == "z":   # runs along X at constant z
-		pos = Vector3(center, h / 2.0, fixed)
-		size = Vector3(length, h, T)
+		pos = Vector3(center, base + tall / 2.0, fixed)
+		size = Vector3(length, tall, T)
 	else:             # runs along Z at constant x
-		pos = Vector3(fixed, h / 2.0, center)
-		size = Vector3(T, h, length)
+		pos = Vector3(fixed, base + tall / 2.0, center)
+		size = Vector3(T, tall, length)
 	_box("Wall", pos, size, wmat)
 
 

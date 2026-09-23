@@ -259,7 +259,238 @@ rulings"). **Difficulty is ruled fine by the user (capture 6) — no constant ch
   stays on disk, unplayed. **Proves:** `check_void` — the figure's home is within 0.2 m of the assembly's
   centre (measured 0.055 m; the node origin it used to rise from was y 0.00); a screenshot at the peak.
 
+### Pass 6 — THE RECURRING ROOM (built 2026-09-22 from the 23:47 run: 887 s, 1 death, quit inside the Hall of Frames on its first human visit, five captures)
+
+Evidence `backlogs/captures/08-void-2026-09-21f/`; rulings in DECISIONS ("Pass 6 rulings"). Difficulty
+stays ruled fine; no constant moves.
+
+- **THE RECURRING ROOM replaces the dwell** (capture 5: *"I cannot walk in the doors, I think it should be
+  a bug"* — the frames have no colliders; the 1.2 s stand-still dwell was the wall, since walking through
+  takes 0.15 s and does nothing). The five upright frames in `FrameHall` become thresholds: **walking
+  through** one (the capsule crossing the frame plane from the front) is the step. Every step is a hard
+  **cut to black for 0.3 s with `loop_slam`**, and you come back standing in the Morgue doorway facing the
+  five doors. **Right:** the room is one stage stranger, `frame_tone` up an interval. **Wrong:** on the
+  fade-in the figure stands 0.6 m in front of the camera for exactly one frame, the room is back at stage
+  0, and the doors are reshuffled — the whole permutation, inside the black, so Issue 241's pairwise
+  off-screen exchange is retired. The fifth right step is the existing settle (the frames into a corridor,
+  the hidden note at its end) — **stage 5 is applied and THEN settled**, and the room stays corrupted
+  after the settle (walls, hum, whispers); only the lamp (→ 1.0) and the frames resolve, so the last door
+  never reads as an undo. Save `frame_stage`; a restore applies the stage without replay. **Built facts:**
+  the crossing is a hysteresis latch — arm 0.25 m in front, fire 0.25 m behind, inside a 0.55 m half-width
+  (a still body's jitter cannot span 0.5 m; a bare sign flip fired on a player standing dead centre) —
+  with **no arrival cooldown** (pass 4's 0.35 s one swallowed a sprinting player's first crossing, 1.5 m
+  away in 0.23 s); the entrance stance is (−21.9, 0.1, 47.5) yaw π/2, pitch and velocity zeroed; the east
+  column moved from x −22.3 to **−23.4 and both columns face the entrance**, because the dioramas are the
+  answer and pass 5's layout turned two of them away from the one stance the room ever puts you in;
+  pairwise separation ≥ 2.35 m, the z 47.5 lane clear. ⚠️ **Brute force is 25 crossings, not 15**
+  (5 + 7 + 7 + 5 + 1: a wrong door resets the answer); a blind player who eliminates by memory measured 15
+  on seed 404; a player who remembers the level does it in 5. The guard holds 25.
+  **The ladder, zero panic** (nothing calls `add_panic`; the room is outside every zone): 1 the lamp drops
+  to 0.12 and the room hums (`room_hum`, a 4 s loop, −6.6 dBFS) · 2 every diorama tilts (roll 0.18) and a
+  second copy stands 0.35 m behind it at 0.8 scale · 3 on arrival the eyelid blink
+  (`StareDirector.blink_now()`) and the figure in one non-answer doorway for a frame; `stalker_whisper`
+  from two doors · 4 the room's walls swap to `wall_void_corrupt` (grey human hands pressed into the stone
+  from behind — the generator gave hands, not faces, and hands read better at wall scale; a duplicate
+  material on **the FrameHall's own three wall boxes only**, found by geometry and asserted to be three —
+  the fourth bounding plane is the Morgue's shared 10 m x = −21 wall, seen from the Morgue, never touched;
+  the original kept for stage 0) · 5 the doors and dioramas roll 0.10
+  rad one way, the lamp swings on a 3 s sine, all five whisper emitters on. **Replaces:** the dwell, the
+  lamp-only ladder, the pairwise re-scramble, the figure-one-frame-nearer escalation. **Proves:**
+  `check_void` — a crossing at walking speed steps and standing still inside does not; right → stage+1 and
+  the player at the entrance with each stage's state asserted (lamp, hum, duplicates, wall material name,
+  lean) and stage 0 restoring all of it; wrong → stage 0, the order differs, and no frame changed while
+  the screen was lit (the one-rule control), the figure existed for one frame with no collider; five
+  rights → settle, note reachable; `_panic` unchanged with `RandomAmbient` unregistered ·
+  `check_void_frames` rewritten for crossings over six seeds (solvable by the answer, never stranded,
+  brute force ≤ 15) · `walk_void_live` by crossings · screenshots of stages 0–5 and the wrong-door frame.
+- **The Ward box** (captures 1 and 2: *"the one further away … still does not remind anything … like a
+  gift box"*, *"a magical button that will open the magical box having this piece"*): `FoldedFrame_Ward_L`
+  becomes a **sealed strapped stone box** (`void_fragments.gd:strapped_box`, bone, boxes only, ~1.9 × 0.7 ×
+  0.6 with a lid slab and two straps — built 1.94 × 0.61 × 0.76 with a 0.42 m rim, because a 0.62 m rim
+  left the slat reachable from one stance in six: from eye height you cannot aim into a deep open box any
+  more than you can see into one) at (−2.6, 0, 14.5), and **the bed slat is inside it** (*"The box is
+  sealed."* on the box AND on the slat — a blocker guards one angle, a refusal on the target guards all,
+  Issue 242). Touching the gurney drops it (the receipt) and, **in plain view across the room,
+  the lid grinds open** over 0.8 s (`stone_grind` at the box); the slat is then takeable. ⚠️ This
+  deliberately breaks the nothing-changes-while-watched rule for this one prop — twice the off-screen
+  version read as nothing. The right frame keeps its off-screen answer as atmosphere. Save
+  `ward_box_open`; restore opens instantly; `everything_put_back()` unchanged. **Replaces:** the slat at
+  the frame's mouth; the touch with no purpose. **Proves:** `check_void` — sealed → the slat refuses;
+  gurney E → lid open → takeable (control: the open call removed); `check_reachable` — the slat is a
+  gate (`move_aside_instantly` opens the box); screenshots shut and open.
+- **The corridor charge fires at 60 % of the way back** (capture 3): trigger at z 26 (x 11..14, z
+  25..27), the figure at z 16.5, a 10 m rush in 0.6 s (a `charge` parameter; the cradle's 0.35 s lunge
+  untouched). **Replaces:** the trigger at z 43. **Proves:** `check_void` — southbound at z 26 only;
+  `walk_void_live`.
+- **The shard is takeable from frame zero** (capture 4: *"when I entered the room for the first time — I
+  could not take the shard … Should not be that way"*): the wedge, its prompt and `shard_clatter` are
+  gone; the table's off-screen rearrangement stays as a pure scare gating nothing. **Replaces:** pass 5's
+  wedge. **Proves:** `check_void` — takeable at frame 0; the table still rearranges.
+
+### Pass 7 (built 2026-09-22 from the 02:13 run: COMPLETED, 0 deaths, 501 s, three captures — the first completion through the recurring room, after nine wrong doors)
+
+Evidence `backlogs/captures/08-void-2026-09-22g/`; rulings in DECISIONS ("Pass 7 rulings"); the research
+menu the ladder was chosen from is `~/.claude/plans/jaunty-stargazing-rocket-ladder-menu.md` (its
+light-budget arithmetic is reproduced in DECISIONS). Difficulty stays ruled fine.
+
+- **The cradle beat is a shadow in the dark, not a lunge** (capture 2: *"The jumpscare is the same as the
+  one in the corridor … a shadow will spawn inside this object for several seconds while all the light
+  will be removed and in the complete darkness you will see only it"*). On completion the camera is
+  turned to the cradle (`turn_to_face`, 0.3 s); the child room's lamps go to 0 and the torch is put out
+  (`force_flashlight_off()` / `restore_flashlight()`, the blackout pair); one second of nothing but the
+  hum; then a single dim violet OmniLight inside the cradle snaps on with `apparition_snarl` (mean −4.5
+  dB / peak 0.0, gain set from that) and the rule-less figure is crouched in the cradle, mask at the rim,
+  head tracking the camera — the only thing visible — for 2.5 s; black again; the lights and torch return
+  and it is gone. Zero panic: **every** DarkZone in the level is held off for the beat via
+  `Area3D.monitoring` (Godot emits `body_exited` / `body_entered` on the toggle, so the player's counter
+  self-corrects on both edges — Issue 259; torch-off inside a DarkZone would otherwise charge 3/s, Issue
+  18, and the Morgue's zone is two seconds' walk away inside a 3.9 s blackout); creature E held off for
+  the beat + 1 s = 4.9 s. **Built:** the lamp sits at rim − 0.45 and 0.35 m toward the player (a lamp at
+  the prop's centroid lit the slats and left the mask dark — Issue 258), energy 0.40, range 1.8 → 0.75
+  luminance on the mask, under Issue 21's clamp; the mask lands 0.027 m over the rim; the snarl at
+  **−8.6 dB / unit 4.0 Master** (its overall mean matched to the old sting's delivered −13.1 dBFS — its
+  audible body is 3.1 dB hotter; −11.7 dB is the body-matched number if the playtest says too loud). One-shot, never
+  replayed by a restore. **Replaces:** the pass-4/5 rush to 0.6 m with the shared `jumpscare`. **Proves:**
+  `check_void` — camera yaw on the cradle within 5°; every child-room light at 0 and the torch off during
+  the dark second; the cradle light on with the figure inside the cradle's AABB; all restored after;
+  `_panic` unchanged with `RandomAmbient` unregistered and the DarkZone inert; a screenshot in the dark.
+- **The charge owns the camera** (capture 1: *"I was going backwards and I did not see the jumpscare —
+  let's use our standard camera turn move"*): on the trigger, `player.turn_to_face(figure + (0, 1.35, 0),
+  0.25)` — the Corridor's and the Backrooms' mechanism — and the rush starts when the turn lands. Input is
+  not frozen. **Built:** measured 2.8° off the figure at the frame the rush begins from a stance 180°
+  away; the figure's own initial facing now comes from the player's POSITION, not the camera's forward
+  vector, which stood it 180° wrong for a player walking backwards (Issue 261). **Proves:** `check_void` — from a stance facing away, the camera faces the figure within 5°
+  before the rush moves it (control: the turn removed → it never comes into view).
+- **The ladder is front-loaded** (capture 3: *"the visual effects … start appearing after I get something
+  like the third door correct — shall we add more visuals in total and start adding them earlier?"*).
+  Measured: the Void never takes the torch away, so on the far doors the torch (0.370) is ten times the
+  room lamp (0.036) — the lamp is not a channel; the stage-1 lamp drop was 8.7 % of the light, delivered
+  inside a 0.3 s cut; the stage-2 echoes stood concentric behind their dioramas (0.74×); the stage-4 walls
+  are ~85 % occluded from the entrance. **The rule: every rung carries something full-screen or
+  silhouette-scale inside the torch cone.** The ladder becomes — **1:** the five doorways' black
+  backdrops go pale (albedo 0.02 → 0.55, emission OFF: the memories become silhouettes), the camera is
+  HELD at a 0.02 rad roll (re-applied on every arrival, zeroed at the settle), one whisper in the doorway
+  behind your head, the hum · **2:** the echo copies step SIDEWAYS at full size (0.28 m, inside the
+  opening), the tilt, the room's own floor swaps to `wall_void_corrupt`, the lamp's first colour notch ·
+  **3:** the blink, the one-frame doorway figure, two whispers, a NEW false-ceiling slab descends to ≈ 2.7
+  m with the lamp on it, and the lamp drop to 0.12 moves here · **4:** a SIXTH doorway dead centre in the
+  far wall with a motionless rule-less figure standing in it, the walls corrupt, the dioramas ×1.25, the
+  second colour notch, roll 0.04 · **5:** the lean, the swing, five whispers, one memory standing at 1:1 in
+  the room between you and the doors, the dioramas ×1.5, the ceiling at ≈ 2.2 m, roll 0.06. The settle:
+  roll zeroed; ceiling, sixth door, watcher and full-size memory freed; floor and walls stay corrupt;
+  lamp colour stays with energy → 1.0; hum and whispers stay. Zero panic; no readout (the roll's five
+  notches are the world's tilt; the ceiling takes two). **Built:** backdrops (0.55, 0.53, 0.48) — measured
+  off the render 8.7 → 64.7 mean sRGB on the middle west panel (7.4× on screen, the ~27× in linear light
+  the arithmetic predicted), and stage 0 restores it to three decimals; the false ceiling 5.6 × 5.6 ×
+  0.10 at 3.0 → 2.70 → 2.20 with the lamp 2.80 → 2.50 → 2.00, 0.10 m clear of every wall face, a
+  MeshInstance (never collision); the sixth doorway at (−26.85, 0, 47.0) is a shell against the wall with
+  the watcher at local z −0.45 — the shell never cuts the wall, no plug; from the entrance its sight
+  line threads the west column's middle frame, so the watcher stands FRAMED in that doorway on a pale
+  panel (kept — better than a dark figure in a black opening; z 47.8 clears it if ever wanted); the
+  camera roll is OWNED by the level (`set_camera_roll()`; `_tick_shake()` displaces about it and restores
+  it — Issue 257) and follows the player out of the room until the settle or a jolt (kept: the pillar's
+  "the player's own senses degrade"); the 1:1 memory is the ceiling stair (3.40 m in a 5.80 m room: 0.42 m
+  of air to the entrance capsule, 0.10 m to the east column, `ceiling_y` 2.05 so it ends at the lowered
+  slab) and it exists for the 1.5 s of the settle, since stage 5 is applied and then settled; the lamp
+  colour (0.66, 0.47, 1.00) → (0.57, 0.33, 1.00). **Replaces:** the pass-6 ladder's distribution.
+  **Proves:** `check_void` per rung from the entrance stance (backdrop albedo, roll, echo offset, floor
+  texture, slab y and lamp y, the sixth door and its figure's lack of collider, diorama scales, the
+  memory) and stage 0 restoring all of it (control: one rung's write removed); the settle's frees;
+  `check_wall_overlap -- Void` with the slab at every notch; `check_shell_sealed` with the sixth doorway
+  (a visual in the wall, never an opening — or a plug if it must be one); screenshots of stages 1–5.
+
+### Pass 8 (built 2026-09-23 from the 23:10 run: COMPLETED on life 4, 3 deaths, 1144 s, three captures)
+
+Evidence `backlogs/captures/08-void-2026-09-22h/`; rulings in DECISIONS ("Pass 8 rulings"). The room was
+solved with two wrong doors in life 1 and none in lives 2–4 (the pass-7 ladder read from rung 1); the
+three deaths were creature E at the Sanctum doorway on the walk from the hidden note to the twist note
+(difficulty stays ruled fine — noted, no item).
+
+- **The room's answer follows the level's order** (capture 2: *"You see the stairs after the lamps, and
+  here the right order is that the stairs are last. If it is indeed a mistake, please check and
+  correct"*). It was a mistake: the stair into the ceiling stands in Hall1 at (1.0, 0, 7.0), met second,
+  and the pass-4 answer put it fifth. `ANSWER` becomes **shards → stair → frame → table → chairs** (the
+  Threshold's hung shards at z 1.4, Hall1's stair at z 7, the Ward's frame at z 14.5, the Archive's table
+  at z 22 — a dead end the shard makes mandatory before the loop — and LoopIn's chairs). ⚠️ **The answer is
+  keyed on the `ROOMS` table's walk order, never on z:** LoopIn's chairs stand at z 16.87, NORTH of the
+  Archive's table at z 22.0, because the Archive is walked into and back out of before the loop — a
+  z-sorted guard would be green on a wrong answer. **Replaces:** the pass-4 order. **Proves:**
+  `check_void_frames` walks the new answer on six seeds; `check_void` locates each diorama's source prop
+  inside `ROOMS` by position, asserts it stands in the room its `DIORAMAS` entry names, and asserts
+  `ANSWER` is that list sorted by room index (control: the old order → 2 red).
+- **Drawers close again** (capture 1: *"You can open those brown cells but you cannot close them. Hard to
+  find a note here, make it possible to close them"*): E on a pulled drawer slides it back (0.25 s,
+  `drawer_pull` reversed or at −6 dB), prompt *"E — Close the drawer."*; the page's drawer closes with the
+  page inside (it stands in the drawer and rides with it); `drawers_opened` saves the open SET (a restore
+  shuts anything not in it). **Built:** the shut sound is `drawer_pull` 6 dB down (−14.5 dB), not a
+  reversed file; ⚠️ an open drawer's interact volume SHRINKS to the handle band (0.54 × 0.20 × 0.16 at
+  local y −0.17) instead of being disabled — pass 3's disabling (Issue 231) is exactly why a drawer could
+  not be closed; the page's aim point clears the band by 0.33 m; ⚠️ a pulled drawer therefore blocks the
+  ray to the drawer directly below it, which is the world being honest and the close verb is the remedy
+  (`walk_void` closes the pre-pulled front before sweeping; `check_reachable` cannot see a blocked page —
+  only `check_void`'s explicit ray can). **Replaces:** open-once fronts. **Proves:** `check_void` — open → close → open on one drawer, the page
+  still readable after a close/open, the pulled set in the snapshot.
+- **The cradle beat burns** (capture 3: *"make this visual of the monster showing up as a jumpscare more
+  brutal. Firstly, the jumpscare itself should be louder. Secondly, maybe add animation like there is fire
+  for like 3 seconds and then this face appears from fire?"*): after the turn and the blackout, **fire
+  rises inside the cradle for 3 s** — animated flame sprites (`void_flame.png`, a soft procedural flame,
+  additive, billboarded, a handful of quads cycling scale and height) with an orange flickering OmniLight
+  (energy ramping 0 → 0.9, range 3) and a `cradle_fire` crackle loop — then **the face rises through the
+  flames** over 0.5 s with `apparition_snarl` at **−2.0 dB** (6.6 dB hotter than pass 7; the file peaks at
+  0 dBFS, so this is near the ceiling), holds 2 s, and fire, light and figure die together; 0.4 s; the
+  lamps and torch return. ⚠️ The flames are the one emissive thing in the level and they are an EVENT, not
+  a prop: they exist for ~5.5 s and never below energy 1.0's clamp risk on a scary surface (Issue 21 —
+  the mask is lit by the light, not emissive). Zero panic, every DarkZone held, E held off, one-shot —
+  all as pass 7. **Built (6.2 s):** turn + blackout + fire lit at 0 · fire alone 0–3.0 s · the face rises
+  0.80 m through the flames over 0.5 s with the snarl · 2.0 s hold, head tracking · 0.3 s fade of fire,
+  light and figure together · 0.4 s black · lamps and torch back. Six unshaded additive billboarded
+  quads (`billboard_keep_scale`, albedo ≤ 1.0 with alpha animated — unshaded ignores emission, so the
+  ceiling lives on albedo), tint (1.0, 0.62, 0.26). ⚠️ The fire light has **`omni_attenuation = 0`**: at
+  the default decay a 0.9-energy omni puts 1.07 on a surface 0.83 m away and 1.7 at half a metre, and
+  the mask passes within 0.3 m of the flame core — a fire is a volume, so with decay 0 irradiance can
+  never exceed the energy at any distance (measured: mask 0.662 m from the core, irradiance 0.768; the
+  rendered mask peaks at 173/255 warm, 0.678 of the clamp, with full facial detail); the light leans
+  0.30 m toward the player (Issue 258, re-measured — without it the 2.5 m render was a silhouette in front
+  of its own fire); the flicker tops at 1.05, still under the clamp by construction. `cradle_fire` −19.7
+  dBFS at −4.9 dB / unit 3.0 on Ambience, 8 dB over the room hum's delivered level, looped in code. The
+  snarl at −2.0 dB is the ceiling: the file peaks at 0 dBFS and the next step is clipping. The violet
+  `CradleLight` and its four constants are deleted, not left unused. ⭐ **2026-09-23, the user supplied
+  the two stings** (dropped into `level_4_void/`, already imported by the editor): `void_fire_jumpscare.mp3`
+  (10.1 s, mean −6.1 dBFS, peak 0.0; hits at −1..0 dBFS from its first frame and decays to silence over
+  ten seconds — so it plays from the moment the face rises, at −2.0 dB, and its tail rings past the beat's
+  end) replaces `apparition_snarl` on the cradle; `void_corridor_jumpscare.wav` (2.17 s, 24-bit stereo,
+  mean −0.8 dBFS, peak 0.0; a sting, silent after 2 s) replaces the shared `jumpscare` on the corridor
+  charge at **−12.3 dB** (the gain that lands its mean where the shared file's −13.1 dBFS delivered level
+  sat). `cradle_fire` (the crackle) stays under the fire. ⚠️ Both files peak at 0 dBFS: neither gain can
+  rise without clipping. **Replaces:** pass 7's violet lamp and 1 s of nothing. **Proves:** `check_void` — the
+  flame node exists only during the beat, its light ramps, the snarl's gain, the figure's rise timing, all
+  freed after; a screenshot at the fire's peak and at the face's.
+
 ### Verification
+
+**Pass 8 measured (2026-09-23, the builder; the parent's re-run is in DECISIONS):** `check_void` 381/0 ·
+`check_void_frames` 73/0 (six seeds, five consecutive green runs) · `check_void_alignment` 130/0 ·
+`walk_void` 106/0 · `walk_void_live` 109/0, 0 deaths, peak 31 % · `check_reachable` Void 43 targets, 39
+reachable, 2 inert, 1 contained, 0 unreachable, 1 waived · doorways 15/2 · shell 233/0 ·
+`check_wall_overlap -- Void` 0 findings in three states · note mounting 236/0 · transition race 29/0 ·
+stare 27/0 · stalker motion 51/0. Panic across the 6.2 s beat 0.0007 → 0.0007; with the hold removed
+0.6207 (31 of 50 points).
+
+**Pass 7 measured (2026-09-22, the builder; the parent's re-run is in DECISIONS):** `check_void` 315/0
+(floor 307) · `check_void_frames` 73/0 (six seeds) · `check_void_alignment` 130/0 · `walk_void` 104/0 ·
+`walk_void_live` 107/0, 0 deaths (4 runs, peak 31–46 %; no `PANIC` line inside the beat) · reachable
+unchanged (43 / 38 / 0 unreachable / 1 waived) · doorways 15 / 2 · shell 233 / 0 (the sixth door opens
+nothing) · `check_wall_overlap -- Void` 0 findings in **three states** (stage 0 / 3 / 5: 150 boxes / 43
+flat / 509–506 solid) · note mounting 236/0 · transition race 29/0 · stare 27/0 · stalker motion 51/0.
+Panic across the whole cradle beat 0.0007 → 0.0007.
+
+**Pass 6 measured (2026-09-22, the builder; the parent's re-run is in DECISIONS):** `check_void` 260/0
+(floor 252) · `check_void_frames` 73/0 over six seeds, 30 legs · `check_void_alignment` 130/0 · `walk_void`
+104/0 · `walk_void_live` 107/0, 0 deaths, peak 30 % · `check_reachable` 43 targets, 38 reachable, 3 inert, 1
+contained, 0 unreachable, 1 waived (556.2 m²) · `check_doorways` 15, 2 gated · `check_shell_sealed` 233
+points, 0 escaping · `check_wall_overlap -- Void` 0 findings (150 boxes / 41 flat / 481 solid props) ·
+`check_note_mounting` 236/0 · `check_transition_race` 29/0 · `check_void_stare` 27/0 · `check_stalker_motion`
+51/0. Panic 0.0000 through every room stage.
 
 **Pass 5 measured (2026-09-21, the builder; the parent's re-run is in DECISIONS):** `check_void` 206/0 ·
 `check_void_alignment` 130/0 · `check_void_frames -- --seeds 1` 29/0 · `walk_void` 100/0 · `walk_void_live`
@@ -311,8 +542,32 @@ tolerances came from and is kept outside the suite.
 ## NEEDS A PLAYTEST
 
 Four passes on 2026-09-20; the first three were hand-played the same day (the third and fourth runs
-completed the level). **Pass 5 (2026-09-21) has not been hand-played, and neither has pass 4's Hall of
-Frames** — the fifth run won the level through Issue 242 without entering it. Pass 5 needs a human for:
+completed the level). **Pass 8 (2026-09-23) has not been hand-played.** It needs a human for:
+- **The cradle burns** — do three seconds of fire before anything appears build dread or dead air? Is
+  the face rising through the flames more brutal than pass 7's snap-on? Is the snarl at −2 dB (the
+  file's ceiling) too much in headphones?
+- **The drawers** — does closing them make the bank searchable, and does a pulled drawer blocking the one
+  below read as a puzzle or an annoyance?
+- **The room with the corrected answer** — is "the order you met them" discoverable now that it is true?
+Pass 7 (2026-09-22) was hand-played once (the 23:10 run — the room solved with two wrong doors, then
+none); still unjudged from it:
+- **The cradle** — the camera coming round, a full second of nothing, then the face at the rim: more
+  frightening than the old rush? Is the snarl at −8.6 dB the right weight (−11.7 is the body-matched
+  fallback)?
+- **The corridor charge, walking backwards on purpose** — does the turn land in time?
+- **The first right door** — the room should change visibly on rung 1 for the first time.
+- **Stage 4's watcher** framed in the middle west doorway — better or worse than its own opening?
+- **The roll** — five notches of 0.02 rad: the world tilting, nothing, or a bug? It follows you out of
+  the room mid-ladder.
+- The shards diorama was the door unfound for ~90 s in the 02:13 run (nine wrong doors, every one "it
+  wanted shards") — watch whether the pale backdrop fixes its legibility.
+Pass 6 (2026-09-22) was hand-played once (the 02:13 run); still unjudged from it:
+- **THE RECURRING ROOM** — does walking through a door FEEL like the step (the complaint it replaces); is
+  the 0.3 s cut + slam the right weight; does the ladder read as "the same room, stranger" from the
+  entrance; is the hum at −26 dB audible; is the wrong door's one-frame face too much or too little.
+- **The box + gurney pair** — does it finally answer "what was that for?"
+- **The charge at 9.5 m** — a scare or a cutscene.
+Pass 5 (2026-09-21) was hand-played once (the 23:47 run); still unjudged from it:
 - **The Ward gurney** — does it read as a gurney from the Hall1 doorway (4 m) and from 2.4 m; does the
   0.10 m drop + grind on E register as "I did that", and do you then turn and find the right frame changed?
 - **The wedged shard** — visible from the Archive's doorway? Does *"It is wedged fast."* read as a puzzle,
@@ -432,6 +687,127 @@ file gets the quietest gain), the south whisper rides C's level over the same �
 footstep echo uses `unit_size 2.0 + max_db 0` so at its fixed 2 m the gain is exactly 1.0. None heard
 in a room.
 
+### Built 2026-09-23 — pass 8 (one level-improver; the parent's flame sprite, crackle, docs)
+
+**Files.** New `void_cradle_fire.gd` (the flames, their light, the crackle); `void_frame_hall.gd` `ANSWER`;
+`void_drawer.gd` (the close verb, the shrinking volume, `close_instantly()`, `closed`);
+`void_cradle_figure.gd` (`arm_shadow(…, rise_from, rise_time)`, phase 10, `rise_progress()`); `level_3.gd`
+(the clock, `_light_cradle_fire()`, `_shadow_gone()`, `SNARL_DB −2.0`, the drawer restore set, two
+screenshot hooks); `check_void.gd` (+~330), `check_void_frames.gd` (a flake fix), `walk_void.gd`,
+`screenshot_scene.gd`.
+
+**Seven positive controls run red then green** with sha evidence (the pass-4 order → 2 red; the close
+verb removed → 6 + 4 red; the full-face volume while open → 10 red, and `check_reachable` stayed GREEN
+under it — only the explicit ray sees that class; the fire never lit → 13 red; the rise removed + the
+old gain → 3 red; the DarkZone hold removed → 8 red, panic 0.0007 → 0.6207; the fire's base name broken
+→ 2 red). **The parent's re-run:** `_light_cradle_fire()` → `return` by hand (one-line diff): six fire
+checks red ("the cradle is BURNING half a second in — fire false, energy −1.000" …), restored
+byte-identical, green 381 / 0. Three screenshots read: the cradle burning at 2.5 m with the room lit
+warm and the doorway cold beyond; the face rising out of the flames; a pulled drawer with "E — Close the
+drawer." and the page standing above its front. **The full suite was run by the parent with the editor
+closed** — see the Verification line and the backlog.
+
+**Rulings on the builder's questions.** (1) `omni_attenuation = 0` — kept; it is what makes the spec's
+numbers legal and it lights the room as a fire would. (2) The flicker's 1.05 peak — kept (cannot clamp by
+construction). (3) A pulled drawer blocking the one below — kept, honest physics with the close verb as
+the answer. (4) The shut sound as `drawer_pull` −6 dB — kept. (5) The frames harness flake fix (Issue
+265) — accepted, watched on the next runs. (6) The spec text landed here. (7) Not hand-played — offered.
+
+**Bugs the build found (docs/ISSUES_SOLUTIONS.md 264–265; 263 is the answer order itself).** A guard read
+a constant pass 7 had deleted, threw, and abandoned the rest of its function while still printing green
+— `run_tests.sh` greps for parse errors only; a harness measured a teleport's destination several
+physics ticks late because `ai_move_dir` is latched.
+
+### Built 2026-09-22 — pass 7 (one level-improver, resumed once after a server cut-off; the parent's research, docs)
+
+**Files.** `void_frame_hall.gd` +1082/−339 (the ladder, the floor, the slab, the sixth door, the watcher,
+the 1:1 memory, the back whisper, the settle ledger); `level_3.gd` +520/−56 (`_fire_cradle_shadow` and
+its dark/show/hide/restore, `_make_snarl`, the DarkZone hold, `set_camera_roll()` + the shake's
+reconciliation, the charge's `turn_to_face`, the stale comment); `void_cradle_figure.gd` +131/−82
+(`arm_shadow()` / `dismiss()`, the cradle-lunge path removed, `_face_point()`); `check_void.gd` (+1040);
+`check_wall_overlap.gd` gained a general per-scene `states` key (the Void is swept at stage 0, 3 and 5;
+control C7: the slab at 3.35 → "FalseCeiling ↔ FrameHall_Ceiling −y faces coincide"); `screenshot_scene.gd`
+gained `hold` shots whose action owns the camera (Issue 260).
+
+**Seven positive controls run red then green**, each file's sha proven changed and restored (the
+beat's turn removed → 122.6° off; the DarkZone hold removed → 6 red, panic 0.0007 → 0.3890; the charge's
+turn removed → 180° off at the rush; rung 1's backdrop write removed → 0 of 5 pale; the floor rung made
+irreversible; the settle no longer freeing the slab; the slab at 3.35). **The parent's re-run:**
+`_hold_child_dark()` → `return` by hand (one-line diff): `check_void` red on six checks — "EVERY DarkZone
+is held OFF … 2 live zones, player counts 1", the dark second 0.0007 → 0.0507, the whole beat → 0.3907 —
+restored byte-identical, green 315 / 0. Five screenshots read: the lit mask crouched in the cradle in a
+black room; the charge figure centred down the corridor after the turn; stage 1's five bone panels with
+black cut-outs; stage 4's watcher framed in the middle doorway with hands in the walls and floor; stage
+5's low slab, leaning frames and the 1:1 stair. ⚠️ The full suite was again not re-run by the parent
+(editor open, 113 MB free); the builder ran every Void guard one at a time. Expected suite reds until the
+Breach session lands: `check_darkness` and `check_wall_overlap`'s Breach rows (12 z-fights in
+`level_6_breach.tscn`'s room walls — that session's uncommitted work).
+
+**Rulings on the builder's questions.** (1) The snarl stays at −8.6 dB; −11.7 is the body-matched
+fallback for the playtest. (2) The sixth door stays dead centre, its watcher framed by the middle west
+frame. (3) The roll follows the player out of the room — kept. (4) Every DarkZone held, not only the
+child room's — kept. (5) The 1:1 memory is the stair and lives for the settle's 1.5 s — kept. (6)
+`check_wall_overlap`'s `states` key is opt-in per scene; the Breach red is theirs.
+
+**Bugs the build found (docs/ISSUES_SOLUTIONS.md 257–262).** Two writers of `camera.rotation.z`
+(the shake wiped the roll and left a −0.0012 residue that exists in the shipped game); a light at the
+prop's centroid lights the slats and leaves the mask dark; `Area3D.monitoring` is the honest zone
+suspension; a screenshot tool's frame budget is a wall-clock assumption; the charge figure's facing came
+from the camera, which was looking the other way; `==` on Arrays is element-wise.
+
+### Built 2026-09-22 — pass 6 (one level-improver; the parent's texture, sound, director hook, docs)
+
+**Files.** New `void_ward_box.gd`; `void_frame_hall.gd` rewritten as the recurring room (the pairwise
+re-scramble, `_looking_at`, the dwell and the figure-one-frame-nearer escalation are gone); `level_3.gd`
+`cut_to_black(seconds, while_black)` on `VoidCutLayer`, `open_ward_box()` / `ward_box_open()`, the box
+replacing `FoldedFrame_Ward_L`, `CHARGE_AREA_POS` z 26, `frame_stage` + `ward_box_open` in the snapshot;
+`void_fragments.gd:strapped_box()`; `void_anchor.gd`'s `container` gate; `void_rearrangement.gd`'s
+`touched`; `void_shard.gd` takeable from `_ready()`; `void_cradle_figure.gd` `CHARGE_TIME` 0.6. The parent:
+`wall_void_corrupt.png` (flux, the second of two candidates, darkened to mean 25.8 against 28.75,
+cross-faded 96 px per edge), `room_hum.wav` (4.000 s, −6.55 dBFS, looped in code, −26.0 dB / unit 5.0 —
+the loudest file the room owns and the only one that never stops), `StareDirector.blink_now()`,
+`shard_clatter` deleted.
+
+**Measured.** Crossing latch arm 0.25 / fire 0.25 / half-width 0.55 / lateral escape 0.95; entrance
+(−21.9, 0.1, 47.5) yaw 1.571 on every arrival; slots: west column x −25.7 (z 45.4 / 47.0 / 48.6), east
+column x −23.4, all five fronts facing +x (5 of 5 asserted), min separation 2.35 m. Ladder: lamp 0.25 →
+0.12; roll 0.18 + echo copies 0.35 m back at 0.8; blink + doorway figure (1 frame) + 2 whispers
+(`stalker_whisper` −19.2 dBFS at −24.0 / unit 4.0); `wall_void.png` → `wall_void_corrupt.png` on exactly 3
+boxes ((−24, 44), (−24, 50), (−27, 47)); lean 0.10 rad + 5 whispers + a 0.32 m / 3 s lamp swing. Wrong
+door: the figure 0.6 m ahead, origin 0.40 m below the feet, exactly 1 rendered frame, no collider. Box AABB
+1.94 × 0.61 × 0.76 at (−3.57, 0, 14.13), rim 0.42, lid underside 0.445 (2.5 cm clear, never coplanar), slat
+at (−2.33, 0.30, 14.56): six swept stances all hit the box shut and all hit the slat open; the gurney 0.45 m
+clear of the box, 1.2 m apart on purpose. Box grind −9.5 dB / unit 3.0, led by 0.18 s so the two copies of
+`stone_grind` read as cause and effect. Charge trigger (12.5, 1.65, 26.0), figure 9.5 m ahead, 0.6 s.
+Brute force: 25 worst case, 15 measured blind on seed 404.
+
+**Five positive controls** (the same press → `pass`, 7 red; the crossing never fires, 7 red incl. the count
+floor; the reshuffle moved OUT of the black — "slot 4 went shards → stair with the screen LIT"; `is_sealed`
+→ false, 3 red; the east column yawed back — "3 of 5 face the entrance"), each file proven changed by sha
+and restored byte-identical. **The parent's re-run:** `is_sealed()` → false by hand, a one-line diff:
+`check_void` red on "refuses BY NAME while the lid is down" and "E straight on the slat takes nothing",
+restored, 260 / 0. ⚠️ **The full suite could not be re-run by the parent** — the Godot editor was open
+on this 8 GB machine (67 MB free) and two earlier attempts had been killed by the memory watchdog; the
+builder ran every Void guard one at a time (all green above), and the known suite red is
+`check_darkness` from the parallel Breach session.
+
+**Rulings on the builder's questions.** (1) Both columns face the entrance — kept: a crossing is from
+the front, and the answer must be visible from the arrival stance. (2) The fifth door applies rung 5 and
+then settles — kept: five rungs, five doors. (3) Brute force 25 — accepted for a no-fail-state puzzle
+whose answer is the order the rooms were met; the lever (a wrong door dropping one rung instead of to
+zero) contradicts the user's own words. (4) The prompt on the box AND the slat — kept (Issue 242's rule).
+(5) The 0.42 m rim — kept (Issue 253). (6) The corruption stays after the settle — kept: taking it back
+would make the last door an undo. (7) The room's own three walls only — kept; the guard asserts three so a
+footprint edit cannot silently shrink the rung. (8) `void_anchor`'s generic container gate — accepted; one
+user today, three props share the script.
+
+**Bugs the build found (docs/ISSUES_SOLUTIONS.md 247–254).** A stand-still rule in a walk-through space
+reads as a wall (247, the run's finding); a threshold with no band is crossed by jitter (248); arming must
+be wider than firing (249); a cooldown written for the dwell swallowed the new mechanic's first crossing
+(250); a lid collider on its own body could never speak its prompt (251); `set_deferred("disabled")`
+loses to a same-frame reachability probe (252); a deep open box is unreachable by ray (253); a lambda
+captures by value (254).
+
 ### Built 2026-09-21 — pass 5 (one level-improver; the parent's sound, docs)
 
 **Files.** New `void_twist_note.gd` (extends `note.gd`, asks `level.plate_stands()`); `void_sanctum_plate.gd`
@@ -532,13 +908,74 @@ deaths in nine at the twist note were creature E through the child room's doorwa
 claim cannot be measured with `RandomAmbient` running. And a five-point ring has no free bearing, so
 the re-scramble is pairwise.
 
+### Pass 8 rulings — 2026-09-22 23:10 run (COMPLETED on life 4, 3 deaths, 1144 s, three captures)
+
+Evidence `backlogs/captures/08-void-2026-09-22h/`. **Measured:** the room took 2 wrong doors in life 1 and
+0 in lives 2–4 (pass 7's ladder works: every wrong door in the run was at stage 0–1); the stair diorama's
+source stands in Hall1 at z 7, second on the level's path, while the answer had it fifth — a pass-4
+mistake, corrected; five drawers pulled in life 1 without finding column 4, row 1; the cradle beat fired
+four times exactly as built; the three deaths were E at the Sanctum doorway after the hidden note.
+
+- **The answer is the level's own order** — not a ruling, a correction the user asked for.
+- **Drawers close on E** — the user's ask; no alternative offered.
+- **The cradle burns: real orange fire, the snarl at −2 dB.** Rejected: cold violet fire (fire that is not
+  fire-coloured reads as a light effect); a smaller loudness step (−5 dB). The one warm colour in a cold
+  level is the point.
+
+### Pass 7 rulings — 2026-09-22 02:13 run (COMPLETED, 0 deaths, 501 s, three captures)
+
+Evidence `backlogs/captures/08-void-2026-09-22g/`. **Measured:** the charge fired at z 27.2 while the
+player faced away; the cradle and the corridor shared one figure, rush and sound; nine wrong doors, all
+at stages 0–2; every wrong door "wanted shards" (the Threshold diorama went unfound for ~90 s — a
+legibility note, no item). The research subagent's light budget: torch 1.6 / 18 m / 30° shadow-casting
+vs a shadowless 0.25 → 0.12 omni at range 5; on the far column (4.31 m) torch 0.370 vs lamp 0.036; the
+room lamps cast no shadows and have no mesh, so "the lamp swings" moved a light pool and nothing else.
+
+- **The cradle beat: blackout, a lit shadow crouched in the cradle, `apparition_snarl`.** Rejected: the
+  same staging with the shared `jumpscare` (the sameness capture 2 flagged); the figure standing over the
+  cradle (loses "something in the crib").
+- **The charge turns the camera** (`turn_to_face`, 0.25 s), input not frozen. Rejected: freezing input
+  for the rush (the level avoids freezes outside hold-breath beats); turning only when facing away (a
+  half-turn at the edge reads as a glitch).
+- **The full front-loaded ladder** from the menu. Rejected: the lighter top-five ladder; the panic bar
+  lying once (legal under §8.6 but it teaches death in a room whose contract is that nothing kills).
+  Standing rules: zero panic; no readout — a monotone channel in five notches is a counter, so the
+  camera roll is the world's tilt (0.02 → 0.06) and the ceiling takes two notches, not five.
+
+### Pass 6 rulings — 2026-09-21 23:47 run (887 s, 1 death, quit inside the Hall of Frames, five captures)
+
+Evidence `backlogs/captures/08-void-2026-09-21f/`. **Measured:** one wrong step at 780.8 s, then nothing
+for 105 s — the frames have no colliders, the 1.2 s stand-still dwell was the wall (walking through takes
+0.15 s); the charge fired at z 43.2, the corridor's north end; the shard was refused five times at
+136–143 s, freed off-screen 2 s after the player left, taken at 160 s; the receipt fired and the right
+frame answered 10 ms later, and the player still asked what touching it was for. ⚠️ The log carries
+positions only on capture lines; there are no periodic samples, and any "sample count" claimed for pass
+5 was invented (corrected 2026-09-22).
+
+- **The user's design, adopted: THE RECURRING ROOM.** "*Once you go through the right door, you go to the
+  same room, but it becomes more and more corrupted … when you walk in the wrong door … you start from
+  the beginning.*" Grilled: right = deeper corruption (P.T.'s grammar and the level's pillar), wrong = a
+  cut to black, the figure for one frame, reset with reshuffled doors. Rejected: vice versa (right calms
+  the room — runs against going-deeper-gets-stranger, and a failing player ends in the best version); the
+  wrong door inverting the room for one pass (more build for one image); a ladder with panic (a number
+  on the scare); generated door art as the doors' identity (flux cannot see our rooms; the dioramas stay
+  the answer); a seamless P.T. walk-out (the room would have to swap while inhabited). The image tool is
+  used where it can be trusted: the stage-4 wall.
+- **The Ward box opens IN VIEW.** The user's own words asked for a button and a box; the off-screen
+  version had failed to read twice (Issue 243), so this one prop breaks the rule on purpose. Rejected:
+  opening off-screen with a crash; keeping the frame and unfolding it.
+- **The charge at 60 %** — z 26, a 10 m rush. Rejected: the figure at the corridor's end (z 14.5); the
+  trigger at halfway.
+- **The shard takeable from frame zero.** The wedge was a receipt that read as a lock: "*should not be
+  that way*". The table's rearrangement survives as atmosphere. Rejected: removing the rearrangement.
+
 ### Pass 5 rulings — 2026-09-20 23:33 run (945 s, 7 deaths, not completed, eight captures)
 
 Evidence `backlogs/captures/08-void-2026-09-20e/`. **Measured:** the twist note was read at 889.9 s with
 no frame step, no settle and no hidden-note read — the plate never retracted; the plate is a 0.60 × 0.80
 slab 3 cm in front of the note, and from a grazing stance along the Sanctum's west wall (capture 8 at
 (−17.5, 0, 20.9)) parallax slides it off the page, which the screenshot shows peeking out beside the
-slab. The Hall of Frames was never entered (0 position samples in x < −21, z 44..50) — the bug handed the
+slab. The Hall of Frames was never stepped in (no `frame step` line; ⚠️ the log carries positions only on capture lines, so a "sample count" claimed here on 2026-09-21 was invented and is withdrawn) — the bug handed the
 player the ending first. The Ward answer fired 33 s after the touch in life 1 (the right frame stayed in
 view) and within 10 ms in later lives; the shard appeared 4.4 / 11 / 5.6 s after the table came into
 sight, always on a look-away. No drawer pulled, no step-through, second run running. Deaths: E at the

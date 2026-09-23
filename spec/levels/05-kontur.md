@@ -4,6 +4,102 @@
 
 ## SPEC
 
+### ⭐ 2026-09-23 — K-CELL: Object 12's tank, concept A, "the glass tank", shared with the Breach
+
+**Why.** The user, playtesting the Breach on 2026-09-23: *"Maybe we can see something like an empty
+cell which we saw in the Kontur … (actually, we will need to remake it in the Kontur to make it more
+brutal and realistic), and now it will be empty"*. Both levels this pass, with ONE design, so the tank
+holding Object 12 here and the one it broke out of in the Breach cannot drift apart. The user picked
+concept **A** over **B** (a barred cell) and **C** (a restraint frame):
+`backlogs/captures/breach-2026-09-23-cell-concepts/A_glass_tank.jpg`.
+
+**What the tank is** (`containment_cell.gd`, rebuilt):
+- **60 mm glass on three faces in a heavy riveted steel frame.** Corner posts, and a riveted clamp
+  band on the outside of every pane that laps 4 cm over its edge. The ~290 rivet heads are one
+  MultiMesh per face.
+- **The back is steel, not glass: gouged, blood-run, lamp-lit.** Four claw tears through the plate
+  at head height (`cell_back_wall.png`, a flux raw cut to the quad's aspect). It carries its own
+  emission (`EMISSION_OP_MULTIPLY`, energy 1.0) because it is the lit surface the occupant is a
+  shadow against (Issue 147).
+- **Each side pane has a one-sided lamp-lit steel liner just inside it** (`cell_side_wall.png`, no
+  gouges, `CULL_BACK`). From the south you see the creature against the north liner, and vice versa.
+- **Dried blood and claw drags on the INSIDE of the glass.** Seven keyed flux decals, matte, 2.5 cm
+  off the glass (≥ 2 cm asserted). Nothing crosses the occupant's own column from the front.
+- **Snapped sedative lines**, the rest of the interior dressing:
+  - two ceiling manifolds with five rubber lines hanging from them, one of them carrying blood, one
+    dragged across the tank floor;
+  - a soaked stain on the tank floor;
+  - a **stained floor drain** in front: a cast grate built from parts over a black pit, no collider.
+- **One caged lamp** under the ceiling near the back.
+  - ⚠️ **It is emission only, with no real light.** `check_darkness.gd` asserts nothing burns in the
+    Soviet half (the user's D2), and the pool of light the lamp would throw is painted into the back
+    wall's texture.
+- **A steel restraint collar on two chains.**
+  - The collar rides the occupant's `neck` bone every frame. It follows the bone's position, but its
+    orientation stays in the tank's frame.
+  - The chains **pay out** through ceiling fairleads at a fixed 5 cm link pitch, so the breathing
+    sway moves them and nothing ever stretches.
+  - Measured on the neck: ≤ 0.042 m horizontal offset over the sway and the lunge.
+- **An enamel placard** (Pillow, `cell_placard.png`): *ОБЪЕКТ 12 / OBJECT 12 — CONTAINED / НЕ ОТКРЫВАТЬ
+  · DO NOT OPEN · СТЕКЛО 60 ММ* on a riveted plate over the front header. It replaces the unshaded
+  `Label3D`, which was a pale self-lit rectangle in a dark room.
+
+**The local frame is conventional** — FRONT = local −z (the placard, the drain, the pane the charge
+hits), BACK = +z. **KONTUR turns it `rotation.y = PI/2` at the unchanged `CELL_POS`**, so the front
+faces WEST onto the walking line (K1b's measured 5.85 m face) and the steel back stands against the
+Passage's east wall, where the old `LinerEast` stood. The footprint is square, so the collider a player
+can touch did not move.
+
+**The two states** — `@export_enum("occupied", "breached") var state` (default `"occupied"`) and
+`@export var drain := true`, both read once in `_ready()`, so set them **before** `add_child()`:
+- **`occupied` (KONTUR).** The hollow-crown occupant (`CreatureAnim`, `CLIP_UNSTEADY`, head tracking),
+  the `object12_cell` hum, the front pane, a closed collar, `set_dark()` and `charge()`. The collider
+  is **one box**, exactly as before.
+- **`breached` (the Breach).**
+  - The front burst **outward**: no front pane, 19 glass teeth left in the frame, and 102 pieces
+    thrown across the floor in front (seeded, so every load is the same wreck).
+  - The collar is torn open, one half off its hinge, turning slightly on its chains.
+  - A blood drag runs over the sill.
+  - No occupant, no hum, no tracking; `charge()` is a no-op.
+  - The collider is **frame and back only**: side and back slabs, the tank floor, and a 21° ramp
+    over the 0.16 m sill. A capsule cannot climb a vertical step that tall, and a player-sized one
+    walks in (asserted by physics).
+  - Test surfaces: `is_breached()` and `breach_shard_counts()`.
+  - ⚠️ The Breach instances this itself (another agent's item). No Breach file was touched here.
+
+**The charge (BS1) is kept, aimed at the player, and made to hit the glass.**
+- Zero panic, cannot kill, still gated by `kontur.gd` on the blackout.
+- It lunges **toward the player**, into whichever pane is between them. The old lunge was a fixed
+  local −z. That was the AnteEast arrival's face while the booth stood unturned, and with the tank
+  turned it would have lunged sideways past an AnteEast player.
+- The lunge is sized from the occupant's real bone reach along that line. It stops the reach bones
+  `LUNGE_FRONT_MARGIN` 0.12 m inside the pane, never past it, with a cap of 0.85 m.
+- The head **stops tracking for the lunge**, so the sized pose holds.
+- It is driven from `_process`, so the collar never lags the body.
+- On **impact**, three things happen together:
+  - a 0.15 s white pop on the **struck pane only** (each pane has its own material, peak 0.22);
+  - the `impact_thud`;
+  - an **impact crack** on that pane, slid to where the body arrived, which stays.
+- Test surfaces: `lunge_plan()`, `reach_along()`, `cracked_face()` and `is_cracked()`.
+
+**`_find_player` is parent-agnostic.** It looks up the `"player"` group and falls back to the current
+scene's `Player`, never `../Player`. Tracking is computed in the tank's own frame (`to_local`).
+
+**Guards:**
+- `check_kontur_cell.gd` (new, 49 checks). It covers:
+  - both states, each the other's control, asserted by physics: a front ray, an interior point
+    query, and a capsule that walks in;
+  - a nested, turned tank that finds the player and faces it;
+  - two charges: a player in front must crack the FRONT pane, and a player at the nested tank's side
+    must crack the RIGHT pane and no other;
+  - the lunge-sizing rule, asserted exactly;
+  - no pass through the glass, and decal clearance.
+- `check_kontur_entities` (23/23 headings visible, plug control 10 blind).
+- `check_kontur_blackout`.
+- `screenshot_cell_visibility.gd`: 23 poses, 2 623–41 239 px, contrast 0.355–0.662, occ/bg 0.34–0.65.
+- The latent faults the rebuild exposed (`../Player`, the world-space bearing, the fixed −z lunge, and
+  a flash on a pane in front of the creature) are ISSUES_SOLUTIONS **Issue 268**.
+
 **Level 5 — KONTUR ("Object 12")** — `kontur.gd` + `kontur.tscn`
 - ⭐ **2026-09-16 (K3):** `Screamer.trigger()` drops the picture for ANY death that lands while a
   lunge is in progress (the condemn bar's own death raced the lunge and showed it).
@@ -11,9 +107,8 @@
   (`Screamer.trigger(_, with_image=false)`); the archive keycard's notice uses the lower caption
   slot; the Blackout plug is **solid while lit** (Issue 215).
 - ⭐⭐ **2026-09-13 (K1–K4):** the hammer is **parts lying on the bench** (`kontur_hammer.png`
-  retired); the cell's front is an **open barred face** (eight Ø30 mm bars off the centre line,
-  rails, a gate section with a lock; no leaf, no port — the sightline sweep still sees all 23
-  headings); the **condemn sentence is staged** (`_tick_condemn_beats`: whisper + roll → edge
+  retired); the cell's barred front → *superseded by K-CELL (top of SPEC), moved to
+  Superseded §6*; the **condemn sentence is staged** (`_tick_condemn_beats`: whisper + roll → edge
   `Watcher`s that vanish when looked at + `kontur_condemn_bed` → black/red cuts quickening → a figure
   at arm's length → the bar kills; `condemn_beats()` is the test surface); the Blackout figure is
   **placed where the camera points** (`_place_blackout_figure`, frustum-first fan, `turn_to_face`
@@ -27,9 +122,8 @@
   Issue 209) and the **Perëkozhnik** (`death_figure` export, KONTUR only) use it; the **condemn
   finale** at `CONDEMN_FINAL_AT` 18 s kills every lamp and the torch, holds `CONDEMN_DARK_HOLD` 2 s,
   brings them back with the figure `CONDEMN_FINAL_AHEAD` 1.5 m ahead and lunges to black, the bar
-  held at `CONDEMN_HOLD_RATIO` so the lunge is the death (Issue 210). The cell wears **bars on the
-  WEST face too** (K1: seven Ø30 mm bars at −0.58…0.62, none on the occupant's line, a 0.1 m shift
-  off the south-west sightline diagonal); `_port_panels`/`PORT_*` dead code is gone. Guards:
+  held at `CONDEMN_HOLD_RATIO` so the lunge is the death (Issue 210). The cell's west-face bars →
+  *superseded by K-CELL, moved to Superseded §6*. Guards:
   `check_kontur_condemn`, `check_kontur_phones` (yellow → lunge → funnel), `check_kontur_entities`,
   `screenshot_kontur_lunge.gd`.
 - ⭐⭐ **A WRONG ACTION IS FATAL SINCE 2026-09-13 (`BACKLOG_Sep_13.md` K2, the user's design).**
@@ -38,8 +132,8 @@
   own screamer kills), lamps red, a rising drone (`kontur_condemn.wav`). The 2D flash,
   `STRIKE_PANIC`, `_strikes` and the Archive's "N OF 3 LOGGED" are GONE — every "three strikes"
   sentence below is history. ⚠️ Gate 8's MISTIMED catch is one of the callers and is therefore
-  fatal too (reported to the user). Also: the containment cell has a **barred gate** on its
-  front (K1; no grid behind the glass — each attempt blinded a sightline heading), the Blackout
+  fatal too (reported to the user). Also: the cell's barred gate → *superseded by K-CELL,
+  moved to Superseded §6*; the Blackout
   figure stands 2.6 m past the doorway at a pale tint (K3), the phones' prompt names both keys
   (K4, `prompt_text()`), and the real seam is plugged with wall under the torch (K5, Issue 198).
   `check_kontur_condemn.gd`.
@@ -296,8 +390,9 @@
     the transparent margin under its boots; the gaze collider wraps the figure, not two thirds of empty
     canvas
 - ⭐ **OBJECT 12, CONTAINED** (`containment_cell.gd`, 2026-08-18): the level is named after it and the
-  player never saw it, while the very next level is *Object 12, loose*. A steel-and-glass isolation
-  booth stands in the **Passage** at `CELL_POS (2.75, 0, 16.9)` with the Breach's own
+  player never saw it, while the very next level is *Object 12, loose*. A riveted glass tank (since
+  2026-09-23 — K-CELL at the top of SPEC; before that a steel-and-glass booth) stands in the
+  **Passage** at `CELL_POS (2.75, 0, 16.9)`, turned `PI/2` so its front faces the walking line, with the Breach's own
   `hollow_crown.glb` inside it, wearing `creature_object12.gd`'s palette — that is the feature, not a
   shortcut: meeting it here and being hunted by it one level later have to be recognisably the same
   thing
@@ -317,9 +412,10 @@
     occupant reaches parity with its background at ~0.30 and passes under it at ~0.22 — but the
     measured contrast there is **0.006–0.09**: it goes invisible before it goes dark. `watcher.gd`'s
     premise is *a dark shape OCCLUDING A LIT SURFACE* and this booth had no lit surface in it. The
-    three interior faces the player can never reach are now **backlit liners** — `LinerEast` (an
-    opaque panel replacing the east pane, which stands 0.15 m from the Passage wall and is
-    unreachable) plus one-sided `QuadMesh` panels `LinerNorth` and `LinerSouth`. ⚠️ Emission
+    interior faces the player looks THROUGH the tank at are **lit**: the steel back wall `BackWall`
+    (where `LinerEast` stood, 0.15 m from the Passage wall and unreachable; since K-CELL the gouged,
+    lamp-lit plate) plus the one-sided `QuadMesh` panels `LinerLeft` / `LinerRight` (were
+    `LinerNorth` / `LinerSouth`; since K-CELL they wear lamp-lit steel, not a flat colour). ⚠️ Emission
     illuminates nothing in this project (no GI, no glow), so a liner raises the BACKGROUND without
     touching the figure, which is the whole reason it works
     - ⚠️ **The north/south panels are ONE-SIDED (`CULL_BACK`) and both obvious builds failed.** A
@@ -328,22 +424,27 @@
       invisible from four headings it had been fine at, and lifted the whole frame 0.05 → 0.25. A
       *four-slab inner door liner carrying the same port opening* backed the figure everywhere except
       behind the figure, because the occupant stands at exactly the height the hole is. One full
-      panel facing +z, drawn from the north and culled at the port, solves both
-  - ⚠️ **The glass is `roughness` 0.22, not 0.08.** At 0.08 the pane is a mirror and the torch put a
-    near-pinpoint glare on it which, because the player faces the booth head-on, landed **on the
-    occupant's chest** at 0.90 luminance. It was diagnosed as a highlight on the creature twice; it
-    survives `metallic_specular = 0`, an albedo of pure black, emission off, and the flashlight
-    switched off entirely
-  - **Measured after the pass, 23 reachable headings, occupant against what is directly behind it over
-    one identical eroded pixel mask:** every heading shows it (7 097–67 169 px, was 0 at six of them);
-    occ/bg **0.52–0.77** (was 0.36–2.79, brighter at seven); contrast **0.231–0.483**; whole-frame mean
-    0.048–0.104 against 0.043–0.058 before, so the backlighting did not turn the booth into a lantern
+      panel facing into the tank, drawn from the far side and culled from its own, solves both (the port
+      is long gone; the one-sided rule is not)
+  - ⚠️ **The glass is `roughness` 0.32 / `metallic_specular` 0.08 since K-CELL (was 0.22 / 0.25), and
+    never a mirror.** At 0.08 roughness the torch put a near-pinpoint glare on the pane which, because
+    the player faces it head-on, landed **on the occupant's chest** at 0.90 luminance. It was
+    diagnosed as a highlight on the creature twice; it survives `metallic_specular = 0`, an albedo of
+    pure black, emission off, and the flashlight switched off entirely. The 0.22 fix was measured
+    against a 1.2-energy torch; at today's 1.6 the first tank render put a white disc on the chest
+    again, hence the softer lobe
+  - **Measured 2026-09-23 against the glass tank, 23 reachable headings, occupant against what is
+    directly behind it over one identical eroded pixel mask** (`screenshot_cell_visibility.gd`): every
+    heading shows it (**2 623–41 239 px**), occ/bg **0.34–0.65**, contrast **0.355–0.662**; whole-frame
+    means on the approach 0.024–0.088, so the lit interior is not a lantern. *(The port-era pass read
+    7 097–67 169 px, occ/bg 0.52–0.77, contrast 0.231–0.483, frame 0.048–0.104.)*
   - ⚠️ **`tests/check_kontur_entities.gd` now asserts that it can be SEEN**, which is the gap that let
     all of the above ship: 143 assertions about what the prop does *not* do and not one about the
     picture. Headless half — every renderable carries the published `occupant_material()`, albedo,
-    emission and specular under documented ceilings, no `AnimationPlayer` playing, and line of sight
-    from **every** reachable heading (12 body points, ≥3 clear, segment/AABB against the booth's
-    opaque solids), with a live control that plugs the port and requires ≥4 headings to go blind.
+    emission and specular under documented ceilings, exactly one `AnimationPlayer` playing the slow
+    `unsteady` idle, and line of sight from **every** reachable heading (12 body points, ≥3 clear,
+    segment/AABB against the tank's opaque boxes — 57 of them), with a live control that plugs the
+    front and requires ≥4 headings to go blind (10 do).
     Photometric half — **`tests/screenshot_cell_visibility.gd`**, which needs a display and is
     therefore outside `run_tests.sh` like every `screenshot_*`. ⚠️ Its mask is built with the glass
     HIDDEN and the levels read with it back: an alpha-blended pane perturbs on every pixel when the
@@ -363,7 +464,8 @@
     walking line
   - A positional field hum (`object12_cell`, `HUM_DB` −18 derived from the file's measured −10.87 dBFS
     RMS, `unit_size` 7) gives it a bearing before it is seen. The glass is dark and **not emissive** —
-    a lit pane hides what is behind it, which is the prop
+    a lit pane hides what is behind it, which is the prop — except the charge's 0.15 s impact pop on
+    the struck pane
 - ⭐ **THE ARCHIVE IS TEXTURED (2026-09-10, capture #13, the user's scope: *"Archive lots and racks
   only"*).** `_mb_mat()` gained an optional triplanar `tex` (negative V, the albedo as tint;
   every old caller byte-identical). Racks on `archive_rack_steel.png` (tinted ~0.5 so they are not
@@ -454,6 +556,60 @@ abandoned. Anything describing what the level *is* belongs in SPEC.
 
 ---
 
+### K-CELL — the glass tank (2026-09-23): what was measured, tried and dropped
+
+- **Emission ADD washed the back wall out, and it was bisected rather than theorised.** The first
+  build set `emission_texture` = the albedo texture on Godot's default `EMISSION_OP_ADD`. That renders
+  (emission colour + texture) × energy, and the gouged wall came out as a flat 0.69 slab. Bisected by
+  render: emission 0 → 0.13, albedo texture off → 0.22, torch off → 0.00. It is Issue 81's exact shape
+  (the redacted signs already used MULTIPLY). Every self-lit art surface on the tank is MULTIPLY now.
+- **Dark steel failed Issue 147, so the texture was lifted, not the energy.** At MULTIPLY with the
+  graded art ungraded (means 0.144 / 0.104 sRGB), the photometric sweep failed 12 headings: contrast
+  0.005–0.102 through both side panes at 2 m, occ/bg up to 1.06. A gamma lift in the generator (0.62
+  back, 0.50 sides) gave 0.352–0.663. Energy stays 1.0, so what the PNG shows is what renders, and no
+  texel is above 0.67 sRGB, so nothing clamps (Issue 21).
+- **Flat side liners were dropped for textured ones.** The old flat `LINER_EMISSION` panels, seen from
+  the front at a grazing angle, read as a pale light box rather than the inside of a steel tank.
+- **The glare came back with the front pane.** Issue 148's roughness 0.22 was measured against a
+  1.2-energy torch; at 1.6 it put a white disc on the chest in the first render. The glass is now
+  0.32 / 0.08 and the disc is gone in every view.
+- **The charge had to be re-staged because the pane is now between the player and the creature.**
+  The old flash (1.2 at t = 0) turned the front pane into an opaque grey sheet (frame mean 0.25) for
+  exactly the 0.16–0.34 s the body was at the glass, and the fixed 0.62 m lunge stopped the frontmost
+  bone at −0.674, 26 cm short of the pane. Now the lunge is sized from the bone reach, and the pop,
+  the thud and the crack land at impact. Measured reach at the end of the lunge: 8.5–11.6 cm inside
+  the pane over three runs.
+  - A first softening (0.35 on the shared material, 0.28 s fade) still left the pane a grey sheet at
+    0.32 s from the AnteEast approach. The pane is a double-sided box, so its emission lands twice,
+    and all three panes shared one material. So the pop is now per pane, 0.22 peak, 0.12 s fade.
+  - The fixed 0.62 m lunge, re-checked on a SIDE approach, put a hand 2.4 cm THROUGH the side pane
+    (reach 0.959 against the glass at 0.935). It was a latent clipping bug as well as a staging one.
+  - With the tracking deliberately broken, the head turned mid-lunge and a hand went 6 cm through
+    the pane. Hence the tracking freeze.
+  - ⚠️ A reach THRESHOLD could not tell a sized lunge from the fixed one (−0.771 against −0.793 on
+    the same seed, because pose varies run to run), so `check_kontur_cell` asserts the sizing rule
+    exactly.
+- **The collar keeps the tank's orientation on purpose.** Measured over a full `unsteady` cycle the
+  neck wanders x −0.16…0.15, z −0.00…0.26 around the occupant's origin. A fixed collar would pass
+  through the creature, and a collar that turned with the head would swing its chains through the
+  skull whenever it tracked a player to the side.
+- **The tank turned `PI/2` rather than getting a "front = −x" frame.** A conventional front at −z is
+  the API another level instances. KONTUR's east-wall constraint (the steel back must be the face
+  nobody reaches) is the placement's job, not the prop's.
+- **The tracking bug was latent and only a turned tank exposed it.** The old tracking took a
+  WORLD-space bearing, which was correct only because the booth was never rotated. Turning the tank
+  made it stare 90° away, and `check_kontur_cell` catches it (it went red with the fix reverted).
+- **The lamp is not a real light.** `check_darkness.gd`: *"nothing burns in the Soviet half (z < 51)"*,
+  the user's D2. Exempting the tank by parent, as the offering pedestal is, is the user's call (put to
+  the user as an open question in the K-CELL implement report, 2026-09-23).
+- **Rejected by the user: concept B (a barred cell) and concept C (a restraint frame).** The bars K2/K1b
+  built are gone (Superseded §6).
+- **The first back-wall flux prompt was refused as NSFW** (`"… containment tank … claw gouges …
+  dried blood runs"`). Dropping "blood" and "containment" passed, and the blood run under the gouges is
+  composited in by `tools/make_kontur_cell_art.py`.
+
+---
+
 ### Superseded passages, moved out of SPEC (audit 2026-09-19)
 
 Every block below was live SPEC prose until this audit. It is kept **verbatim** for its rationale,
@@ -535,18 +691,42 @@ untextured' sentence below is history."* That sentence does not occur below it, 
 file — it lives in `01-lab.md:158` and `06-breach.md:118`, about other props. Nothing was superseded
 by it, so the pointer was removed rather than moved.
 
+**6 · The containment cell's bars (K2 2026-09-13, K1b 2026-09-14)** — superseded 2026-09-23 by
+K-CELL, the glass tank (the user chose concept A over concept **B, a barred cell**). No bar, rail, gate
+or lock is built any more; the front and both sides are 60 mm glass in a riveted frame and the back is
+steel. ⚠️ **What survives from the bar era is the sightline sweep itself**, which
+`check_kontur_entities.gd` still runs over the same 23 headings against whatever opaque boxes the
+tank has (57 now: posts, clamp bands, plinth, cap, back plate, fittings), and which the glass tank
+passes at 23/23 with the plug control blinding 10. The three sentences, verbatim:
+
+> the cell's front is an **open barred face** (eight Ø30 mm bars off the centre line, rails, a gate
+> section with a lock; no leaf, no port — the sightline sweep still sees all 23 headings)
+
+> The cell wears **bars on the WEST face too** (K1: seven Ø30 mm bars at −0.58…0.62, none on the
+> occupant's line, a 0.1 m shift off the south-west sightline diagonal); `_port_panels`/`PORT_*` dead
+> code is gone.
+
+> the containment cell has a **barred gate** on its front (K1; no grid behind the glass — each attempt
+> blinded a sightline heading)
+
 ## NEEDS A PLAYTEST
 
 ⚠️ Claims in SPEC that are **measurements from a build that has since changed**, or that no headless
 guard can settle. None of them is known wrong; none of them has been re-measured against the level as
 it stands. Do not delete them, and do not cite them as current until someone plays this.
 
-- **The containment cell's photometry.** SPEC's *"23 reachable headings · 7 097–67 169 px · occ/bg
-  0.52–0.77 · contrast 0.231–0.483 · whole-frame mean 0.048–0.104"* was measured against the **glazed
-  leaf with the observation port**, which K2 replaced with an open barred front, and K1b then barred
-  the west face too. `tests/screenshot_cell_visibility.gd` needs a display and is outside
-  `run_tests.sh`; re-run it and restate the numbers. The headless sightline half
-  (`check_kontur_entities.gd`) *has* been re-pointed at the bars.
+- **The glass tank in play (K-CELL, built 2026-09-23, not hand-played).** The photometry WAS
+  re-measured against the tank (see SPEC), but nothing headless can say:
+  - whether it reads as *"brutal and realistic"* to the user, against concept A;
+  - whether the charge lands while the torch is still forced off. `BLACKOUT_TORCH_TIME` is 3.5 s and
+    the charge fires at 3.5 m. If the torch is still off, the pop and the crack are the only picture,
+    lit by the tank's own dead interior;
+  - whether the collar clears the neck mesh at every pose. The ring radius is 0.125 m and the ring
+    stays within 0.042 m of the neck bone, but the mesh's neck girth was never measured;
+  - how the windowed frame rate (~12 fps in the render probe, with the renders showing a 1–2 frame
+    lag) affects a 0.16 s lunge.
+- **The breached tank in the Breach's own light.** Rendered only in an empty test room lit at 0.12
+  ambient with two 0.7 lamps (`game/tests/probe_cell_breached.gd`). The Breach instances it itself.
 - **Sign legibility.** *"Worst sign now 15.7 px, best 63.2, floor 15"* and the briefing notice's
   *"17.1 px of cap height from the player's own spawn 7.10 m away"* were measured before
   `DARK_AMBIENT` 0.02 / `SOVIET_DARK` 0.0 put the Soviet half in the dark and before Gate 2's sign

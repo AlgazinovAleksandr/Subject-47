@@ -41,11 +41,16 @@ const _EXIT_DOOR_SCRIPT := preload("res://scripts/void_exit_door.gd")
 # ⭐ 2026-09-20 pass 4: the cradle's giving scare, the secret room behind the Morgue's west
 # wall, and the page at the end of it that finally moves the stone.
 const _CRADLE_FIGURE := preload("res://scripts/void_cradle_figure.gd")
+# ⭐ 2026-09-23 pass 8: the fire the figure rises out of.
+const _CRADLE_FIRE := preload("res://scripts/void_cradle_fire.gd")
 const _FRAME_HALL := preload("res://scripts/void_frame_hall.gd")
 const _HIDDEN_NOTE_SCRIPT := preload("res://scripts/void_hidden_note.gd")
 # ⭐ 2026-09-20 pass 5: the twist note's own refusal, the receipt on the Ward's gurney, and the
 # rule-less figure that charges the loop corridor on the way back.
 const _TWIST_NOTE_SCRIPT := preload("res://scripts/void_twist_note.gd")
+# ⭐ 2026-09-22 pass 6: the Ward's sealed strapped box, which the gurney's touch grinds open in
+# plain view — the one prop in this level that changes while you are looking at it.
+const _WARD_BOX_SCRIPT := preload("res://scripts/void_ward_box.gd")
 
 const PRESERVE := ["Environment", "AmbientPlayer", "HUDCanvas", "Player"]
 const TEX := "res://assets/textures/level_4_void/"
@@ -136,15 +141,18 @@ const LOOP_LAMP_ENERGY := 0.22  # the corridor lamps' rest level; the flicker re
 # ⚠️ Each row's `at` is where the object LIES, and every one of them had to clear a solid
 # collider for the E-ray to reach it (the ray takes the nearest hit):
 #   handle  PocketA's west wall, beside the trap note, through wall_point()
-#   slat    at the open mouth of FoldedFrame_Ward_L (-2.6, 14.5) — the frame's own collider is
-#           1.25 x 1.85 x 1.65 centred on it, so the slat lies 5 cm clear of its south face
+#   slat    ⭐ INSIDE THE WARD BOX since pass 6 (-2.6, 14.5). The box's interior floor is at
+#           y 0.22 and its walls top out at 0.62; the slat lies on that floor and the shut lid
+#           is a real collider a descending E-ray stops on. It ALSO refuses by name while the
+#           lid is down (`container` / `sealed_text`), because a blocker guards one viewing
+#           angle and a refusal on the target guards all of them (Issue 242)
 #   latch   inside Hall2's flat doorframe (7.0, 44.7), which has NO collider at all — and
 #           which is the step-through, so the 1.2 s clock runs while you bend down for it
 const ANCHORS := [
 	{"id": "handle", "label": "a door handle", "family": "violet",
 		"at": Vector3(0, 0.14, 0), "yaw": 1.1, "pose": Vector3(-1.35, 0.0, 0.25), "room": "PocketA"},
 	{"id": "slat", "label": "a bed slat", "family": "bone",
-		"at": Vector3(-2.52, 0.10, 13.60), "yaw": 0.22, "pose": Vector3(-1.5, 0.0, 0.0), "room": ""},
+		"at": Vector3(-2.33, 0.30, 14.56), "yaw": 0.22, "pose": Vector3(-1.45, 0.35, 0.05), "room": ""},
 	{"id": "latch", "label": "a window latch", "family": "verdigris",
 		"at": Vector3(7.08, 0.11, 44.62), "yaw": -0.5, "pose": Vector3(-1.45, 0.0, 0.6), "room": ""},
 ]
@@ -196,6 +204,10 @@ var _tile_rect := Rect2()
 var _shake_timer := 0.0
 var _shake_duration := 0.0
 var _shake_strength := 0.0
+# ⭐ pass 7. The recurring room HOLDS the camera at a small roll; `_tick_shake()` shakes about
+# this value instead of about zero, and restores it rather than leaving its last sine sample
+# behind. One owner of `camera.rotation.z` in this level, and this is it.
+var _camera_roll := 0.0
 var _world_env: WorldEnvironment = null
 var _alignment: StaticBody3D
 var _ward_fragment: StaticBody3D
@@ -241,6 +253,15 @@ var _secret_grind: AudioStreamPlayer3D = null
 var _secret_open := false
 var _cradle_sting: AudioStreamPlayer3D = null
 var _lunge_spent := false
+# ⭐ pass 7's cradle beat. `_shadow_lamp_energy` is [[Light3D, energy], …] captured when the
+# room goes dark, so the restore hands back what was actually burning rather than a constant.
+var _cradle_light: OmniLight3D = null
+# ⭐ pass 8: the fire OWNS that light now — `_cradle_light` is the `CradleFire`'s own omni, so
+# freeing the fire is what puts it out, and `_child_room_lights()` never sees it (it is a
+# grandchild of the level, and that scan walks direct children only).
+var _cradle_fire: Node3D = null
+var _shadow_dark_on := false
+var _shadow_lamp_energy: Array = []
 var _protect_restore := -1.0          # seconds left of creature E's suppression, or < 0
 var _drawing_swap_armed := false
 var _drawing_swapped := false
@@ -258,6 +279,12 @@ var _loop_swap_stage := -1
 var _step_bars: Array = []            # Hall2's flat frame, the bars that lean into the dwell
 var _step_bar_rest: Array = []
 var _ward_grind: AudioStreamPlayer3D = null
+# ── pass 6: the Ward box and the recurring room's cut to black ──
+var _ward_box: StaticBody3D = null
+var _ward_box_open := false
+var _cut_layer: CanvasLayer = null
+var _cut_rect: ColorRect = null
+var _cut_depth := 0
 
 
 func _ready() -> void:
@@ -600,9 +627,15 @@ func _build_loop() -> void:
 # while a lethal stalker walks up behind you is §8.11's coin flip. RESTORED to `_tile_rect`,
 # never cleared (the cradle lunge's rule).
 # ⚠️ ONE SHOT, saved as `corridor_charge_done`, and `_restore_progress()` never replays it.
-const CHARGE_AREA_POS := Vector3(12.5, ROOM_H * 0.5, 42.0)   # x 11..14, z 41..43
+# ⭐ THE TRIGGER MOVED TO z 26 ON 2026-09-22 (pass 6). Capture #3 of the 23:47 run: *"The
+# jumpscare … appears too early. Let it be when around 60 % of the corridor is passed"*. It fired
+# at z 43.2 — the corridor's north END, one step after the player turned round — and then spent a
+# full second crossing 24.4 m of empty corridor, which reads as a cutscene. The walk back runs
+# z 44 -> 14, so 60 % of it is z 26: the figure is 9.5 m ahead when it turns, and
+# `void_cradle_figure.CHARGE_TIME` is 0.6 s.
+const CHARGE_AREA_POS := Vector3(12.5, ROOM_H * 0.5, 26.0)   # x 11..14, z 25..27
 const CHARGE_AREA_SIZE := Vector3(3.0, ROOM_H, 2.0)
-const CHARGE_FIGURE_AT := Vector3(12.5, 0.0, 16.5)           # under Light_Loop_19, 25 m south
+const CHARGE_FIGURE_AT := Vector3(12.5, 0.0, 16.5)           # under Light_Loop_19, 9.5 m south
 const CHARGE_SOUTHBOUND := -0.5                              # m/s of -z that counts as "going back"
 
 
@@ -649,12 +682,30 @@ func _fire_corridor_charge() -> void:
 		c.set("protected_player_rect", _loop_rect)
 		_charge_protect = _CRADLE_FIGURE.TURN_TIME + _CRADLE_FIGURE.CHARGE_TIME \
 			+ _CRADLE_FIGURE.LINGER + 1.0
+	# ⭐ THE CHARGE OWNS THE CAMERA (2026-09-22 pass 7, Issue 255). Capture 1 of the 02:13 run:
+	# *"I was going backwards and I did not see the jumpscare — let's use our standard camera turn
+	# move that we used multiple times."* The beat fired at z 27.2 exactly as designed and the
+	# player was walking backwards, so the whole thing happened behind their head. Every other
+	# in-world figure in the game takes the camera first — the Corridor's lunger at 0.18 s, the
+	# Backrooms runner at 0.45 s, the HOLD apparitions — and this one did not.
+	# ⚠️ `turn_to_face()`, never `ai_look_at()`: the former writes `player.gd`'s own `_pitch`, so
+	# the turn survives the next mouse motion; `ai_look_at()` writes the camera node and snaps
+	# back the instant the player twitches (which is its own header's warning, and it is test-only
+	# for that reason). It also kills its own previous tween, so a second call cannot fight it.
+	# ⚠️ INPUT IS NOT FROZEN. This level freezes only for hold-breath beats and for the recurring
+	# room's cut; a 0.85 s freeze here would be a cutscene, which is the note capture 4 of the
+	# previous run already made about this corridor.
+	# ⚠️ AND THE RUSH STARTS WHEN THE TURN LANDS, without a signal: the figure's own
+	# `TURN_TIME` (0.25 s) is the same 0.25 s, so `_begin_charge()` fires on the first frame after
+	# the camera has arrived. The two clocks are deliberately equal and `check_void` measures the
+	# yaw at the moment the rush begins rather than trusting that.
+	p.call("turn_to_face", CHARGE_FIGURE_AT + Vector3(0, 1.35, 0), _CRADLE_FIGURE.TURN_TIME)
 	var fig := _CRADLE_FIGURE.new() as Node3D
 	fig.name = "ChargeFigure"
 	add_child(fig)
 	fig.call("arm_charge", p, CHARGE_FIGURE_AT, _charge_sting)
-	_dbg("VOID corridor charge FIRED (player at %v, figure at %v)"
-		% [p.global_position, CHARGE_FIGURE_AT])
+	_dbg("VOID corridor charge FIRED (player at %v, figure at %v, camera turned in %.2f s)"
+		% [p.global_position, CHARGE_FIGURE_AT, _CRADLE_FIGURE.TURN_TIME])
 
 
 func _tick_charge_protection(delta: float) -> void:
@@ -970,8 +1021,14 @@ func _on_loop_note_read() -> void:
 # ⚠️ The figures are excluded — `void_creature_visual.gd` keeps its own 0.25 dark stone, so
 # the five creatures read as one species in five differently-coloured rooms.
 func _build_fragments() -> void:
-	# The Ward: suspended frames, with a single optional off-screen rearrangement.
-	_FRAGMENTS.folded_frame(self, Vector3(-2.6, 0, 14.5), 0.0, "FoldedFrame_Ward_L", "bone")
+	# ⭐ THE WARD BOX (2026-09-22 pass 6) replaces `FoldedFrame_Ward_L`. Capture #1 of the 23:47
+	# run, photographing exactly this prop: *"the object closer to the monster looks like a bed,
+	# but the one … further away … still does not remind anything … like a gift box"*. It is a
+	# gift box now — sealed, strapped, with the bed slat inside it — and capture #2 asked for the
+	# button: *"Should it be like a magical button that will open the magical box …?"* The button
+	# is the gurney 1.2 m south of it, and the lid grinds back IN VIEW.
+	_ward_box = _FRAGMENTS.strapped_box(self, Vector3(-2.6, 0, 14.5), 0.0, "WardBox", "bone",
+		_WARD_BOX_SCRIPT)
 	var answering := _FRAGMENTS.folded_frame(self, Vector3(2.6, 0, 14.5), 0.0, "FoldedFrame_Ward_R", "bone")
 	# ⭐ THE OTHER FRAME ANSWERS (2026-09-20 pass 4). Capture #2: *"When you press touch the
 	# suspended fragment — nothing changes."* It did — 57 seconds later, two rooms away, by a
@@ -980,8 +1037,9 @@ func _build_fragments() -> void:
 	# the room, so you touch one thing and a DIFFERENT thing changes while you stand between
 	# them; the re-pose is gated to the Ward's own rect so it cannot fire in another room; and it
 	# grinds as it moves, so you hear it behind you and turn to a changed shape.
-	# ⚠️ The bed slat lies at the LEFT frame's mouth and the left frame never moves — a slat that
-	# can be lost is a hard softlock (all three sockets gate the Morgue seal).
+	# ⚠️ The bed slat is inside the Ward BOX and the box never moves — a slat that can be lost is
+	# a hard softlock (all three sockets gate the Morgue seal), and the gurney's touch that opens
+	# the box is a plain E with no precondition, so it can never be taken away either.
 	_ward_fragment = _REARRANGEMENT.new()
 	_ward_fragment.name = "WardFragment"
 	_ward_fragment.position = Vector3(-2.6, 1.25, 13.3)
@@ -998,6 +1056,9 @@ func _build_fragments() -> void:
 	add_child(_ward_fragment)
 	_ward_grind = _audio_at("WardGrind", "stone_grind", Vector3(2.6, 1.3, 14.5), -8.0, 5.0)
 	_ward_fragment.connect("rearranged", _on_ward_answered)
+	# ⭐ THE ON-SCREEN half of the same press (pass 6). `rearranged` is the off-screen answer from
+	# the right frame; `touched` is the box opening under the player's own eyes.
+	_ward_fragment.connect("touched", _on_ward_touched)
 	# The Morgue: an inverted slab, a drawer bank, the drawer that came out of it, the monitor.
 	var slab := _FRAGMENTS.inverted_slab(self, Vector3(-13, 0, 45.5), PI / 2.0, "InvertedSlab_Morgue", "bone")
 	_spawn_slab_page(slab)
@@ -1074,13 +1135,15 @@ func _arm_on_sight(prop: Node3D, child: String, rot: Vector3, offset: Vector3) -
 # inverted table. The Archive is a dead end off the Ward that NONE of the day's three runs
 # entered; the shard used to lie seven seconds from the cradle it opens (taken 410 s, cradle
 # 417 s).
-# ⭐ AND IT IS VISIBLE FROM FRAME 0, WEDGED (2026-09-20 pass 5). Pass 3 made it invisible and
-# collider-less until the table re-posed itself, and the 23:33 run photographed that twice:
-# *"this shard did not appear immediately… we should fix that."* It is now jammed between the
-# table's stretcher and one upturned leg, refusing, and the off-screen rearrangement shakes it
-# down into the basin. The rule is kept and the cause is finally legible.
+# ⭐ AND IT IS TAKEABLE FROM FRAME 0 (2026-09-22 pass 6). Pass 3 hid it until the table re-posed
+# itself; pass 5 showed it but WEDGED, refusing until the same look-away. Capture #4 of the 23:47
+# run: refused five times over seven seconds, freed off-screen two seconds after the player left
+# the room, taken on the way back — *"when I entered the room for the first time — I could not
+# take the shard. And now … second time — I can. Should not be that way."* The receipt read as a
+# lock. It now simply lies in the basin offering E, and the table's off-screen rearrangement
+# survives as a PURE SCARE that gates nothing.
 # ⚠️ `to_global`, never a hand-computed world point: the table is yawed 0.3 rad.
-# ⚠️ Both poses are handed over AFTER add_child — the node's `_ready()` runs before the mesh and
+# ⚠️ The basin is handed over AFTER add_child — the node's `_ready()` runs before the mesh and
 # the collider exist and nothing set there could describe them (void_loop_note.gd's rule).
 func _spawn_archive_shard(table: Node3D) -> void:
 	_shard = _SHARD_SCRIPT.new()
@@ -1091,44 +1154,56 @@ func _spawn_archive_shard(table: Node3D) -> void:
 	# y 0.38 the raw ray reported `InvertedTable_Archive` from every stance tried. 0.42 leaves
 	# 0.20 m of clearance and the shard still sits inside the basin, between the legs-up legs.
 	var basin: Vector3 = table.to_global(Vector3(0.0, 0.42, 0.0))
-	# ⚠️ AND THE WEDGED POSE IS MEASURED TOO. Body-local (0.30, 0.74, -0.26) puts it against the
-	# stretcher (local y 0.88) beside the +x pair of upturned legs, on the DOORWAY SIDE of the
-	# table (world z 21.84 against the table's 22.0) so it is in view from the Archive's own
-	# doorway at (-2, 18) rather than behind two legs — and 0.52 m above the table's collider,
-	# which is what lets the E-ray reach it at all (Issue 230).
-	var wedged: Vector3 = table.to_global(Vector3(0.30, 0.74, -0.26))
-	_shard.position = wedged
+	_shard.position = basin
 	add_child(_shard)
-	_shard.call("set_poses", wedged, Vector3(0.55, -0.35, 0.9), basin)
+	_shard.call("set_basin", basin)
 	_shard.connect("taken", _on_shard_taken)
 	_sync_shard()
 
 
-# The rearrangement IS the release. Derived from the rearranger's own `spent` flag rather than
-# stored, so the off-screen beat, a snapshot restore and a test that sets the state by hand all
-# land in the same world (the loop ladder's rule). ⚠️ `announce` is FALSE everywhere but the
-# live beat: a restore must never replay a one-shot.
-func _sync_shard(announce: bool = false) -> void:
+# ⭐ THE SHARD IS NO LONGER GATED BY ANYTHING (pass 6). All this does now is remove it from the
+# world once it has been taken — `_shard_taken` means OUT OF THE WORLD and is never reset
+# (Issue 234). The table's `rearranged` no longer touches it.
+func _sync_shard() -> void:
 	if _shard == null or not is_instance_valid(_shard):
 		return
 	if _shard_taken:
 		_shard.queue_free()
 		_shard = null
-		return
-	if _inverted_table and is_instance_valid(_inverted_table) and bool(_inverted_table.get("spent")):
-		_shard.call("free_into_basin", announce)
-	else:
-		_shard.call("wedge")
 
 
+# ⚠️ THE TABLE STILL REARRANGES, AND IT STILL GIVES NOTHING. It is a pure P11 scare: a piece of
+# furniture that is a different shape when you turn round. Hanging the shard's availability on it
+# is what capture #4 read as a bug, and the beat itself was never the problem.
 func _on_table_rearranged() -> void:
-	_sync_shard(true)
+	_dbg("VOID archive table rearranged off-screen (a scare, nothing more)")
 
 
 func _on_ward_answered() -> void:
 	if _ward_grind:
 		_ward_grind.play()
 	_dbg("VOID ward frame answered — the RIGHT frame moved, 5.2 m from the one you touched")
+
+
+# ⭐ THE BOX OPENS IN PLAIN VIEW (pass 6, and it deliberately breaks the level's own P11 rule for
+# this ONE prop — Issue 243, twice photographed as "nothing happened"). The gurney is 1.2 m from
+# the box, so the cause and the effect are in the same glance.
+func _on_ward_touched() -> void:
+	open_ward_box()
+
+
+func open_ward_box() -> void:
+	if _ward_box_open:
+		return
+	_ward_box_open = true
+	if _ward_box and is_instance_valid(_ward_box):
+		_ward_box.call("open", true)
+	_dbg("VOID ward box OPENED — the lid grinds back and the bed slat is reachable")
+
+
+# The slat's gate, asked of the level (void_anchor.gd `container` / `container_method`).
+func ward_box_open() -> bool:
+	return _ward_box_open
 
 
 # The torn page that stayed behind in the slab's hollow, so the "E under the slab, with your
@@ -1206,6 +1281,13 @@ func _spawn_anchors() -> void:
 				+ Vector3(0, 0, 0.55)
 		a.position = at
 		a.rotation.y = spec["yaw"]
+		# ⭐ THE SLAT IS SEALED IN THE WARD BOX (pass 6). Set BEFORE add_child, like every other
+		# property here: `void_anchor.gd:_ready()` builds the mesh from these and a value set on
+		# the line after `add_child` is a value set after `_ready()` (Issue 244).
+		if String(spec["id"]) == "slat":
+			a.set("container", self)
+			a.set("container_method", "ward_box_open")
+			a.set("sealed_text", "The box is sealed.")
 		add_child(a)
 		_anchors[String(spec["id"])] = a
 
@@ -1390,8 +1472,11 @@ func _tick_step_through(delta: float) -> void:
 # added: `ExitDoor` still waits on `TWIST_READ` alone.
 #
 # Three things answer at once, which is what makes it read as a payoff instead of a tween:
-#   1. a sixth fractured figure rises through the cradle and lunges into the camera
-#      (`void_cradle_figure.gd`), after a 0.6 s HoldBreath silence — zero panic, no fail state;
+#   1. ⭐ pass 7/8 — THE CRADLE BURNS AND THE FACE RISES OUT OF IT. See `_fire_cradle_shadow()`:
+#      the camera is turned to the cradle, every light in the room and the torch go out, a fire
+#      starts in the crib and grows for three seconds, and then the face comes up through the
+#      flames on the user's `void_fire_jumpscare` at -2.0 dB and holds, mask at the rim, head tracking you.
+#      Zero panic, no fail state;
 #   2. the Morgue's west wall opens, three rooms away, with a distant `stone_grind`;
 #   3. the child's crayon drawing two metres away becomes a PLAN with one door marked, the next
 #      time you look away from it — the tell that says WHERE, in the level's own grammar.
@@ -1404,7 +1489,7 @@ func _on_cradle_completed() -> void:
 		_sanctum_plate.set("moved_elsewhere", true)
 	_open_secret_door()
 	_arm_drawing_swap()
-	_fire_cradle_lunge()
+	_fire_cradle_shadow()
 	GameState.set_objective("Something opened in the far wing")
 
 
@@ -1415,46 +1500,368 @@ func _on_cradle_completed() -> void:
 # one second. ⚠️ RESTORED to `_tile_rect`, never cleared: that rect is what stops all five
 # stalkers while the player is out on the causeway, and clearing it would quietly delete E's half
 # of a rule that has nothing to do with this scare.
-func _fire_cradle_lunge() -> void:
+# ⭐ THE CRADLE BEAT (2026-09-22 pass 7). Capture 2 of the 02:13 run, standing over the completed
+# cradle: *"The jumpscare is the same as the one in the corridor… a shadow will spawn inside this
+# object for several seconds while all the light will be removed and in the complete darkness you
+# will see only it and it will be a creepy sound."* It was: pass 4/5's rush to 0.6 m with the
+# shared `jumpscare`, the same figure, the same rush and the same sound as the corridor charge
+# forty metres away. The corridor keeps its rush. This one is the opposite of a rush.
+#
+# ⭐ AND IT BURNS SINCE PASS 8 — the full clock is on `SHADOW_FIRE` below. In one line: the
+# camera comes round (0.3 s), the room and the torch go out, a fire grows in the crib for 3 s,
+# the face rises through it over 0.5 s with the snarl, it holds 2 s, and fire, light and figure
+# fade out together in 0.3 s before the room comes back 0.4 s later.
+#
+# ⚠️ ZERO PANIC, AND THAT COSTS A GUARD. `DarkChildRoom` is a `DarkZone` over this room, and
+# `player.gd` charges DARK_PANIC_RATE 3/s while the torch is off inside one — 6.2 s of blackout
+# is 18.6 points of panic for doing the thing the puzzle asked, and pass 8 made the beat LONGER,
+# so this matters more than it did. That is Issue 18's shape exactly
+# (never tax the posture a beat requires), so the zone is held off for the beat and handed back
+# after. `check_void` proves `_panic` unchanged across the whole thing with `RandomAmbient`
+# unregistered (Issue 240).
+# ⚠️ `force_flashlight_off()` / `restore_flashlight()`, the DEPTH-COUNTED blackout pair — never
+# `kill_flashlight()`, which is the Corridor's permanent one and would end the level in the dark.
+# ⚠️ CREATURE E STANDS TWO METRES AWAY and the player is about to be blinded. It is suppressed
+# with the tile hall's own mechanism (`protected_player_rect`) for the beat plus a second, and
+# RESTORED to `_tile_rect`, never cleared: that rect is what stops all five stalkers while the
+# player is out on the causeway.
+# ⚠️ ONE SHOT, saved as `lunge_spent`, and `_restore_progress()` never replays it.
+# ⭐ AND SINCE 2026-09-23 (pass 8) THE CRADLE BURNS. Capture #3 of the 23:10 run, standing over
+# the completed cradle: *"make this visual of the monster showing up as a jumpscare more brutal.
+# Firstly, the jumpscare itself should be louder. Secondly, maybe add animation like there is
+# fire for like 3 seconds and then this face appears from fire?"* Both halves, exactly:
+#
+#   t 0.0   the camera is TURNED to the cradle (0.3 s); every light in the room goes to 0 and
+#           the torch is put out — pass 7's opening, unchanged
+#   t 0.0   …and a FIRE starts in the crib. `void_cradle_fire.gd`: six additive billboarded
+#           flame quads on their own phases, an orange omni ramping 0 -> 0.9 over the first
+#           second and then flickering, and `cradle_fire` looping under it. Pass 7's second of
+#           nothing becomes three seconds of a fire growing, which is the only thing in the
+#           world and the only warm colour in this level
+#   t 3.0   the FACE COMES UP THROUGH THE FLAMES over 0.5 s, the user's `void_fire_jumpscare` with it at
+#           -2.0 dB — 6.6 dB hotter than pass 7, and near the file's ceiling
+#   t 3.5   it holds, mask at the rim, head tracking you
+#   t 5.5   fire, light and figure die together over 0.3 s
+#   t 5.8   black
+#   t 6.2   the lamps and the torch come back
+#
+# ⚠️ THE VIOLET `CradleLight` IS GONE and its constants with it (`CRADLE_LIGHT_COLOR` 0.6/0.5/0.9,
+# `CRADLE_LIGHT_ENERGY` 0.40, `CRADLE_LIGHT_DROP` 0.45, `CRADLE_LIGHT_RANGE` 1.8). A dead constant
+# beside a live one is how a later pass re-prices the wrong beat. The fire's own omni is the only
+# light in the room now, and `void_cradle_fire.gd` holds its arithmetic — including why 0.9 energy
+# cannot clamp the mask (`omni_attenuation` 0.0: a fire is a volume, not a point).
+const SHADOW_TURN := 0.3        # the camera comes round to the cradle
+const SHADOW_FIRE := 3.0        # …and the fire grows, alone, for three seconds
+const SHADOW_RISE := 0.5        # the face comes up out of it
+const SHADOW_HOLD := 2.0        # …and stands there
+const SHADOW_FADE := 0.3        # fire, light and figure die together
+const SHADOW_TAIL := 0.4        # black again, before the room comes back
+# How far below its final pose the figure starts. The cradle's broken bed is at local y 0.91 and
+# the rim at 1.768: 0.80 m puts the mask down in the flames and brings it out of them.
+const SHADOW_RISE_FROM := 0.80
+# ⚠️ THE FLAMES STAND ON THE CRADLE'S OWN BROKEN BED, handed to the fire in WORLD space by
+# `_cradle.to_global()` — never hand-computed, and never the bbox centre. `void_fragments`
+# builds `BrokenBed` as a 0.74 x 0.10 x 0.60 slab at local (-0.16, 0.86, 0.14), so its top face
+# is local y 0.91 and that is where a fire in a crib starts.
+const CRADLE_FIRE_BASE := Vector3(-0.16, 0.91, 0.14)
+
+
+func _fire_cradle_shadow() -> void:
 	if _lunge_spent:
 		return
 	_lunge_spent = true
 	var p := _player()
 	if p == null or _cradle == null or not is_instance_valid(_cradle):
 		return
-	if _cradle_sting == null:
-		_cradle_sting = _make_sting("CradleSting")
 	var e = _stalkers.get("E", null)
 	if e and is_instance_valid(e):
 		e.set("protected_player_rect", _room_rect("ChildRoom"))
-		_protect_restore = _CRADLE_FIGURE.DIP + _CRADLE_FIGURE.RISE_TIME \
-			+ _CRADLE_FIGURE.LUNGE_TIME + 1.0
+		_protect_restore = _shadow_beat_length() + 1.0
+	# ⭐ pass 5's ruling survives the rewrite: the target is the CRADLE'S OWN geometry, not the
+	# node origin, which sits on the floor like every `_body()` prop in this level.
+	p.call("turn_to_face", _cradle_bbox().position + _cradle_bbox().size * 0.5
+		+ Vector3(0, 0.9, 0), SHADOW_TURN)
+	_run_cradle_shadow()
+
+
+# The whole beat, turn excluded: three seconds of fire, the rise, the hold, the shared fade and
+# the black tail. ⚠️ ONE EXPRESSION, read by the beat AND by E's suppression window — pass 7 had
+# the same sum written out twice and a later pass changing one of them would have left a blinded
+# player standing next to a live creature.
+func _shadow_beat_length() -> float:
+	return SHADOW_FIRE + SHADOW_RISE + SHADOW_HOLD + SHADOW_FADE + SHADOW_TAIL
+
+
+func _run_cradle_shadow() -> void:
+	_shadow_dark()
+	await get_tree().create_timer(SHADOW_FIRE, true, false, false).timeout
+	if not is_instance_valid(self):
+		return
+	_shadow_show()
+	await get_tree().create_timer(SHADOW_RISE + SHADOW_HOLD, true, false, false).timeout
+	if not is_instance_valid(self):
+		return
+	_shadow_hide()
+	await get_tree().create_timer(SHADOW_FADE, true, false, false).timeout
+	if not is_instance_valid(self):
+		return
+	_shadow_gone()
+	await get_tree().create_timer(SHADOW_TAIL, true, false, false).timeout
+	if not is_instance_valid(self):
+		return
+	_shadow_restore()
+
+
+# Every light whose position is inside the child room's rect, found by geometry rather than by
+# name: a later pass that adds a second fitting in here must not leave one lamp burning through
+# the one beat whose whole premise is that there is no light but the cradle's.
+# ⚠️ THE BEAT'S OWN LIGHT IS NOT A ROOM LAMP. `CradleLight` is an OmniLight3D sitting inside this
+# very rect, so the first draft of this counted it, tried to put it out in `_shadow_dark()` (it
+# does not exist yet) and then "restored" it in `_shadow_restore()` — and the guard caught it as
+# "1 of 2 lamps back". The room's lamps are the ones that were burning before the beat began.
+# ⭐ pass 8 made that structural rather than careful: the beat's light is now a CHILD of
+# `CradleFire`, and this scan walks the level's DIRECT children, so it cannot be reached at all.
+# The `!= _cradle_light` test is kept anyway — it costs nothing and it is the invariant, not the
+# implementation, that matters here.
+func _child_room_lights() -> Array:
+	var out: Array = []
+	var rect := _room_rect("ChildRoom")
+	for c in get_children():
+		if c is Light3D and c != _cradle_light:
+			var l := c as Light3D
+			if rect.has_point(Vector2(l.global_position.x, l.global_position.z)):
+				out.append(l)
+	return out
+
+
+func _cradle_bbox() -> AABB:
+	var box := AABB()
+	var found := false
+	var stack: Array = [_cradle]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is MeshInstance3D:
+			var mi := n as MeshInstance3D
+			var w: AABB = mi.global_transform * mi.get_aabb()
+			box = w if not found else box.merge(w)
+			found = true
+		for c in n.get_children():
+			stack.append(c)
+	return box if found else AABB(_cradle.global_position, Vector3.ONE)
+
+
+func _shadow_dark() -> void:
+	if _shadow_dark_on:
+		return
+	_shadow_dark_on = true
+	_shadow_lamp_energy = []
+	for l in _child_room_lights():
+		_shadow_lamp_energy.append([l, float((l as Light3D).light_energy)])
+		(l as Light3D).light_energy = 0.0
+	_hold_child_dark(true)
+	var p := _player()
+	if p and is_instance_valid(p):
+		p.call("force_flashlight_off")
+	_dbg("VOID cradle shadow — the room and the torch go out")
+	_light_cradle_fire()
+
+
+# ⭐ pass 8. The fire is lit in the SAME breath as the blackout — there is no second of nothing
+# any more, there are three seconds of a fire growing in a black room.
+# ⚠️ THE LIGHT IS THE FIRE'S. `_cradle_light` points at `CradleFire`'s own omni, so there is
+# exactly one light source in this beat and freeing the fire is what puts it out. Nothing here
+# creates a lamp of its own, and `_child_room_lights()` cannot see it (that scan walks the
+# level's DIRECT children and this is a grandchild) — which is the fix for the trap pass 7
+# documented, not a new hazard.
+func _light_cradle_fire() -> void:
+	if _cradle == null or not is_instance_valid(_cradle):
+		return
+	if _cradle_fire and is_instance_valid(_cradle_fire):
+		return
+	_cradle_fire = _CRADLE_FIRE.new() as Node3D
+	_cradle_fire.name = "CradleFire"
+	add_child(_cradle_fire)
+	# ⚠️ THE LIGHT LEANS TOWARD THE PLAYER (Issue 258). The flames stay on the bed; the fire's
+	# lamp is handed the direction the face will be looked at from, or the rising mask is a
+	# silhouette against its own fire — measured on the first 2.5 m render of this beat.
+	var pl := _player()
+	var toward: Vector3 = Vector3.ZERO
+	if pl and is_instance_valid(pl):
+		toward = pl.global_position - _cradle.global_position
+	_cradle_fire.call("ignite", _cradle.to_global(CRADLE_FIRE_BASE), toward)
+	_cradle_light = _cradle_fire.call("light") as OmniLight3D
+
+
+func _shadow_show() -> void:
+	var p := _player()
+	if p == null or _cradle == null or not is_instance_valid(_cradle):
+		return
+	var box := _cradle_bbox()
+	var centre: Vector3 = box.position + box.size * 0.5
+	if _cradle_sting == null:
+		_cradle_sting = _make_snarl("CradleSnarl")
 	var fig := _CRADLE_FIGURE.new() as Node3D
 	fig.name = "CradleFigure"
 	add_child(fig)
-	# ⭐ pass 5: the CRADLE, not a point. The figure takes the centre of the cradle's own geometry
-	# (every `_body()` prop in this level has its origin on the floor), so it rises out of the
-	# slats instead of out of the floor in front of them — capture #5, *"make this 3d jumpscare
-	# look more centralised to the middle of this object."*
-	fig.call("arm", p, _cradle, _cradle_sting)
+	# ⚠️ IT RISES, and it rises THROUGH the flames rather than beside them: the fire stands on
+	# the cradle's broken bed and the figure starts 0.80 m below the pose it ends in, which is
+	# the same bed. The end pose is pass 7's exactly — mask at the rim, nothing towering.
+	fig.call("arm_shadow", p, _cradle, SHADOW_RISE_FROM, SHADOW_RISE)
+	if _cradle_sting and is_instance_valid(_cradle_sting) and _cradle_sting.stream:
+		_cradle_sting.global_position = centre + Vector3(0, 0.9, 0)
+		_cradle_sting.play()
+	_dbg("VOID cradle fire — the face rises (%.2f m over %.2f s, snarl at %.1f dB)"
+		% [SHADOW_RISE_FROM, SHADOW_RISE, SNARL_DB])
 
 
-# ⭐ THE SHARED `jumpscare` ON MASTER (2026-09-20 pass 5, the user's ruling for both beats).
-# ⚠️ -10.3 dB IS MEASURED, not chosen. `cradle_sting` is -10.09 dBFS RMS and sat at -3.0 dB;
-# `jumpscare` is -2.83 dBFS RMS, i.e. 7.26 dB hotter, so -10.3 dB lands the shared file exactly
-# where pass 4 measured the old one (-13.1 dBFS at the source). Its peak is 0.00 dBFS, so at
-# -10.3 dB with the +3 dB max_db clamp the loudest sample sits 7.3 dB under the ceiling.
-# ⚠️ MASTER, not `AudioBuses.AMBIENCE`: `HoldBreath.dip()` ducks Ambience to -30 dB for the
-# cradle's beat, and a sting inside its own silence is the opposite of the effect.
-# `screamer.gd` routes its own the same way for the same reason.
-func _make_sting(nm: String) -> AudioStreamPlayer3D:
-	var s := GameState.load_audio("jumpscare")
+# ⭐ pass 8: this only STARTS the shared fade. The figure is visible by the fire's light and by
+# nothing else, so fading the fire IS fading the figure — they die together because they are
+# lit together, not because three tweens were synchronised.
+func _shadow_hide() -> void:
+	if _cradle_fire and is_instance_valid(_cradle_fire):
+		_cradle_fire.call("extinguish", SHADOW_FADE)
+
+
+# …and this is the end of that fade: everything the beat built leaves the world.
+func _shadow_gone() -> void:
+	if _cradle_fire and is_instance_valid(_cradle_fire):
+		_cradle_fire.queue_free()
+	_cradle_fire = null
+	_cradle_light = null
+	var fig := get_node_or_null("CradleFigure")
+	if fig and is_instance_valid(fig):
+		fig.call("dismiss")
+	_dbg("VOID cradle fire OUT — the fire, the light and the figure are gone")
+
+
+func _shadow_restore() -> void:
+	if not _shadow_dark_on:
+		return
+	_shadow_dark_on = false
+	for pair in _shadow_lamp_energy:
+		var l = pair[0]
+		if is_instance_valid(l):
+			(l as Light3D).light_energy = float(pair[1])
+	_shadow_lamp_energy = []
+	var p := _player()
+	if p and is_instance_valid(p):
+		p.call("restore_flashlight")
+	_hold_child_dark(false)
+	_dbg("VOID cradle shadow — the room and the torch come back")
+
+
+# ⚠️ THE AREA3D DOES THE COUNTER ARITHMETIC, NOT US, and that is measured rather than assumed.
+# `player.gd` tracks `_dark_zones` as a COUNT of overlapping zones, incremented from
+# `DarkZone._on_body_entered`; a beat that decremented it by hand and re-incremented afterwards
+# would leave it permanently wrong for any player who walked out of the room mid-beat. Measured
+# in Godot 4.6.3 with a throwaway probe: writing `monitoring = false` emits `body_exited` for
+# everything inside IN THE SAME FRAME, and writing it back to true emits `body_entered` for
+# whatever is inside THEN. So the zone corrects itself whichever side of the doorway the player
+# is standing on when the beat ends, and nothing here touches the counter.
+# ⚠️ EVERY DarkZone, not just the child room's, and that is measured rather than cautious. The
+# beat does not freeze input — the player can walk during the 6.2 s — and `DarkMorgue` is six
+# metres away through Hall3, which is two seconds at walking speed. Holding only the room the
+# beat happens in would charge 3/s to anyone who walked out of it while the LEVEL was holding
+# their torch off, which is Issue 18 with a longer fuse. The zones come back together.
+func _hold_child_dark(off: bool) -> void:
+	for c in get_children():
+		if c is DarkZone and is_instance_valid(c):
+			(c as Area3D).monitoring = not off
+
+
+# ⭐ THE SOUND WAS `apparition_snarl` (2026-09-22 pass 7) and is now the USER'S `void_fire_jumpscare`
+# (2026-09-23 — see `_make_snarl`); the pass-7 arithmetic below is kept as the record of how the
+# gain was first set. Not the shared `jumpscare`: capture 2's
+# complaint was sameness, and the corridor charge 40 m away keeps the jumpscare.
+# ⚠️ -8.6 dB IS ARITHMETIC, not a plausible number. Measured with ffmpeg volumedetect:
+# `apparition_snarl.ogg` is 6.26 s, mean -4.5 dBFS, peak 0.0. The sting it replaces was
+# `jumpscare.wav` (mean -2.8 dBFS) at -10.3 dB, i.e. -13.1 dBFS delivered at the source. To land
+# the snarl at the same delivered mean: -13.1 - (-4.5) = **-8.6 dB**. Its peak then sits at
+# -8.6 dBFS, and with the +3 dB `max_db` clamp at the 0.9 m the beat plays it from, the loudest
+# sample is -5.6 dBFS — under the ceiling.
+# ⚠️ MASTER, like every sting in this level: `HoldBreath.dip()` ducks Ambience, and a sting on
+# Ambience lands inside somebody else's silence. `screamer.gd` routes its own the same way.
+# ⚠️ Its body is the first ~3.5 s (per-second means -1.0 / -1.2 / -2.1 / -12.6 / -23.8 / -44.8),
+# which is the 0.5 s rise plus the 2.0 s hold plus the 0.3 s fade plus the 0.4 s tail almost
+# exactly; the tail rings out under the restored room rather than being cut off.
+#
+# ⭐ -8.6 -> -2.0 dB ON 2026-09-23 (pass 8), AND IT IS THE USER'S CALL, NOT THE BUILDER'S.
+# Capture #3 of the 23:10 run: *"the jumpscare itself should be louder"*. -2.0 is 6.6 dB hotter
+# than the delivered-level match pass 7 computed, and it is deliberately near the ceiling rather
+# than at it: `apparition_snarl.ogg` PEAKS at 0.0 dBFS, so at -2.0 dB the loudest sample sits at
+# -2.0 dBFS, and with `AudioStreamPlayer3D`'s +3 dB `max_db` clamp at the 0.9 m this is played
+# from it is the clamp, not the file, that is the last stop. There is no room above this: the
+# next step up is distortion.
+const SNARL_DB := -2.0
+
+
+# ⭐ 2026-09-23: the USER SUPPLIED the fire's sting — `void_fire_jumpscare.mp3` (10.1 s, mean -6.1 dBFS,
+# peak 0.0; it hits at -1..0 dBFS from its first frame and decays to silence over ten seconds), so it
+# starts the moment the face rises and its tail rings past the beat's end. SNARL_DB stays -2.0: the
+# file peaks at 0 dBFS, so that is the ceiling. `apparition_snarl` is no longer loaded here.
+func _make_snarl(nm: String) -> AudioStreamPlayer3D:
+	var s := GameState.load_audio("void_fire_jumpscare")
 	if s == null:
 		return null
 	var pl := AudioStreamPlayer3D.new()
 	pl.name = nm
 	pl.stream = s
-	pl.volume_db = -10.3
+	pl.volume_db = SNARL_DB
+	pl.unit_size = 4.0
+	add_child(pl)
+	return pl
+
+
+# ⚠️ SCREENSHOT / TEST HOOK, the pattern `void_exit_door.gd:snap_assembled()` set: a timed beat
+# is a RACE with a capture and the capture always loses — the frame worth reading is 1.0 s in,
+# and the screenshot tool captures 12 frames after it sets up. This drives the SAME two steps
+# the beat drives, in the same order, with the waits taken out, and then simply does not run
+# the rest. Nothing is faked.
+func snap_cradle_shadow() -> void:
+	_lunge_spent = true
+	_shadow_dark()
+	_shadow_show()
+
+
+# ⭐ pass 8. Two frames are worth reading in this beat and neither is reachable by waiting: the
+# FIRE at its peak (t ~2.5 s, before anything rises out of it) and the FACE in the flames (the
+# rise complete). Both drive the level's own `_shadow_dark()` / `_light_cradle_fire()` /
+# `_shadow_show()`; only the clock is taken out, by `advance_to()` on the fire and by driving the
+# figure's own rise to its end.
+func snap_cradle_fire(at_age: float) -> void:
+	_lunge_spent = true
+	_shadow_dark()
+	if _cradle_fire and is_instance_valid(_cradle_fire):
+		_cradle_fire.call("advance_to", at_age)
+
+
+func snap_cradle_face() -> void:
+	snap_cradle_fire(SHADOW_FIRE)
+	_shadow_show()
+	var fig := get_node_or_null("CradleFigure")
+	if fig and is_instance_valid(fig):
+		fig.call("_process", SHADOW_RISE)
+
+
+# ⭐ 2026-09-23: the USER SUPPLIED the corridor's sting — `void_corridor_jumpscare.wav` (2.17 s,
+# 24-bit stereo, mean -0.8 dBFS, peak 0.0, silent after 2 s). It replaces the shared `jumpscare`
+# (pass 5) on MASTER. ⚠️ CHARGE_STING_DB -12.3 IS MEASURED, not chosen: the shared file delivered
+# -13.1 dBFS at the source (-2.83 dBFS RMS at -10.3 dB), and the new file's mean is -0.8 dBFS, so
+# -12.3 dB lands it exactly there. Its peak is 0.0 dBFS: the gain cannot rise without clipping.
+# ⚠️ MASTER, not `AudioBuses.AMBIENCE`: `HoldBreath.dip()` ducks Ambience to -30 dB for the
+# cradle's beat, and a sting inside its own silence is the opposite of the effect.
+# `screamer.gd` routes its own the same way for the same reason.
+const CHARGE_STING_DB := -12.3
+
+
+func _make_sting(nm: String) -> AudioStreamPlayer3D:
+	var s := GameState.load_audio("void_corridor_jumpscare")
+	if s == null:
+		return null
+	var pl := AudioStreamPlayer3D.new()
+	pl.name = nm
+	pl.stream = s
+	pl.volume_db = CHARGE_STING_DB
 	pl.unit_size = 4.0
 	add_child(pl)
 	return pl
@@ -1517,8 +1924,72 @@ func _apply_drawing_plan() -> void:
 		art.set_surface_override_material(0, m)
 
 
-# ⭐ THE HALL OF FRAMES + the page at the end of it.
+# ⭐ THE CUT TO BLACK (2026-09-22 pass 6) — the recurring room's only transition.
+#
+# ⚠️ THE LEVEL OWNS IT, not `void_frame_hall.gd`, for two reasons: the panel is a CanvasLayer and
+# the hall is a Node3D full of geometry, and the player is the level's node. It is deliberately
+# NOT `Screamer.flash_scare()` (a fullscreen image and a scream) and NOT `HoldBreath` (a bus dip):
+# it is 0.3 s of literally nothing, which is the only medium in which "the room changed" can be
+# true and unwitnessed at the same time (Issue 241's real fix).
+#
+# `while_black` runs with the panel UP and the player frozen. That ordering is the whole point:
+# the caller's mutation is invisible by construction rather than by a line-of-sight test that a
+# five-frame room cannot satisfy.
+# ⚠️ PROCESS_MODE_ALWAYS on the layer, and the timer is created with `process_always` — a note or
+# the journal opening mid-cut would otherwise pause the tree and leave the screen black forever.
+# ⚠️ `_cut_depth` counts, so two overlapping cuts cannot leave the panel up (HoldBreath's
+# `_active` lesson, in the form a level can actually hit: the hall is re-entrant across an await).
+# ⚠️ ZERO PANIC, and `freeze_input()` is safe here because nothing in this level charges for
+# standing still — Issue 182's standstill term is Backrooms-only and opt-in.
+const CUT_LAYER := 80
+
+
+func _build_cut_layer() -> void:
+	_cut_layer = CanvasLayer.new()
+	_cut_layer.name = "VoidCutLayer"
+	_cut_layer.layer = CUT_LAYER
+	_cut_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(_cut_layer)
+	_cut_rect = ColorRect.new()
+	_cut_rect.name = "CutRect"
+	_cut_rect.color = Color(0, 0, 0, 1)
+	_cut_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_cut_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_cut_rect.visible = false
+	_cut_layer.add_child(_cut_rect)
+
+
+func cut_to_black(seconds: float, while_black: Callable = Callable()) -> void:
+	if _cut_rect == null or not is_instance_valid(_cut_rect):
+		if while_black.is_valid():
+			while_black.call()
+		return
+	_cut_depth += 1
+	_cut_rect.visible = true
+	var p := _player()
+	if p and is_instance_valid(p):
+		p.velocity = Vector3.ZERO
+		p.call("freeze_input")
+	if while_black.is_valid():
+		while_black.call()
+	await get_tree().create_timer(seconds, true, false, false).timeout
+	if not is_instance_valid(self):
+		return
+	_cut_depth = maxi(0, _cut_depth - 1)
+	if _cut_depth == 0 and is_instance_valid(_cut_rect):
+		_cut_rect.visible = false
+	var p2 := _player()
+	if p2 and is_instance_valid(p2):
+		p2.call("unfreeze_input")
+
+
+func cut_is_black() -> bool:
+	return _cut_rect != null and is_instance_valid(_cut_rect) and _cut_rect.visible
+
+
+# ⭐ THE RECURRING ROOM + the page at the end of it.
 func _build_frame_hall() -> void:
+	_build_cut_layer()
 	var note := _make_note("HiddenNote",
 		_builder.wall_point("FrameHall", Vector2(0, 1), 1.3, 0.16), PI,
 		"The pieces agree when you are not holding any of them.\n\nPut it back. Put all of it back.\n\nThen the stone will move.",
@@ -1601,9 +2072,14 @@ func _spawn_lights() -> void:
 		"PocketB": [Color(0.7, 0.6, 1.0), 0.2, 4.0],
 		"ChildRoom": [Color(1.0, 0.6, 0.6), 0.25, 5.0],
 		"Sanctum": [Color(0.75, 0.55, 1.0), 0.35, 7.0],
-		# ⭐ The secret room. Its energy is the Hall of Frames' only feedback channel — one step
-		# brighter per right answer, out for two seconds on a wrong one — so `void_frame_hall.gd`
-		# drives it from here on. 0.25 is the base it starts and restarts at.
+		# ⭐ The secret room's lamp, owned by `void_frame_hall.gd` from here on: this is only the
+		# state it is BUILT in and drops back to on a wrong door. ⚠️ The pass-4 comment that used
+		# to sit here ("one step brighter per right answer, out for two seconds on a wrong one")
+		# had been a fossil since pass 6 replaced that with a single 0.25 -> 0.12 drop, and the
+		# pass-7 ladder moves even that to stage 3 and adds two colour notches — the lamp is the
+		# one channel in this room the player's own torch drowns out ten to one (Issue 256), so
+		# it is deliberately NOT where the ladder is spent. See `void_frame_hall.gd`'s ladder
+		# header for the light-budget arithmetic.
 		"FrameHall": [Color(0.72, 0.58, 1.0), 0.25, 5.0],
 	}
 	for nm in palette:
@@ -1956,12 +2432,20 @@ func _tick_tile_watch() -> void:
 		d.set("watch_only", inside)
 
 
+# ⚠️ THE SHAKE AND THE RECURRING ROOM'S HELD ROLL ARE TWO OWNERS OF `camera.rotation.z`, and
+# this is where they are reconciled (2026-09-22 pass 7). The shake used to write an absolute sine
+# about ZERO and then simply stop writing when its 0.4 s ran out, which (a) wiped the room's roll
+# for the length of every shake and (b) left a residue of whatever the last sample happened to be
+# — measured at -0.0012 rad with no roll in play at all, and it is why the settle's "roll is
+# zeroed" assert went red the first time it was written. Both halves are fixed by making the
+# shake a DISPLACEMENT about `_camera_roll` and by restoring that base on the frame it ends.
 func _tick_shake(delta: float) -> void:
 	# Stable footing and camera during alignment and the abyss reveal.
 	var player := _player()
 	if player and _tile_rect.has_point(Vector2(player.global_position.x, player.global_position.z)):
-		_shake_duration = 0.0
-		player.get_node("Camera3D").rotation.z = 0.0
+		if _shake_duration > 0.0:
+			_shake_duration = 0.0
+			player.get_node("Camera3D").rotation.z = _camera_roll
 		return
 	if _shake_duration > 0.0:
 		_shake_duration -= delta
@@ -1969,7 +2453,11 @@ func _tick_shake(delta: float) -> void:
 		if p:
 			var cam: Camera3D = p.get_node_or_null("Camera3D")
 			if cam:
-				cam.rotation.z = sin(Time.get_ticks_msec() * 0.05) * _shake_strength * (_shake_duration / 0.4)
+				if _shake_duration <= 0.0:
+					cam.rotation.z = _camera_roll
+				else:
+					cam.rotation.z = _camera_roll + sin(Time.get_ticks_msec() * 0.05) \
+						* _shake_strength * (_shake_duration / 0.4)
 		return
 	_shake_timer -= delta
 	if _shake_timer <= 0.0:
@@ -2011,6 +2499,12 @@ func save_progress() -> Dictionary:
 		# never replays it. The corridor is walked several more times after it fires.
 		"corridor_charge_done": _charge_done,
 		"drawing_swapped": _drawing_swapped,
+		# ⭐ pass 6. `frame_stage` is how strange the room is; the hall stores the same number as
+		# its own `progress`, and `frames` carries the permutation with it because the level's
+		# attempt counter moves under a restart. `ward_box_open` is a state of the WORLD — a lid
+		# is up or it is not — so a restore opens it silently, with no tween and no grind.
+		"frame_stage": int(_frame_hall.call("progress")) if _frame_hall else 0,
+		"ward_box_open": _ward_box_open,
 		"frames": _frame_hall.call("save_state") if _frame_hall else {},
 		"hidden_note_read": _notes_read.has("HiddenNote")}
 
@@ -2039,6 +2533,11 @@ func _restore_progress() -> void:
 	_shard_taken = bool(data.get("shard_taken", false))
 	_cradle_done = bool(data.get("cradle_done", false))
 	_sync_shard()
+	# ⭐ pass 6: the lid is simply up, with no grind and no tween — a snapshot must never replay
+	# a one-shot beat (the Ward frame's rule).
+	_ward_box_open = bool(data.get("ward_box_open", false))
+	if _ward_box_open and _ward_box and is_instance_valid(_ward_box):
+		_ward_box.call("open", false)
 	if _cradle_done:
 		if _cradle and is_instance_valid(_cradle):
 			_cradle.call("restore_state", true)
@@ -2070,10 +2569,18 @@ func _restore_progress() -> void:
 		_free_anchor(String(id))
 	_alignment.call("restore_sockets", data.get("sockets_filled", []) as Array)
 	_carried_anchor = String(data.get("carried_anchor", ""))
-	for nm in (data.get("drawers_opened", []) as Array):
-		for d in _drawers:
-			if is_instance_valid(d) and String(d.name) == String(nm):
-				d.call("open_instantly")
+	# ⚠️ THE SNAPSHOT IS THE WHOLE SET, NOT A LIST OF THINGS TO DO (pass 8). Drawers close again
+	# since the 23:10 playtest, so "not in the list" means SHUT, and a restore that only opened
+	# the named ones would hand back `OPEN_DRAWER` standing out for a player who had pushed it
+	# in — `_wire_drawers()` pulls that one at build time, every time.
+	var open_set: Array = (data.get("drawers_opened", []) as Array)
+	for d in _drawers:
+		if not is_instance_valid(d):
+			continue
+		if open_set.has(String(d.name)):
+			d.call("open_instantly")
+		else:
+			d.call("close_instantly")
 	# ⚠️ reset_level_state() clears carried_item on every scene start, so walking back into the
 	# Void holding the shard or an anchor would silently drop it and dead-end the chain.
 	_update_carried()
@@ -2164,6 +2671,10 @@ func secret_bridge() -> Node:
 	return _secret_bridge if is_instance_valid(_secret_bridge) else null
 
 
+func ward_box() -> Node:
+	return _ward_box if is_instance_valid(_ward_box) else null
+
+
 func frame_hall() -> Node:
 	return _frame_hall if is_instance_valid(_frame_hall) else null
 
@@ -2216,3 +2727,57 @@ func step_bar_lean() -> float:
 		if is_instance_valid(bar):
 			out = maxf(out, (bar.rotation - (_step_bar_rest[i] as Vector3)).length())
 	return out
+
+
+# ⭐ THE ROOM'S HELD ROLL (pass 7), routed through the level so the ambient shake can see it.
+# ⚠️ `player.gd` is NOT touched: `_rotate_camera()` writes only `camera.rotation.x` (through
+# `_pitch`), so z belongs to this level — but it belongs to ALL of this level, which is the whole
+# reason this is a level method and not a line in `void_frame_hall.gd`.
+func set_camera_roll(v: float) -> void:
+	_camera_roll = v
+	var p := _player()
+	var cam: Camera3D = p.get_node_or_null("Camera3D") if p else null
+	if cam and _shake_duration <= 0.0:
+		cam.rotation.z = v
+
+
+func camera_roll_base() -> float:
+	return _camera_roll
+
+
+# ── test surface (pass 7: the cradle beat) ──────────────────────────────────────
+func cradle_light() -> OmniLight3D:
+	return _cradle_light if is_instance_valid(_cradle_light) else null
+
+
+func cradle_light_on() -> bool:
+	return is_instance_valid(_cradle_light) and _cradle_light.visible \
+		and _cradle_light.light_energy > 0.0
+
+
+func shadow_dark() -> bool:
+	return _shadow_dark_on
+
+
+func child_room_lights() -> Array:
+	return _child_room_lights()
+
+
+# ⚠️ The ZONE's own state, not the player's counter: the claim being proved is that the level
+# held the zone off, and `player.gd:_dark_zones` is the thing that must be seen to come back.
+func child_dark_zone_live() -> bool:
+	var z := get_node_or_null("DarkChildRoom") as Area3D
+	return z != null and z.monitoring
+
+
+# …and every one of them, so a guard can prove the beat did not leave a zone switched off.
+func dark_zones_live() -> int:
+	var n := 0
+	for c in get_children():
+		if c is DarkZone and (c as Area3D).monitoring:
+			n += 1
+	return n
+
+
+func cradle_bbox() -> AABB:
+	return _cradle_bbox()

@@ -242,23 +242,41 @@ def make_frame_settle():
     return out
 
 
-def make_shard_clatter():
-    """0.5 s one-shot: a stone shard dropping into a stone basin — two hard clicks a few ms apart
-    (the corner, then the flat), a short bright rattle, and a dull settle. The Archive table's
-    wedged shard coming loose behind your back (pass 5's receipt)."""
-    rng = random.Random(4718)
-    n = int(SR * 0.5)
+def make_room_hum():
+    """4.0 s LOOP: the recurring room's stage-1 hum — a 47 Hz fundamental with a detuned 49 Hz partner
+    (a 2 Hz beat), a faint 141 Hz third, and low-passed air. Loops seamlessly: every partial is an
+    integer number of cycles in 4.0 s, and the noise is circular."""
+    rng = random.Random(4719)
+    n = int(SR * 4.0)
     out = []
-    lp = OnePole(2600.0)
+    air = circular_noise(n, 180.0, rng)
     for i in range(n):
         t = i / float(SR)
-        click = 0.0
-        for t0, amp in ((0.0, 1.0), (0.055, 0.7), (0.13, 0.45), (0.19, 0.3)):
-            if t >= t0:
-                click += amp * math.sin(2 * math.pi * 1900.0 * (t - t0)) * math.exp(-(t - t0) * 260.0)
-        rattle = lp.tick(rng.uniform(-1.0, 1.0)) * 0.35 * math.exp(-t * 14.0) * (1.0 if t > 0.02 else 0.0)
-        settle = math.sin(2 * math.pi * 130.0 * t) * 0.25 * math.exp(-max(0.0, t - 0.2) * 18.0) * (1.0 if t >= 0.2 else 0.0)
-        out.append(click * 0.8 + rattle + settle)
+        hum = (math.sin(2 * math.pi * 47.0 * t) * 0.55
+               + math.sin(2 * math.pi * 49.0 * t) * 0.40
+               + math.sin(2 * math.pi * 141.0 * t) * 0.12)
+        out.append(hum + air[i] * 0.25)
+    return out
+
+
+def make_cradle_fire():
+    """3.5 s LOOP: fire in a stone cradle — a low-passed roar (circular noise at 900 Hz with a slow
+    2.3 Hz breathing) and sparse dry crackles (short bright clicks at random beats). Loops seamlessly:
+    the noise is circular and the crackle schedule wraps."""
+    rng = random.Random(4721)
+    n = int(SR * 3.5)
+    roar = circular_noise(n, 900.0, rng)
+    clicks = sorted(rng.uniform(0.0, 3.5) for _ in range(38))
+    out = []
+    for i in range(n):
+        t = i / float(SR)
+        breath = 0.7 + 0.3 * math.sin(2 * math.pi * 2.3 * t)
+        v = roar[i] * 0.55 * breath
+        for c in clicks:
+            dt = t - c
+            if 0.0 <= dt < 0.03:
+                v += math.sin(2 * math.pi * 3400.0 * dt) * math.exp(-dt * 220.0) * 0.5
+        out.append(v)
     return out
 
 
@@ -274,7 +292,8 @@ def main():
     write_wav("cradle_sting", make_cradle_sting())
     write_wav("frame_tone", make_frame_tone())
     write_wav("frame_settle", make_frame_settle())
-    write_wav("shard_clatter", make_shard_clatter())
+    write_wav("room_hum", make_room_hum())
+    write_wav("cradle_fire", make_cradle_fire())
 
 
 if __name__ == "__main__":

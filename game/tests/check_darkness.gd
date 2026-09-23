@@ -318,6 +318,13 @@ func _check_torch() -> void:
 		# ⭐ CONTROL FIRST. "F does nothing" is trivially true if F never reaches the handler at
 		# all (a frozen player, an open NoteUI, a renamed action). Prove F works before proving
 		# the kill defeats it.
+		# ⚠️ THIS RUNS IN THE LAST SCENE OF THE SWEEP, THE BREACH, WHERE THE TORCH IS LOCKED AT LOAD
+		# (the missing-flashlight search, since 2026-09-21). F correctly does nothing to a LOCKED
+		# torch, so the control went red for a reason that had nothing to do with the kill. A
+		# healthy torch is the premise here: unlock it through the player's own API, exactly as the
+		# Breach does on recovery, rather than picking a scene that happens not to lock it.
+		if bool(pl.get("_flashlight_locked")):
+			pl.call("unlock_flashlight")
 		var before: bool = bool(pl.call("is_flashlight_on"))
 		pl.call("_unhandled_input", f)
 		_ok("CONTROL — F toggles a healthy torch",

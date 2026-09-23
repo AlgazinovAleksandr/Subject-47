@@ -1,0 +1,25 @@
+Level 6 approach, pass 3 (2026-09-23) — flux-1-schnell raws (Cloudflare, level-3-image-generator, --steps 8).
+Keyed and graded by tools/make_breach_pass3_art.py. USED marks the raw that ships.
+
+technician_open_raw_a/b.jpg — rejected (alive-looking, too clean)
+technician_open_raw_c..f.jpg — "Horror film still: the lifeless corpse of a factory technician sitting on the floor
+  propped against a wall, head resting back against the wall and tilted to one side, glassy dead eyes wide open, grey
+  waxy skin, face smeared with dark dried blood, dark navy work overalls soaked black-red with blood, arms limp, hands
+  open in his lap, legs out straight, full body front view, isolated on a plain white background, cold flash lighting,
+  photorealistic"
+  USED: technician_open_raw_d.jpg -> approach_technician_open.png, and (lids painted over the two eye regions only)
+  approach_technician_closed.png. technician_pair_faces_check.png is the 4x face comparison.
+
+body_facedown_raw_a..c.jpg — "Top-down overhead photograph looking straight down at the corpse of a laboratory worker in
+  dark green scrubs lying face down on the floor, arms splayed out, scrubs torn and soaked with dark blood, a dark red
+  blood pool spreading from under the torso, isolated on a plain pure white background, flat harsh flash lighting,
+  photorealistic horror film still"
+  USED: body_facedown_raw_a.jpg -> approach_body_facedown.png
+
+body_slumped_raw_a..c.jpg — rejected (bodies lying, not slumped; faces visible and calm)
+
+body_side_raw_a..c.jpg — "Top-down overhead photograph looking straight down at the corpse of a security guard in a black
+  uniform lying curled on his side on the floor, face turned away and hidden, one arm stretched out, the uniform torn
+  open and soaked with dark dried blood, a dark maroon blood smear beneath him, isolated on a plain pure white
+  background, flat harsh flash lighting, photorealistic horror film still"
+  USED: body_side_raw_b.jpg -> approach_body_guard.png (flux drew three boots; the middle one is erased)

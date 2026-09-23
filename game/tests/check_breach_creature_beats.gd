@@ -153,6 +153,8 @@ func _process(delta: float) -> bool:
 		return false
 	if _level == null:
 		_level = current_scene
+		preload("res://tests/lib/breach_hunt_fixture.gd").enter(_level)
+		_clock = 0.0
 		_player = _level.get_node_or_null("Player") as CharacterBody3D
 		# Weapon geometry is tested after acquisition; the pickup has its own live test.
 		_level.call("_recover_flashlight", false)

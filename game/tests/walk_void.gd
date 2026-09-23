@@ -60,9 +60,9 @@ var _steps: Array = [
 	# signalled: the arming and the reveal are the prop's own `arm_on_sight` beat.
 	{"walk": Vector3(-2.0, 0, 17.4)}, {"walk": Vector3(-2.6, 0, 19.2)},
 	{"walk": Vector3(-3.3, 0, 20.3), "exact": true},
-	{"check": "shard_hidden"},
+	{"check": "shard_offered"},
 	{"walk": Vector3(-1.4, 0, 18.8), "exact": true},
-	{"check": "shard_revealed"},
+	{"check": "table_rearranged"},
 	{"walk": Vector3(-3.4, 0, 20.9), "exact": true},
 	{"take": "SlabShard"},
 	{"walk": Vector3(-2.0, 0, 18.6)}, {"walk": Vector3(-1.2, 0, 16.8)},
@@ -129,10 +129,22 @@ var _steps: Array = [
 	# grazes its corner — the walker wedged there and stalled three legs in a row.
 	{"walk": Vector3(6.4, 0, 15.5)}, {"walk": Vector3(4.6, 0, 15.5)},
 	{"walk": Vector3(3.4, 0, 17.0)}, {"walk": Vector3(0.4, 0, 17.0)},
+	# ⭐ GURNEY -> BOX -> SLAT (2026-09-22 pass 6). The bed slat is sealed inside the Ward box
+	# now, and the gurney 1.2 m south of it is the button that grinds the lid back. The route
+	# walks the CAUSE before the effect and checks the refusal in between.
 	{"walk": Vector3(0.0, 0, 12.4)},
-	{"walk": Vector3(-2.5, 0, 12.5), "exact": true},
+	{"walk": Vector3(-2.6, 0, 12.2), "exact": true},
+	{"check": "box_sealed"},
+	{"touch": "WardFragment"},
+	{"check": "box_opened"},
+	# ⚠️ ROUND THE BOX, not over it: it is 0.72 m of solid and the player cannot step up it.
+	# And the slat is approached from the NORTH, because a ray from the south to z 14.56 passes
+	# through the gurney's own touch volume (y 1.25..1.85 over z 13.08..13.53) and the E-ray
+	# takes the nearest hit — the pass-5 softlock, from the other side.
+	{"walk": Vector3(-0.8, 0, 13.2)}, {"walk": Vector3(-0.8, 0, 16.2)},
+	{"walk": Vector3(-2.6, 0, 15.9), "exact": true},
 	{"take_anchor": "slat"},
-	{"walk": Vector3(0.0, 0, 12.6)}, {"walk": Vector3(0.4, 0, 17.0)},
+	{"walk": Vector3(-0.8, 0, 16.2)}, {"walk": Vector3(0.4, 0, 17.0)},
 	{"walk": Vector3(3.4, 0, 17.35)}, {"walk": Vector3(5.0, 0, 15.5)},
 	# ⚠️ THROUGH the LoopIn doorway (11, 15.5) before turning north: the corridor's west wall
 	# runs from x = 11, so a diagonal from inside LoopIn straight to (12.5, 20) walks into it.
@@ -148,7 +160,12 @@ var _steps: Array = [
 	# ⚠️ The turn stops at z ~42.2 and creature C is at z 37 by now (it creeps 2 m per lap and the
 	# route walks two): 5 m of air, and C is held off for the beat by the level itself.
 	{"check": "charge_not_on_the_way_in"},
-	{"walk": Vector3(12.5, 0, 41.0)},
+	# ⭐ pass 6: the trigger is at z 25..27 now, 60 % of the way back down a corridor that runs
+	# z 44 -> 14 (capture #3). The walker has just come all the way up it northbound through the
+	# volume, which is the control; this is the turn.
+	# ⚠️ WALK PAST IT, not to it. The trigger is z 25..27 and the poll needs the player INSIDE it
+	# with a southbound velocity: a leg that ENDS at z 26 arrives with vz 0 and arms nothing.
+	{"walk": Vector3(12.5, 0, 23.5)},
 	{"check": "corridor_charge"},
 	{"walk": Vector3(12.5, 0, 43.4)},
 	{"walk": Vector3(12.5, 0, 45.6)}, {"walk": Vector3(11.0, 0, 46.7)},
@@ -263,12 +280,16 @@ var _step_ticks := 0
 var _step_yaw := 0.0
 var _drawer_i := 0
 var _drawers_opened := 0
+var _drawer_shut_done := false
+var _drawer_shut_wait := 0
 var _pages_found := 0
 var _frame_leg := -1
 var _frame_ticks := 0
 var _frame_target := -1
 var _frame_settle := -1
 var _frame_wrong_done := false
+var _frame_back := Vector3.ZERO
+var _frame_settled_at := 0
 
 
 func _ok(label: String, cond: bool, detail: String = "") -> void:
@@ -385,6 +406,10 @@ func _process(_delta: float) -> bool:
 		_take_anchor(String(st["take_anchor"]))
 		_step += 1
 		return false
+	if st.has("touch"):
+		_touch(String(st["touch"]))
+		_step += 1
+		return false
 	if st.has("place_anchor"):
 		_place_anchor(int(st["place_anchor"]))
 		_step += 1
@@ -471,6 +496,28 @@ func _process(_delta: float) -> bool:
 # has WALKED here can see the thing and get a prompt — Issue 30's lesson, and Issue 226's: a
 # socket's prompt is gated to 1.5 m of its own tile, so arriving 0.9 m out is arriving somewhere
 # the puzzle is deliberately not offered.
+# ⭐ pass 6: press E on a named prop through the SHIPPING ray, from wherever the walk has put
+# the player. Never `node.interact()` — the question is always whether a player who has walked
+# here can see the thing and get a prompt (Issue 30).
+func _touch(nm: String) -> void:
+	var p: CharacterBody3D = _auto.player
+	var node := _level.get_node_or_null(nm) as Node3D
+	if node == null:
+		_ok("%s is in the world" % nm, false)
+		return
+	_auto.stop()
+	p.velocity = Vector3.ZERO
+	p.call("ai_look_at", node.global_position)
+	var cam := p.get_node_or_null("Camera3D") as Camera3D
+	if cam:
+		cam.force_update_transform()
+	var t: Node = p.call("ai_interact_target")
+	_ok("the ray finds %s from the walked approach" % nm,
+		t == node or (t != null and node.is_ancestor_of(t)),
+		"from %v, ray hit %s" % [p.global_position, t.name if t else "nothing"])
+	p.call("ai_interact")
+
+
 func _take_anchor(id: String) -> void:
 	var p: CharacterBody3D = _auto.player
 	var node := _level.get_node_or_null("Anchor_" + id) as Node3D
@@ -546,8 +593,53 @@ func _step_through(ticks: int) -> bool:
 
 # ⭐ SEARCH. Pull fronts through the real ray until the page turns up; assert that exactly one
 # of the seventeen held anything, and read the page where it lies.
+# ⭐ pass 8: THE ONE THAT STARTS PULLED IS PUSHED BACK IN FIRST, THROUGH THE RAY — and that is
+# a finding, not tidiness. Since drawers close again their interact volume no longer vanishes
+# when they open; it shrinks to the handle band, which stands 0.52 m proud of the carcass on a
+# pulled front. From the stance this sweep uses (1.0 m out, eye 1.65 m) the ray to the drawer
+# DIRECTLY BELOW a pulled one passes through y 0.71..0.91 exactly where that band is, and hits
+# the pulled drawer instead — measured: "drawer Drawer2_0 is reachable — ray hit Drawer2_1".
+# ⚠️ THAT IS THE WORLD BEING HONEST, NOT A BUG: a drawer hanging 0.35 m out of a cabinet really
+# is in front of the one under it, and the player now has the verb to deal with it. So the
+# harness deals with it the way a player would — it closes the drawer — instead of aiming round
+# the obstruction, which would have tested a stance no player has to find.
+func _close_open_drawer() -> bool:
+	var p: CharacterBody3D = _auto.player
+	if _drawer_shut_wait > 0:
+		_drawer_shut_wait -= 1
+		return _drawer_shut_wait <= 0
+	var open_one: Node3D = null
+	for d in (_level.call("drawers") as Array):
+		if bool(d.call("is_open")):
+			open_one = d as Node3D
+			break
+	if open_one == null:
+		return true
+	var aim: Vector3 = open_one.to_global(Vector3(0, -0.17, 0.12))
+	var stand: Vector3 = aim + open_one.global_transform.basis.z * 1.0
+	p.global_position = Vector3(stand.x, 0.1, stand.z)
+	p.velocity = Vector3.ZERO
+	p.force_update_transform()
+	p.call("ai_look_at", aim)
+	p.get_node("Camera3D").force_update_transform()
+	var t: Node = p.call("ai_interact_target")
+	_ok("the drawer that starts pulled offers its handle to the ray (%s)" % open_one.name,
+		t == open_one, "ray hit %s" % (t.name if t else "nothing"))
+	_ok("…and its prompt is the CLOSE", String(open_one.call("prompt_text"))
+		== "E — Close the drawer.", "'%s'" % open_one.call("prompt_text"))
+	p.call("ai_interact")
+	_ok("…and E pushes it back in", not bool(open_one.call("is_open")))
+	_drawer_shut_wait = 20        # the 0.25 s slide, before anything is aimed past it
+	return false
+
+
 func _pull_drawers() -> bool:
 	var p: CharacterBody3D = _auto.player
+	if not _drawer_shut_done:
+		if not _close_open_drawer():
+			return false
+		_drawer_shut_done = true
+		return false
 	var drawers: Array = _level.call("drawers")
 	if _drawer_i >= drawers.size():
 		_ok("every drawer opened through the ray", _drawers_opened == drawers.size(),
@@ -557,9 +649,9 @@ func _pull_drawers() -> bool:
 		return true
 	var d: Node3D = drawers[_drawer_i]
 	_drawer_i += 1
-	# ⚠️ ONE OF THE SEVENTEEN IS ALREADY OUT (pass 4), and an open drawer has nothing to offer:
-	# `can_interact()` is false and `_retire()` has taken its box out of the ray's way, which is
-	# Issue 231's fix. Counting it as "unreachable" would be counting the fix as the bug.
+	# ⚠️ Since pass 8 nothing should still be open at this point — `_close_open_drawer()` has
+	# pushed the bank's one pre-pulled front back in through the real ray. This arm stays as a
+	# guard rather than as a path: if a drawer IS open here the sweep would silently skip it.
 	if bool(d.call("is_open")):
 		_drawers_opened += 1
 		_ok("drawer %s was already pulled at load (the bank's visible moving part)" % d.name, true)
@@ -714,50 +806,54 @@ func _check(what: String) -> void:
 			_press_keystone("", 0, "door / island", true)
 		"solve_window":
 			_press_keystone("KeystoneWindow", 2, "window / south branch", true)
-		"shard_hidden":
-			# ⭐ 2026-09-20 pass 5 (Issue 243). The shard used to be INVISIBLE and collider-less
-			# until the table re-posed itself, and two captures of the 23:33 run called that a
-			# bug ("*this shard did not appear immediately*"). It is now in the world from frame
-			# 0, WEDGED, and it refuses — the look-away frees it instead of spawning it.
-			# ⚠️ THE INVARIANT, NOT THE MOMENT. In the LIVE run the walker keeps its eyes on
-			# whichever creature is nearest, so the table can arm and re-pose several legs
-			# earlier than this step — asserting "it is still wedged HERE" made walk_void_live
-			# fail on a run where everything worked. What is true in both runs is that the shard
-			# is FREE exactly when the table has moved.
+		"shard_offered":
+			# ⭐ 2026-09-22 pass 6 (capture #4). Pass 3 made the shard invisible until the table
+			# re-posed itself; pass 5 made it visible but WEDGED, refusing until the same
+			# look-away. Both read as a bug — *"when I entered the room for the first time — I
+			# could not take the shard … Should not be that way."* It is simply takeable now,
+			# and the table's rearrangement survives as a scare that gates nothing.
 			var sh = _level.call("shard")
-			var tbl := _level.get_node_or_null("InvertedTable_Archive")
+			p.call("ai_look_at", sh.global_position)
+			p.get_node("Camera3D").force_update_transform()
+			var t0: Node = p.call("ai_interact_target")
 			_ok("the shard is in the world from the start, and visible",
 				sh != null and sh.visible, str(sh.global_position) if sh else "missing")
-			_ok("…and it is free exactly when the table has re-posed",
-				sh != null and tbl != null and bool(sh.call("is_freed")) == bool(tbl.get("spent")),
-				"freed %s, table spent %s" % [sh.call("is_freed") if sh else "-",
-					tbl.get("spent") if tbl else "-"])
-			if tbl != null and not bool(tbl.get("spent")):
-				# CONTROL: the ray FINDS it from the doorway side — that is the whole point of
-				# the change — and E on it is refused.
-				p.call("ai_look_at", sh.global_position)
-				p.get_node("Camera3D").force_update_transform()
-				var t0: Node = p.call("ai_interact_target")
-				_ok("CONTROL: the wedged shard is reachable by the ray and says so",
-					t0 == sh and String(sh.call("prompt_text")) == "It is wedged fast.",
-					"ray hit %s, prompt '%s'" % [t0.name if t0 else "nothing",
-						sh.call("prompt_text")])
-				p.call("ai_interact")
-				_ok("CONTROL: …and E on it takes nothing",
-					not bool(sh.call("is_freed")) and not bool(_level.call("has_shard")))
-			else:
-				print("  NOTE  the table had already re-posed by this leg (live steering) —"
-					+ " the wedged-shard ray control runs in the geometry walk")
-		"shard_revealed":
+			_ok("…and the walked approach's ray finds it and it offers E",
+				t0 == sh and String(sh.call("prompt_text")) == "E — Take the shard.",
+				"ray hit %s, prompt '%s'" % [t0.name if t0 else "nothing",
+					sh.call("prompt_text")])
+		"table_rearranged":
 			var table := _level.get_node_or_null("InvertedTable_Archive")
 			var sh2 = _level.call("shard")
 			_ok("looking away re-posed the table", table != null and bool(table.get("spent")))
 			_ok("…and it is the prop's own off-screen beat that did it, not a call",
 				table != null and not bool(table.get("armed")))
-			_ok("…and that is what shook the shard down into the basin",
-				sh2 != null and bool(sh2.call("is_freed")) and sh2.visible
+			# ⚠️ AND IT GATES NOTHING NOW. The shard is where it was; the scare is the whole
+			# payload (pass 6).
+			_ok("…and the shard is exactly where it was: the beat gates nothing",
+				sh2 != null and sh2.visible
 				and sh2.global_position.distance_to(Vector3(-3.4, 0.42, 22.0)) < 0.05,
 				str(sh2.global_position) if sh2 else "missing")
+		"box_sealed":
+			# ⭐ THE WARD BOX (pass 6, captures #1 and #2). The slat is inside it; the lid is a
+			# real collider AND the slat refuses by name, because a blocker guards one viewing
+			# angle and a refusal on the target guards all of them (Issue 242).
+			var bx = _level.call("ward_box")
+			var sl := _level.get_node_or_null("Anchor_slat") as Node3D
+			_ok("the Ward box is sealed when the walker reaches it",
+				bx != null and not bool(bx.call("is_open")))
+			_ok("…and the bed slat inside it refuses by name",
+				sl != null and bool(sl.call("is_sealed"))
+				and String(sl.call("prompt_text")) == "The box is sealed.",
+				"'%s'" % (sl.call("prompt_text") if sl else ""))
+		"box_opened":
+			var bx2 = _level.call("ward_box")
+			var sl2 := _level.get_node_or_null("Anchor_slat") as Node3D
+			_ok("touching the gurney opens the box, in view across the room",
+				bx2 != null and bool(bx2.call("is_open"))
+				and bool(_level.call("ward_box_open")))
+			_ok("…and the slat stops refusing",
+				sl2 != null and not bool(sl2.call("is_sealed")))
 		"socket_refuses_empty":
 			# The sockets start EMPTY: three identical diamonds standing at the tiles is what
 			# the 15:00 playtest solved in 8.7 s.
@@ -939,14 +1035,14 @@ func _report() -> bool:
 	return true
 
 
-# ⭐ THE HALL OF FRAMES, walked (2026-09-20 pass 4).
+# ⭐ THE RECURRING ROOM, WALKED (2026-09-22 pass 6).
 #
-# The route steps through all five in the answer order — with ONE DELIBERATE WRONG STEP first, so
-# the slam, the dead lamp and the off-screen re-scramble are on the walked path and not only in
-# `check_void_frames.gd`. Every entry is on foot: the player is put down at the frame's own
-# drop-out point, a metre out on the floor, and WALKS the last metre under `ai_move_dir` with the
-# real body. ⚠️ Never `_step()` or `apply_scramble()` — the whole question is whether the 1.2 s
-# dwell fires for someone who walked here.
+# The route walks all five doors in the answer order — with ONE DELIBERATE WRONG DOOR first, so
+# the slam, the cut, the reset and the reshuffle are on the walked path and not only in
+# `check_void_frames.gd`. Every step is a real crossing: the player is put down 1.0 m in FRONT
+# of the frame and walks THROUGH it with the real body. ⚠️ Never `_step()` or `apply_scramble()`
+# — the whole question is whether walking through a doorway registers for someone who walked
+# here, which is exactly what the 23:47 playtester could not make happen.
 const FRAME_LEG_TICKS := 900
 
 
@@ -954,20 +1050,59 @@ func _solve_frames(ticks: int) -> bool:
 	var p: CharacterBody3D = _auto.player
 	var hall: Node = _level.call("frame_hall")
 	if hall == null:
-		_ok("the Hall of Frames exists", false)
+		_ok("the recurring room exists", false)
 		return true
 	var answer: Array = hall.call("answer_order")
-	var progress: int = int(hall.call("progress"))
+	var stage: int = int(hall.call("stage"))
 	if _frame_leg < 0:
 		_frame_leg = 0
 		_frame_ticks = 0
 		_auto.stop()
 		p.velocity = Vector3.ZERO
-		_ok("the frames start scrambled and unsolved",
-			not bool(hall.call("is_solved")) and progress == 0,
+		_ok("the room starts scrambled, at stage 0",
+			not bool(hall.call("is_solved")) and stage == 0,
 			"order %s" % str(hall.call("frame_ids")))
-	# Which frame are we aiming at? One wrong step first, then the answer order.
-	var want: String = String(answer[mini(progress, answer.size() - 1)])
+	# ⚠️ NOTHING STARTS WHILE THE CUT IS RUNNING. The stage advances INSIDE the 0.3 s black, and
+	# the coroutine disarms every threshold when it resumes (it has just teleported the player to
+	# the entrance) — so a harness that re-places the player the instant the stage changes loses
+	# the next crossing. A real player is frozen for the whole cut and cannot reproduce it.
+	if bool(hall.call("is_stepping")):
+		p.set("ai_move_dir", Vector2.ZERO)
+		p.velocity = Vector3.ZERO
+		_frame_target = -1
+		_frame_settled_at = 0
+		return false
+	# ⚠️ THE ARRIVAL IS MEASURED BEFORE ANYTHING IS RE-PLACED, and one beat AFTER the cut ends.
+	# Two separate mistakes the first draft made together: the re-aim block below teleports the
+	# player to the next door's front stance, so asserting "they are at the entrance" after it
+	# measures the harness; and the figure at arm's length is placed on the FADE-IN, by the
+	# coroutine, after this SceneTree `_process` has already run for that frame — so the room's
+	# own one-frame counter still reads 0 here. Both are fixed by waiting one frame and looking
+	# before touching.
+	if not _frame_wrong_done and int(hall.call("wrong_count")) > 0:
+		_frame_settled_at += ticks
+		if _frame_settled_at < 3:
+			p.set("ai_move_dir", Vector2.ZERO)
+			p.velocity = Vector3.ZERO
+			return false
+		_frame_wrong_done = true
+		_frame_target = -1
+		_frame_settled_at = 0
+		var fr: Rect2 = _level.call("_room_rect", "FrameHall")
+		_ok("walking through a WRONG door cuts to black and leaves the player inside the room",
+			fr.has_point(Vector2(p.global_position.x, p.global_position.z)),
+			"at %v" % p.global_position)
+		_ok("…at the room's own entrance",
+			p.global_position.distance_to(hall.call("entrance_point")) < 0.4,
+			"at %v" % p.global_position)
+		_ok("…and it resets the answer to the beginning", int(hall.call("stage")) == 0)
+		_ok("…and stands a figure at arm's length for exactly one frame",
+			hall.call("watcher") != null and int(hall.call("watcher_frames")) == 1,
+			"%d frames" % int(hall.call("watcher_frames")))
+		_frame_ticks = 0
+		return false
+	# Which frame are we aiming at? One wrong door first, then the answer order.
+	var want: String = String(answer[mini(stage, answer.size() - 1)])
 	if not _frame_wrong_done:
 		want = String(answer[2])
 	var slot: int = int(hall.call("slot_of", want))
@@ -977,49 +1112,23 @@ func _solve_frames(ticks: int) -> bool:
 		p.global_position = hall.call("front_point", slot)
 		p.velocity = Vector3.ZERO
 		p.force_update_transform()
-	var aim: Vector3 = hall.call("dwell_point", slot)
-	p.call("ai_look_at", aim + Vector3(0, 1.2, 0))
-	var dir: Vector3 = aim - p.global_position
+		_frame_back = hall.call("back_point", slot)
+		p.call("ai_look_at", _frame_back + Vector3(0, 1.2, 0))
+	var dir: Vector3 = _frame_back - p.global_position
 	dir.y = 0.0
-	if dir.length() > 0.2:
+	if dir.length() > 0.15:
 		var local := p.global_basis.inverse() * dir.normalized()
 		p.set("ai_move_dir", Vector2(local.x, local.z))
 	else:
 		p.set("ai_move_dir", Vector2.ZERO)
 	_frame_ticks += ticks
-	# Wrong step landed?
-	if not _frame_wrong_done and int(hall.call("wrong_count")) > 0:
-		_frame_wrong_done = true
-		_frame_target = -1
-		var fr: Rect2 = _level.call("_room_rect", "FrameHall")
-		_ok("a wrong step drops the player back out, on the floor and inside the room",
-			fr.has_point(Vector2(p.global_position.x, p.global_position.z)),
-			"at %v" % p.global_position)
-		_ok("…and it does not advance the answer", int(hall.call("progress")) == 0)
-		_ok("…and it marks the frames to re-scramble behind the player's back",
-			bool(hall.call("rescramble_pending")))
-		# Face the doorway and wait for the prop's own off-screen beat.
-		p.call("ai_look_at", Vector3(-19.0, 1.2, 47.5))
-		p.set("ai_move_dir", Vector2.ZERO)
-		_frame_ticks = 0
-		return false
-	if _frame_wrong_done and bool(hall.call("rescramble_pending")):
-		# still re-scrambling: keep looking away
-		p.call("ai_look_at", Vector3(-19.0, 1.2, 47.5))
-		p.set("ai_move_dir", Vector2.ZERO)
-		_frame_target = -1
-		if _frame_ticks > FRAME_LEG_TICKS:
-			_ok("the frames re-scrambled once the player looked away", false,
-				"still pending after %d ticks" % _frame_ticks)
-			return true
-		return false
-	if int(hall.call("progress")) > _frame_leg:
-		_frame_leg = int(hall.call("progress"))
+	if stage > _frame_leg:
+		_frame_leg = stage
 		_frame_target = -1
 		_frame_ticks = 0
 		var fr2: Rect2 = _level.call("_room_rect", "FrameHall")
 		if not fr2.has_point(Vector2(p.global_position.x, p.global_position.z)):
-			_ok("right step %d left the player inside the room" % _frame_leg, false,
+			_ok("right door %d left the player inside the room" % _frame_leg, false,
 				"at %v" % p.global_position)
 	if bool(hall.call("is_solved")):
 		if _frame_settle < 0:
@@ -1029,17 +1138,15 @@ func _solve_frames(ticks: int) -> bool:
 		if _frame_settle < 200:
 			return false
 		var note := _level.get_node_or_null("HiddenNote")
-		_ok("stepping through all five in the order they were met solves it",
-			int(hall.call("progress")) == 5)
+		_ok("walking all five in the order they were met solves it", int(hall.call("stage")) == 5)
 		_ok("…the five line up into a corridor at x -24",
 			absf((hall.call("unit", 0) as Node3D).global_position.x + 24.0) < 0.05)
-		_ok("…and the page at its end is in the world, through the wrong step and back",
+		_ok("…and the page at its end is in the world, through the wrong door and back",
 			note != null and bool(note.call("is_revealed")))
 		_auto.reset_stuck()
 		return true
 	if _frame_ticks > FRAME_LEG_TICKS:
-		_ok("the dwell at slot %d fired inside its budget" % slot, false,
-			"%d ticks, dwell %.2f s, at %v"
-				% [_frame_ticks, float(hall.call("dwell_seconds")), p.global_position])
+		_ok("the crossing at slot %d fired inside its budget" % slot, false,
+			"%d ticks, at %v" % [_frame_ticks, p.global_position])
 		return true
 	return false

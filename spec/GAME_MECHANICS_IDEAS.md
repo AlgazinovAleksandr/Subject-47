@@ -388,6 +388,19 @@ an observer who lies about *mechanics* is §8.6.
 [Analog horror](https://en.wikipedia.org/wiki/Analog_horror)
 **Cost:** S. **Panic:** none.
 
+**Build status (2026-09-23): 🟡 PARTIAL. The Breach half is BUILT.**
+- **What is built.** The Breach approach plays three authored lines (`approach_pa_1..3`, from
+  `tools/make_breach_pa.py`), degrading line by line: a clean status report, a glitching count, and a
+  line cut off mid-word.
+- **How.** It is KONTUR's announcer chain (the same "Daniel" voice), so the Breach is the same building
+  still talking. Lines play once, positional triggers along the route, non-positional on Master at
+  `kontur.gd`'s −5 dB (`spec/levels/06-breach.md`).
+- **Where that leaves N4.** Counting KONTUR's four rotating lines (`make_kontur_voice.py`) and the Lab's
+  `pa_trial4`, the facility levels now carry 8 lines. No pass has yet shaped them into one arc across
+  the three levels, which is what "degrading in register" asks for.
+- ⚠️ `make_pa_voice.py` was not used "unchanged", as the sketch below says: both newer tools copy its
+  chain into their own files, so neither can overwrite `pa_trial4`.
+
 Every note in this game **pauses the tree**, which means the storytelling channel and the threat
 channel are mutually exclusive by construction. The PA is the only channel that isn't — and the
 asset and the fiction are already here. *"We are watching"* is established in the first minute, and
@@ -504,6 +517,39 @@ around needs geometry) · *a 6 s hold-off for creature E after the cradle lunge*
 "*the difficulty is fine, the level should not be simple*" — three of seven deaths were E at the
 Sanctum doorway and that is the ruling).
 
+
+**2026-09-22 — THE VOID, pass 6 (the 23:47 run, five captures; backlog `08-void.md`)** — the Hall of
+Frames' dwell is replaced by the user's own design, THE RECURRING ROOM (P.T.'s grammar: the right door
+returns you to the same room one stage stranger). Rejected in the grill: *vice versa — right doors calm
+the room, wrong ones corrupt it* (runs against going-deeper-gets-stranger, and a failing player would end
+in the most interesting room) · *the wrong door inverting or mirroring the room for one pass* (one image
+for a lot of build) · *a ladder that adds dread pressure per stage* (a number attached to the scare) ·
+*generated door art as the doors' identity* (flux cannot see our rooms; the dioramas stay the answer,
+the image tool does the stage-4 wall instead) · *a seamless P.T. walk-out with no cut* (the room would
+have to swap while inhabited) · *the Ward box opening off-screen* (the off-screen receipt had failed to
+read twice — this one prop opens in view on purpose) · *keeping the folded frame and unfolding it* (the
+object itself reads as nothing) · *the charge figure at the corridor's end / the trigger at halfway*
+(60 % of the way, z 26, was the user's number) · *keeping the wedged shard* ("*should not be that way*").
+
+
+**2026-09-22 — THE VOID, pass 7 (the 02:13 run, the first completion through the recurring room; backlog
+`08-void.md`)** — rejected in the grill: *the cradle beat on the shared `jumpscare`* (the sameness the
+user flagged) · *the figure standing over the cradle* (loses "something in the crib") · *freezing input
+for the corridor rush* (the level avoids freezes outside hold-breath beats) · *turning the camera only
+when facing away* (a half-turn at the edge reads as a glitch) · *the lighter top-five ladder* (the full
+front-loaded one was chosen) · *the panic bar lying once in the room* (legal under §8.6; it teaches death
+where nothing kills). From the research menu, not taken: *a flux texture of this room* (re-litigates
+"flux cannot see our rooms"), *moving the door columns* (breaks the frames guard's lane asserts),
+*narrowing the entrance* (invisible from the stance, softlock-shaped), *`ScreenText.scrawl` per right
+step* (a counter in words).
+
+
+**2026-09-23 — THE VOID, pass 8 (the 23:10 run, three captures; backlog `08-void.md`)** — rejected in the
+grill: *cold violet fire in the cradle* (fire that is not fire-coloured reads as a light effect — the
+one warm colour in a cold level is the point) · *a smaller loudness step for the snarl* (−5 dB; the user
+asked for louder, and −2 dB is near the file's ceiling). Not a rejection but a correction: the room's
+answer had the stair fifth while the level meets it second — the user caught it by playing the rule.
+
 ### 5.2 Anti-patterns — do not build (from `SCARY.md` §8, reproduced so this file is self-sufficient)
 
 1. **Fake crashes, BSODs, save-corruption, OS dialogs, volume drops.** A macOS `.app` under active development with a `DebugLog` playtest protocol: a fake "SAVE DATA CORRUPTED" produces a real bug report and poisons real data. Use P8's diegetic suite.
@@ -594,6 +640,29 @@ mistake. It would likewise delete the accepted 35 %-dud Still Ones, whose whole 
 tell a dud from a killer without walking up to one."*
 → **For the ledger: not a HUD violation; an ambiguity violation.** That is a distinct rule this
 project had not previously written down.
+
+**2026-09-23 — THE VOID, pass 8: BUILT from the 23:10 run** — the cradle BURNS: three seconds of fire in
+the crib (the one warm colour in a cold level, a light with no falloff core so the face it lights can
+never clamp), then the face rises through the flames with the snarl at the file's ceiling; drawers that
+close (and a pulled drawer that honestly blocks the one below); and the room's answer corrected to the
+level's own order — derived from the level in a guard, never typed again (Issue 263). Recorded in
+`spec/levels/08-void.md`.
+
+**2026-09-22 — THE VOID, pass 7: BUILT from the 02:13 run (the first completion through the recurring
+room)** — Visage's *thing in the crib* (the cradle beat: blackout, one second of nothing, a single lamp
+on a crouched shadow whose head tracks you, the apparition snarl — no lunge); the *camera owns the
+one-shot* (the corridor charge turns you onto it — Issue 255); and a **measured ladder** — Signalis'
+silhouette-on-lit-panel grammar (pale backdrops, albedo only), Layers of Fear's held frame tilt (a
+camera roll in five notches), a descending ceiling, a sixth door with a watcher, a memory at 1:1 — chosen
+by computing what the player's torch does to each rung (Issue 256). Recorded in `spec/levels/08-void.md`.
+
+**2026-09-22 — THE VOID, pass 6: BUILT from the 23:47 run, the user's own design** — P.T.'s *recurring
+room*: five doorways, walk through the right one and you are back in the same room one stage stranger
+(lamp and hum, tilted and doubled objects, the blink and a doorway figure, walls of pressed hands, the
+lean), the wrong one cuts to black with a face at arm's length for one frame and resets you with the
+doors reshuffled; zero panic, no readout, the fifth door settles the frames into the corridor. Also: a
+touch with a purpose (the gurney opens the strapped box that holds the slat, IN VIEW — the one deliberate
+exception to the off-screen rule). Recorded in `spec/levels/08-void.md`.
 
 **2026-09-21 — THE VOID, pass 5: BUILT from the 23:33 run** — Visage / P.T.'s *hallway charge* (the
 loop corridor's one-shot southbound rush by a rule-less figure, zero panic, the shared `jumpscare`), and
@@ -741,7 +810,7 @@ Against that standard: **25 unbuilt rows → 9 survive.**
 
 19. **`SCARY.md` §4.1(e) — audible Object 12.** `creature_growl_near.wav` is already on disk, unused.
     A silent pursuer is the largest single fairness hole in the shipped game.
-20. **N4 the PA channel** — 6–10 lines through `tools/make_pa_voice.py`, unchanged.
+20. **N4 the PA channel** — 6–10 lines through `tools/make_pa_voice.py`, unchanged. *(2026-09-23: the Breach half is built, 3 lines. See N4's build status.)*
 21. **P10** the unseen thing in the Flood.
 22. **P8 effects 1 and 6 only** (see the split in §6.2).
 23. **Persistent save** — Continue = the start of the furthest level reached.

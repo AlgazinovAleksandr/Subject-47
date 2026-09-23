@@ -74,6 +74,7 @@ func _process(delta: float) -> bool:
 
 	if _level == null:
 		_level = current_scene
+		preload("res://tests/lib/breach_hunt_fixture.gd").enter(_level)
 		_player = _level.get_node_or_null("Player") as CharacterBody3D
 		_purge = _level.get("_purge_chamber")
 		_creature = _level.get("_creature")

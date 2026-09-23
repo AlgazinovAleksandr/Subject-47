@@ -23,6 +23,35 @@ it will tick once per cycle.
 
 ---
 
+## Requested 2026-09-23 (Level 6 — the approach, pass 3): the user is supplying all of these
+
+⚠️ **These are PLACEHOLDERS already at the final path**, not missing files. They were generated or copied by
+`tools/make_sfx_breach_pass3.py`. The user's recording REPLACES the file at the same path, as a `.wav`
+with the same base name, then `--import`. `breach_approach.gd` names each one in a `SND_*` constant, with
+the stand-in's measured RMS beside it. If a supplied file is much louder or quieter, re-read that
+constant's gain.
+
+| File (in `game/assets/audio/level_6_breach/`) | What it is | Stand-in | Bus |
+|---|---|---|---|
+| `approach_whisper_dont_go_in.wav` | The dead technician's close, hoarse whisper: *"don't… go in there…"* (~2.5 s) | macOS `say -v Whisper`, roughened | Master |
+| `approach_wheel_grind.wav` | **Loop.** The porthole wheel turning under load | generated | Ambience |
+| `approach_wheel_creak.wav` | One creak per 30° of wheel | generated | Ambience |
+| `approach_porthole_bolts.wav` | The door's bolts drawing back | copy of KONTUR's `door_seal` | Master |
+| `approach_porthole_swing.wav` | The heavy hatch heaving open (~3 s) | the Lab's `metal_creak`, slowed | Master |
+| `approach_handle_clack.wav` | The handle seating on the wheel | generated | Master |
+| `approach_spark_burst.wav` | One burst from the junction box | copy of the Lab's `breaker_spark` | Ambience |
+| `approach_spark_buzz.wav` | **Loop.** The junction box's constant buzz | copy of the Lab's `breaker_buzz` | Ambience |
+| `approach_darkroom_bed.wav` | **Loop.** The dark room's own ambience, fading in only inside | generated | Ambience |
+| `approach_glass_crunch_1/2/3.wav` | Glass underfoot in the cell chamber, three variants | generated | Master |
+| `approach_crt_hum.wav` | **Loop.** The CCTV monitor's hum | generated | Ambience |
+
+And one video: `game/assets/video/breach_cctv_breakout.ogv`, the CCTV breakout loop. The stand-in is from
+`tools/make_breach_cctv_placeholder.py`. Convert the user's clip with the Theora recipe in
+`assets_src/README.md`. Grain, scanlines and the timestamp are laid over it in the game, so don't bake
+them in.
+
+---
+
 ## Requested 2026-07-28 (playtest, Intro room)
 
 | File | Length | What it is | Where it fires |
