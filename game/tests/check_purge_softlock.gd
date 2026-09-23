@@ -143,24 +143,31 @@ func _process(delta: float) -> bool:
 			quit(1)
 			return true
 		print("   ray from z=%.1f resolved to: %s (t=%.2f)" % [OUTSIDE_Z, tgt.name, _t])
+		# ⭐ HELD, not tapped (2026-09-23 pass 4): with `SEAL_RACE` on the door only grinds shut while
+		# E is held. The creature here is inert, so it never charges and the close always completes.
+		Input.action_press("interact")
 		_player.call("_try_interact")
-		var b0 = _purge.get("_block_collider")
-		_sealed_during = b0 != null and not bool(b0.disabled)
 		_phase = 1
 		_t = 0.0
 		return false
 
 	# Wait past CLOSE_TO_CONFIRM_DELAY (1.2) + the purge sequence (~2.5), with slack.
 	if _phase == 1:
+		var b0 = _purge.get("_block_collider")
+		if b0 != null and not bool(b0.disabled):
+			_sealed_during = true
+		if _purge.get("_used") == true and Input.is_action_pressed("interact"):
+			Input.action_release("interact")
 		if _t < 8.0:
 			return false
+		Input.action_release("interact")
 		var won := bool(_level.get("_creature_defeated"))
 		var blocker = _purge.get("_block_collider")
 		var sealed := blocker != null and not bool(blocker.disabled)
 		var pz: float = _player.global_position.z
 		_ok("CONTROL — the lure registered, so this run is measuring a WON level", won,
 			"if this fails everything below is vacuous")
-		_ok("the door SEALED on the press", _sealed_during,
+		_ok("the door SEALED (on the press, or at the end of the held close with the race on)", _sealed_during,
 			"if it never shut, 'it reopened' proves nothing")
 		_ok("the blast door VENTS after the purge", not sealed,
 			"sealed=%s (the creature is contained; the exit is elsewhere either way)" % str(sealed))

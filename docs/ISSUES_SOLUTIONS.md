@@ -6918,3 +6918,62 @@ Overhead props whose underside is above the player's 1.8 m stay meshes.
 **General lesson:** hand-built `BoxMesh` geometry has no physics. A helper that makes a visual needs a
 sibling that makes it solid, and the default for anything at body height should be the solid one. A walk
 down a cleared lane cannot find a missing collider; only a ray aimed at the prop can.
+
+## Issue 270 — A puppet on render layer 20 passed every state check and rendered nothing, because the player's camera culls that layer (2026-09-23)
+
+**Symptom:** the Breach's pass-4 shutter face (`breach_approach_face.gd`) was revealed on its looked-at
+cycle, and `check_breach_pass4.gd` passed all of its checks: visible, turned to the player, its own
+non-emissive material, its own layer, lit by a fill culled to that layer. The first render of the moment
+showed an empty black niche, pixel-identical to the empty cycle before it.
+
+**Cause:** the approach's puppets each take their own render layer so their fill light cannot leak onto the
+set and the set's lamps cannot light them: the hand `1 << 17`, the grille `1 << 18`. The face took the next
+one, `1 << 19`, which is **render layer 20**: `player.gd:MIRROR_ONLY_LAYER`, the layer for art that exists
+only in mirrors, which `player.gd:133` removes from the camera's `cull_mask` (`0x7FFFF`). Everything about
+the puppet was correct except that the one camera that matters could not see it.
+`breach_kill_sequence.gd:ACTOR_LAYER` carries this exact warning in a comment, and it was not read.
+
+**Fix:** the face is on render layer 17 (`1 << 16`), free everywhere in the project. `FACE_LAYER` in
+`breach_approach.gd` (the bay lamps' cull masks are built from it) follows it.
+
+**Why the tests missed it:** every check asked the puppet about itself (`visible`, `layers`, the fill's
+`light_cull_mask`), and a node on a culled layer answers all of those truthfully. Only a render, or a question
+put to the camera, can see it. `check_breach_pass4.gd` now asserts
+`(player_camera.cull_mask & FACE_LAYER) == FACE_LAYER`; with the layer set back to `1 << 19` it goes red
+(proven, see the level spec).
+
+**General lesson:** "is it visible" has three parties: the node, its light and the camera. A render-layer
+choice must be checked against every camera's `cull_mask`, and **layer 20 is taken**: it is the
+mirror-only layer. Pick puppet layers from 11–19 and grep `cull_mask` first.
+
+## Issue 271 — The walk-in music was inaudible: its gain was set by arithmetic, and nothing measured the mix (2026-09-23)
+
+**Symptom:** the user, watching the Breach approach run: *"I do not hear the music I sent you, I hear just the
+sound of the corridor."* Every automated check was green: the music was playing, looped, on the Ambience bus,
+at its constant, ducked under the story beats and stopped at the Threshold.
+
+**Cause:** `MUSIC_DB` was chosen as −17 dB from LUFS arithmetic: the track's −14.4 LUFS minus 17 is −31.4
+LUFS, "4 dB under the vent bed (−27.5)". The comment beside the constant said so, and it shipped anyway,
+because "under the bed" was read as "subtle" rather than "masked". It was also ducked a further 6 dB under
+every story beat, so for most of the walk it sat 10 dB under the corridor's hum. The checks tested playback
+and routing, which were all correct; none of them compared the music against what it had to be heard over.
+
+**Fix:** the mix is now measured at the listener on a real walk. `tests/probe_breach_music_mix.gd` re-routes
+every speaker, the frame it appears, onto a meter bus that sends where it was going, with an
+`AudioEffectCapture` on each: music, the approach's Ambience speakers, the level's own beds, the PA, the
+whisper, and the other story beats. It adds the Ambience bus's volume back (a capture sits before the
+downstream fader) and reports RMS per 0.1 s window, per class. `MUSIC_DB` became −4.0 dB (music +3.5 dB over
+the beds between beats), with a −17 dB duck under PA lines, −14 dB under the whisper and −6 dB under other
+beats, going down at 60 dB/s so the duck lands before the first word. `check_breach_approach` asserts the
+duck against the music's own idle level.
+
+**Why the tests missed it:** a level check can only see what it is compared against. "Is it playing, on the
+right bus, at the constant" is true of a track nobody can hear.
+
+**General lesson:**
+- A layer that must be HEARD is specified relative to what masks it, and measured there.
+- Headless Godot can measure it. The Dummy audio driver still mixes, and `AudioEffectCapture` reads it. But
+  it mixes in bursts, so windows must be counted in AUDIO frames, not process frames, or most windows come up
+  empty. It also covers only part of real time, so treat the numbers as samples.
+- Report a power average AND a median. A dynamic track's loud passages dominate the first, and its quiet
+  ones the second.

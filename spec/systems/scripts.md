@@ -57,6 +57,35 @@ the player. The dark room's capped panic runs in its `_physics_process`.
   cull masks EXCLUDE that layer, so the arm reads as a silhouette against lit tile.
 - It never touches the level's `_creature`, whose material it only reads.
 
+(Reversed 2026-09-24: `_tick_shutter()` makes the FIRST opening the face's, and it waits for the look.)
+`breach_approach_face.gd` (2026-09-23 pass 4) is the third glimpse, the shutter face: the same puppet
+contract, standing in bay B's niche.
+- `setup(material, stand)` builds it hidden; `reveal(toward)` turns it to the camera; `head_point()`.
+- ⚠️ **Layer 17 (`1 << 16`), never 20.** Render layer 20 is `player.gd:MIRROR_ONLY_LAYER`, which the
+  player's camera culls; on it the face passed every state check and rendered nothing (Issue 270).
+  Puppet layers in use: face 17, hand 18, grille 19.
+- "Head and crown only" is done with light: albedo ×0.3 (the level's ambient reaches every layer) and a
+  ×3 fill above and in front of the Head bone. `breach_approach.gd:_tick_shutter()` decides the cycle
+  and frees it.
+
+Pass 4 in `breach_approach.gd` also adds:
+- `_build_ceiling_drop()` / `_ceiling_drop()` / `_tick_drop()`: the position-triggered drop, `drop_rig()`,
+  `drop_ahead`;
+- the fused `_build_technician()` (2026-09-24: the USER's art, `…/approach/user/fused_technician_closed_D.jpg`)
+  as a **bas-relief mesh** from `_build_relief_mesh()`: a `TECH_MESH_N`² SurfaceTool grid displaced by
+  `approach_fused_height.png` (16-bit R/G over `TECH_RELIEF_DEPTH` 0.18 m; B = dilated alpha, for cell
+  culling), grid normals + tangents, alpha scissor, shadows on. `_tech_height_at(uv)` /
+  `_tech_height_local(x, y)` read the vertex heights (the wheel sits at the fists' displaced depth, the
+  tendrils lie on the surface). `_tech_uv()` maps art UVs (`TECH_ART_*`, measured on D) into his space.
+  `_wall_tendril()` lays the three thin tendrils; `_growth_mat()` is the user's biomass tile.
+- `_build_valve_wheel()`: the one wheel model, on the door (`_wheel`, hidden until fitted on the bare
+  `WheelSpindle`) and in his arms (`_tech_wheel`). ⚠️ `handle_taken` / `handle_fitted` /
+  `approach_handle_taken` keep their names and mean the wheel; the carried line is `CARRIED_WHEEL`;
+- the walk-in music (`_music`, `MUSIC_DB` −4, `_pa_active()` → `MUSIC_PA_DUCK`, `_whisper_until` →
+  `MUSIC_WHISPER_DUCK`, other story beats → `MUSIC_STORY_DUCK`, plus `_duck_db`; faded at
+  `threshold_quiet`, freed in `_stop_all()`). Its gains come from `tests/probe_breach_music_mix.gd`
+  (Issue 271).
+
 ### Shipped — Breach playtest, 2026-09-20
 
 `breach_kill_sequence.gd` owns Object 12's confirmed-contact presentation: the existing mesh/skin
@@ -244,7 +273,7 @@ for. ⚠️ `RefCounted`, deliberately not a Node — every one of these creatur
 | `dungeon_rooms.gd` | `class_name DungeonRooms` (2026-09-12) — the eight room archetypes: `build(kind, level, builder, gen, room, rng)` places props from PARTS under one collider on the doorway-free wall (≤ 2.4 m from it, `SIDE_CLEAR` 1.25 m from the side walls) and returns handles; `fire(kind, handles, level, player)` is the room's one scare, one-shot, refused under a note/pause/freeze. Keeps `dungeon_gen.gd` pure and `dungeon.gd` under control |
 | `dungeon_map_ui.gd` | `class_name DungeonMapUI` (2026-09-12) — the found map on **M**. `setup(gen)`, `set_found`, `refresh(rooms_seen, lit_positions)`, `toggle/close/can_toggle`; non-pausing, layer 48, Issue-9 self-drop; draws only rooms walked and lit sconces, **never the player** |
 | `void_fragments.gd` | `class_name VoidFragments` (2026-09-12) — static part-builders for the Void's fragment rooms: gurney, exam_table, monitor, child_bed, crayon_drawing, music_box. Void skin, no emission, art quads sized from their textures |
-| `purge_chamber.gd` | `class_name PurgeChamber` — Level 6's one-shot permanent win trigger. ⚠️⚠️ **ITS DOOR WAS THE ONLY UNTEXTURED ONE IN THE GAME** until 2026-09-07 (Issue 175) — a flat-tinted `BoxMesh(2.2, 3.0, 0.15)` at metallic 0.7, on the biggest door in the level, invisible to `check_art_aspect.gd` because that guard returns early on a null texture. Now `breach_door.png` on `QuadMesh`es both faces (Issue 24 — never a `BoxMesh` face), MULTIPLY emission at the slam doors' neutral tint, never the red. ⚠️ Its `interact()` calls `freeze_for_purge()` **before** confirming; see Issue 173 for the 2 h 46 m that cost. `interact()` slams a heavy blast door, then confirms the creature's actual position against a `trap_bounds` AABB before purging (physics-driven, never a flag). ⚠️⚠️ **`_finish_purge()` VENTS the door after `REOPEN_AFTER_PURGE` 2.0 s, and until 2026-09-07 it did not** — the exit is INSIDE the room this door seals, so winning from the PurgeAnte side (which is what the level's note describes) walled the player out of the level permanently. Issue 181, `check_purge_softlock.gd`. ⚠️ And `_reopen_failed()`'s 1.0 s timer is guarded on `_used`: it outlived its own attempt and opened the blast door in the middle of the NEXT one |
+| `purge_chamber.gd` | `class_name PurgeChamber` — Level 6's one-shot permanent win trigger. ⚠️⚠️ **ITS DOOR WAS THE ONLY UNTEXTURED ONE IN THE GAME** until 2026-09-07 (Issue 175) — a flat-tinted `BoxMesh(2.2, 3.0, 0.15)` at metallic 0.7, on the biggest door in the level, invisible to `check_art_aspect.gd` because that guard returns early on a null texture. Now `breach_door.png` on `QuadMesh`es both faces (Issue 24 — never a `BoxMesh` face), MULTIPLY emission at the slam doors' neutral tint, never the red. ⚠️ Its `interact()` calls `freeze_for_purge()` **before** confirming; see Issue 173 for the 2 h 46 m that cost. `interact()` slams a heavy blast door, then confirms the creature's actual position against a `trap_bounds` AABB before purging (physics-driven, never a flag). ⚠️⚠️ **`_finish_purge()` VENTS the door after `REOPEN_AFTER_PURGE` 2.0 s, and until 2026-09-07 it did not** — the exit is INSIDE the room this door seals, so winning from the PurgeAnte side (which is what the level's note describes) walled the player out of the level permanently. Issue 181, `check_purge_softlock.gd`. ⚠️ And `_reopen_failed()`'s 1.0 s timer is guarded on `_used`: it outlived its own attempt and opened the blast door in the middle of the NEXT one (and, since pass 4, on `_closing`). ⭐ **The seal race (2026-09-23 pass 4):** `seal_race` (export, **default false** = the old instant slam, untouched), `seal_close_time`, `seal_react_delay`, set by `level_6_breach.gd:SEAL_RACE` / `SEAL_CLOSE_TIME` / `SEAL_REACT_DELAY`. On: `interact()` → `_race_begin()`; `_process()` advances the leaf only while `Input.is_action_pressed("interact")`, releases + `force_chase`s a frozen creature after the react delay, jams at `SEAL_JAM_DIST` 0.8 m from the doorway plane (`_race_abort(true)`: flung open, `force_block(REOPEN_TIME)`), and on a full close runs the old freeze → confirm path. `prompt_text()` is "Hold E — seal the door" with the race on, "Press E" off. `race_log` is for the tests |
 
 ## DECISIONS & GOTCHAS
 

@@ -109,6 +109,9 @@ assets_src/reference/
 assets_src/video/seeds/
 assets_src/video/*.mp4
 assets_src/audio/**/*.flac
+# The user's 124 MB 6-channel/96 kHz master of the Breach walk-in music (2026-09-23). Local-only; the
+# game uses the stereo loop tools/prepare_breach_music.py makes from it.
+assets_src/audio/level_6_breach/approach/breach_corridor_music.wav
 assets_src/**/*_pre2026-*
 assets_src/textures/**/*_raw.*
 # ⚠️ THE 91 MB EXCEPTION (2026-09-03). `assets_src/models/hollow_crown/` holds the six Meshy

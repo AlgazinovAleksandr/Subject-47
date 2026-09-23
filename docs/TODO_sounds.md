@@ -23,6 +23,24 @@ it will tick once per cycle.
 
 ---
 
+## Requested 2026-09-23 (Level 6 — the approach, pass 4): placeholders at the user's fixed paths
+
+⚠️ PLACEHOLDERS at the final path, from `tools/make_sfx_breach_pass4.py` (ffmpeg copies). Replace the file at
+the same path, same base name, then `--import`. `breach_approach.gd` names each in a `SND_*` constant.
+
+| File (in `game/assets/audio/level_6_breach/`) | What it is | Stand-in | Bus |
+|---|---|---|---|
+| ~~`approach_drop_crash.wav`~~ ✅ | The ceiling hatch bursting and the body's weight hitting the chain (Containment) | **the user's `drop_crash` (2026-09-24)**. It is byte-identical to their `metal_crash`, the door tell's crash, so a distinct impact is still welcome | Master, +2 dB |
+| ~~`approach_drop_chain.wav`~~ ✅ | The chain rattling as the body swings | **the user's `drop_chain` (2026-09-24)** | Master |
+| `approach_shutter_breath.wav` | *Optional.* A very low breath from bay B's niche as the face is revealed | KONTUR's `breathing_behind`, slowed ×0.82, low-passed 1.8 kHz | Master, −14 dB |
+| *(no file)* the seal race's grind | The blast door grinding shut while E is held | `approach_wheel_grind` in code, pitch 0.55 (`purge_chamber.gd:_race_begin`); since 2026-09-24 that is the user's `wheel_grind` recording, pitched down | 3D, Master |
+
+A dedicated grind (`seal_grind.wav`, a **loop**) would need one line in `purge_chamber.gd:_race_begin()`.
+
+✅ **2026-09-24: the purge door's final slam is the user's `metal_door_close`**, as `purge_door_slam.wav`, the user's call. It is peak-matched to the old slam and loaded by both slam paths in `purge_chamber.gd`, falling back to `blast_door_slam`. The approach bulkhead keeps `blast_door_slam`.
+
+All five user recordings are prepared by `tools/prepare_breach_user_sfx.py`: loudness-matched to the placeholders they replace, originals unchanged in `assets_src/audio/level_6_breach/approach/user/`.
+
 ## Requested 2026-09-23 (Level 6 — the approach, pass 3): the user is supplying all of these
 
 ⚠️ **These are PLACEHOLDERS already at the final path**, not missing files. They were generated or copied by
@@ -34,10 +52,10 @@ constant's gain.
 | File (in `game/assets/audio/level_6_breach/`) | What it is | Stand-in | Bus |
 |---|---|---|---|
 | `approach_whisper_dont_go_in.wav` | The dead technician's close, hoarse whisper: *"don't… go in there…"* (~2.5 s) | macOS `say -v Whisper`, roughened | Master |
-| `approach_wheel_grind.wav` | **Loop.** The porthole wheel turning under load | generated | Ambience |
+| ~~`approach_wheel_grind.wav`~~ ✅ | **Loop.** The porthole wheel turning under load | **the user's `wheel_grind` (2026-09-24)**, seam crossfaded 0.4 s | Ambience |
 | `approach_wheel_creak.wav` | One creak per 30° of wheel | generated | Ambience |
 | `approach_porthole_bolts.wav` | The door's bolts drawing back | copy of KONTUR's `door_seal` | Master |
-| `approach_porthole_swing.wav` | The heavy hatch heaving open (~3 s) | the Lab's `metal_creak`, slowed | Master |
+| ~~`approach_porthole_swing.wav`~~ ✅ | The heavy hatch heaving open (~3 s) | **the user's `metal_door_open` (2026-09-24)** | Master |
 | `approach_handle_clack.wav` | The handle seating on the wheel | generated | Master |
 | `approach_spark_burst.wav` | One burst from the junction box | copy of the Lab's `breaker_spark` | Ambience |
 | `approach_spark_buzz.wav` | **Loop.** The junction box's constant buzz | copy of the Lab's `breaker_buzz` | Ambience |

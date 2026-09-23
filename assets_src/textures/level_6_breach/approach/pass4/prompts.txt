@@ -1,0 +1,13 @@
+Level 6 approach, pass 4 (2026-09-23) - the fused technician. Cloudflare flux-1-schnell via the
+image pack's level-3-image-generator. Six raws (a-f); e is the one used.
+
+fused_raw_a..f.jpg:
+Horror film still, straight-on front view: the face and upper chest of a dead man half-swallowed by a
+mass of glistening dark red and black organic tissue, the fleshy growth engulfing his shoulders and
+chest and creeping over one cheek, grey waxy skin, eyes wide open staring, mouth slack, fibrous
+membranes and veins across the growth, centered, isolated on a plain pure white background, harsh
+flash lighting, photorealistic
+
+approach_growth_flesh.png and approach_growth_spread.png have no raw: they are drawn by
+tools/make_breach_pass4_art.py (growth / spread). A flux flesh texture was attempted and refused
+(the daily quota was spent).

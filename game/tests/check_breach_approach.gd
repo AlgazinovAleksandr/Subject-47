@@ -53,6 +53,19 @@ var _grille_freed_frames := -1
 var _grille_freed_before_seal := false
 var _wheel_seconds := 0.0
 var _th := 0.0
+# ⭐ PASS 4: the walk-in music's timeline, sampled every frame
+var _music_frames := 0
+var _music_min_busy := 0.0          # its lowest volume while a story beat plays (the story duck)
+var _busy_run := 0.0                # seconds the story channel has been continuously busy
+var _music_settled_busy_max := -80.0   # its HIGHEST volume once a story beat has run >= 1.2 s, no silence duck
+var _music_settled_samples := 0
+var _pa_run := 0.0                   # seconds a PA line (or its chime) has been playing
+var _music_pa_max := -80.0           # the music's highest volume once a PA line has run 0.5 s
+var _music_pa_samples := 0
+var _music_max_idle := -80.0        # its highest volume on a quiet frame (its measured level)
+var _dip := {"door_tell_silence": 99.0, "victim_silence": 99.0}   # Ambience bus dB just inside each silence
+var _amb_base := 0.0
+var _music_at_hand := 99.0
 
 func _initialize() -> void:
 	_started = Time.get_ticks_msec()
@@ -107,6 +120,32 @@ func _sample() -> void:
 	_last_panic = panic
 	if not _quiet():
 		_loud_frames += 1
+	var music: AudioStreamPlayer = _approach.get("_music")
+	if is_instance_valid(music) and music.playing:
+		_music_frames += 1
+		if _approach.call("_pa_active"):
+			_pa_run += 1.0 / Engine.physics_ticks_per_second
+			if _pa_run >= 0.5 and is_zero_approx(float(_approach.get("_duck_db"))):
+				_music_pa_max = maxf(_music_pa_max, music.volume_db)
+				_music_pa_samples += 1
+		else:
+			_pa_run = 0.0
+		if _approach.call("_story_idle", 0.0):
+			_music_max_idle = maxf(_music_max_idle, music.volume_db)
+			_busy_run = 0.0
+		else:
+			_music_min_busy = minf(_music_min_busy, music.volume_db)
+			_busy_run += 1.0 / Engine.physics_ticks_per_second
+			# settled under a story beat (the fade is 8 dB/s), with no silence duck and not at the Threshold:
+			# this is the frame that proves the STORY duck itself, not a silence or the fade-out
+			if _busy_run >= 1.2 and is_zero_approx(float(_approach.get("_duck_db"))) and not _approach.get("_threshold_quiet"):
+				_music_settled_busy_max = maxf(_music_settled_busy_max, music.volume_db)
+				_music_settled_samples += 1
+	var bus := AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Ambience"))
+	var now := float(_approach.get("_time"))
+	for e in _approach.get("beat_log"):
+		if _dip.has(e["name"]) and now - float(e["t"]) > 0.25 and now - float(e["t"]) < 0.9:
+			_dip[e["name"]] = minf(_dip[e["name"]], bus)
 	# the grille puppet: judged on the frames right after it goes, never after the seal
 	if _grille_freed_frames >= 0:
 		_grille_freed_frames += 1
@@ -206,10 +245,13 @@ func _check_puppet(label: String) -> Node:
 		not puppet.is_ancestor_of(_creature) and not _creature.is_ancestor_of(puppet))
 	return puppet
 
-# ⭐ PASS 3: at the porthole door. Wait for the technician to answer (the victim is heard first), take
-# the handle through the real E ray, then fit it and turn the wheel with mouse circles until it opens.
-func _open_the_porthole() -> void:
-	var head := Vector3(-46.55, 0.55, -32.4)
+# ⭐ PASS 4: at the fused technician on the FAR side of the Plenum. Wait for him to answer (the victim
+# is heard first), and take the handle through the real E ray, looking at his face as a player would.
+func _take_the_handle() -> void:
+	var head: Vector3 = _approach.get("_tech_head")
+	var door: Vector3 = _approach.get("_wheel").global_position
+	_ok("the technician is on the far side of the Plenum from the porthole door (%.1f m)" % Vector2(head.x - door.x, head.z - door.z).length(),
+		Vector2(head.x - door.x, head.z - door.z).length() > 12.0)
 	var waited := 0.0
 	var target: Node = null
 	while waited < 25.0 and target == null:
@@ -218,11 +260,15 @@ func _open_the_porthole() -> void:
 		_sample()
 		waited += 1.0 / Engine.physics_ticks_per_second
 		target = _player.call("ai_interact_target")
-	_ok("the technician is reachable through the real E ray (after %.1f s at the door)" % waited,
+	_ok("the technician is reachable through the real E ray (after %.1f s at his wall)" % waited,
 		target != null and String(target.name) == "TechnicianInteract")
 	_player.call("ai_interact")
 	await _wait(4.2)
 	_ok("the handle is taken", _approach.get("handle_taken"))
+
+
+# ⭐ PASS 3: at the porthole door, fit the handle and turn the wheel with mouse circles until it opens.
+func _turn_the_wheel() -> void:
 	_player.call("ai_look_at", Vector3(-44.5, 1.05, -32.87))
 	await physics_frame
 	_player.call("ai_interact")
@@ -266,6 +312,11 @@ func _run() -> void:
 		on_ambience.size() >= 2 and speakers.all(func(s): return s.bus in ["Master", "Ambience"]))
 	_ok("the breathing bed is on Ambience, so silence beats can duck it",
 		speakers.any(func(s): return s.bus == "Ambience" and s.playing))
+	var music0: AudioStreamPlayer = _approach.get("_music")
+	_ok("⭐ the walk-in music plays from the spawn, looped, on Ambience",
+		is_instance_valid(music0) and music0.playing and music0.bus == "Ambience"
+		and music0.stream is AudioStreamOggVorbis and (music0.stream as AudioStreamOggVorbis).loop)
+	_amb_base = AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Ambience"))
 	await _shot("01_service_arrival")
 	# Deliberately wait longer than the hunt grace. It must not run during the approach.
 	await create_timer(8.2).timeout
@@ -295,11 +346,16 @@ func _run() -> void:
 		_ok("every grille puppet mesh has its OWN non-emissive material and casts no shadow (%d)" % gm.size(), gm_ok)
 	var points: Array = constants["WALK_POINTS"]
 	var door_stop: Vector3 = constants["DOOR_STOP"]
+	var tech_stop: Vector3 = constants["TECH_STOP"]
+	_ok("the route visits the technician BEFORE the porthole door",
+		points.find(tech_stop) >= 0 and points.find(tech_stop) < points.find(door_stop))
 	# Walk everything but the last leg (into the Threshold), sampling every frame.
 	for index in range(1, points.size() - 1):
 		await _walk(points[index])
+		if (points[index] as Vector3).distance_to(tech_stop) < 0.05:
+			await _take_the_handle()
 		if (points[index] as Vector3).distance_to(door_stop) < 0.05:
-			await _open_the_porthole()
+			await _turn_the_wheel()
 		_player.call("ai_look_at", points[index + 1] + Vector3(0, 1.65, 0))
 		await _wait(0.1)
 		await _shot("route_%02d" % index)
@@ -340,6 +396,8 @@ func _run() -> void:
 		_walk_seconds += delta
 		if hand_seen_at < 0.0 and _count("hand") == 1:
 			hand_seen_at = elapsed
+			var mh: AudioStreamPlayer = _approach.get("_music")
+			_music_at_hand = mh.volume_db if is_instance_valid(mh) and mh.playing else -80.0
 			await _shot("03_hand_peak")
 		# ⚠️ Judge the free BEFORE the seal: the seal frees the puppet anyway, so a check made after
 		# it passed with the free deleted (proven while writing this).
@@ -385,6 +443,25 @@ func _run() -> void:
 	print("APPROACH WHEEL SECONDS %.2f (mouse circles at 0.7/s)" % _wheel_seconds)
 	_ok("three turns of the wheel took roughly 10–15 s of circling (%.2f s)" % _wheel_seconds, _wheel_seconds >= 9.0 and _wheel_seconds <= 15.0)
 	_ok("the real creature is hidden, voiceless and dormant on every frame until the seal", _loud_frames == 0)
+	# ⭐ PASS 4: the music's timeline
+	var consts: Dictionary = _approach.get_script().get_script_constant_map()
+	print("APPROACH MUSIC  playing on %d frames  idle level %.1f dB  lowest under a story beat %.1f dB  Ambience %.1f dB -> door-tell silence %.1f, victim silence %.1f  at the hand %.1f dB" % [
+		_music_frames, _music_max_idle, _music_min_busy, _amb_base, _dip["door_tell_silence"], _dip["victim_silence"], _music_at_hand])
+	_ok("the music played through most of the walk (%d frames)" % _music_frames, _music_frames > 60 * 45)
+	_ok("its quiet-frame level is its measured gain (%.1f dB, MUSIC_DB %.1f)" % [_music_max_idle, consts["MUSIC_DB"]],
+		absf(_music_max_idle - float(consts["MUSIC_DB"])) < 0.6)
+	# ⚠️ Measured against its OWN idle level, never against MUSIC_STORY_DUCK read back: with the duck
+	# set to 0 a threshold built from the constant moved with it and stayed green (proven while writing it).
+	_ok("it ducks under the story beats: at least 4 dB under its idle level once a beat has run 1.2 s (%.1f dB against %.1f, %d frames)" % [
+		_music_settled_busy_max, _music_max_idle, _music_settled_samples],
+		_music_settled_samples > 60 and _music_settled_busy_max <= _music_max_idle - 4.0)
+	_ok("it makes room for the tannoy: at least 12 dB under its idle level once a PA line has run 0.5 s (%.1f dB against %.1f, %d frames)" % [
+		_music_pa_max, _music_max_idle, _music_pa_samples], _music_pa_samples > 60 and _music_pa_max <= _music_max_idle - 12.0)
+	_ok("the door tell's silence dips it with the Ambience bus (%.1f dB against %.1f)" % [_dip["door_tell_silence"], _amb_base],
+		_dip["door_tell_silence"] <= _amb_base - 10.0)
+	_ok("the victim's silence dips it too (%.1f dB against %.1f)" % [_dip["victim_silence"], _amb_base],
+		_dip["victim_silence"] <= _amb_base - 10.0)
+	_ok("it is silent at the hand's corner (%.1f dB when the hand fired)" % _music_at_hand, _music_at_hand <= -50.0)
 	await create_timer(0.5).timeout
 	_ok("walking across threshold begins the hunt", _level.get("_approach_complete") and _approach.get("completed"))
 	var still: Array = []
@@ -434,11 +511,13 @@ func _run() -> void:
 	_bind()
 	_ok("normal return retains sealed hunt checkpoint", _level.get("_approach_complete") and _approach.get("completed") and _player.position.z > -3)
 	_ok("a return visit plays no approach beat and builds no puppet", _names().is_empty() and _approach.call("hand_puppet") == null)
+	_ok("⭐ …and no walk-in music (it is never in the hunt)", not is_instance_valid(_approach.get("_music")))
 	gs.call("restart_current_level")
 	await create_timer(1.8).timeout
 	_bind()
 	_ok("death after entry skips approach", _level.get("_approach_complete") and _player.position.distance_to(Vector3(0, 0, -2)) < 0.3)
 	_ok("hunt retry still resets flashlight", not _level.get("_flashlight_found") and _player.get("_flashlight_locked"))
+	_ok("⭐ a hunt retry plays no walk-in music", not is_instance_valid(_approach.get("_music")))
 	# The menu reset is the real new-run path: static scene state must not survive it.
 	gs.call("go_to_main_menu")
 	await create_timer(0.5).timeout

@@ -88,6 +88,9 @@ func _process(delta: float) -> bool:
 			var target = _player.get("_interact_target")
 			_results["purge_chamber_targetable"] = target != null and target.has_method("interact")
 			if target != null and target.has_method("interact"):
+				# ⭐ HELD (2026-09-23 pass 4): with `SEAL_RACE` on the blast door grinds shut only while
+				# E is held — `purge_chamber.gd` polls this action state. Released in phase 2.
+				Input.action_press("interact")
 				_player.call("_try_interact")
 				print("check: purge chamber interact() fired via real E-press path")
 			_phase = 2
@@ -97,6 +100,11 @@ func _process(delta: float) -> bool:
 			# interact() should have slammed the door shut (visually + the block
 			# collider enabling) even though the creature isn't inside — confirm the
 			# call actually went through by checking _used flipped true.
+			# With the race on it goes true at the END of the held close, so wait for it (bounded).
+			if _purge.get("_used") != true and _t < 3.0:
+				return false
+			Input.action_release("interact")
+			print("check: the door shut %.2f s after the press" % _t)
 			_results["purge_chamber_used_after_press"] = _purge.get("_used") == true
 			# ⭐ The lure just FAILED (no creature in the bounds). Wait past the confirm and
 			# watch what the creature does — see the header.
@@ -124,6 +132,7 @@ func _process(delta: float) -> bool:
 			# ⭐ THE RETRY. `_reopen_failed()` sets `_used = false` and presents the attempt as
 			# retryable — and the old code re-froze on every press, so trying to recover made it
 			# worse. Press again and require it to still be moving.
+			Input.action_press("interact")
 			_purge.call("interact")
 			_freeze_from = _creature.call("get_creature_position")
 			_phase = 21
@@ -131,7 +140,10 @@ func _process(delta: float) -> bool:
 
 		21:
 			if _t < 5.0:
+				if _purge.get("_used") == true:
+					Input.action_release("interact")
 				return false
+			Input.action_release("interact")
 			var moved2: float = _freeze_from.distance_to(_creature.call("get_creature_position"))
 			# ⚠️ THE RETRY CAN LEGITIMATELY SUCCEED. Between the two presses the creature is free
 			# and walking, and PurgeAnte adjoins the Incinerator — so it can wander INTO

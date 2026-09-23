@@ -62,6 +62,8 @@ TESTS=(
   check_breach_approach       # full physical prelude, dormant creature, bulkhead and retry/new-run checkpoint
   check_breach_hunt_start     # absent through the grace, then a random unseen far room (10 seeded starts)
   check_breach_porthole       # pass 3: collapse, solid props, handle + wheel by mouse, the dark room's capped panic, the chamber
+  check_breach_pass4          # pass 4: the shutter face (empty first, looked-at, freed), the ceiling drop (lane clear), the fused technician
+  check_breach_seal_race      # pass 4: SEAL_RACE on = deep seals, shallow jams, release rolls back; off = the old instant slam
   check_audio_buses           # the silence architecture: Body survives a dip, beds nest
   check_scare_loudness        # the stings are LOUD, and the fatal path cuts to black first
   check_creature_model        # the ASSET: six clips, no root motion, not metal, not self-lit

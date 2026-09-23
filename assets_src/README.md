@@ -101,6 +101,7 @@ Mirrors the destination path, so it is obvious what each source becomes:
 | `audio/level_9_dungeon/*.mp3` (two) | `game/assets/audio/level_9_dungeon/parasite_jumpscare.wav`, `parasite_chase.wav` | `ffmpeg` → (chase) `tools/make_loop.py --xfade 2.0` | **yes** |
 | `textures/level_6_breach/breach_door_raw.jpg` | `game/assets/textures/level_6_breach/breach_door.png` | `tools/make_breach_door.py` | **yes** |
 | `textures/level_6_breach/approach/pass3/*.jpg` (prompts in `prompts.txt` beside them) | `game/assets/textures/level_6_breach/approach_technician_{closed,open}.png`, `approach_body_{facedown,guard}.png` | `tools/make_breach_pass3_art.py` (the eye pair is asserted to differ only at the eyes) | **yes** |
+| `textures/level_6_breach/approach/user/*.jpg` (the USER's generated art, prompts in `prompts.txt`; `fused_technician_closed_D.jpg` is used, A/B/C/E are not) and `…/pass4/` (the earlier flux raws, no longer used) | `game/assets/textures/level_6_breach/approach_fused_{closed,open,height,normal}.png`, `approach_growth_spread.png`, `approach_growth_flesh.png` | `tools/make_breach_pass4_art.py` (asserts: no green at the key edge, the eye pair differs only at the eyes, no cliffs in the height, a seamless tile) | **yes** |
 | *(generated, no source file)* | `game/assets/video/breach_cctv_breakout.ogv`: a PLACEHOLDER. The user's clip replaces it, converted with the Theora recipe below | `tools/make_breach_cctv_placeholder.py` | — |
 | `audio/pre_remaster/*` | *originals of the stings `tools/remaster_scares.py` rewrote in place* | — | local |
 
