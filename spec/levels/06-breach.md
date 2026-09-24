@@ -4,6 +4,442 @@
 
 ## SPEC
 
+### Shipped — 2026-09-24 pass 6: a blind is honoured through the seal race, and the ceiling drop is louder
+
+**Why.** The user played by hand:
+- *"when I blinded the creature with the flashlight for 7 seconds in the purge room - it killed me while
+  I was closing the door, even though 7 seconds have not passed yet. So it is a bug"*
+- *"the noise of the red object falling from the ceiling in the corridor part of the breach level should
+  be louder"*
+
+1. **A stagger survives the seal race** (Issue 275; `creature_object12.gd`, `purge_chamber.gd`).
+   - **The cause.** 0.8 s into a held close, the race released the creature and called `force_chase()`.
+     That entered CHASE unconditionally, so a STAGGERED creature left its 5–7 s blind early. It came out
+     non-solid and tilted, because only the stagger's own recovery restores the collider and the lean.
+     It reached the doorway, jammed the leaf and killed the player.
+   - **The fix.**
+     - `force_chase()` refuses while STAGGERED. Only the stagger's recovery ends a stagger.
+     - The race never releases or charges a staggered creature: it stays purge-frozen through the whole
+       close, the door shuts on it, and it is purged.
+     - Letting go of E releases it through the ordinary roll-back, **still staggered**, and its blind
+       clock runs on.
+     - New public `is_staggered()`.
+   - **Proof:** `check_breach_seal_stagger.gd`, with the real E ray held, a real light-weapon stagger,
+     and the creature 2.0 m inside ExitVault (a jamming depth). It had 6 of 11 checks red before the
+     fix and is 11/0 after. Its control, the same depth but not blinded, still jams.
+   - **The tactic is now true:** blind it, then seal it, anywhere in ExitVault. A blind is 5–7 s and the
+     close is 1.25 s, so a stagger landed at the press always covers the close. That makes the seal
+     easier *only* for a player who used the light first. The race and its timings are unchanged.
+2. **The ceiling drop is louder** (`breach_approach.gd:_ceiling_drop`,
+   `tools/prepare_breach_user_sfx.py`).
+   - **The file is denser.** The `drop_crash` job's loudness reference went −14.71 → −10.7 dBFS RMS,
+     and the output measures RMS −11.7, peak −0.3.
+   - **Playback is hotter:** the crash at gain 3.0 with unit size 4.0, and the chain at 3.0 / 3.0.
+   - **An impact duck.** The music, vent and level beds drop to `DROP_IMPACT_DUCK_DB` **−14 dB** in
+     0.03 s at the crash, hold for `DROP_IMPACT_HOLD` 1.2 s, then return over 1.0 s. They return to the
+     threshold's own quiet level if the player is already in it.
+   - **Why the duck is the real lever.** The Master bus has a hard limiter at −0.5 dBFS, so the crash's
+     peak already hits the ceiling. Gain alone moved the loudest 0.1 s window only −7.5 → −6.2 dB.
+     Loudness past that has to come from contrast: making the room drop out under the hit.
+   - **Measured** by `probe_breach_drop_loudness.gd` (a real walk under the hatch, Master bus captured
+     in 0.1 s RMS windows):
+
+     | | background (1.5 s before) | loudest window | first 1.0 s |
+     |---|---|---|---|
+     | before | −23.7 | −7.5 | −12.7 |
+     | after | −23.1 | −6.0 | −12.9 |
+
+     The beds read −14.0 dB at +0.3 s and +1.1 s after the drop, and 0.0 again at +2.8 s. The crash now
+     peaks 17 dB over the room, against 16 dB before. The ducked room under it is what is heard as
+     "louder". The first second's average is unchanged because the duck takes out as much bed as the
+     gain adds.
+
+### Shipped — 2026-09-24 pass 5: contained XOR killed, no frozen creature before a teleport, the technician's scream
+
+**Why.** The user's fifth hand playtest (2026-09-24, session 01:23): four J-captures, 5 deaths, then a
+real seal and the exit. Verbatim:
+- *"Take the wheel button is not active at first. Let's make it active straight away"*
+- *"after we press an E something like a scream of this man should appear, followed by this 'Don't go
+  in there'"*. The user supplied `man_scream.wav`: 2.27 s, mono, −4 LUFS.
+- *"it was told that the object contained get out but at the same time I was killed and the level was
+  not finished … It is either contained and you can get out or you get killed"*.
+  - The log: `KILL BLACK / FATAL FUNNEL` at 314.58, then `SEALED … LEAVE` at 316.93, then a restart.
+  - The purge's timers kept running after the kill had claimed the death.
+- *"now it is just standing in one place not moving"*. The user then clarified: *"Change nothing about
+  this, the only thing I wanted is to avoid the situation when the object is not moving at all before
+  teleporting."*
+
+**Difficulty is kept as it is** (the user's call). The 5 deaths, 4 of them inside ExitVault at chase
+5.5 with the seal race on, are the intended challenge. `BREACH_CHASE_SPEED` 5.5 and `SEAL_RACE` stay.
+
+**What changes:**
+1. **Contained XOR killed: the first outcome wins.**
+   - When the kill sequence reserves the fatal transition, any purge in progress aborts: a race close,
+     a pending confirm, the purge sequence. No `creature_trapped` and no "SEALED" objective.
+   - `_on_creature_trapped` ignores a trap arriving during a kill.
+   - The moment the door seals with Object 12 inside, it is purge-frozen, so contact can never fire
+     after "contained".
+2. **Never motionless before a teleport.** Nothing else about the AI changes.
+   - While the Breach creature searches (a hidden player's roam, or the post-hide loss before
+     `_relocate_near_player()`), arriving at a search point no longer stands and rotates for
+     `SEARCH_TIME`. It keeps walking to another nearby reachable point until the existing relocation
+     timer teleports it.
+   - `SEARCH_TIME`, `HIDDEN_RELOCATE_INTERVAL`, detection and relocation are unchanged.
+   - It is gated on the Breach's flags, so the Nightmare's Matron keeps today's search.
+3. **The technician: prompt at once, then the scream, then the whisper.**
+   - "E — take the wheel" works as soon as the player reaches him. If the victim scene is still
+     playing, it ducks under his beat.
+   - On E: the grip, then his eyes open with **the user's scream** (`approach_technician_scream.wav`,
+     prepared from `man_scream.wav` with its gain set from the measured mix), then *"don't… go in
+     there…"*, then his eyes close.
+   - The music ducks under the scream as under the whisper.
+4. **Pass 4's leftovers:** the tests for the face on the first cycle and for the relief depth, and the
+   spec write-up for the shutter reversal and the 3D relief.
+
+**Proof:**
+- Regression tests force contact during a race close, and a seal completing as it lunges. Each ends in
+  exactly one outcome.
+- A motion test finds no ≥ 1.5 s zero-displacement window before any teleport, and confirms the
+  Matron's search is unchanged.
+- The technician's prompt is live on arrival, and the scream is followed by the whisper, measured on
+  the mix.
+- Plus the full suite.
+
+**As built** (level-improver, 2026-09-24):
+1. **Contained XOR killed** (`purge_chamber.gd`, `level_6_breach.gd`).
+   - The level's `_death_claimed()`: its kill sequence is live, or ANY death transition is current (a
+     panic death goes through Screamer and takes the same transition). The purge chamber gets it as
+     `death_check`, and the level calls `_purge_chamber.abort_for_death()` the instant
+     `_on_contact_death()` takes the fatal transition.
+   - Aborting stops a held race close (the leaf stays where it is), and every timer callback
+     (`_confirm_trap`, `_run_purge_sequence`, `_finish_purge`) carries the generation it was scheduled
+     in, so a stale one does nothing. `interact()` refuses after an abort. `_on_creature_trapped()`
+     ignores a trap under a claimed death. No "SEALED", no `creature_defeated`.
+   - The reverse holds by construction: the race's shut `freeze_for_purge()`s Object 12 in the same
+     frame, and the chamber checks for a claimed death at the top of every frame before it can shut,
+     so within a frame the first outcome wins.
+   - Measured (`check_breach_contained_xor_killed`, the real E ray and the real chase, the player 2.2 m
+     inside the vault): **contact during the close** — killed at 0.97 s, the close never shut, no
+     SEALED; **the seal as it lunges** — shut at 1.27 s with Object 12 1.53 m from the player, SEALED
+     and contained, no death; **a death claimed during the pending confirm** — the chamber aborted, no
+     SEALED.
+2. **Never motionless before a teleport** (`creature_object12.gd`, gated on `forget_hidden_player and
+   relocate_when_lost`, which only the Breach sets).
+   - Arriving at a search point, the Breach's creature no longer stands turning for `SEARCH_TIME`: it
+     walks to a neighbouring room (never the hidden player's), then another, while the SAME timer runs;
+     at `SEARCH_TIME` the same give-up fires (a new roam destination for a hidden player,
+     `_relocate_near_player()` otherwise), and `HIDDEN_RELOCATE_INTERVAL` relocations are untouched.
+   - Measured (`check_breach_search_motion`): a hidden player's roam over 31 s, 3 relocations, the
+     longest still window **0.10 s** (it was 4.5 s before a relocation); the post-hide loss, the
+     longest still **0.08 s** before the teleport (it was **8.0 s**). With the Matron's flags the same
+     creature still stands scanning for 8.0 s, as before.
+3. **The technician: at once, the scream, the whisper** (`breach_approach.gd`).
+   - "E — take the wheel" answers the moment he is looked at, even with the victim scene still playing.
+     That scene's one-shots go through `_victim_shot()` and **duck 14 dB** under his beat
+     (`VICTIM_TECH_DUCK`); they are never cut.
+   - On E: the grip, then at 0.5 s his eyes open **with the user's scream**
+     (`approach_technician_scream.wav`, 2.27 s, from his head), then at 3.0 s the whisper (still the TTS
+     placeholder), then the release at 5.75 s (*CARRYING: THE VALVE WHEEL*) and the eyes close at 6.3 s.
+   - The music ducks 14 dB (`MUSIC_WHISPER_DUCK`) and the beds 4 dB (`BED_PA_DUCK`) under the whole beat.
+   - **The scream's gain is measured** (`probe_breach_music_mix.gd`, the player at `TECH_STOP`, the
+     victim scene still playing): at `TECH_SCREAM_DB` −2 dB it is **−14.8 dB RMS** at the listener
+     (loudest 0.1 s window −12.7), **11.4 dB over everything else** in that moment (−26.2), and **4.0 dB
+     under the kill sting** (`level_6_jumpscare`, flat at −8 dB: −10.8). At −10 dB it measured −22.8,
+     only 3.4 dB over the mix.
+4. **Pass 4's leftovers** are in the pass-4 entry below: the face on the FIRST opening, the relief-depth
+   checks, and the write-up of the shutter reversal and the 3D relief.
+   - The painted open eyes were brightened and widened after the scream-moment render: at 1.5 m, at the
+     game's half-scale 3D, the first cut vanished in the lamp's brow shadow.
+
+**Proof.**
+- `check_breach_contained_xor_killed.gd` (new, 7 checks) and `check_breach_search_motion.gd` (new, 6
+  checks), both in the suite, both proven to fail with their fix removed.
+- `check_breach_porthole.gd` (67): the prompt AT ONCE with the victim scene playing, the scream with
+  the eyes, the whisper after it, the victim duck at −14 dB, the steps in order.
+- `check_breach_approach.gd` (96): the route with `technician_scream` and `technician_whisper` as
+  sequence steps.
+- Renders: `backlogs/captures/breach-2026-09-23-pass4/03e_fused_face_1p5m_eyes_OPEN.png` and `03f_…`
+  (the scream moment).
+
+### Shipped — 2026-09-23 pass 4: the shutter face, the ceiling drop, the fused technician, the walk-in music, a harder hunt
+
+**Why.** The user's third hand playtest (2026-09-23, session 17:40, six J-captures). They finished the
+walk-in and the hunt with 0 deaths and a peak panic of 62 %. Their notes, verbatim:
+- *"Maybe the face of the creature should appear behind this room which first opens and then
+  closes?"* (bay B's shutter)
+- *"This looks way too unrealistic - should it look like a weird creature itself, so that it does not
+  look like an unrealistic human … And it looks very 2d now"* and *"it should probably be in the other
+  part of that room - what for to keep the handle just besides the door"* (the technician)
+- *"there should be at least one place where the element of unexpectedness and suddenness will make
+  the player scared"* and *"I mean besides this hand"*
+- *"Ins't it a bit too simple now to win the creature? Maybe make it just slightly harder"*
+
+The log agrees. The flashlight was taken 12.4 s after the seal, before Object 12 appeared at 20 s. It
+spawned 19.9 m away and was sealed 28.7 s later.
+
+The user also supplied the walk-in music: `breach_corridor_music.wav`, for the corridor part only.
+
+**What changes.** Every point was grilled one at a time and chosen by the user.
+
+1. **The face behind the shutter: a quiet stare, not a jolt** (the user's call over "the face slams in").
+   - (⭐ Reversed by the user 2026-09-24: the FIRST opening shows the face; see "As built" item 1.)
+   - Bay B's roller shutter keeps cycling. It opens on the empty recess at least once, which teaches
+     that the recess is empty.
+   - On a later cycle, and only while the player is looking at it, Object 12's face and crown are in
+     the dark recess: still, watching the player. Then the shutter rolls down over it. The next cycle
+     is empty again.
+   - Once per run.
+   - A visual-only puppet in the `breach_approach_hand.gd` pattern: head and crown only, never
+     emissive, no collider or `ScaryObject`, freed afterwards.
+   - The approach now has three glimpses (grille, shutter, hand), knowingly accepted by the user.
+2. **The walk-in's one sudden scare: the victim drops from the ceiling.**
+   - In ApproachContainment, where the user paused, a ceiling hatch bursts open. The **dragged
+     technician's body** drops on a chain right in front of the player with a crash, and the lamp
+     flickers.
+   - The body swings and twists, then settles. It pays off the drag heard behind the porthole door.
+   - It is triggered by position, not by gaze, so it is actually sudden. Once per run.
+   - No panic, no creature, and it never blocks the lane.
+   - The body must read as 3D, not flat art: for example, cocooned in Object 12's organic membrane,
+     built from parts, with one arm hanging out.
+3. **The technician becomes a fused victim, moved to the far side of the Plenum.**
+   - He is half-consumed by Object 12's growth and grown INTO the wall: torso and face embedded in the
+     ruptured mass, one real 3D arm free, still clutching the handle. As part of the wall he reads as a
+     relief, so the flatness stops being a problem.
+   - He moves away from the porthole door to the other side of the room, so the player searches for
+     the handle.
+   - The grip, the eyes-open swap, the whisper and the story-channel wait are kept. (⭐ Pass 5 dropped
+     the wait: he answers at once and the victim scene ducks; his scream comes before the whisper.)
+   - ⭐ Corrected by the user after the renders: he holds **the whole valve wheel**, not the handle, and
+     is life size and flush with the wall (see "As built" item 3).
+4. **The walk-in music** (the user's `breach_corridor_music.wav`, 72 s, 6-channel, 96 kHz, 24-bit,
+   124 MB).
+   - Godot imports only mono or stereo, so it is converted to a **stereo, seamlessly looping OGG** for
+     the game: `approach_corridor_music.ogg`, about 1–2 MB, with the gain set from its measured level
+     (−10.5 LUFS source).
+   - The 124 MB original moves unchanged to `assets_src/audio/level_6_breach/approach/` as a
+     **local-only file**: one `.gitignore` line, approved with the choice.
+   - ⭐ Corrected by the user after the renders: it is the LEAD layer, not a bed under the vent (see
+     "As built" item 4 for the measured gains).
+   - It starts at spawn, loops under the whole walk-in, dips with the silence beats (the door tell's,
+     the victim's) through the `Ambience` bus, fades out at `threshold_quiet` so the hand's corner is
+     silent, and stops at the seal.
+   - Never in the hunt. Not on retries, which skip the approach.
+5. **A slightly faster chase.**
+   - The Breach sets `_creature.chase_speed = 5.5`, up from 5.0: a level-local constant, with the
+     script's default left at 5.0.
+   - The Nightmare's Matron keeps its 3.4.
+   - A difficulty constant, chosen by the user.
+6. **The seal becomes a race, behind ONE switch** (the user: *"make this feature easily
+   irreversible, it is likely that after testing it I will say to restore it back"*).
+   - A single constant, `SEAL_RACE := true` in `level_6_breach.gd`, passed to the purge chamber.
+     **`false` restores today's instant slam exactly.**
+   - With it on:
+     - Pressing E starts the blast door grinding shut over a short close time while E is held.
+     - Object 12, if it is inside, turns after a reaction delay and charges the door.
+     - If it reaches the doorway before the door closes, the door jams and reopens: it is loose
+       again, and the door can be tried again. That is not a death by itself.
+     - If the door closes with it inside, the purge runs as before.
+   - **Tuning rule:** close time and reaction delay are set so a seal **succeeds when it was lured deep
+     into ExitVault** and **fails when it is near the doorway**. At 5.5 m/s it crosses the 7 m vault in
+     about 1.3 s, so a 3 s close would be unwinnable.
+   - The walk test must prove the level can still be won.
+
+**As built** (level-improver, 2026-09-23; the parent built item 5 and prepared the music):
+- **The route beats**, once each and in order, now end
+  `… dark_room, cell_chamber, pa_3, ceiling_drop, threshold_quiet, hand`. The walk is **81.47 s**
+  (walking only; it was 73.25 s), inside the agreed 60–90 s: the route now crosses the Plenum to the
+  technician and back to the porthole door.
+1. **The shutter face** (`_build_shutter`, `_tick_shutter`, `_cycle_shutter`, `breach_approach_face.gd`).
+   - The roll stands `NICHE_D` 0.55 m forward of bay B's back wall, so the recess is a real black niche
+     (a back panel, two cheeks, a head and a floor, all black) with room for a head in it.
+   - ⭐ **REVERSED 2026-09-24 by the user** (*"now you can see the creature the second time the door
+     opens, and the first time it opens you cannot see it. Let's make it vice versa"*): **the FIRST
+     opening shows the face.** The `shutter` beat only arms it; the first cycle then WAITS until the
+     player is looking at the niche (camera dot ≥ 0.8 within 14 m, and within 16 m of bay B's window),
+     so it is never spent on a player's back. From the Observation corridor the niche is 9.8 m away,
+     through the glass. A player who never looks never sees it open.
+   - After the face, the shutter keeps cycling EMPTY (up 3.0 s, hold 2.5 s, down 3.0 s, then 1.5–3.0 s)
+     while the player is within 16 m of the window, up to 8 cycles, looked at or not.
+   - The face is `breach_approach_face.gd`: the hand's puppet contract, standing in the niche with its
+     head at 1.78 m, 0.5 m behind the roll, turned to the camera when the cycle starts, and still. It is
+     freed when the shutter is down (`shutter_face_gone`). Once per run.
+   - **Head and crown only, done with light.** It is on render layer 17 (`1 << 16`), lit only by a
+     small fill (energy 3.0, range 0.62 m) above and in front of the Head bone, and bay B's lamps and
+     window spill are culled from that layer. Its material is the creature's with emission off **and
+     albedo ×0.3**, because the level's ambient lights every layer and at full albedo the whole body
+     stood grey in the niche.
+   - A low breath placeholder plays from the niche as it opens (`approach_shutter_breath`).
+2. **The ceiling drop** (`_build_ceiling_drop`, `_ceiling_drop`, `_tick_drop`).
+   - A service duct built from parts runs along Containment's south side (x −9.3..−4.5, z −24.8 ± 0.4,
+     y 2.55–3.34), with a real hole in its underside and a hinged hatch at x −6.9.
+   - **Trigger: position only.** Crossing x > −9.2 in Containment, once. Measured: it fired with the
+     player at x −9.17 and the body **2.27 m ahead** (2.56 m away), 1.2 m to the side of the lane.
+   - The hatch bursts open (−118° in 0.12 s), the crash and the chain play (the beds duck −14 dB under
+     them since pass 6), and the body falls 1.9 m in
+     0.3 s, snaps taut past the chain's length and springs back. It swings mostly along the corridor
+     and twists about the chain (peak 0.91 rad), and settles in ~20 s. Containment's third lamp stutters.
+   - **The body is 3D parts, nothing flat:** a cocoon of capsules (ankles, legs, torso, head, upside
+     down), shoulder and knee forms under the wrap, eight tilted binding strands, drips, hair hanging from
+     the head, and **one bare arm** hanging out with a hand and fingers. The surface is
+     `approach_growth_flesh.png` (below).
+   - **A work lamp tangled in the chain** falls with him, on the lane side, and casts shadows. It
+     catches, dies and catches again with the crash. The Containment lamp is on the wall side and
+     backlit him into a flat black shape; the lamp models him from the front and throws a moving shadow
+     on the wall behind.
+   - Its collider (a capsule, r 0.24) is off until the drop and hangs clear of the lane: 120 of 120
+     frame samples of rays along the lane (z −26 at three heights, z −25.6 at two) stayed clear
+     through the swing, while the same ray along the body's line hit it on 106 of them.
+   - No panic, no creature.
+3. **The fused technician** (`_build_technician`, `_build_relief_mesh`), on the Plenum's east wall at
+   z −30.4, **18.3 m from the porthole door**, north of the collapse. The route stops at `TECH_STOP`
+   (−28.6, −29.6), 2.5 m from his face. ⭐ **Rebuilt 2026-09-24 from the user's own art and made a real
+   bas-relief** (the user: *"a man holding a wheel looks very two D. Can we make it more three D?"*).
+   - **The art is the user's**: `…/approach/user/fused_technician_closed_D.jpg` (flux, 8 steps; prompts
+     in `prompts.txt` there), chosen from five. A realistic dead technician pressed into the wall, roots
+     over and round him, everything below the waist swallowed, eyes closed, and both hands curled in an
+     EMPTY grip at his chest and belly. Keyed off its green with no green left at the scissor edge.
+   - **A displaced MESH, not a card.** A 192² grid over 1.30 m (6.8 mm cells; 37,249 vertices, 46,086
+     triangles in the covered cells only), each vertex pushed out of the wall by
+     `approach_fused_height.png`. That height map is built by `make_breach_pass4_art.py` from **capsules
+     measured on the art** (head, neck, torso, shoulders, both arms, both fists) with rounded profiles,
+     so the head is round and an arm is a cylinder, plus a shallow profile for the growth and a light
+     luminance detail term, blurred, with no cliffs. Measured on the mesh: **chest 0.16 m proud, face
+     0.14 m, fists 0.17 m, the growth 1–4 cm, 0.5 mm at the art's frame edge**. Normals come from the
+     height grid; a normal map from the height's fine detail carries the folds finer than the grid.
+     It **casts shadows**: the caged lamp throws his head, arms and the wheel onto him and the wall.
+   - **Life size, grown from the wall**: his head (ears included) is 0.161 of the art's width, so
+     `TECH_W` 1.30 m makes it 0.21 m, with his eyes at 1.55 m. The mesh's base is 4.5 cm off the wall,
+     over the roots decal at 2.2 cm.
+   - **The eyes** open by albedo swap on the same mesh: bloodshot, staring eyes PAINTED over D's closed
+     ones (the tool asserts 0 texels differ outside the eye boxes).
+   - **The wheel** (`VALVE_R` 0.105 m, bright bare steel, metallic 0.55) sits **between his painted fists
+     at their displaced depth**: its rim passes through both fists (`TECH_ART_GRIPS_UV`, checked against
+     the art's skin texels), its tube sunk into their curl, 0.22 m off the wall. Taken, it vanishes and
+     leaves his painted hands curled round nothing. The door shows a bare spindle until it is fitted.
+   - **No 3D mass**: the 56-lump sphere mound, the 3D arms, sleeves and hands are gone (the user called
+     the spheres unrealistic); the swallowed body is the relief's. Three thin 3D tendrils come out of
+     his swallowed foot, lie on the relief and then the wall, and reach the floor. The roots decal
+     behind him is the user's `growth_spread.jpg`, keyed and faded radially, alpha-blended.
+   - **His light**: a caged lamp on a bracket above him (a shadowed spot, energy 2.6, 44°) aimed down
+     across his face to his chest; a faint cool fill.
+   - The grip, the eye swap and the whisper are pass 3's. (Pass 4 kept pass 3's wait for the story
+     channel, 7.2 s on a straight walk; ⭐ pass 5 dropped it — he answers at once, the victim scene
+     ducks under his beat, and his eyes open with the user's scream before the whisper.)
+   - He is solid (a box from the floor to his head, 24 cm deep), and E anywhere on him takes the wheel.
+4. **The walk-in music** (`approach_corridor_music.ogg`, 70.26 s, −14.4 LUFS, made by the parent's
+   `tools/prepare_breach_music.py`), **the lead layer**. ⭐ **Corrected after the user watched the
+   renders** (*"I do not hear the music I sent you, I hear just the sound of the corridor … not too
+   silent and not too loud"*): the first build's −17 dB put it 4 dB UNDER the vent bed, and 10 dB under
+   it whenever a story beat ducked it.
+   - It loops from the spawn on Ambience at **`MUSIC_DB` −4.0 dB**.
+   - It ducks **−17 dB under a PA line** (and its chime), **−14 dB under the technician's whisper** and
+     **−6 dB under every other story beat**, going down at 60 dB/s (the duck is in before the first
+     word) and back up at 6 dB/s. It also carries the approach's own silence duck, and it fades from
+     `threshold_quiet` and stops at −59.5 dB.
+   - **Set by recording the mix on a real walk**, not by arithmetic: `tests/probe_breach_music_mix.gd`
+     re-routes every speaker onto a meter bus with an `AudioEffectCapture` (headless works: the Dummy
+     driver still mixes) and compares, per 0.1 s window, RMS at the listener:
+
+     | segment | measured (power average) | median window | target |
+     |---|---|---|---|
+     | between beats: music − beds (vent, machinery, level beds) | **+3.5 dB** | +1.8 dB | +3–4 dB |
+     | PA lines: PA − ducked music | +4.7 dB | **+7.0 dB** | ≥ +6 dB |
+     | the whisper: whisper − ducked music | **+6.7 dB** | +5.3 dB | ≥ +6 dB |
+     | other story beats: story − music | +4.5 dB | — | — |
+     | the silences (Ambience dipped) | music −68 dB | | |
+
+     The track is dynamic, so its loud passages lift the power averages and its quiet ones the medians.
+     ⚠️ That recording also showed **the tannoy sat UNDER the vent bed even with no music at all** (PA
+     −29.8 against beds −25.1 RMS at KONTUR's `PA_DB` −5). ⭐ **The user's call 2026-09-24: raise the
+     announcer, Breach only** (built by the parent): `PA_DB` −1.0 (a DELIBERATE comment; KONTUR keeps its
+     own), and `BED_PA_DUCK` −4 dB dips the vent hum and the level's beds while a PA line plays.
+     Re-measured by the probe during PA lines: **PA −26.1, beds −29.0, ducked music −35.7**;
+     `check_breach_approach` 96/0.
+   - Measured on the full walk (`check_breach_approach`): −4.0 dB on quiet frames, −10.0 dB once a
+     story beat has run 1.2 s, −21.0 dB under a PA line, the Ambience bus at −30 dB inside both
+     silences, stopped at the hand. It played on 6,470 of 6,767 walk frames.
+   - Freed at the seal. Never in the hunt, never on a return visit or a hunt retry.
+5. **A slightly faster chase** (the parent): `BREACH_CHASE_SPEED := 5.5` in `level_6_breach.gd`, set on
+   `_creature.chase_speed`. The script default stays 5.0, and the Matron keeps 3.4.
+6. **The seal race** (`purge_chamber.gd`, behind `level_6_breach.gd:SEAL_RACE := true`).
+   - `purge_chamber.gd` gains the exports `seal_race` (**default false**), `seal_close_time` and
+     `seal_react_delay`. `SEAL_RACE`, `SEAL_CLOSE_TIME` 1.25 s and `SEAL_REACT_DELAY` 0.8 s live in the
+     level. **With `seal_race` false, `interact()` runs the old instant slam, untouched** (asserted).
+   - With it on, E starts the blast door grinding shut, and it advances only while E is **held** (the
+     chamber polls `Input.is_action_pressed("interact")`). Letting go rolls it back open over 0.6 s and
+     ends the attempt. The HUD prompt reads **"Hold E — seal the door"** (race off: the old "Press E").
+   - A creature inside is purge-frozen at the press. After 0.8 s it is released and `force_chase`d, so
+     it charges the doorway at the player.
+     ⚠️ **Except a staggered one** (pass 6, Issue 275): a creature the light weapon has blinded stays
+     frozen through the whole close and is sealed in. Its blind is never cut short.
+   - If it comes within 0.8 m of the doorway plane first, the door **jams**: it is flung back open over
+     0.4 s (`door_break`), the creature is held by the door for those 0.4 s (`force_block`), and it is
+     loose. That is not a death by itself, and the door can be tried again.
+   - A creature that was never inside but stands in the doorway jams it the same way: the leaf cannot
+     grind shut through a body, and the blocker must never switch on inside one.
+   - Fully shut, the old freeze → confirm → purge runs.
+   - **The tuning rule, measured** (`check_breach_seal_race.gd -- --sweep`, creature active and facing
+     the doorway at the press, which is its best case):
+
+     | depth in ExitVault at the press | 1.0 | 2.0 | 2.5 | 2.75 | 3.0 | 3.25 | **3.5** | 3.75 | 4.0 | 4.5 | 5.5 | 6.5 |
+     |---|---|---|---|---|---|---|---|---|---|---|---|---|
+     | outcome | jam | jam | jam | jam | jam | jam | **shut** | shut | shut | shut | shut | shut |
+
+     ExitVault is 7 m deep, so **the front half jams and the back half seals**. A jam lands 0.84–1.26 s
+     into the close; at 3.5 m the leaf shuts with it 1.03 m from the doorway.
+   - Placeholder grind: `approach_wheel_grind` pitched to 0.55.
+
+**Audio still to come from the user.** Placeholders at their fixed paths, from
+`tools/make_sfx_breach_pass4.py`:
+- `approach_drop_crash` (from `approach_door_crash`)
+- `approach_drop_chain` (from the House's `chain_rattle`)
+- `approach_shutter_breath` (from KONTUR's `breathing_behind`, slowed and low-passed)
+- the seal race's grind reuses `approach_wheel_grind` in code, pitched down.
+
+**Art.** `tools/make_breach_pass4_art.py`:
+- the fused pair (keyed, with the eye-only diff asserted);
+- `approach_growth_flesh.png`, a tileable tangle of wet tendrils in the relief's palette, **drawn**, not
+  generated: the Breach's organic wall texture (grey steel panels under growth) made every lump read as
+  black plastic, and the flux quota was spent;
+- `approach_growth_spread.png`, the roots decal;
+- `approach_fused_normal.png`, the relief's normal map, derived from its own luminance.
+Raws are in `assets_src/textures/level_6_breach/approach/pass4/`.
+
+**What proves it.**
+- **`check_breach_pass4.gd` (new, 57 checks).** Through the real player and the approach's own beat log:
+  - the shutter (reversed 2026-09-24): looking away, the armed shutter opens nothing; the FIRST opening,
+    on the look, shows the face, turned to the player (facing dot 1.000) and still; the puppet contract;
+    **the player's camera renders its layer**; freed when the shutter is down; every later cycle empty;
+  - the drop: fires once, by position, 1.5–2.5 m ahead; the hatch; 3D parts only; the work lamp on the
+    lane side; the lane clear through the swing with the body-line positive control; the walk on and
+    back; it settles;
+  - the technician: the far side; ONE relief, a displaced **mesh** (37,249 vertices), its aspect its
+    texture's; **life size** (head 0.21 m); **REAL DEPTH** (chest 0.16 m, face 0.14 m, fists 0.17 m,
+    falling to 0.5 mm at the art's edge); no spikes; casts shadows; no sphere mass and no 3D limbs;
+    a few thin tendrils lying on the surface; the grip points on the art's skin texels; the wheel
+    between the painted fists, at their displaced depth; bright steel; the caged lamp above him; the
+    normal map; the door's bare spindle; the fused pair; nothing glowing but the lamp's bulb; solid;
+  - panic 0 throughout.
+- **`check_breach_seal_race.gd` (new, 16 checks).** Race off: one press slams at once and purges, with the
+  old "Press E". Race on: the prompt; deep (5.2 m) shuts and purges; shallow (1.6 m) jams, kills nobody,
+  resets and swings open; letting go rolls back and releases it; nothing inside shuts, confirms nothing
+  and reopens; a creature standing in the doorway (never inside) jams it too. `-- --sweep` prints the table above.
+- **`check_breach_approach.gd` (96 checks).** The walk takes the wheel at `TECH_STOP` through the real E
+  ray and fits and turns it at `DOOR_STOP`; the music's timeline (above), with the story duck and the PA
+  duck each measured against the music's own idle level; `ceiling_drop` in the route order.
+- **`check_breach_porthole.gd` (66 checks).** The technician is 18.3 m from the door and is walked to; the
+  bare spindle does nothing without the wheel; fitting shows the wheel on the door; the carried line is
+  `CARRIED_WHEEL`. Its spark-burst check now reads the SCHEDULED flash lengths from the approach's queue:
+  measured as runs of lit physics frames it flaked under full-suite load, because the approach ticks in
+  `_process` and one late frame merges two flashes 0.03 s apart into one rendered run.
+- **`walk_level6_breach`, `check_purge_interact`, `check_purge_softlock`** hold E through the close.
+  The walk lures the creature deep (sealed at 4.28 m in, shut at 1.24 s) and still completes.
+- **`tests/probe_breach_music_mix.gd`** records the mix on a real walk (the table above).
+- **Renders:** `screenshot_breach_pass4.gd` → `backlogs/captures/breach-2026-09-23-pass4/` (29 frames):
+  the technician at 8 m, 4 m and 1.5 m, eyes closed and open, the wheel on his chest (`03a`–`03g`), at
+  **45° and grazing along the wall** with the wheel (`03i`, `03j`) and at 45° with it gone (`03h`), and
+  the door with the bare spindle and with the wheel fitted (`05a`, `05b`).
+
 ### Shipped — 2026-09-23 pass 3: an effort door, a dark room, the escape told, a hidden hunt start
 
 **Why.** The user's second hand playtest of the approach (2026-09-23, session 12:32, five J-captures).
@@ -76,7 +512,7 @@ Threshold → bulkhead.
    - It fires once per run, as part of the tell, and never faces the player.
    - The tell's sound source is that door now.
    - **The approach has two glimpses**, the grille and the hand. The user relaxed the earlier "exactly
-     ONE glimpse" ruling.
+     ONE glimpse" ruling. (Pass 4 adds a third, the shutter face, knowingly accepted by the user.)
 3. **The porthole door is the only way on.**
    - **The collapse.** The Plenum's doorway to Containment (−26, −26) stays cut, and is filled by a
      collapse (`_build_collapse`):
@@ -90,12 +526,18 @@ Threshold → bulkhead.
      cannot light the dark room through the wall.
    - **The dead technician** is slumped in the corner left of the door, turned toward it (+0.6 rad),
      with his own shadowed fill. He holds the wheel's missing handle.
+     ⚠️ **Superseded by pass 4:** he is now fused into the Plenum's far wall, 18.3 m from the door, life
+     size, and his art is the `approach_fused_*` pair. **He holds the whole valve wheel, not a handle,
+     and the door shows a bare spindle** ("E — fit the wheel", *CARRYING: THE VALVE WHEEL*). The sequence
+     below (the story-channel wait, the grip, the eyes, the whisper) and the wheel's turning are
+     unchanged; read "handle" below as "wheel".
      - He is generated art on a 1.2 m quad (`approach_technician_closed.png` and
        `approach_technician_open.png`): an eyes-open raw and the same image with lids painted over the
        two eye regions. The tool asserts that 0 texels differ
        outside the eyes.
      - **He does not answer until the story channel is idle.** The victim sequence behind this very
        door plays first; on a straight walk he answers ~11.5 s after the player reaches the door.
+       ⚠️ **Superseded by pass 5:** he answers at once, and the victim scene ducks under his beat.
      - **Taking the handle (E):** the dead hand pulls it back twice (~0.5 s), the eyes OPEN at 0.50 s,
        and a close hoarse whisper plays from his head, *"don't… go in there…"*. The grip lets go at
        3.23 s and `set_carried("A WHEEL HANDLE")`. The eyes close for good at 3.78 s. It happens once.
@@ -288,10 +730,14 @@ number. The renders are in `backlogs/captures/breach-2026-09-23-approach/`.
 
 ### Shipped — 2026-09-23 the approach shows Object 12's traces, its sounds and one glimpse
 
-> ⚠️ **Partly superseded by pass 3 (the top entry).** What changed:
-> - **Glimpses.** There are TWO, the grille and the hand. The "exactly ONE" ruling was relaxed by
->   the user.
-> - **An item puzzle.** There is one now: the handle for the porthole door, again the user's call.
+> ⚠️ **Partly superseded by passes 3 and 4 (the entries above).** What changed:
+> - **Glimpses.** There are THREE since pass 4: the grille, the shutter face and the hand. The
+>   "exactly ONE" ruling was relaxed by the user.
+> - **Pass 4:** the route is 81.47 s, and the walk-in has the user's music. In the room table below,
+>   bay B's shutter now rolls on a 0.55 m niche that shows the face once; the Plenum's technician is
+>   fused into its far (east) wall, not by the door; Containment gains the duct and the ceiling drop.
+> - **An item puzzle.** There is one now: the handle for the porthole door, again the user's call
+>   (since pass 4 it is the whole valve wheel, and the door shows a bare spindle).
 > - **The route.** It is 17 rooms and 73.25 s, not 13 rooms, 283.8 m and 68.9 s.
 > - **Panic.** It is 0 except in the dark room, not 0 everywhere.
 > - **The room table.** The PumpReturn row gains the grille and its puppet. The Plenum row's
@@ -796,10 +1242,13 @@ ending at a scorched-steel Incinerator.
   **CHASE follows the player through the doorway graph regardless of gaze** — the opposite of `creature_stalker.gd`'s
   "freeze while observed" rule, which would let a persistent chaser be cheesed by simply staring at
   it. Losing sight of an exposed player enters `SEARCH`, walks to the last-seen position and scans
-  there for `SEARCH_TIME=8s`. **Entering a hiding spot instead clears that memory and starts
+  there for `SEARCH_TIME=8s`. (⭐ Since pass 5 the Breach's creature keeps WALKING to neighbouring
+  rooms through that 8 s instead of standing, and the same give-up/relocation follows; the Matron still
+  scans in place.) **Entering a hiding spot instead clears that memory and starts
   random wandering**, per the 2026-09-20 user ruling above. `CHASE_SPEED=5.0` sits
   deliberately between the player's walk (4.0) and sprint (6.4) — beatable only by sprinting, which
-  costs `SPRINT_PANIC_RATE`. Contact within `CONTACT_DIST=1.0` is **instant-fatal**.
+  costs `SPRINT_PANIC_RATE`. ⭐ **The Breach runs it at 5.5 since pass 4** (`BREACH_CHASE_SPEED`, the
+  user's call), still under the sprint. Contact within `CONTACT_DIST=1.0` is **instant-fatal**.
   ⚠️ The FOV/facing check is deliberately **horizontal-only**: dotting the creature's (horizontal)
   facing against the *full 3D* direction to the player mixes in the CHEST(0.9)-vs-eye-height(~1.65)
   vertical gap, which can fail the dot-product test regardless of facing once the gap is a large
@@ -854,6 +1303,9 @@ ending at a scorched-steel Incinerator.
   `level_5_kontur` — `GameState.load_audio()` already scans every subdir, no file copy needed) and
   calling `creature.lure_into_trap()` (permanent). A mistimed lure just re-opens the door with a
   toast ("IT ISN'T IN THERE") — retryable, not a run-ender
+  ⭐ **Since pass 4 (2026-09-23) the slam is a RACE while `SEAL_RACE` is on:** E held grinds it shut over
+  1.25 s, a creature inside charges after 0.8 s, and one that reaches the doorway first jams it open. See
+  the pass-4 entry above; `SEAL_RACE := false` restores the instant slam described here.
 - ⭐ **THE EXIT AND BACK DOORS ARE REAL DOORS NOW (2026-09-03).** They were a hand-rolled
   `BoxMesh(1.0, 2.2, 0.15)` at albedo (0.15,0.01,0.01) with emission ×**1.5** — verbatim the
   UNTEXTURED branch `door.gd:26-40` documents as the "red brick" fallback it was superseded by —
@@ -885,6 +1337,118 @@ ending at a scorched-steel Incinerator.
 
 ## DECISIONS & GOTCHAS
 
+**2026-09-24: pass 6, the blinded seal and the louder drop.**
+- **A scripted override must not bypass a state's own exit path.** `force_chase()` was the seal race's
+  way to make the creature charge, and it silently ended the one state that is a promise to the player.
+  The guard lives in `force_chase()` itself, not only in the race, so no future caller can cut a blind
+  short either. Same shape as `force_block()` (Issue 176).
+- **Rejected:** letting the race charge a staggered creature once its stagger ends mid-close. A 5–7 s
+  blind always outlasts the 1.25 s close, so the branch could never run. It would only be code to
+  misread.
+- **Not a difficulty change:** the race's times, the chase speed and the jam distance are all
+  untouched. The only difference is that the blind the HUD already announces ("IT RECOILS") now holds.
+- **Louder = contrast, not gain.** The limiter caps every one-shot at −0.5 dBFS. Any future "make X
+  louder" on this level should go through a duck (`_duck_to`) before any more gain. More gain on an
+  already-limited peak only flattens the transient.
+
+**2026-09-23: pass 4, the user's calls, and what the renders changed.**
+- **The user's words set every item** (grilled one at a time):
+  - The shutter: *"Maybe the face of the creature should appear behind this room which first opens and
+    then closes?"*, and they chose **a quiet stare** over "the face slams in". It first shipped on a
+    looked-at cycle after an empty one; **the user reversed it 2026-09-24**: the first opening shows
+    it (on the look), and never again.
+  - The sudden scare: *"there should be at least one place where the element of unexpectedness and
+    suddenness will make the player scared … besides this hand"*, and they chose the dragged victim
+    dropping from the ceiling, triggered by position, with no panic.
+  - The technician: *"way too unrealistic … it looks very 2d now"* and *"what for to keep the handle
+    just besides the door"*, and they chose him fused into the wall on the Plenum's far side.
+  - The music: the user's own track, for the walk-in only.
+  - The hunt: *"Ins't it a bit too simple now to win the creature? Maybe make it just slightly harder"*,
+    and they chose chase 5.5 m/s plus the seal race, the race behind ONE switch: *"make this feature
+    easily irreversible, it is likely that after testing it I will say to restore it back"*.
+    `SEAL_RACE := false` restores the instant slam exactly, and `check_breach_seal_race` asserts it.
+- **The race's two times are the tuning rule's, measured, not guessed.** The rule was "succeeds when
+  lured deep (the back half), fails near the doorway". 1.25 s / 0.8 s puts the line between 3.25 m
+  (jam) and 3.5 m (shut) of a 7 m vault. ⚠️ The sweep stages the creature **facing the doorway** at the
+  press, its best case; a creature caught facing away turns first and the player gains time.
+  ⚠️ Changing `BREACH_CHASE_SPEED` moves this line: re-run `check_breach_seal_race.gd -- --sweep`.
+- **The jam holds it only for the door's own 0.4 s swing** (`force_block(REOPEN_TIME)`), then it is
+  loose and chasing. That is an open question for the user (a longer stagger would make a jam a second
+  chance rather than a punishment).
+- **"Hold E" is named on the prompt.** The old door taught a single tap; a tapped race door budges and
+  rolls back, which reads as broken without the words. The prompt only changes with the race on.
+- ⚠️⚠️ **THE FACE WAS ON A LAYER THE CAMERA CULLS (found by the first render, Issue 270).** The pass
+  used `1 << 19` after the hand's 17 and the grille's 18. That is render layer 20, `player.gd`'s
+  `MIRROR_ONLY_LAYER`, which the player's camera removes from its `cull_mask`. The face was revealed,
+  visible, lit by a fill culled to its layer and passed every state check, and the render was an empty
+  niche. It is on layer 17 (`1 << 16`) now, and `check_breach_pass4` asks the camera.
+- **The level's ambient lights every layer.** A layer-culled fill cannot stop `_boost_ambient(0.28)`, so
+  the face puppet's body stood grey in the black niche. Its albedo is ×0.3 and the fill ×3, so the
+  ambient term sinks while the face keeps its light.
+- **The drop needed its own light.** The only lamp near it is on the wall side, so the first render was
+  a flat black shape. The work lamp tangled in the chain is on the lane side, swings with him and casts
+  shadows.
+- **The growth took three builds, all from reading renders.**
+  - Glossy spheres and straight capsules in the Breach's organic WALL texture read as black balloons on
+    sticks, radiating like a sea mine.
+  - Matte lumps and jointed vines read as brown coins and insect legs.
+  - What reads: a flat roots decal on the wall, a mound of many small lumps, a few drooping vines, all
+    in one drawn tendril texture in the relief's palette. ⚠️ Radiating 3D sticks are the thing to avoid.
+- **The user's two corrections after watching the renders run** (2026-09-23):
+  - *"I do not hear the music I sent you, I hear just the sound of the corridor … not too silent and not
+    too loud."* The first gain (−17 dB) was ARITHMETIC against the vent's LUFS and the comment beside it
+    even said "4 dB under the vent bed". It is now set from a recording of the mix at the listener
+    (`probe_breach_music_mix.gd`, Issue 271): music +3.5 dB over the beds between beats, the voices
+    ≥ +6 dB over the ducked music. ⚠️ Re-run the probe after any change to a bed, a PA line or the music.
+  - *"I do not see the wheel very clearly in its arms. Can you make it more realistic and make it even
+    more adjacent to the wall? Think about it."* The item became the WHOLE valve wheel (the door has a
+    bare spindle), he became life size (the old relief made his head 0.57 m across), the relief moved to
+    the wall plane with growth over its edges, and a caged lamp above him lights him. The body art was
+    not regenerated (no flux quota); see the as-built text.
+- - **2026-09-24, pass 5, in the user's words:**
+  - **"It is either contained and you can get out or you get killed."** The first outcome wins. The
+    playtest's double outcome (killed at 314.58, SEALED at 316.93, then the restart) was the player
+    killed INSIDE ExitVault while their held E ran the close on, and the purge's timers finished the
+    win under the death (Issue 272).
+  - **"Change nothing about this, the only thing I wanted is to avoid the situation when the object is
+    not moving at all before teleporting."** Only the arrival behaviour changed, gated on the Breach's
+    flags; `SEARCH_TIME`, `HIDDEN_RELOCATE_INTERVAL`, detection and relocation did not move (Issue 273).
+  - **"Take the wheel button is not active at first. Let's make it active straight away"** and
+    **"after we press an E something like a scream of this man should appear, followed by this 'Don't
+    go in there'".** The victim scene ducks rather than gating him.
+  - **Difficulty is kept as it is** (the user's call): chase 5.5 and `SEAL_RACE` on, with 5 deaths in
+    the playtest, 4 of them inside ExitVault. Do not retune them from this playtest.
+  - ⚠️ The open eyes at 1.5 m are small: a life-size face's eyes are ~3 cm, and the game renders 3D at
+    half scale on HiDPI. The scream now carries the moment; the eyes open visibly but subtly.
+**2026-09-24, three more of the user's calls:**
+  - **The technician is the user's own art.** The user generated five candidates with flux and chose
+    D (a realistic technician pressed into the wall, swallowed below the waist, hands in an empty
+    grip); A, B, C and E are kept as raws. The spread and flesh textures are the user's too, replacing
+    the Pillow-drawn ones.
+  - **"A man holding a wheel looks very two D. Can we make it more three D?"** A flat relief plus a
+    normal map was not enough, so he is a **bas-relief mesh** displaced by a height map.
+    ⚠️ The height map is built from **capsules measured on the art**, not from a distance transform of
+    a colour-classified body mask: that first attempt classified shadowed skin as growth, left the
+    face 4 cm proud and the chest a jagged "F", and a chessboard erosion distance stair-stepped every
+    edge. ⚠️ No hard mask may multiply the height (a cut at a hole or the silhouette is a cliff the mesh
+    shows edge-on); the alpha scissor decides what is seen.
+  - **The shutter face reversed**: *"now you can see the creature the second time the door opens, and
+    the first time it opens you cannot see it. Let's make it vice versa."* The first opening shows it,
+    and waits for the look so it is never wasted.
+  - **The wheel sits at the fists' displaced depth**, its tube sunk into their curl, so the painted
+    fingers close over it. It is smaller (0.105 m) because it has to pass through both painted fists.
+  - ⚠️ **The painted-hand eyes-open composite** transplanted the staring eyes of the old flux raw first;
+    lit for another face they read as pasted on, so the open eyes are painted in D's own skin light.
+  - ⚠️ **3D tendrils must lie on the surface.** The first ones ran out across the floor and stood off
+    the wall like spider legs; now three thin ones follow the displaced relief and the wall to the floor.
+- **The flesh texture was drawn in Pillow, not generated** (superseded 2026-09-24 by the user's tile). The Cloudflare flux quota ran out mid-pass.
+  If the user wants a photographic flesh surface, re-generate `approach_growth_flesh.png` (tileable)
+  and nothing else changes.
+- **The music carries the approach's own silence duck as well as the bus dip.** `HoldBreath.dip()`
+  refuses a second dip while one is running, and the vent already worked this way.
+- **The music check measures the duck against the music's own idle level.** A threshold built from
+  `MUSIC_STORY_DUCK` read back stayed green with the duck set to 0.
+
 **2026-09-23: pass 3, the user's calls, and what the renders changed.**
 - **The user's words set every item.**
   - The grille: *"should we see some kind of a real monster through it?"*, and they chose its back and
@@ -897,12 +1461,15 @@ ending at a scorched-steel Incinerator.
   - The bodies: *"seem alive for some moment and tell not to go there"*, and they chose the grip, the
     eyes and the whisper on the technician; the chamber's bodies are dead only.
   - Not chosen: an in-world or fullscreen video corpse, cell concepts B and C, an announced spawn.
-- **The two rules this reverses, both at the user's word:** "exactly ONE glimpse" (now two), and "no
+- **The two rules this reverses, both at the user's word:** "exactly ONE glimpse" (now two; three since
+  pass 4), and "no
   item puzzle" (now the handle). **"No new panic terms" is reversed for the dark room only**, and the
   term there is capped so it cannot kill.
-- **The technician waits for the story channel.** A straight walk reaches the door while the victim
+- **The technician waits for the story channel** (⚠️ reversed by pass 5 at the user's word: he answers
+  at once and the victim scene ducks instead). A straight walk reaches the door while the victim
   is still hammering behind it, and the whisper under the roar was inaudible. He answers when the drag
-  has gone, ~11.5 s after the door is reached. ⚠️ If that wait reads as a broken prop, the lever is to
+  has gone, ~11.5 s after the door is reached (pass 4 moved him to the far wall: ~7.2 s after his wall
+  is reached). ⚠️ If that wait reads as a broken prop, the lever is to
   start the victim earlier (in Damaged), not to un-gate him.
 - **The wheel reads the MOTION's direction, not a position.** A position-based virtual hand needs the
   circle drawn round a centre the player cannot see; the motion vector's direction turns 2π per loop of
@@ -1127,6 +1694,33 @@ stays in SPEC.
 
 ## NEEDS A PLAYTEST
 
+- **Pass 6.**
+  - **Blind it, then seal it.** Blind Object 12 inside ExitVault and hold E. It should stay down and be
+    sealed in, even near the doorway. Let go mid-close: it should still be reeling.
+  - **The ceiling drop.** Is it loud enough now? Does the room going quiet under the crash read as a
+    hit, or as the sound cutting out?
+- **Pass 5.**
+  - **The seal.** Try to die inside ExitVault while holding E, and try sealing it as it lunges: does
+    each end in exactly one outcome?
+  - **The creature after you hide.** Does it keep prowling instead of standing, and does the teleport
+    still land where you have time to move?
+  - **The technician.** Does E work the moment you reach him, does the scream land (loud, but not the
+    kill sting), and is "don't… go in there…" still heard after it? Do you notice his eyes open?
+- **Pass 4, walk it straight, then slowly.**
+  - **The shutter face** (reversed: the FIRST opening shows it, when you look). Did you see it? Did the
+    quiet stare frighten, or read as a statue? A player who never looks at bay B never sees it open.
+  - **The ceiling drop.** Does it make you jump? Does the body read as a person wrapped up (the hair,
+    the bare arm), not as a bag? The crash and the chain are placeholders.
+  - **The fused technician** (the user's art, a bas-relief mesh). Does he read as a real man grown out of
+    the wall, from the front and walking past? Is the wheel in his fists seen from across the Plenum
+    (the door's bare spindle is the other half of the clue)? Up close, the face can look mask-like: its
+    features are painted on a smooth head form.
+  - **The music.** Is it now the lead without being loud, is every PA line still intelligible over the
+    ducked music (the tannoy sits under the vent bed even alone), and does its fade before the hand make
+    the corner feel emptier?
+  - **The seal race.** Is "Hold E" clear? Lured into the back half it seals; near the doorway it jams.
+    Does that feel fair, and is the 0.4 s the jam holds it enough to get away? The user expects to
+    judge whether to keep it (`SEAL_RACE`).
 - **Walk the approach twice: once straight through, once stopping at the porthole door.**
   - Does every beat land, in order?
   - Does a straight walk feel rushed through the victim? PA line 3 queues behind it.

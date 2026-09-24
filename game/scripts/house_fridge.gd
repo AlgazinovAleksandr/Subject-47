@@ -38,7 +38,8 @@ const REVEAL_DELAY := 0.62          # …and the head as the door clears it (DOO
 const THING_TEX := "res://assets/textures/level_2_house/house_fridge_thing.png"
 # H2 (2026-09-13, capture #7, the user's design): the House's third safe digit is written on the
 # head's forehead (baked by tools/make_head_digit.py), and the fridge wears a CHAIN + PADLOCK that
-# only the bolt cutters under the Bedroom bed can open. The chain is the message — E on it
+# only the bolt cutters can open (under the Bedroom bed until 2026-09-24; since the Porch pass they
+# come out of the watermelon in the porch guillotine's basket). The chain is the message — E on it
 # rattles and says nothing (the Lab drawer rule).
 const THING_TEX_DIGIT := "res://assets/textures/level_2_house/house_fridge_thing_digit.png"
 const CHAIN_LINKS := 22              # dense enough to read as a chain, not a row of dots (render-checked 2026-09-13)

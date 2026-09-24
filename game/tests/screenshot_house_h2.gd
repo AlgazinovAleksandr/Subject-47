@@ -1,6 +1,8 @@
 extends SceneTree
 
-# H2 (2026-09-13): the chained fridge, the cutters under the bed (torch aimed low), the head's digit.
+# H2 (2026-09-13): the chained fridge, the cutters, the head's digit.
+# ⭐ 2026-09-24: the cutters come out of the porch guillotine now (shot 02 is the basket, put in
+# its CUT state by the level's own restore path); `screenshot_house_porch.gd` covers the porch.
 #   /Applications/Godot.app/Contents/MacOS/Godot --path game --script res://tests/screenshot_house_h2.gd
 const OUT := "/tmp/house_h2/"
 var _p: Node3D = null
@@ -44,15 +46,17 @@ func _process(delta: float) -> bool:
 		1:
 			if _t > 0.5:
 				_shot("01_fridge_chained")
-				var c := _l.get_node("BoltCutters") as Node3D
-				_stand(c.global_position + Vector3(0.9, 0.1, 0.0), c.global_position)
+				_l.get_node("HouseWindow").call("break_pane", false)
+				var g := _l.get_node("Guillotine") as Node3D
+				g.call("restore", "cut", false)
+				var c := g.call("cutters_node") as Node3D
+				_stand(g.global_position + g.global_transform.basis.z * 1.2 + Vector3(0, 0.1, 0), c.global_position)
 				_t = 0.0
 				_phase = 2
 		2:
 			if _t > 0.5:
-				_shot("02_cutters_under_bed")
+				_shot("02_cutters_in_the_basket")
 				_l.set("_cutters_held", true)
-				_l.get_node("BoltCutters").queue_free()
 				var f := _l.get_node("Fridge")
 				f.call("interact")   # cuts (cutters held)
 				_t = 0.0

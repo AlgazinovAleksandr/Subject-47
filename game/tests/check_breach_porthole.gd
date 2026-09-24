@@ -1,7 +1,7 @@
 extends SceneTree
 
 # THE BREACH APPROACH, PASS 3 (2026-09-23): the effort door, the dark room, the escape told, and
-# every floor prop solid. Driven through the REAL player: walked with `ai_move_dir`, the handle taken
+# every floor prop solid. Driven through the REAL player: walked with `ai_move_dir`, the valve wheel taken
 # and the wheel fitted through `ai_interact()` (the E ray, `can_interact()`, the prompt), and the
 # wheel TURNED by synthesized `InputEventMouseMotion` circles pushed into the viewport, the path a
 # real mouse takes. No completion signal and no approach method is called to make anything happen.
@@ -13,8 +13,10 @@ extends SceneTree
 #     control ray through a doorway that is open;
 #   * a ray hits the collider of EVERY floor-standing prop class (P6), each ray fired from the side
 #     the player can stand on;
-#   * the wheel refuses without the handle; the technician refuses while the victim is still heard;
-#   * taking the handle: grip → eyes OPEN (the texture swap) → whisper → released → eyes CLOSED, in
+#   * the bare spindle refuses without the wheel (pass 4: he holds the WHOLE wheel; the snapshot key
+#     `approach_handle_taken` keeps its old name); the technician answers AT ONCE (pass 5), the victim
+#     scene ducking under his beat;
+#   * taking the wheel: grip → eyes OPEN (the texture swap) with the user's scream (pass 5) → whisper → released → eyes CLOSED, in
 #     that order, once; the carried line shows it; the pair has the same size and differs only a little;
 #   * the wheel turns under mouse circles, DRIFTS BACK when released, lets go on E and on a movement
 #     key, does not turn for a straight back-and-forth rub, unwinds the other way, and opens the door
@@ -202,7 +204,7 @@ func _run() -> void:
 	var names: Array = Array(_approach.call("beat_names"))
 	_ok("the victim is heard behind the porthole door", names.has("victim"))
 	_ok("walked to the door", await _walk(consts["DOOR_STOP"]))
-	# the wheel without its handle does nothing
+	# the bare spindle, with no wheel, does nothing
 	_player.call("ai_look_at", Vector3(-44.5, 1.05, -32.87))
 	await physics_frame
 	var wheel_target: Node = _player.call("ai_interact_target")
@@ -210,28 +212,29 @@ func _run() -> void:
 		wheel_target != null and String(wheel_target.name) == "PortholeWheelInteract")
 	_player.call("ai_interact")
 	await physics_frame
-	_ok("without the handle the wheel neither engages nor opens", not _approach.get("wheel_engaged")
-		and not _approach.get("porthole_open") and not _player.call("is_input_frozen"))
-	# the technician keeps silent while the victim is still being heard
-	var tech_head := Vector3(-46.55, 0.55, -32.4)
+	_ok("without the wheel the bare spindle neither engages nor opens, and no wheel appears", not _approach.get("wheel_engaged")
+		and not _approach.get("porthole_open") and not _player.call("is_input_frozen") and not (_approach.get("_wheel") as Node3D).visible)
+	# ⭐ PASS 4: the technician is on the FAR side of the Plenum now (the user: "what for to keep the
+	# handle just besides the door"), so the handle is a search: walk over to him.
+	var tech_head: Vector3 = _approach.get("_tech_head")
+	var door_at: Vector3 = _approach.get("_wheel").global_position
+	var apart := Vector2(tech_head.x - door_at.x, tech_head.z - door_at.z).length()
+	_ok("the technician is on the far side of the Plenum from the porthole door (%.1f m apart)" % apart, apart > 12.0)
+	# the route's own lane (a straight line from the door runs into the Plenum's floor props)
+	await _walk(Vector3(-44.5, 0.1, -26.8))
+	await _walk(Vector3(-35.0, 0.1, -26.8))
+	_ok("walked across the Plenum to him", await _walk(consts["TECH_STOP"]))
+	# ⭐ PASS 5 (the user: "Take the wheel button is not active at first. Let's make it active straight
+	# away"): he answers AT ONCE, even while the victim scene behind the porthole door is still playing
+	var victim_live: bool = not _approach.call("_story_idle", 0.0)
 	_player.call("ai_look_at", tech_head)
 	await physics_frame
-	var early: Node = _player.call("ai_interact_target")
-	_ok("the technician offers nothing while the victim sequence is still playing", early == null)
-	var waited := 0.0
-	var tech_target: Node = null
-	while waited < 20.0:
-		_player.call("ai_look_at", tech_head)
-		await physics_frame
-		waited += 1.0 / Engine.physics_ticks_per_second
-		tech_target = _player.call("ai_interact_target")
-		if tech_target != null:
-			break
-	print("  the technician answered %.2f s after the door was reached" % waited)
-	_ok("once the drag has gone, the technician is in reach of the real E ray",
+	await physics_frame
+	var tech_target: Node = _player.call("ai_interact_target")
+	_ok("the technician is in reach of the real E ray AT ONCE (the victim scene still playing: %s)" % victim_live,
 		tech_target != null and String(tech_target.name) == "TechnicianInteract")
 
-	# ---------------------------------------------------------------- 4. the handle
+	# ---------------------------------------------------------------- 4. the wheel, from his arms
 	var mat: StandardMaterial3D = _approach.call("technician_material")
 	var closed_tex: Texture2D = _approach.get("_tech_tex_closed")
 	var open_tex: Texture2D = _approach.get("_tech_tex_open")
@@ -260,46 +263,63 @@ func _run() -> void:
 	var t0 := Time.get_ticks_msec()
 	_player.call("ai_interact")
 	var eyes_open_at := -1.0
-	var whisper_heard := false
+	var scream_at := -1.0
+	var whisper_at := -1.0
 	var released_at := -1.0
 	var closed_again_at := -1.0
+	var victim_duck := 0.0
 	var e := 0.0
-	while e < 6.0:
+	while e < 9.0:
 		await physics_frame
 		e += 1.0 / Engine.physics_ticks_per_second
 		if eyes_open_at < 0.0 and mat.albedo_texture == open_tex:
 			eyes_open_at = e
 		for c in _approach.get_children():
-			if c is AudioStreamPlayer3D and c.playing and c.stream and String(c.stream.resource_path).contains("approach_whisper_dont_go_in"):
-				whisper_heard = true
+			if c is AudioStreamPlayer3D and c.playing and c.stream:
+				var path := String(c.stream.resource_path)
+				if scream_at < 0.0 and path.contains("approach_technician_scream"):
+					scream_at = e
+				if whisper_at < 0.0 and path.contains("approach_whisper_dont_go_in"):
+					whisper_at = e
+		victim_duck = minf(victim_duck, float(_approach.get("_victim_duck_db")))
 		if released_at < 0.0 and _approach.get("handle_taken"):
 			released_at = e
 		if released_at > 0.0 and closed_again_at < 0.0 and mat.albedo_texture == closed_tex:
 			closed_again_at = e
-	print("  technician: eyes open %.2f s, released %.2f s, eyes closed %.2f s" % [eyes_open_at, released_at, closed_again_at])
+	print("  technician: eyes open %.2f s, scream %.2f s, whisper %.2f s, released %.2f s, eyes closed %.2f s; victim duck %.1f dB" % [
+		eyes_open_at, scream_at, whisper_at, released_at, closed_again_at, victim_duck])
 	_ok("the hand grips ~0.5 s, THEN the eyes open (%.2f s)" % eyes_open_at, eyes_open_at >= 0.4 and eyes_open_at <= 0.7)
-	_ok("the whisper plays, close, from his head", whisper_heard)
-	_ok("the grip lets go after the whisper (%.2f s) and the handle is carried" % released_at,
-		released_at > eyes_open_at + 1.5 and String(root.get_node("GameState").get("carried_item")) == "A WHEEL HANDLE")
+	_ok("⭐ the user's SCREAM comes with the eyes opening (%.2f s)" % scream_at, scream_at >= 0.0 and absf(scream_at - eyes_open_at) < 0.1)
+	_ok("⭐ …and the whisper FOLLOWS it, after the scream's 2.3 s (%.2f s)" % whisper_at, whisper_at > scream_at + 2.0)
+	_ok("the grip lets go after the whisper (%.2f s) and the wheel is carried" % released_at,
+		released_at > whisper_at + 1.0 and String(root.get_node("GameState").get("carried_item")) == String(consts["CARRIED_WHEEL"]))
 	_ok("then the eyes close for good (%.2f s)" % closed_again_at, closed_again_at > released_at)
+	if victim_live:
+		_ok("the victim scene DUCKED under his beat (%.1f dB), not cut" % victim_duck, victim_duck <= -10.0)
 	names = Array(_approach.call("beat_names"))
-	var order := ["technician", "technician_grip", "technician_eyes_open", "technician_released", "technician_eyes_closed"]
+	var order := ["technician", "technician_grip", "technician_eyes_open", "technician_scream", "technician_whisper",
+		"technician_released", "technician_eyes_closed"]
 	var idx := order.map(func(b): return names.find(b))
+	var in_order := idx.all(func(i): return i >= 0)
+	for k in range(1, idx.size()):
+		in_order = in_order and idx[k - 1] < idx[k]
 	_ok("the technician's steps are logged once each, in order %s" % str(idx),
-		idx.all(func(i): return i >= 0) and idx[0] < idx[1] and idx[1] < idx[2]
-		and idx[2] < idx[3] and idx[3] < idx[4] and order.all(func(b): return names.count(b) == 1))
+		in_order and order.all(func(b): return names.count(b) == 1))
 	_player.call("ai_look_at", tech_head)
 	await physics_frame
 	_ok("it happens ONCE: afterwards he offers nothing", _player.call("ai_interact_target") == null)
 
 	# ---------------------------------------------------------------- 5. the wheel
+	await _walk(Vector3(-35.0, 0.1, -26.8))
+	await _walk(Vector3(-44.5, 0.1, -26.8))
+	_ok("walked back to the porthole door with the wheel", await _walk(consts["DOOR_STOP"]))
 	_player.call("ai_look_at", Vector3(-44.5, 1.05, -32.87))
 	await physics_frame
 	_player.call("ai_interact")
 	await physics_frame
-	_ok("E on the wheel fits the handle and engages it (handle shown, player frozen, carried cleared)",
+	_ok("E at the spindle fits the WHOLE WHEEL and engages it (the wheel shown on the door, player frozen, carried cleared)",
 		_approach.get("handle_fitted") and _approach.get("wheel_engaged") and _player.call("is_input_frozen")
-		and String(root.get_node("GameState").get("carried_item")) == "")
+		and (_approach.get("_wheel") as Node3D).visible and String(root.get_node("GameState").get("carried_item")) == "")
 	var yaw_before := _player.rotation.y
 	await _circle(2.5, 0.8, 70.0)
 	var p1: float = _approach.get("wheel_progress")
@@ -371,10 +391,23 @@ func _run() -> void:
 	var flashes: Array = []
 	var run := 0
 	var was_on := false
+	# ⚠️ The SCHEDULED flash lengths are read from the approach's own queue the frame a burst is
+	# scheduled. They used to be measured as runs of lit PHYSICS frames, and that flaked under full-suite
+	# load (2026-09-23): the approach ticks in `_process`, so one late process frame pops a flash's "off"
+	# and the next flash's "on" together, and two flashes 0.03 s apart render as one 0.15 s run. The
+	# rendered runs are still checked, against a stuck light.
+	var scheduled: Array = []
+	var bursts_seen: int = _approach.get("spark_bursts")
 	e = 0.0
 	while e < 24.0:
 		await physics_frame
 		e += dt
+		if int(_approach.get("spark_bursts")) != bursts_seen:
+			bursts_seen = _approach.get("spark_bursts")
+			var q: Array = _approach.get("_spark_queue")
+			for i in range(q.size() - 1):
+				if bool(q[i][1]) and not bool(q[i + 1][1]):
+					scheduled.append(float(q[i + 1][0]) - float(q[i][0]))
 		var pn := _panic()
 		peak = maxf(peak, pn)
 		if pn > cap + 0.0001:
@@ -394,8 +427,10 @@ func _run() -> void:
 	print("  sparks: %d flashes, durations %s" % [flashes.size(), str(flashes.slice(0, 8))])
 	_ok("panic rises while inside and reaches the cap in ~15–20 s (%.2f s)" % t_cap, t_cap >= 14.0 and t_cap <= 21.0)
 	_ok("panic NEVER exceeds %.0f/50 (peak %.4f, %d frames over)" % [cap, peak, over], over == 0 and peak <= cap + 0.0001)
-	var ok_flashes := flashes.size() >= 4 and flashes.all(func(d): return d >= 0.049 and d <= 0.135)
-	_ok("the junction box fires 0.06–0.12 s bursts (%d flashes)" % flashes.size(), ok_flashes)
+	var ok_flashes := scheduled.size() >= 4 and scheduled.all(func(d): return d >= 0.06 - 0.0001 and d <= 0.12 + 0.0001)
+	_ok("the junction box fires 0.06–0.12 s bursts (%d scheduled flashes, %s)" % [scheduled.size(), str(scheduled.slice(0, 6))], ok_flashes)
+	_ok("and they render as flashes, never a stuck light (%d lit runs, longest %.2f s)" % [flashes.size(), flashes.max() if not flashes.is_empty() else 0.0],
+		flashes.size() >= 4 and flashes.all(func(d): return d <= 0.35))
 	_ok("and is dark most of the time (%.1f %% of frames lit)" % (100.0 * on_frames / (24.0 * 60.0)), on_frames < 24.0 * 60.0 * 0.25)
 	# sprinting at the cap still cannot kill
 	var reloads_before := current_scene
@@ -475,25 +510,25 @@ func _run() -> void:
 
 	# ---------------------------------------------------------------- 8. the snapshot
 	var snap: Dictionary = _level.call("save_progress")
-	_ok("the snapshot carries the handle and the open door (%s)" % str(snap),
+	_ok("the snapshot carries the wheel (key approach_handle_taken) and the open door (%s)" % str(snap),
 		snap.get("approach_handle_taken", false) and snap.get("approach_porthole_open", false))
 	var gs := root.get_node("GameState")
 	gs.get("level_progress")[6] = snap
 	change_scene_to_file(SCENE)
 	await create_timer(1.8).timeout
 	_bind()
-	_ok("a return visit finds the door open and the handle gone from his hand",
+	_ok("a return visit finds the door open, its wheel on it, and the wheel gone from his arms",
 		_approach.get("porthole_open") and float(_approach.call("porthole_leaf_angle")) > 95.0
-		and _approach.get("handle_taken") and _approach.get("_tech_handle") == null)
+		and _approach.get("handle_taken") and _approach.get("_tech_wheel") == null and (_approach.get("_wheel") as Node3D).visible)
 	var back_ray := _ray(Vector3(-44.5, 1.0, -31.4), Vector3(-44.5, 1.0, -34.6))
 	_ok("and its doorway is clear", back_ray.is_empty())
 	gs.get("level_progress")[6] = {"approach_handle_taken": true, "approach_porthole_open": false}
 	change_scene_to_file(SCENE)
 	await create_timer(1.8).timeout
 	_bind()
-	_ok("a return with the handle carried: the door is shut and the handle is still carried",
+	_ok("a return with the wheel carried: the door is shut and the wheel is still carried",
 		not _approach.get("porthole_open") and _approach.get("handle_taken")
-		and String(gs.get("carried_item")) == "A WHEEL HANDLE")
+		and String(gs.get("carried_item")) == String(_approach.get_script().get_script_constant_map()["CARRIED_WHEEL"]))
 	gs.get("level_progress").erase(6)
 	gs.call("set_carried", "")
 	_ok("sample count is meaningful", _checks >= 40)

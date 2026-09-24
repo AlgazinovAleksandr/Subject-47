@@ -6918,3 +6918,186 @@ Overhead props whose underside is above the player's 1.8 m stay meshes.
 **General lesson:** hand-built `BoxMesh` geometry has no physics. A helper that makes a visual needs a
 sibling that makes it solid, and the default for anything at body height should be the solid one. A walk
 down a cleared lane cannot find a missing collider; only a ray aimed at the prop can.
+
+## Issue 270 — A puppet on render layer 20 passed every state check and rendered nothing, because the player's camera culls that layer (2026-09-23)
+
+**Symptom:** the Breach's pass-4 shutter face (`breach_approach_face.gd`) was revealed on its looked-at
+cycle, and `check_breach_pass4.gd` passed all of its checks: visible, turned to the player, its own
+non-emissive material, its own layer, lit by a fill culled to that layer. The first render of the moment
+showed an empty black niche, pixel-identical to the empty cycle before it.
+
+**Cause:** the approach's puppets each take their own render layer so their fill light cannot leak onto the
+set and the set's lamps cannot light them: the hand `1 << 17`, the grille `1 << 18`. The face took the next
+one, `1 << 19`, which is **render layer 20**: `player.gd:MIRROR_ONLY_LAYER`, the layer for art that exists
+only in mirrors, which `player.gd:133` removes from the camera's `cull_mask` (`0x7FFFF`). Everything about
+the puppet was correct except that the one camera that matters could not see it.
+`breach_kill_sequence.gd:ACTOR_LAYER` carries this exact warning in a comment, and it was not read.
+
+**Fix:** the face is on render layer 17 (`1 << 16`), free everywhere in the project. `FACE_LAYER` in
+`breach_approach.gd` (the bay lamps' cull masks are built from it) follows it.
+
+**Why the tests missed it:** every check asked the puppet about itself (`visible`, `layers`, the fill's
+`light_cull_mask`), and a node on a culled layer answers all of those truthfully. Only a render, or a question
+put to the camera, can see it. `check_breach_pass4.gd` now asserts
+`(player_camera.cull_mask & FACE_LAYER) == FACE_LAYER`; with the layer set back to `1 << 19` it goes red
+(proven, see the level spec).
+
+**General lesson:** "is it visible" has three parties: the node, its light and the camera. A render-layer
+choice must be checked against every camera's `cull_mask`, and **layer 20 is taken**: it is the
+mirror-only layer. Pick puppet layers from 11–19 and grep `cull_mask` first.
+
+## Issue 271 — The walk-in music was inaudible: its gain was set by arithmetic, and nothing measured the mix (2026-09-23)
+
+**Symptom:** the user, watching the Breach approach run: *"I do not hear the music I sent you, I hear just the
+sound of the corridor."* Every automated check was green: the music was playing, looped, on the Ambience bus,
+at its constant, ducked under the story beats and stopped at the Threshold.
+
+**Cause:** `MUSIC_DB` was chosen as −17 dB from LUFS arithmetic: the track's −14.4 LUFS minus 17 is −31.4
+LUFS, "4 dB under the vent bed (−27.5)". The comment beside the constant said so, and it shipped anyway,
+because "under the bed" was read as "subtle" rather than "masked". It was also ducked a further 6 dB under
+every story beat, so for most of the walk it sat 10 dB under the corridor's hum. The checks tested playback
+and routing, which were all correct; none of them compared the music against what it had to be heard over.
+
+**Fix:** the mix is now measured at the listener on a real walk. `tests/probe_breach_music_mix.gd` re-routes
+every speaker, the frame it appears, onto a meter bus that sends where it was going, with an
+`AudioEffectCapture` on each: music, the approach's Ambience speakers, the level's own beds, the PA, the
+whisper, and the other story beats. It adds the Ambience bus's volume back (a capture sits before the
+downstream fader) and reports RMS per 0.1 s window, per class. `MUSIC_DB` became −4.0 dB (music +3.5 dB over
+the beds between beats), with a −17 dB duck under PA lines, −14 dB under the whisper and −6 dB under other
+beats, going down at 60 dB/s so the duck lands before the first word. `check_breach_approach` asserts the
+duck against the music's own idle level.
+
+**Why the tests missed it:** a level check can only see what it is compared against. "Is it playing, on the
+right bus, at the constant" is true of a track nobody can hear.
+
+**General lesson:**
+- A layer that must be HEARD is specified relative to what masks it, and measured there.
+- Headless Godot can measure it. The Dummy audio driver still mixes, and `AudioEffectCapture` reads it. But
+  it mixes in bursts, so windows must be counted in AUDIO frames, not process frames, or most windows come up
+  empty. It also covers only part of real time, so treat the numbers as samples.
+- Report a power average AND a median. A dynamic track's loud passages dominate the first, and its quiet
+  ones the second.
+
+## Issue 272 — Killed and "contained" in the same death: the purge's timers ran on under a kill (2026-09-24)
+
+**Symptom:** the user's fifth Breach playtest: *"it was told that the object contained get out but at the
+same time I was killed and the level was not finished"*. The log: `KILL SURGE` at 313.13 with the player at
+(−7.39, 50.88), inside ExitVault; `KILL BLACK / FATAL FUNNEL` at 314.58; `SEALED … LEAVE` at 316.93; then the
+restart.
+
+**Cause:** with `SEAL_RACE` on, the player pressed and held E from INSIDE the vault. Object 12 was released
+after the react delay, charged, and made contact before the leaf shut. `_on_contact_death()` started the kill
+sequence, but nothing told the purge chamber. The key was still held, so the close ran on and shut. The
+confirm timer (1.2 s) and the purge timer (2.5 s) then completed, and `creature_trapped` set the win and the
+objective 3.8 s after the kill began, under the screamer. Two systems each owned an outcome, and neither
+asked whether the other had already claimed it.
+
+**Fix:** the first outcome wins.
+- The level has `_death_claimed()`: its kill sequence is live, or any `"death"` transition is current. A panic
+  death goes through Screamer and takes the same transition.
+- `purge_chamber.gd` gets that as `death_check` and checks it at the top of every race frame and in every
+  timer callback.
+- The level also calls `abort_for_death()` the moment `_on_contact_death()` takes the transition.
+- The timers carry the generation they were scheduled in, so a stale one does nothing.
+- `_on_creature_trapped()` ignores a trap under a claimed death.
+- The reverse was already true and is now tested: the race's shut purge-freezes Object 12 in the same frame.
+
+**Why the tests missed it:** every purge test put the player OUTSIDE the vault, where the jam line (0.8 m from
+the doorway) is always reached before contact. Inside the vault the race and the chase can both finish, and
+nothing staged it. `check_breach_contained_xor_killed.gd` does: contact during a close, a seal as it lunges,
+and a death during the pending confirm. Each must end in exactly one outcome.
+
+**General lesson:** when two subsystems can each end the level, the end is a resource, and the first to take
+it must cancel the other. Timers are the usual leak. A callback scheduled before a state change needs a
+generation (or a cancel handle) checked when it fires, not just a flag checked when it was scheduled.
+
+## Issue 273 — The Breach creature stood still for 8 s before teleporting (2026-09-24)
+
+**Symptom:** the user: *"now it is just standing in one place not moving"*, then: *"the only thing I wanted is
+to avoid the situation when the object is not moving at all before teleporting."*
+
+**Cause:** `creature_object12.gd:_tick_search()` ends every search the same way: on arrival at the target it
+stands and turns in place (`SEARCH_SCAN_SPEED_DEG`) for `SEARCH_TIME` 8 s. In the Breach, that arrival state is
+where a teleport comes from:
+- the hidden-player roam relocates every `HIDDEN_RELOCATE_INTERVAL` 12 s;
+- the post-hide loss ends in `_relocate_near_player()`.
+So the creature's last seconds before vanishing were spent motionless. Measured before the fix
+(`check_breach_search_motion.gd`): still for 4.5 s before a roam relocation, and 8.0 s before the post-hide
+teleport.
+
+**Fix:** gated on `forget_hidden_player and relocate_when_lost`, which only the Breach sets. On arrival the
+creature walks to a neighbouring room's centre (never the hidden player's room), then another, while the SAME
+`_search_t` runs, and at `SEARCH_TIME` the same give-up fires. No constant moved. Measured after: the longest
+still window is 0.10 s (roam) and 0.08 s (post-hide). With the Matron's flags the same creature still scans in
+place for 8.0 s.
+
+**Why the tests missed it:** the hunt tests assert detection, relocation distance and visibility, and never
+asked whether the creature moved while nothing was happening. A creature that stands still passes every one of
+them.
+
+**General lesson:** "idle" is behaviour too. When a state exists mostly to fill time before a timer fires,
+measure what it looks like in that time: here, sample the position every frame and look for still windows.
+
+## Issue 274 — The House's carried line showed ONE item: the bolt cutters overwrote the cellar key (2026-09-24)
+
+**Symptom:** found while building the Porch pass, not reported. A player who took the bolt cutters while
+still carrying the cellar key saw the HUD's carried line change from "cellar key" to "BOLT CUTTERS"; using
+either item (the cellar gate, the fridge chain) then cleared the line entirely, with the other still in hand.
+The quest state was right — `_has_cellar_key` and `_cutters_held` were both true — so nothing broke except
+what the player was told they were holding.
+
+**Cause:** `GameState.set_carried()` takes ONE string, and every call site in `level_2.gd` wrote its own
+item into it: `set_carried("cellar key")` on the key, `set_carried("BOLT CUTTERS")` on the cutters,
+`set_carried("")` on either being used. Each writer assumed it was the only thing in the player's hands.
+The Porch pass added a third item (the watermelon), which would have made it three writers fighting over
+one line.
+
+**Fix:** `level_2.gd:_refresh_carried()` rebuilds the whole line from state every time anything changes —
+`cellar key · watermelon · bolt cutters`, the cutters only while the fridge they exist for is still chained
+— and every former `set_carried()` call in the level now calls it (including `_restore_progress()`, which
+had its own copy). `GameState` (a shared file) is untouched. `check_house_porch.gd` asserts the line at
+every step of the chain and after three save/restore round trips; `check_cellar_key.gd`'s `"cellar key"`
+assertion is unchanged because a key alone still reads exactly that.
+
+**Why the tests missed it:** each test held one item at a time. `check_cellar_key.gd` never carried the
+cutters and `check_house_fridge_chain.gd` never carried the key, so the overwrite had no test where both
+were in hand.
+
+**General lesson:** a single display slot fed by several writers is a last-writer-wins bug waiting for a
+second item. Derive the display from state in one function, and call it from every place that changes that
+state.
+
+## Issue 275 — A blinded Object 12 was snapped out of its stagger 0.8 s into the seal race, and killed the player at the door (2026-09-24)
+
+**Symptom:** the user, playing by hand: *"when I blinded the creature with the flashlight for 7 seconds
+in the purge room - it killed me while I was closing the door, even though 7 seconds have not passed
+yet."*
+
+**Cause:** the seal race (`purge_chamber.gd:_process`, pass 4) purge-freezes a creature inside at the
+press, then `seal_react_delay` (0.8 s) later releases it and calls `force_chase()` so it charges the
+doorway. `force_chase()` did `_enter(State.CHASE)` unconditionally, so a STAGGERED creature left its
+5–7 s blind at 0.8 s. It also came out non-solid and tilted, because only `_tick_staggered()`'s
+recovery re-enables its collider and resets its lean. It then reached the doorway, jammed the leaf, and
+the contact kill fired. Reproduced headless: `check_breach_seal_stagger` went 6 red out of 11 before
+the fix. A real light-weapon stagger with the creature 2.0 m deep gave "jam (left STAGGERED during the
+close)" and the player dead.
+
+**Fix:**
+- `force_chase()` refuses while STAGGERED. Only the stagger's own recovery ends a stagger; it is a
+  promise the level states on screen ("IT RECOILS — 6 SECONDS").
+- The race keeps a staggered creature purge-frozen through the whole close. It never releases or
+  charges it, so the door shuts on it and it is purged.
+- Letting go of E still releases it through `_race_abort`, still staggered, and its blind clock runs
+  on.
+- New public `is_staggered()`.
+- `check_breach_seal_stagger` is now 11/0. Its control (same depth, not blinded) still jams, which
+  proves the depth is a real test.
+
+**Why the tests missed it:** `check_breach_seal_race` only ever raced an *active, chasing* creature.
+None of the pass-4 tests combined the two player tools, the light weapon and the seal, even though the
+spec's own tactic ("blind it, then seal it") is exactly that combination.
+
+**General lesson:** a "force" entry point into a state machine must respect the states that are
+promises. `force_block()` had the same shape once (Issue 176). When a new system gains control over an
+existing state machine, grep which states it can override, and test it combined with every other tool
+the player holds at that moment.

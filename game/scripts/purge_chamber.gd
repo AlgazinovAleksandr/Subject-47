@@ -14,6 +14,25 @@ signal creature_trapped
 @export var creature_path: NodePath
 @export var trap_bounds: AABB = AABB(Vector3(-3.5, -0.5, -3.5), Vector3(7.0, 4.0, 7.0))
 
+# ⭐ THE SEAL RACE (2026-09-23 pass 4, behind ONE switch — the user: "make this feature easily
+# [reversible], it is likely that after testing it I will say to restore it back").
+# ⚠️ OFF BY DEFAULT: with `seal_race` false, `interact()` runs the original instant slam, UNCHANGED
+# below. `level_6_breach.gd:SEAL_RACE` turns it on and passes the two times in.
+# With it ON:
+# - E starts the blast door grinding shut, and it advances only while E is HELD. Letting go rolls it
+#   back open and ends the attempt.
+# - A creature inside is frozen at the press. After `seal_react_delay` it is released and
+#   `force_chase`d, so it charges the doorway at the player.
+# - If it comes within `SEAL_JAM_DIST` of the doorway before the door shuts, the door JAMS: it is
+#   flung back open, the creature is held by the door for the 0.4 s that takes, and it is loose. That
+#   is not a death by itself, and the door can be tried again.
+# - Shut with it inside, the ordinary freeze → confirm → purge runs.
+@export var seal_race: bool = false
+@export var seal_close_time: float = 1.25
+@export var seal_react_delay: float = 0.8
+const SEAL_JAM_DIST := 0.8          # the creature's body this close to the doorway plane blocks the leaf
+const REOPEN_TIME := 0.4            # `_set_closed()`'s own swing time; the jam holds the creature this long
+
 const CLOSE_TO_CONFIRM_DELAY := 1.2
 const PURGE_SEQUENCE_DELAY := 2.5
 const INTERACTABLE_LAYER := 2   # matches note.gd — raycast-hittable, pass-through for movement
@@ -32,6 +51,26 @@ var _panel: MeshInstance3D
 var _collider: CollisionShape3D
 var _block_body: StaticBody3D
 var _block_collider: CollisionShape3D
+# the race
+var _closing := false
+var _close_u := 0.0                 # 0 = open, 1 = shut
+var _race_t := 0.0
+var _race_inside := false           # was the creature inside when E was pressed?
+var _race_charging := false
+var _grind: AudioStreamPlayer3D
+var _swing: Tween                   # the race's roll-back / jam swing, killed if E is pressed again mid-swing
+var race_log: Array = []            # [event, time, creature distance to the doorway plane] for the tests
+# ⭐ CONTAINED XOR KILLED (2026-09-24 pass 5, the user: "It is either contained and you can get out or
+# you get killed"). The playtest log: `KILL BLACK / FATAL FUNNEL` at 314.58, then `SEALED … LEAVE` at
+# 316.93, then the restart — the player was killed INSIDE ExitVault while the held race close ran on,
+# the door shut, and the confirm and purge timers completed the win under the death.
+# The first outcome wins: once a death is claimed, everything in flight here aborts. `death_check` is
+# the level's "is a death claimed?" (a Callable, so a panic death counts too); `abort_for_death()` is
+# the level's hook, called the instant its kill sequence takes the fatal transition. Every timer
+# callback carries the generation it was scheduled in, and a stale one does nothing.
+var death_check: Callable
+var _gen := 0
+var _aborted := false
 
 
 func _ready() -> void:
@@ -200,7 +239,34 @@ func _resolve_creature() -> bool:
 	return _creature != null
 
 
+# The level's kill sequence has claimed the death: stop whatever is in flight (a held close, a pending
+# confirm, the purge sequence) and never emit `creature_trapped`. The door is left where it is.
+func abort_for_death() -> void:
+	if _aborted:
+		return
+	_aborted = true
+	_gen += 1
+	if _closing:
+		_closing = false
+		if _grind:
+			_grind.stop()
+		race_log.append(["death", _race_t, _plane_distance()])
+
+
+func _death_claimed() -> bool:
+	return _aborted or (death_check.is_valid() and bool(death_check.call()))
+
+
+func is_aborted() -> bool:
+	return _aborted
+
+
 func interact() -> void:
+	if _death_claimed():
+		return
+	if seal_race:
+		_race_begin()
+		return
 	if _used:
 		return
 	_used = true
@@ -211,7 +277,12 @@ func interact() -> void:
 	# killed before the win ever registered (found by tests/walk_level6_breach.gd).
 	if _resolve_creature() and _creature.has_method("freeze_for_purge"):
 		_creature.freeze_for_purge()
-	var slam := GameState.load_audio("blast_door_slam")
+	# ⭐ 2026-09-24 (the user's call): the purge door has its OWN slam, the user's recorded heavy door
+	# with a long echoing tail (tools/prepare_breach_user_sfx.py). The approach bulkhead keeps
+	# blast_door_slam. Falls back to it if the file is ever missing.
+	var slam: AudioStream = GameState.load_audio("purge_door_slam")
+	if slam == null:
+		slam = GameState.load_audio("blast_door_slam")
 	if slam:
 		var pl := AudioStreamPlayer3D.new()
 		pl.stream = slam
@@ -219,23 +290,26 @@ func interact() -> void:
 		add_child(pl)
 		pl.finished.connect(pl.queue_free)
 		pl.play()
-	get_tree().create_timer(CLOSE_TO_CONFIRM_DELAY).timeout.connect(_confirm_trap)
+	get_tree().create_timer(CLOSE_TO_CONFIRM_DELAY).timeout.connect(_confirm_trap.bind(_gen))
 
 
-func _confirm_trap() -> void:
+func _confirm_trap(gen: int = -1) -> void:
+	if gen != _gen or _death_claimed():
+		abort_for_death()
+		return
 	if not _resolve_creature():
 		_reopen_failed()
 		return
 	var pos: Vector3 = _creature.get_creature_position() if _creature.has_method("get_creature_position") else (_creature as Node3D).global_position
 	if trap_bounds.has_point(pos):
-		_run_purge_sequence()
+		_run_purge_sequence(gen)
 	else:
 		if _creature.has_method("unfreeze_for_purge"):
 			_creature.unfreeze_for_purge()
 		_reopen_failed()
 
 
-func _run_purge_sequence() -> void:
+func _run_purge_sequence(gen: int = -1) -> void:
 	# Reuses acid_hiss.wav from level_5_kontur — GameState.load_audio() already scans
 	# every audio subdir, so no file copy is needed.
 	var hiss := GameState.load_audio("acid_hiss")
@@ -246,10 +320,13 @@ func _run_purge_sequence() -> void:
 		add_child(pl)
 		pl.finished.connect(pl.queue_free)
 		pl.play()
-	get_tree().create_timer(PURGE_SEQUENCE_DELAY).timeout.connect(_finish_purge)
+	get_tree().create_timer(PURGE_SEQUENCE_DELAY).timeout.connect(_finish_purge.bind(gen))
 
 
-func _finish_purge() -> void:
+func _finish_purge(gen: int = -1) -> void:
+	if gen != _gen or _death_claimed():
+		abort_for_death()
+		return
 	if _creature and _creature.has_method("lure_into_trap"):
 		_creature.lure_into_trap()
 	creature_trapped.emit()
@@ -277,8 +354,9 @@ func _reopen_failed() -> void:
 	# soft-lock (the confirm reads the creature's real position, so a win still registers), but
 	# the level could end with its win-condition door standing open. A new attempt sets `_used`,
 	# which is exactly the "someone else owns the door now" signal.
+	# (`_closing` is the race's version of the same signal; it is always false with the race off.)
 	get_tree().create_timer(1.0).timeout.connect(func():
-		if _used:
+		if _used or _closing:
 			return
 		_set_closed(false))
 
@@ -289,3 +367,154 @@ func _set_closed(v: bool) -> void:
 	var tween := create_tween()
 	tween.tween_property(_hinge, "rotation_degrees:y", target_deg, 0.4) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+
+# ------------------------------------------------------------------------------------ the race
+
+func _race_begin() -> void:
+	if _used or _closing:
+		return
+	if _swing and _swing.is_valid():
+		_swing.kill()
+	_closing = true
+	# E again while it is still swinging back open: the grind starts from where the leaf IS
+	_close_u = clampf(inverse_lerp(-95.0, 0.0, _hinge.rotation_degrees.y), 0.0, 1.0)
+	_race_t = 0.0
+	_race_charging = false
+	_race_inside = _resolve_creature() and trap_bounds.has_point(_creature_pos())
+	if _race_inside and _creature.has_method("freeze_for_purge"):
+		_creature.freeze_for_purge()            # it stops: the door is moving, it turns
+	race_log.append(["begin", 0.0, _plane_distance()])
+	if _grind == null:
+		_grind = AudioStreamPlayer3D.new()
+		_grind.name = "SealGrind"
+		_grind.unit_size = 6.0
+		_grind.max_db = 4.0
+		add_child(_grind)
+	# ⚠️ PLACEHOLDER: the approach wheel's grind, pitched down to a heavy door (the user may supply one)
+	_grind.stream = GameState.load_audio("approach_wheel_grind")
+	_grind.pitch_scale = 0.55
+	_grind.volume_db = 0.0
+	if _grind.stream:
+		_grind.play()
+	set_process(true)
+
+
+func _process(delta: float) -> void:
+	if not _closing:
+		return
+	if _death_claimed():
+		abort_for_death()
+		return
+	_race_t += delta
+	var held := Input.is_action_pressed("interact")
+	if not held:
+		race_log.append(["released", _race_t, _plane_distance()])
+		_race_abort(false)
+		return
+	_close_u = minf(1.0, _close_u + delta / maxf(0.05, seal_close_time))
+	_hinge.rotation_degrees.y = lerpf(-95.0, 0.0, _close_u)
+	# ⚠️ A BLINDED CREATURE CANNOT REACT (2026-09-24, Issue 275). If the light weapon staggered it, it
+	# stays purge-frozen through the whole close and the door shuts on it — the blind the player paid
+	# for is honoured. (Releasing it here and force_chase-ing it is what killed the playtester at the
+	# door 0.8 s into the close.) Letting go of E still releases it via `_race_abort`, still staggered.
+	var blinded: bool = _race_inside and _creature.has_method("is_staggered") and _creature.is_staggered()
+	if _race_inside and not _race_charging and not blinded and _race_t >= seal_react_delay:
+		_race_charging = true
+		race_log.append(["charge", _race_t, _plane_distance()])
+		if _creature.has_method("unfreeze_for_purge"):
+			_creature.unfreeze_for_purge()
+		if _creature.has_method("force_chase"):
+			_creature.force_chase()
+	# A body in the doorway jams the leaf: the charging one, or one that was never inside (it wandered
+	# up to the door while it was closing). Never the frozen one, which is deep in the vault.
+	var loose := _race_charging or not _race_inside
+	if loose and _plane_distance() <= SEAL_JAM_DIST and _in_doorway_span():
+		race_log.append(["jam", _race_t, _plane_distance()])
+		_race_abort(true)
+		return
+	if _close_u >= 1.0:
+		race_log.append(["shut", _race_t, _plane_distance()])
+		_closing = false
+		if _grind:
+			_grind.stop()
+		# shut: exactly the old slam from here on, including the freeze if it is inside
+		_used = true
+		_block_collider.disabled = false
+		_hinge.rotation_degrees.y = 0.0
+		if _resolve_creature() and _creature.has_method("freeze_for_purge"):
+			_creature.freeze_for_purge()
+		var slam: AudioStream = GameState.load_audio("purge_door_slam")
+		if slam == null:
+			slam = GameState.load_audio("blast_door_slam")
+		if slam:
+			var pl := AudioStreamPlayer3D.new()
+			pl.stream = slam
+			pl.unit_size = 8.0
+			add_child(pl)
+			pl.finished.connect(pl.queue_free)
+			pl.play()
+		get_tree().create_timer(CLOSE_TO_CONFIRM_DELAY).timeout.connect(_confirm_trap.bind(_gen))
+
+
+# The attempt ends open: E let go (it rolls back) or the creature jammed the leaf (it is flung back).
+func _race_abort(jammed: bool) -> void:
+	_closing = false
+	_used = false
+	if _grind:
+		_grind.stop()
+	# Only a creature THIS attempt froze is released; one outside the trap was never touched.
+	if _race_inside and _resolve_creature():
+		if _creature.has_method("unfreeze_for_purge"):
+			_creature.unfreeze_for_purge()
+		if jammed and _creature.has_method("force_block"):
+			_creature.force_block(REOPEN_TIME)
+	if jammed:
+		var crash := GameState.load_audio("door_break")
+		if crash:
+			var pl := AudioStreamPlayer3D.new()
+			pl.stream = crash
+			pl.unit_size = 8.0
+			add_child(pl)
+			pl.finished.connect(pl.queue_free)
+			pl.play()
+	_swing = create_tween()
+	_swing.tween_property(_hinge, "rotation_degrees:y", -95.0, REOPEN_TIME if jammed else 0.6) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+
+func _creature_pos() -> Vector3:
+	if not _resolve_creature():
+		return Vector3(INF, INF, INF)
+	return _creature.get_creature_position() if _creature.has_method("get_creature_position") else (_creature as Node3D).global_position
+
+
+# How far the creature is from the doorway plane, on the trap's side (the door's local +z faces
+# out of the trap in the Breach: the leaf shuts across local z = 0).
+func _plane_distance() -> float:
+	var p := _creature_pos()
+	if p.x == INF:
+		return INF
+	var local := to_local(p)
+	return absf(local.z)
+
+
+func _in_doorway_span() -> bool:
+	var local := to_local(_creature_pos())
+	return absf(local.x) <= LEAF.x * 0.5 + 0.4
+
+
+# The HUD prompt. With the race off this is the Breach label's own "Press E", i.e. exactly what the
+# prompt said before this method existed. With it on, a tap only budges the leaf, so the prompt has to
+# name the verb: a player who presses E once, as the old door taught, would otherwise watch it roll
+# back and not know why.
+func prompt_text() -> String:
+	return "Hold E — seal the door" if seal_race else "Press E"
+
+
+func is_closing() -> bool:
+	return _closing
+
+
+func close_progress() -> float:
+	return _close_u

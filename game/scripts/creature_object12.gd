@@ -307,6 +307,15 @@ const SCAN_RATE := 0.35        # searching in place
 const STAGGER_RATE := 0.5      # blinded and reeling
 
 var _search_arrived := false
+# ⭐ NEVER MOTIONLESS BEFORE A TELEPORT (2026-09-24, the Breach's pass 5; the user: "Change nothing about
+# this, the only thing I wanted is to avoid the situation when the object is not moving at all before
+# teleporting"). Where SEARCH used to stand and turn on its spot for `SEARCH_TIME` (a hidden player's
+# roam, relocated every `HIDDEN_RELOCATE_INTERVAL`; the post-hide loss before `_relocate_near_player()`),
+# the BREACH's creature keeps walking — to a neighbouring room, then another — while the same timer runs
+# and the same give-up/relocation fires. Gated on the Breach's flags (`forget_hidden_player` and
+# `relocate_when_lost`), so THE NIGHTMARE's Matron keeps today's search exactly. No constant moved.
+var _search_wander := false
+var _wander_target := Vector3.INF
 
 func _refresh_clip() -> void:
 	if _anim == null or not _anim.is_valid():
@@ -422,9 +431,20 @@ func force_chase() -> void:
 		_ensure_player()
 	if not _active or not is_instance_valid(_player):
 		return
+	# ⚠️ NEVER OUT OF A STAGGER (2026-09-24, Issue 275). A blind the light weapon bought is a promise the
+	# level states out loud ("IT RECOILS — 6 SECONDS"). The seal race called this 0.8 s into a close and
+	# `_enter(CHASE)` snapped a blinded creature straight out of its 5-7 s stagger — with its collider
+	# still off and its body still tilted, because only `_tick_staggered()` restores those — and it killed
+	# the player at the door. Only the stagger's own recovery ends a stagger.
+	if _state == State.STAGGERED:
+		return
 	_last_seen_pos = _player.global_position
 	_los_lost_t = 0.0
 	_enter(State.CHASE)
+
+
+func is_staggered() -> bool:
+	return _state == State.STAGGERED
 
 
 # Put the body somewhere, facing something. `_body` is the thing that moves (Issue 10) and it is
@@ -691,6 +711,7 @@ func _enter(new_state: int) -> void:
 	# ⚠️ Reset BEFORE _refresh_clip(): SEARCH has two gaits (walking to the last-known position,
 	# then scanning in place) and entering SEARCH always starts on the travelling half.
 	_search_arrived = false
+	_search_wander = false
 	_refresh_clip()
 	state_changed.emit(old, new_state)
 
@@ -763,8 +784,29 @@ func _tick_search(delta: float) -> void:
 		return
 	var here := get_creature_position()
 	var to_target := Vector2(_last_seen_pos.x - here.x, _last_seen_pos.z - here.z)
-	if to_target.length() > WAYPOINT_ARRIVE_DIST:
+	if not _search_wander and to_target.length() > WAYPOINT_ARRIVE_DIST:
 		_move_toward(_last_seen_pos, investigate_speed, delta)
+		return
+	if forget_hidden_player and relocate_when_lost:
+		# ⭐ the Breach: arrived, it keeps walking (see `_search_wander`) until the SAME timer below
+		_search_t += delta
+		if _search_t < SEARCH_TIME:
+			if not _search_wander or Vector2(_wander_target.x - here.x, _wander_target.z - here.z).length() <= WAYPOINT_ARRIVE_DIST:
+				_search_wander = true
+				_wander_target = _pick_wander_target()
+			if _wander_target != Vector3.INF:
+				_move_toward(_wander_target, investigate_speed, delta)
+				return
+			_body.rotation.y += deg_to_rad(SEARCH_SCAN_SPEED_DEG) * delta   # nowhere to go: the old scan
+			return
+		_search_wander = false
+		if forget_hidden_player and _player_is_hidden():
+			_choose_hidden_destination(false)
+			return
+		if relocate_when_lost and _relocate_near_player():
+			return
+		_wp_index = _nearest_waypoint_index()
+		_enter(State.PATROL)
 		return
 	# Arrived at the last-known position — scan in place for the rest of SEARCH_TIME
 	# before giving up. This is the one Mr.X/Alien:Isolation lesson worth keeping:
@@ -788,6 +830,29 @@ func _tick_search(delta: float) -> void:
 			return
 		_wp_index = _nearest_waypoint_index()
 		_enter(State.PATROL)
+
+
+# The Breach's search keeps walking: a neighbouring room's centre (through a doorway, so the router can
+# reach it), never the hidden player's own room, or this room's centre if it is far enough. INF when
+# the graph offers nothing (the caller falls back to the old scan).
+func _pick_wander_target() -> Vector3:
+	var here := get_creature_position()
+	var room := _room_at(here)
+	if room < 0 or _adj.size() <= room:
+		return Vector3.INF
+	var avoid := _room_at(_player.global_position) if (forget_hidden_player and _player_is_hidden()) else -1
+	var options: Array[Vector3] = []
+	for pi in _adj[room]:
+		var p: Dictionary = _portals[pi]
+		var nb: int = int(p["b"]) if int(p["a"]) == room else int(p["a"])
+		if nb != avoid:
+			options.append(_rooms[nb]["c"])
+	var c: Vector3 = _rooms[room]["c"]
+	if Vector2(c.x - here.x, c.z - here.z).length() > 2.5:
+		options.append(c)
+	if options.is_empty():
+		return Vector3.INF
+	return options.pick_random()
 
 
 # Jump to a room 10–14 m from the player that the player cannot currently see, preferring one that
@@ -831,6 +896,7 @@ func _relocate_near_player() -> bool:
 	_last_seen_pos = pp
 	_search_t = 0.0
 	_search_arrived = false
+	_search_wander = false
 	_enter(State.SEARCH)
 	return true
 
@@ -871,6 +937,7 @@ func _choose_hidden_destination(relocate: bool) -> bool:
 	if candidates.is_empty():
 		_last_seen_pos = here
 		_search_t = 0.0
+		_search_wander = false
 		return false
 	var target: Vector3 = candidates.pick_random()
 	if relocate and not _visible_to_player(here):
@@ -882,6 +949,7 @@ func _choose_hidden_destination(relocate: bool) -> bool:
 	_investigate_target = target
 	_search_t = 0.0
 	_search_arrived = false
+	_search_wander = false
 	_refresh_clip()
 	return true
 

@@ -23,6 +23,65 @@ it will tick once per cycle.
 
 ---
 
+## 2026-09-24 — House porch pass (stand-ins)
+
+✅ **2026-09-24 (b): six of these are the user's recordings now**, under the user's own names. The
+code loads only the user's file. The stand-ins they replaced, and `witch_hum`, are **untracked and
+gitignored** (the user's rule: the repo ships only what the game loads), and the tool now writes
+only the three stand-ins still played:
+- the night outside: **`dark_forest_soundtrack.ogg`**, replacing `porch_forest_night`. The user's
+  14.5 MB `.wav` became a q6 `.ogg`; the original is in `assets_src/audio/level_2_house/`.
+- the pane bursting: **`window_glass_break.wav`**, replacing `window_burst`. It is the user's
+  `glass_break.wav`, renamed because `shared/glass_break` would have shadowed it.
+- the blade: **`guillotine.mp3`**, replacing `guillotine_drop`.
+- the melon: **`watermelon_crack.wav`**, replacing `melon_burst`.
+- all three ghosts: **`ghost_sound.wav`** at pitch 1.1 / 1.35 / 0.62, replacing the three
+  synthetic screams.
+- **`witch_scream.mp3`** is new: the witch's second glimpse, behind you in the Hallway.
+
+Still stand-ins, still wanted: `porch_wind_gust`, `guillotine_rope`, `forest_run_leaves`. The rows below for the other eight are history.
+
+⚠️ PLACEHOLDERS at the final path, **synthesised** by `tools/make_sfx_house_porch.py` (stdlib, seeded
+per sound, 44.1 kHz 16-bit mono). The user is supplying the real ones: drop the real file over the
+`.wav` with the same base name (or as `.ogg`/`.mp3` and delete the `.wav`), `--import`, then **remove
+that name from `SOUNDS` in the tool**, or the next run of it silently overwrites the real recording.
+Levels are the tool's own measurements (peak / loudest-300 ms, dBFS) — set a caller's `volume_db`
+from those, not from a guess. The bus/volume column is a suggestion for the code, not a measurement.
+
+| File (in `game/assets/audio/level_2_house/`) | What it is | Real-sound prompt (for a sound designer / AI generator) | Stand-in (measured) | Suggested bus / volume |
+|---|---|---|---|---|
+| `porch_forest_night.wav` | The porch bed: the pine forest at night — ⚠️ a **seamless 20 s loop** | "Seamless 20-second loop, night pine forest ambience: low wind breathing through tall pines, needles hissing in slow swells, one distant trunk creak, no birds, no insects, no music, dark and lonely" | brown-noise wind + a breathing needle-hiss band, two low creaks at 6.3 s and 14.1 s; filtered circularly, every modulation a whole number of cycles, so the seam is clean. Peak −12, loudest −23.6 | Master, 2D bed, about −6 dB, restarted on `finished` |
+| `window_burst.wav` | The window blowing in | "Violent close glass window shattering inward, heavy impact then a long rain of glass shards falling on wooden floorboards, 2 seconds, dry, no reverb tail" | the shared `glass_break.wav` layered under a thump, a broadband crack and a dense rain of short inharmonic shard tinkles thinning over 1.8 s. Peak −3, loudest −7.5 | Master, 0 dB (a sting); 3D at the window if positional |
+| `porch_wind_gust.wav` | A cold gust through the broken window | "Single cold winter wind gust swelling through a broken window then dying away, whistling edge, 4 seconds, no rain" | a band-passed noise rush rising 350 → 1250 Hz and a narrow whistle band + tone, 1.4 s up, 2.6 s away. Peak −6, loudest −17.9 | Master, about −4 dB |
+| `guillotine_rope.wav` | The guillotine's rope being pulled up through its pulley | "Old hemp rope hauled through a rusty wooden pulley, creaking and squeaking, ending in a sharp iron catch clicking into place, 1 second" | a stick-slip pulse train through two pulley resonances + rope rustle, then a three-partial metal clack at 0.84 s. Peak −3 (the clack), loudest −22.4 | 3D, 0 dB |
+| `guillotine_drop.wav` | The blade dropping and hitting the block | "Heavy guillotine blade released: a fast rising metal scrape down wooden grooves, then a massive deep wooden thunk and a short ringing of the blade, 1.5 seconds" | a noise band and a screech both rising in pitch for 0.58 s, then a pitch-dropping 48 Hz thunk, a wood knock and a blade ring; tanh. Peak −3, loudest −8.3 | 3D, +2 dB (or Master, 0 dB if it must dominate) |
+| `melon_burst.wav` | The watermelon splitting under the blade | "Watermelon smashed and split open: a hard rind crack, then a wet juicy burst and splatter of pulp and juice onto wood, 1.5 seconds, gross, close" | a click and a hollow knock, a swell of low wet noise, then a rain of short resonant squelch drops thinning over 1.2 s; tanh. Peak −3, loudest −12.7 | 3D, 0 dB |
+| `ghost_woman_scream.wav` | The running ghost woman's scream | "Shrill piercing scream of a terrified woman, raw and cracking, strong vibrato, slightly inhuman, heard outdoors in a forest at night, 2.5 seconds" | an additive formant voice, f0 620 → 1000 Hz with 6.3 Hz vibrato and jitter, "aah" opening to "eeh", breath edge, tanh, a little reverb. Peak −3, loudest −8.7 | 3D on the ghost, 0 dB, unit size large so it carries |
+| `ghost_crawler_screech.wav` | The all-fours crawler's cry | "Guttural animal-like screech from an emaciated crawling creature: wet throat clicks, a low rattling growl rising into a harsh high shriek, 2 seconds" | a rough 88 Hz growl + sub-octave, a harsh 1.25–1.55 kHz formant screech from 0.55 s to 1.6 s, and an irregular train of hard resonant clicks throughout; tanh. Peak −3, loudest −10.7 | 3D on the crawler, 0 dB |
+| `ghost_tall_howl.wav` | The tall ghost's howl | "Very low, slow, inhuman howl of an enormous creature far off in a pine forest, a deep moan rising and falling, long echoing decay, 4 seconds" | two detuned additive "oo" voices at 52–78 Hz + a sub-octave + low breath, a long Schroeder tail. Peak −4, loudest −13.3. ⚠️ Mostly below 300 Hz — inaudible on laptop speakers | 3D, +3 dB, large attenuation distance |
+| `forest_run_leaves.wav` | Fast footfalls running through dry leaves (a ghost passing) | "Fast running footsteps through dry leaves and pine needles on a forest floor, 2 seconds, about seven steps, close then passing" | nine steps ~0.23 s apart, each a low thud + a cloud of 22–40 tiny dry crackles. Peak −5, loudest −24.6 | 3D on the runner, about +4 dB |
+| `witch_hum.wav` | The witch humming to herself | "Very quiet frail old woman humming a slow wavering minor lullaby through closed lips, breathy, unsteady pitch, close and intimate, 5 seconds, no words" | two slightly detuned nasal "mmm" voices sliding through A3 C4 B3 A3 G♯3 A3 with a wobbling 4.6 Hz vibrato, breath noise, a small room. Peak −10, loudest −15.4 | 3D on the witch, about −6 dB, small unit size so it is heard only close |
+
+---
+
+## Requested 2026-09-23 (Level 6 — the approach, pass 4): placeholders at the user's fixed paths
+
+⚠️ PLACEHOLDERS at the final path, from `tools/make_sfx_breach_pass4.py` (ffmpeg copies). Replace the file at
+the same path, same base name, then `--import`. `breach_approach.gd` names each in a `SND_*` constant.
+
+| File (in `game/assets/audio/level_6_breach/`) | What it is | Stand-in | Bus |
+|---|---|---|---|
+| ~~`approach_drop_crash.wav`~~ ✅ | The ceiling hatch bursting and the body's weight hitting the chain (Containment) | **the user's `drop_crash` (2026-09-24)**. It is byte-identical to their `metal_crash`, the door tell's crash, so a distinct impact is still welcome | Master, +2 dB |
+| ~~`approach_drop_chain.wav`~~ ✅ | The chain rattling as the body swings | **the user's `drop_chain` (2026-09-24)** | Master |
+| `approach_shutter_breath.wav` | *Optional.* A very low breath from bay B's niche as the face is revealed | KONTUR's `breathing_behind`, slowed ×0.82, low-passed 1.8 kHz | Master, −14 dB |
+| *(no file)* the seal race's grind | The blast door grinding shut while E is held | `approach_wheel_grind` in code, pitch 0.55 (`purge_chamber.gd:_race_begin`); since 2026-09-24 that is the user's `wheel_grind` recording, pitched down | 3D, Master |
+
+A dedicated grind (`seal_grind.wav`, a **loop**) would need one line in `purge_chamber.gd:_race_begin()`.
+
+✅ **2026-09-24: the purge door's final slam is the user's `metal_door_close`**, as `purge_door_slam.wav`, the user's call. It is peak-matched to the old slam and loaded by both slam paths in `purge_chamber.gd`, falling back to `blast_door_slam`. The approach bulkhead keeps `blast_door_slam`.
+
+All five user recordings are prepared by `tools/prepare_breach_user_sfx.py`: loudness-matched to the placeholders they replace, originals unchanged in `assets_src/audio/level_6_breach/approach/user/`.
+
 ## Requested 2026-09-23 (Level 6 — the approach, pass 3): the user is supplying all of these
 
 ⚠️ **These are PLACEHOLDERS already at the final path**, not missing files. They were generated or copied by
@@ -34,10 +93,10 @@ constant's gain.
 | File (in `game/assets/audio/level_6_breach/`) | What it is | Stand-in | Bus |
 |---|---|---|---|
 | `approach_whisper_dont_go_in.wav` | The dead technician's close, hoarse whisper: *"don't… go in there…"* (~2.5 s) | macOS `say -v Whisper`, roughened | Master |
-| `approach_wheel_grind.wav` | **Loop.** The porthole wheel turning under load | generated | Ambience |
+| ~~`approach_wheel_grind.wav`~~ ✅ | **Loop.** The porthole wheel turning under load | **the user's `wheel_grind` (2026-09-24)**, seam crossfaded 0.4 s | Ambience |
 | `approach_wheel_creak.wav` | One creak per 30° of wheel | generated | Ambience |
 | `approach_porthole_bolts.wav` | The door's bolts drawing back | copy of KONTUR's `door_seal` | Master |
-| `approach_porthole_swing.wav` | The heavy hatch heaving open (~3 s) | the Lab's `metal_creak`, slowed | Master |
+| ~~`approach_porthole_swing.wav`~~ ✅ | The heavy hatch heaving open (~3 s) | **the user's `metal_door_open` (2026-09-24)** | Master |
 | `approach_handle_clack.wav` | The handle seating on the wheel | generated | Master |
 | `approach_spark_burst.wav` | One burst from the junction box | copy of the Lab's `breaker_spark` | Ambience |
 | `approach_spark_buzz.wav` | **Loop.** The junction box's constant buzz | copy of the Lab's `breaker_buzz` | Ambience |

@@ -43,6 +43,8 @@ const FLASHLIGHT_ROOM := "EastVault"
 # How far (metres, flat) the creature must appear from the player when the grace ends, out of sight.
 # About two rooms; halved once if nothing qualifies, and left where it stands if even that fails.
 const SPAWN_UNSEEN_MIN := 16.0
+# Object 12's chase speed in the Breach (the script default is 5.0). The user's call, 2026-09-23.
+const BREACH_CHASE_SPEED := 5.5
 var _flashlight_found := false
 var _flashlight_cabinet: HidingSpot
 var _flashlight_clue: Node3D
@@ -60,6 +62,18 @@ const LIGHT_WEAPON_RANGE := 18.0
 # made for consistency and flagged rather than done silently.
 const LIGHT_WEAPON_DOT := 0.866    # cos(player.gd FLASH_ANGLE)
 const DOOR_TEX := "res://assets/textures/level_6_breach/breach_door.png"
+# ⭐ THE SEAL RACE (2026-09-23 pass 4), behind ONE switch. The user: "make this feature easily
+# [reversible], it is likely that after testing it I will say to restore it back". FALSE restores the
+# old instant slam exactly (`purge_chamber.gd`'s untouched `interact()`); `check_breach_seal_race.gd`
+# asserts both.
+const SEAL_RACE := true
+# ⚠️ DIFFICULTY — THE USER'S TUNING RULE: a seal must SUCCEED when Object 12 was lured deep into
+# ExitVault and FAIL when it is near the doorway. At 5.5 m/s it crosses the 7 m vault in ~1.3 s. A
+# charge from a distance d reaches the leaf's jam line at ~REACT + (d − 0.8) / 5.5 (plus its turn), so
+# the door wins for d above ~(CLOSE − REACT) × 5.5 + 0.8 ≈ 3.3 m, the back half of the vault.
+# Measured in check_breach_seal_race.gd, deep and shallow.
+const SEAL_CLOSE_TIME := 1.25
+const SEAL_REACT_DELAY := 0.8
 const SPRINT_NOISE_RADIUS := 14.0
 const SLAM_NOISE_RADIUS := 16.0
 
@@ -406,6 +420,10 @@ func _spawn_creature() -> void:
 	_creature = CreatureObject12.new()
 	_creature.forget_hidden_player = true
 	_creature.emission_base = 0.025
+	# ⚠️ DELIBERATE (2026-09-23, the user's call: "Maybe make it just slightly harder … a faster chase,
+	# this is a very good idea"). Set HERE, not in the script's export default, so THE NIGHTMARE's
+	# Matron (3.4, set by dungeon.gd) and every other consumer keep their own speed.
+	_creature.chase_speed = BREACH_CHASE_SPEED
 	# Set BEFORE add_child(): CreatureObject12._ready() seeds _body's transform from
 	# global_transform the moment it enters the tree (the ScaryObject transform-chain
 	# discipline — see Issue 10). Setting position after add_child() would move only
@@ -440,6 +458,10 @@ func _on_contact_death() -> void:
 	var token := GameState.begin_transition("death")
 	if token < 0:
 		return
+	# ⭐ PASS 5: the death is claimed — whatever the purge chamber had in flight (a held race close, a
+	# pending confirm, the purge) aborts now, so "SEALED" can never follow the kill (the playtest did it)
+	if is_instance_valid(_purge_chamber):
+		_purge_chamber.abort_for_death()
 	var p := _player()
 	if p == null or p.get_node_or_null("Camera3D") == null:
 		Screamer.trigger("", false, token)
@@ -450,6 +472,16 @@ func _on_contact_death() -> void:
 	_kill_sequence.name = "Object12Kill"
 	p.get_node("Camera3D").add_child(_kill_sequence)
 	_kill_sequence.start(p, _creature, door, token)
+
+
+# ⭐ PASS 5: is a death claimed? This level's kill sequence, or any death transition (a panic death
+# goes through Screamer, which takes the same transition). The purge chamber asks this before every
+# step, and `_on_creature_trapped()` ignores a trap that arrives under it.
+func _death_claimed() -> bool:
+	if is_instance_valid(_kill_sequence):
+		return true
+	var tok := int(GameState.get("_transition_token"))
+	return GameState.transition_is_current(tok) and String(GameState.get("_transition_kind")) == "death"
 
 
 func _nearest_slam_door(pos: Vector3, within: float) -> SlamDoor:
@@ -750,6 +782,10 @@ func _spawn_purge_chamber() -> void:
 	# trap_bounds is ExitVault's own AABB (pos (-7,51.5) size (6,7) -> x -10..-4, z 48..55).
 	_purge_chamber.position = Vector3(-7, 0, 48)
 	_purge_chamber.trap_bounds = AABB(Vector3(-10.0, -0.5, 48.0), Vector3(6.0, 4.5, 7.0))
+	_purge_chamber.seal_race = SEAL_RACE
+	_purge_chamber.seal_close_time = SEAL_CLOSE_TIME
+	_purge_chamber.seal_react_delay = SEAL_REACT_DELAY
+	_purge_chamber.death_check = _death_claimed
 	add_child(_purge_chamber)
 	_purge_chamber.creature_path = _purge_chamber.get_path_to(_creature)
 	_purge_chamber.creature_trapped.connect(_on_creature_trapped)
@@ -757,6 +793,9 @@ func _spawn_purge_chamber() -> void:
 
 
 func _on_creature_trapped() -> void:
+	# ⭐ PASS 5: contained XOR killed — a trap that arrives while a death is claimed is ignored
+	if _death_claimed():
+		return
 	_creature_defeated = true
 	_refresh_exit()
 	# The exit is at the spine's end now — name it so the win does not strand the player.

@@ -16,6 +16,13 @@ extends SceneTree
 # path is what would have caught that immediately.
 #   Godot --headless --path game --script res://tests/walk_level6_breach.gd
 #
+# ⭐ THE SEAL RACE (2026-09-23 pass 4, `level_6_breach.gd:SEAL_RACE`). With the race on, E starts a
+# grinding close that only advances while E is HELD, and a creature near the doorway jams it. So this
+# walk now does what the race asks of a player: it lures the creature DEEP (the back half of ExitVault,
+# `LURE_DEPTH`), then holds E through the close with `Input.action_press("interact")` — the action state
+# `purge_chamber.gd` polls — and lets go once the door has shut. With the race off the same walk still
+# wins: the press slams at once and the hold is harmless.
+#
 # ⚠️ IT COULD NOT FAIL UNTIL 2026-08-17 (workstream H2, Issue 97's sibling). Every terminal
 # path printed `RESULT: FAIL (...)` and then `return true` — which ends the SceneTree loop and
 # exits **0**. `tools/run_tests.sh` reads the exit code, so this level's only end-to-end
@@ -23,6 +30,11 @@ extends SceneTree
 # and whether the win flag ever flipped. Every path now calls `quit()` with a code.
 
 const STATE_CHASE := 2   # CreatureObject12.State enum order: PATROL/INVESTIGATE/CHASE/SEARCH/STAGGERED
+# ExitVault spans z 48..55 from the blast door's plane; the back half starts 3.5 m in. Seal only once
+# it is past 4.3 m, so that after the few frames the E ray takes to resolve it is still in the back half.
+const DOOR_Z := 48.0
+const LURE_DEPTH := 4.3
+var _depth_at_press := -1.0
 
 var _level: Node
 var _player: CharacterBody3D
@@ -69,7 +81,7 @@ func _process(_delta: float) -> bool:
 			# ⚠️ 2026-09-09 (cap #4): the SEAL room is ExitVault now (west-wing dead-end). Player deep
 			# inside it, creature at its entrance (z=48), so the chase pulls the creature into the
 			# trap bounds; the player then seals from the ArchiveC side of the blast door.
-			_player.global_position = Vector3(-7, 0.1, 53.0)
+			_player.global_position = Vector3(-7, 0.1, 54.4)     # the vault's back wall: lure it DEEP
 			_player.rotation.y = 0.0                             # face -z, toward the entrance/creature
 			var body = _creature.get("_body")
 			if body:
@@ -94,8 +106,8 @@ func _process(_delta: float) -> bool:
 		2:
 			var pos: Vector3 = _creature.call("get_creature_position")
 			var bounds: AABB = _purge.get("trap_bounds")
-			if bounds.has_point(pos):
-				print("phase2: creature entered trap bounds at t=%.2f, pos=%v — sidestepping to seal it" % [_t, pos])
+			if bounds.has_point(pos) and pos.z - DOOR_Z >= LURE_DEPTH:
+				print("phase2: creature is %.2f m deep in the trap at t=%.2f, pos=%v — sidestepping to seal it" % [pos.z - DOOR_Z, _t, pos])
 				# Models a player who sprinted past and stepped to the SIDE rather
 				# than turning around dead-center on top of the creature (that first
 				# attempt put the player only 1.2m from a creature already AT the
@@ -124,7 +136,10 @@ func _process(_delta: float) -> bool:
 			# player.gd's own input handler calls.
 			var target = _player.get("_interact_target")
 			if target != null and target.has_method("interact"):
-				print("phase2b: interact target resolved to %s at t=%.2f — pressing E" % [target.name, _t])
+				_depth_at_press = float(_creature.call("get_creature_position").z) - DOOR_Z
+				print("phase2b: interact target resolved to %s at t=%.2f — pressing and HOLDING E (creature %.2f m deep)"
+					% [target.name, _t, _depth_at_press])
+				Input.action_press("interact")
 				_player.call("_try_interact")
 				_phase = 3
 				_t = 0.0
@@ -134,6 +149,10 @@ func _process(_delta: float) -> bool:
 				return true
 
 		3:
+			# let go once the leaf is shut (`_used` goes true at the shut, or at once with the race off)
+			if _purge.get("_used") == true and Input.is_action_pressed("interact"):
+				Input.action_release("interact")
+				print("phase3: the door is shut at t=%.2f — E released" % _t)
 			var defeated = _level.get("_creature_defeated")
 			if defeated:
 				# ⚠️ 2026-09-09: the exit moved OUT of this room into the ExitVault dead-end (west
@@ -145,8 +164,10 @@ func _process(_delta: float) -> bool:
 				_player.rotation.y = PI                            # face +z toward the door at z~61.85
 				_phase = 4
 				_t = 0.0
-			elif _t > 6.0:
-				print("RESULT: FAIL (sealed the door but creature_defeated never became true)")
+			elif _t > 8.0:
+				Input.action_release("interact")
+				var rl = _purge.get("race_log")
+				print("RESULT: FAIL (held E at the door but creature_defeated never became true — race log %s)" % [rl])
 				quit(1)
 				return true
 

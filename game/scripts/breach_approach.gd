@@ -91,11 +91,14 @@ const DOORS := [
 # ⭐ PASS 3: the walk STOPS here, in front of the porthole door, for the handle and the wheel
 # (`check_breach_approach.gd` does both through the real E ray and synthesized mouse circles).
 const DOOR_STOP := Vector3(PORTHOLE_X, 0.1, -31.2)
+# ⭐ PASS 4: and first HERE, at the far side of the Plenum, where the fused technician holds the handle.
+const TECH_STOP := Vector3(-28.6, 0.1, -29.6)
 const WALK_POINTS: Array[Vector3] = [
 	START_SPAWN, Vector3(-80, 0.1, -68), Vector3(-80, 0.1, -62), Vector3(-58, 0.1, -62),
 	Vector3(-58, 0.1, -68), Vector3(-43, 0.1, -68), Vector3(-43, 0.1, -48),
 	Vector3(-97, 0.1, -48), Vector3(-97, 0.1, -26),
-	Vector3(-78, 0.1, -26), Vector3(PORTHOLE_X, 0.1, -26), DOOR_STOP,
+	Vector3(-78, 0.1, -26), Vector3(-33.0, 0.1, -26), TECH_STOP, Vector3(-35.0, 0.1, -26.8),
+	Vector3(PORTHOLE_X, 0.1, -26.8), DOOR_STOP,
 	Vector3(PORTHOLE_X, 0.1, -36.5), Vector3(-29.0, 0.1, -36.5), Vector3(-21.0, 0.1, -36.5),
 	Vector3(-13.8, 0.1, -34.3), Vector3(-13.5, 0.1, -30.3), Vector3(-13.5, 0.1, -26),
 	Vector3(0, 0.1, -26), Vector3(0, 0.1, -1.2),
@@ -104,7 +107,7 @@ const WALK_POINTS: Array[Vector3] = [
 # the order from `beat_log`; the sequences' inner steps are logged too, after their parent.
 const ROUTE_BEATS := ["arrival_lamps", "pa_1", "self_waking_lamp", "door_tell", "shutter",
 	"smashed_lamp", "pa_2", "grating", "duct_knocks", "duct_crawl", "victim", "technician",
-	"wheel_fitted", "porthole_open", "dark_room", "cell_chamber", "pa_3", "threshold_quiet", "hand"]
+	"wheel_fitted", "porthole_open", "dark_room", "cell_chamber", "pa_3", "ceiling_drop", "threshold_quiet", "hand"]
 
 const AUD := "res://assets/audio/level_6_breach/"
 const HandScript := preload("res://scripts/breach_approach_hand.gd")
@@ -129,7 +132,11 @@ const HAND_MAX_DIST := 5.0
 # player walking straight a firing window of ~0.15 s. At 41° it is ~0.45 s. It still needs a look.
 const HAND_LOOK_DOT := 0.75
 const HAND_QUIET := 1.0             # the scream lands in silence, or not at all
-const PA_DB := -5.0                 # kontur.gd:PA_LINE_DB — same building, same tannoy level
+# ⚠️ DELIBERATE (2026-09-24, the user's call): 4 dB over KONTUR's tannoy (kontur.gd:PA_LINE_DB −5).
+# The Master-bus recording (probe_breach_music_mix.gd) measured the PA at −29.8 against the beds'
+# −25.1 with NO music at all, so its lines ("seal integrity 61 %", "Object Twelve is not in its—")
+# were half-lost. KONTUR keeps its own level.
+const PA_DB := -1.0
 const VENT_DB := -12.0              # approach_vent_bed RMS -16.2 dBFS -> ~-28 effective, under the bed
 const VENT_LFO_DB := 3.0
 const VENT_LFO_PERIOD := 7.5
@@ -185,6 +192,15 @@ const GLASS_STEP := 0.55               # metres between crunches on the chamber'
 # ⚠️ PLACEHOLDERS at the user's FIXED paths — tools/make_sfx_breach_pass3.py. Drop the recordings
 # in over them. Gains are set from the stand-ins' measured level (RMS in the comment).
 const SND_WHISPER := "approach_whisper_dont_go_in"   # -20.6 RMS; story beat, Master
+# ⭐ PASS 5 (2026-09-24): the USER's scream (`man_scream.wav`, prepared: 2.27 s, peak -1.6 dBFS, RMS
+# -6.5 dBFS, -5.5 LUFS — very hot). It comes with his eyes opening, BEFORE the whisper. Its gain is set
+# from the recorded mix (tests/probe_breach_music_mix.gd, the player at TECH_STOP, the victim scene
+# still playing): -14.8 dB RMS at the listener (loudest 0.1 s window -12.7), 11.4 dB over everything
+# else in that moment (-26.2), and 4.0 dB UNDER the kill sting (level_6_jumpscare, flat at -8 dB:
+# -10.8). At -10 dB it measured -22.8, only 3.4 dB over the mix — not a jolt.
+const SND_TECH_SCREAM := "approach_technician_scream"
+const TECH_SCREAM_DB := -2.0
+const VICTIM_TECH_DUCK := -14.0     # the victim scene behind the door ducks under his beat — never cut
 const SND_GRIND := "approach_wheel_grind"            # loop, -14.2 RMS; machinery, Ambience
 const SND_CREAK := "approach_wheel_creak"            # every 30°, -12.7 RMS
 const SND_BOLTS := "approach_porthole_bolts"         # -11.7 RMS (stand-in: KONTUR's door_seal)
@@ -197,6 +213,62 @@ const SND_GLASS := ["approach_glass_crunch_1", "approach_glass_crunch_2", "appro
 const SND_CRT := "approach_crt_hum"                  # loop, -15.2 RMS
 const CCTV_VIDEO := "res://assets/video/breach_cctv_breakout.ogv"   # the user's clip replaces it
 const CELL_SPOT := Vector3(-11.0, 0.0, -34.8)        # where the shared ContainmentCell stands (front -> -x)
+
+# --- pass 4 (2026-09-23) --------------------------------------------------------------------
+const FaceScript := preload("res://scripts/breach_approach_face.gd")
+const FACE_LAYER := 1 << 16                          # breach_approach_face.gd:LAYER — the bay lamps skip it
+const NICHE_D := 0.55                                # the shutter's niche: room for a head behind the roll
+const SHUTTER_NEAR := 16.0                           # the shutter keeps cycling while the player is this close
+const SHUTTER_MAX_CYCLES := 8
+const FACE_LOOK_DOT := 0.8                           # a cycle opens face-up only if the niche is looked at…
+const FACE_LOOK_DIST := 14.0                         # …from this close
+const SHUTTER_WINDOW := Vector3(-62.4, 1.3, -45.0)   # bay B's glass, for "is the player near"
+# The ceiling drop (Containment, south of the lane). Crossing DROP_TRIGGER_X drops the body ~2.3 m
+# ahead and 1.2 m to the side of the walking line (z -26), where it can swing without touching it.
+const DROP_TRIGGER_X := -9.2
+const DROP_PIVOT := Vector3(-6.9, 2.55, -24.8)
+const DROP_IMPACT_DUCK_DB := -14.0   # the beds dip under the crash (2026-09-24, "should be louder")
+const DROP_IMPACT_HOLD := 1.2
+const DROP_LAMP_ENERGY := 1.1                   # the work lamp on his chain (legibility, not a difficulty number)
+# The fused technician, on the Plenum's east wall north of the collapse, where the player must look.
+const TECH_WALL_X := -26.0
+const TECH_Z := -30.4
+const TECH_W := 1.30                                 # the relief's width (and height: the art is square); LIFE SIZE
+const TECH_FACE_Y := 1.55                            # his eyes, at a man's height
+const TECH_RELIEF_Z := 0.045                         # the relief off the wall face (the roots decal is at 0.022)
+const TECH_WHEEL_OFF := 0.004                        # the wheel's plane off the FISTS' displaced surface (its tube sinks into them)
+const TECH_MESH_N := 192                             # the bas-relief grid (192² cells over 1.3 m: 6.8 mm)
+const TECH_RELIEF_DEPTH := 0.18                      # the height map's full scale; tools/make_breach_pass4_art.py:RELIEF_DEPTH
+const TECH_SPREAD_W := 2.3                           # the roots decal behind him
+const TECH_LAMP_ENERGY := 2.6                        # the caged lamp above him (legibility, not a difficulty number)
+# Measured on the user's art, `…/approach/user/fused_technician_closed_D.jpg` (1024², on a 5 px grid);
+# `tools/make_breach_pass4_art.py` carries the eye numbers too. Change them together.
+const TECH_ART_HEAD_FRAC := 0.161                    # his head, ears included: 165 of 1024 px
+const TECH_ART_EYES_UV := Vector2(0.506, 0.2)        # between his eyes, (491, 204.5) and (545, 203)
+const TECH_ART_GRIPS_UV := [Vector2(0.4932, 0.5811), Vector2(0.5762, 0.6836)]   # the curl of each painted fist
+const TECH_ART_WHEEL_R_PX := 83.0                    # a rim through both fists, on the art
+const CARRIED_WHEEL := "THE VALVE WHEEL"             # the carried line while he has given it up and it is not fitted
+const VALVE_R := TECH_ART_WHEEL_R_PX / 1024.0 * TECH_W   # the valve wheel's rim radius, 0.105 m (on the door and in his hands)
+# ⚠️ PLACEHOLDERS at the user's fixed paths — tools/make_sfx_breach_pass4.py
+const SND_DROP_CRASH := "approach_drop_crash"        # the hatch bursting and the body's weight hitting the chain
+const SND_DROP_CHAIN := "approach_drop_chain"        # the chain rattling as it swings
+const SND_FACE_BREATH := "approach_shutter_breath"   # a very low breath from the niche (optional)
+# The walk-in music (the user's, prepared by tools/prepare_breach_music.py: 70.26 s, −14.4 LUFS).
+# ⚠️⚠️ IT IS THE LEAD LAYER (the user, 2026-09-23, after watching the renders run: "I do not hear the
+# music I sent you, I hear just the sound of the corridor … not too silent and not too loud"). At the
+# first build's -17 dB it sat at -31.4 LUFS effective, 4 dB UNDER the vent bed (-27.5 LUFS), and 10 dB
+# under it whenever a story beat ducked it. Gains below are set from a recording of the mix on a real
+# walk (`tests/probe_breach_music_mix.gd`; the numbers are in the level spec).
+const MUSIC_DB := -4.0
+const MUSIC_STORY_DUCK := -6.0      # under the door tell, the victim and the other story beats
+const MUSIC_WHISPER_DUCK := -14.0   # under the technician's whisper
+const MUSIC_PA_DUCK := -17.0        # under a PA line: the tannoy is quiet and must stay intelligible
+# ⭐ 2026-09-24: the BEDS (vent hum + the level's beds) dip too while a PA line plays. Raising PA_DB
+# 4 dB left the tannoy level with the hum (~-27 vs ~-25 LUFS, probe_breach_music_mix.gd), so the
+# hum makes room for the announcer instead of the announcer being pushed any hotter.
+const BED_PA_DUCK := -4.0
+const MUSIC_FADE_DB_S := 6.0        # coming back up after a beat
+const MUSIC_DUCK_DB_S := 60.0       # going down for one: a 15 dB duck in 0.25 s, before the first word
 
 var completed := false
 var beat_log: Array[Dictionary] = []
@@ -237,7 +309,13 @@ var _hand: HandScript
 var _receivers: Array = []
 # audio
 var _vent: AudioStreamPlayer
+var _bed_pa_db := 0.0                # the beds' PA dip, smoothed (BED_PA_DUCK while a line plays)
 var _pa: AudioStreamPlayer
+var _pa_chime_until := 0.0
+var _whisper_until := 0.0           # the technician's scream and whisper are playing (the music makes room)
+var _tech_beat_until := 0.0         # the technician's whole beat (the beds and the victim scene duck under it)
+var _victim_speakers: Array = []    # [speaker, base gain] of the victim scene, for the duck
+var _victim_duck_db := 0.0
 var _mach_next := 8.0
 var _mach_streams: Dictionary = {}
 var _level_beds: Dictionary = {}
@@ -250,6 +328,9 @@ var _grille: Node3D
 var _iso_lamp: Dictionary = {}
 var _iso_door: Node3D
 # pass 3 — the porthole door, the technician and the wheel
+# ⚠️ Since pass 4 the "handle" IS THE WHOLE VALVE WHEEL (he holds it; the door has a bare spindle).
+# The names `handle_taken` / `handle_fitted` and the snapshot key `approach_handle_taken` are KEPT so
+# a saved snapshot still restores: taken = he has given the wheel up; fitted = it is on the spindle.
 var handle_taken := false
 var handle_fitted := false
 var porthole_open := false
@@ -257,12 +338,12 @@ var wheel_engaged := false
 var wheel_progress := 0.0              # radians of wheel turned toward open
 var _porthole_pivot: Node3D
 var _wheel: Node3D
-var _wheel_handle: Node3D
 var _bolts: Array = []
 var _tech_mat: StandardMaterial3D
 var _tech_tex_open: Texture2D
 var _tech_tex_closed: Texture2D
-var _tech_handle: Node3D
+var _tech_wheel: Node3D
+var _tech_heights := PackedFloat32Array()     # the bas-relief's vertex heights, (TECH_MESH_N + 1)²
 var _tech_busy := false
 var _tech_head := Vector3.ZERO
 var _wheel_sign := 0
@@ -294,6 +375,28 @@ var _cctv_video: VideoStreamPlayer
 var _cctv_mat: ShaderMaterial
 var _cctv_stamp: Label3D
 var _cctv_clock := 0.0
+# pass 4 — the shutter face
+var _face: Node3D
+var _shutter_cycles := 0
+var _shutter_busy := false
+var _shutter_next := 0.0
+var _face_done := false
+var _face_cycle := -1                 # which cycle showed the face (1 since 2026-09-24: the FIRST opening)
+var _niche_centre := Vector3.ZERO
+# pass 4 — the ceiling drop
+var _drop_rig: Node3D
+var _drop_body: Node3D
+var _drop_hatch: Node3D
+var _drop_solid: CollisionShape3D
+var _drop_t := -1.0
+var drop_ahead := -1.0                # along-lane distance, camera to body, at the drop
+var drop_distance := -1.0             # straight-line horizontal distance, camera to body, at the drop
+var _containment_lamps: Array = []
+var _drop_lamp: OmniLight3D
+var _drop_bulb_mat: StandardMaterial3D
+# pass 4 — the music
+var _music: AudioStreamPlayer
+var _music_db := MUSIC_DB
 
 
 func configure(builder: RoomBuilder, player: CharacterBody3D, already_completed: bool) -> void:
@@ -576,7 +679,9 @@ func _build_observation() -> void:
 		for offset in [-2.2, 1.25, 2.8]:
 			_box("WindowResidue", Vector3(x + offset, 2.1, -45.045), Vector3(0.055, 0.84, 0.018), _rust)
 		_pressure_vessel(Vector3(x - 2.9, 0, -40.4), 0.75, 2.35)
-		_lamp(Vector3(x, 2.7, -40.8), Color(0.43, 0.65, 0.56), 1.1, 6.5, true)
+		var bay_lamp := _lamp(Vector3(x, 2.7, -40.8), Color(0.43, 0.65, 0.56), 1.1, 6.5, true)
+		# ⚠️ never on the shutter face: lit by the bay lamp its whole body shows, not a face in the dark
+		(bay_lamp["light"] as Light3D).light_cull_mask = 0xFFFFF & ~FACE_LAYER
 		# The bay's light spilling through the glass is the only light in the dark stretches:
 		# enough to see the residue on the floor, and the gouged cabinet opposite bay A.
 		var through := OmniLight3D.new()
@@ -584,6 +689,7 @@ func _build_observation() -> void:
 		through.light_color = Color(0.43, 0.65, 0.56)
 		through.light_energy = 0.8
 		through.omni_range = 8.5
+		through.light_cull_mask = 0xFFFFF & ~FACE_LAYER
 		add_child(through)
 		through.position = Vector3(x, 2.1, -45.8)
 		_sign("INSPECTION   /   ISOLATED", Vector3(x, 0.78, -45.2), PI, 0.006)
@@ -686,17 +792,27 @@ func _build_shutter() -> void:
 	var cx := -62.4
 	var wall := _builder.wall_point("ApproachBayB", Vector2(0, 1), 0.0, 0.1)   # the back wall face line
 	var z := wall.z
-	_box("ShutterJambL", Vector3(cx - 1.0, 1.25, z - 0.2), Vector3(0.2, 2.5, 0.36), _steel)
-	_box("ShutterJambR", Vector3(cx + 1.0, 1.25, z - 0.2), Vector3(0.2, 2.5, 0.36), _steel)
-	_box("ShutterDrum", Vector3(cx, 2.62, z - 0.24), Vector3(2.2, 0.34, 0.44), _steel)
-	_box("ShutterSill", Vector3(cx, 0.04, z - 0.2), Vector3(2.2, 0.08, 0.36), _dark)
+	# ⭐ PASS 4: the roll stands NICHE_D forward of the back wall, so the "recess" is a real black
+	# niche with room for a head in it (it used to be a 3 cm black panel on the wall).
+	var f := z - NICHE_D                     # the roll's plane
+	_box("ShutterJambL", Vector3(cx - 1.0, 1.25, f - 0.2), Vector3(0.2, 2.5, 0.36), _steel)
+	_box("ShutterJambR", Vector3(cx + 1.0, 1.25, f - 0.2), Vector3(0.2, 2.5, 0.36), _steel)
+	_box("ShutterDrum", Vector3(cx, 2.62, f - 0.24), Vector3(2.2, 0.34, 0.44), _steel)
+	_box("ShutterSill", Vector3(cx, 0.04, f - 0.2), Vector3(2.2, 0.08, 0.36), _dark)
 	var black := _material(Color(0.0, 0.0, 0.0), 0.0)
 	black.roughness = 1.0
 	_box("ShutterRecess", Vector3(cx, 1.22, z - 0.04), Vector3(1.8, 2.34, 0.03), black)
+	# the niche's cheeks and head, black, from the back wall to the roll
+	var depth := NICHE_D - 0.02
+	for side in [-1.0, 1.0]:
+		_box("NicheCheek", Vector3(cx + side * 0.915, 1.22, z - 0.05 - depth * 0.5), Vector3(0.03, 2.34, depth), black)
+	_box("NicheHead", Vector3(cx, 2.405, z - 0.05 - depth * 0.5), Vector3(1.86, 0.03, depth), black)
+	_box("NicheFloor", Vector3(cx, 0.015, z - 0.05 - depth * 0.5), Vector3(1.8, 0.03, depth), black)
+	_niche_centre = Vector3(cx, 1.55, z - 0.3)
 	_shutter_pivot = Node3D.new()
 	_shutter_pivot.name = "ShutterRoll"
 	add_child(_shutter_pivot)
-	_shutter_pivot.position = Vector3(cx, 2.42, z - 0.22)
+	_shutter_pivot.position = Vector3(cx, 2.42, f - 0.22)
 	# a PALE painted leaf against the black recess, so rolling it up reads even in a still frame
 	# (the first render used dark steel and the closed and open frames looked the same)
 	var leaf_paint := _material(Color(0.5, 0.52, 0.48), 0.25)
@@ -704,7 +820,18 @@ func _build_shutter() -> void:
 	for i in 11:
 		# ribs on the ROOM side (-z): this wall faces the corridor through the glass
 		_box("ShutterRib", Vector3(0, -0.12 - i * 0.2, -0.035), Vector3(1.78, 0.04, 0.03), _dark, _shutter_pivot)
-	_shutter_speaker = _speaker(Vector3(cx, 1.6, z - 0.5), AMBIENCE, -4.0, 5.0, 30.0)
+	_shutter_speaker = _speaker(Vector3(cx, 1.6, f - 0.5), AMBIENCE, -4.0, 5.0, 30.0)
+	# ⭐ THE FACE, waiting in the niche from the start, hidden. It stands with its head at ~1.7 m.
+	_face = FaceScript.new()
+	_face.name = "ApproachShutterFace"
+	add_child(_face)
+	if not _face.setup(_creature_material(), Vector3(cx, 0.0, z - 0.3)):
+		_face.queue_free()
+		_face = null
+
+
+func face_puppet() -> Node3D:
+	return _face if is_instance_valid(_face) else null
 
 
 # ============================================================== Inspection turn (A11)
@@ -855,36 +982,18 @@ func _build_porthole_door() -> void:
 		var bar := _box("PortholeBolt", Vector3(0.68 + side * 0.46, 1.05, 0.075), Vector3(0.62, 0.07, 0.05), _steel, _porthole_pivot)
 		_bolts.append([bar, side])
 		_box("BoltGuide", Vector3(0.68 + side * 0.52, 1.05, 0.065), Vector3(0.1, 0.13, 0.05), _dark, _porthole_pivot)
-	# THE WHEEL: rim, four spokes, a hub, and one SQUARE BOSS on the rim where the handle seats.
-	# Empty, the boss is the visible "something is missing".
+	# ⭐ PASS 4: A BARE SPINDLE. The door's valve wheel is gone; the technician across the Plenum holds
+	# it to his chest. A square steel shaft stands out of a collar on the leaf, where the bolts meet:
+	# the visible "something is missing". E with the wheel carried seats it here (`_wheel` shown).
+	var collar := _cylinder("WheelSpindleCollar", Vector3(0.68, 1.05, 0.075), 0.045, 0.05, _dark, _porthole_pivot)
+	collar.rotation.x = PI / 2.0
+	_box("WheelSpindle", Vector3(0.68, 1.05, 0.14), Vector3(0.028, 0.028, 0.13), _steel, _porthole_pivot)
 	_wheel = Node3D.new()
 	_wheel.name = "PortholeWheel"
 	_porthole_pivot.add_child(_wheel)
-	_wheel.position = Vector3(0.68, 1.05, 0.13)
-	var wheel_mat := _material(Color(0.36, 0.33, 0.28), 0.7)
-	wheel_mat.roughness = 0.45
-	var wring := TorusMesh.new()
-	wring.inner_radius = 0.2
-	wring.outer_radius = 0.245
-	var wr := MeshInstance3D.new()
-	wr.name = "WheelRim"
-	wr.mesh = wring
-	wr.material_override = wheel_mat
-	_wheel.add_child(wr)
-	wr.rotation.x = PI / 2.0
-	for k in 4:
-		var spoke := _box("WheelSpoke", Vector3.ZERO, Vector3(0.42, 0.03, 0.03), wheel_mat, _wheel)
-		spoke.rotation.z = k * PI / 4.0
-	var hub := _cylinder("WheelHub", Vector3(0, 0, 0.0), 0.06, 0.08, _steel, _wheel)
-	hub.rotation.x = PI / 2.0
-	_box("WheelBoss", Vector3(0.222, 0, 0.03), Vector3(0.05, 0.05, 0.05), _dark, _wheel)
-	# the handle, once fitted: a stem and a rubber grip standing out from the boss
-	_wheel_handle = Node3D.new()
-	_wheel_handle.name = "WheelHandle"
-	_wheel.add_child(_wheel_handle)
-	_wheel_handle.position = Vector3(0.222, 0, 0.03)
-	_build_handle_mesh(_wheel_handle)
-	_wheel_handle.visible = false
+	_wheel.position = Vector3(0.68, 1.05, 0.17)
+	_build_valve_wheel(_wheel)
+	_wheel.visible = false
 	_proxy("PortholeWheelInteract", Vector3(PORTHOLE_X + 0.0, 1.05, z + 0.26), Vector3(0.66, 0.66, 0.2),
 		_on_wheel_interact, func() -> bool: return not porthole_open, _wheel_prompt)
 	# ⚠️ THIS LAMP CASTS SHADOWS, unlike the approach's other lamps (only the technician's fill and the
@@ -906,67 +1015,359 @@ func _build_porthole_door() -> void:
 	_light_on(_door_lamp, true)
 
 
-func _build_handle_mesh(parent: Node3D) -> void:
-	var grip := _material(Color(0.07, 0.06, 0.06), 0.0)
-	grip.roughness = 0.9
-	var stem := _cylinder("HandleStem", Vector3(0, 0, 0.05), 0.013, 0.1, _steel, parent)
-	stem.rotation.x = PI / 2.0
-	var knob := _cylinder("HandleGrip", Vector3(0, 0, 0.14), 0.022, 0.1, grip, parent)
-	knob.rotation.x = PI / 2.0
-	_box("HandleSocket", Vector3(0, 0, 0.0), Vector3(0.045, 0.045, 0.03), _dark, parent)
-
-
-# ⭐ THE DEAD TECHNICIAN, slumped in the corner by the door, holding the wheel's missing handle.
-# Generated art on a quad (tools/make_breach_pass3_art.py): an eyes-OPEN / eyes-CLOSED pair that
-# match exactly except the eyes (the `weeping_frame.gd` swap). He shows the closed pair until you
-# take the handle: the hand grips (~0.5 s), the eyes open, a close hoarse whisper — "don't… go in
-# there…" — then the grip lets go, and the eyes close for good. Once.
-const TECH_W := 1.2                          # the quad's width; its height follows the art
-const HAND_UV := Vector2(0.634, 0.688)          # where his hand is in the art (the tool prints it)
-
+# ⭐ THE FUSED TECHNICIAN (pass 4; he was slumped by the door in pass 3). The user: *"This looks way
+# too unrealistic - should it look like a weird creature itself … And it looks very 2d now"* and *"it
+# should probably be in the other part of that room - what for to keep the handle just besides the
+# door"*. So he is grown INTO the Plenum's east wall, and he holds the porthole door's valve wheel
+# (*"I do not see the wheel very clearly in its arms … make it more realistic and even more adjacent to
+# the wall"*).
+# ⭐ 2026-09-24: THE USER'S OWN ART. The user generated the relief (flux, `…/approach/user/`, variant D
+# chosen): a realistic dead technician pressed into the wall, roots over and round him, everything below
+# the waist swallowed, eyes closed, both painted hands curled in an EMPTY grip at his chest and belly.
+# - ONE relief, flush on the wall (`TECH_RELIEF_Z` 4.5 cm, over the roots decal at 2.2 cm), life size:
+#   his head (ears included) is 0.161 of the art's width, so `TECH_W` 1.30 m makes it 0.21 m, with his
+#   eyes at `TECH_FACE_Y` 1.55 m. The swallowed body and the root spray are PAINTED, so there is no 3D
+#   mass: the 56-lump sphere mound, the 3D arms and the sleeves are gone (the user called the spheres
+#   unrealistic). A few thin 3D tendrils lap over the relief's edges and run down to the floor.
+# - THE WHEEL is the only 3D part of him: the steel valve wheel pressed nearly flush to his chest
+#   (`TECH_WHEEL_OFF` 4 cm off the relief), its rim passing through both painted fists
+#   (`TECH_ART_GRIPS_UV`), so the painted fingers grip it. Taken, it vanishes and leaves his hands
+#   curled round nothing.
+# - A caged lamp above him rakes down across a normal map derived from the art.
+# Taking it keeps pass 3's sequence: the grip, the eyes OPEN (the pair differs only at the eyes), a
+# close hoarse whisper — "don't… go in there…" — then the eyes close for good. Once.
 func _build_technician() -> void:
 	var root := Node3D.new()
 	root.name = "DeadTechnician"
 	add_child(root)
-	# in the corner between the north wall and the door's left jamb, turned a little toward the
-	# player arriving from the west (a flat quad square to the wall read as a sliver from there)
-	# ⚠️ Turned TOWARD the door (+0.6), not away from it (the first render: turned -0.3, the door
-	# lamp lit him from behind and he was a black silhouette, eyes and all). At +0.6 he faces the
-	# player standing at the wheel almost square-on, and the lamp lights his face.
-	root.position = Vector3(-46.62, 0, -32.3)
-	root.rotation.y = 0.6
-	_tech_tex_closed = load(TEX + "approach_technician_closed.png")
-	_tech_tex_open = load(TEX + "approach_technician_open.png")
-	var q := _quad("TechnicianBody", _tech_tex_closed, Vector2(TECH_W, 0.0), false, true, root)
-	var h: float = (q.mesh as QuadMesh).size.y
-	q.position = Vector3(0, h * 0.5 + 0.012, 0)   # clear of the floor slab (check_wall_overlap)
-	_tech_mat = q.material_override as StandardMaterial3D
-	_tech_mat.alpha_scissor_threshold = 0.5
-	_tech_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-	# the handle rests in his right hand (the art's hand, measured in UV: 0.634, 0.688)
-	var hand := Vector3((HAND_UV.x - 0.5) * TECH_W, (0.5 - HAND_UV.y) * h + h * 0.5 + 0.012, 0.05)
-	_tech_head = root.to_global(Vector3((0.48 - 0.5) * TECH_W, h * 0.86, 0.1))
-	_tech_handle = Node3D.new()
-	_tech_handle.name = "TechnicianHandle"
-	root.add_child(_tech_handle)
-	_tech_handle.position = hand
-	_tech_handle.rotation = Vector3(0.0, -1.2, 0.35)
-	_build_handle_mesh(_tech_handle)
-	# the door lamp alone reaches him at a glancing angle: a small warm fill in front of him, casting
-	# shadows so the wall keeps it out of the dark room behind
+	# on the east wall face, facing into the room (-x); local +x runs along the wall toward +z (the
+	# viewer's right); y up; z out of the wall
+	root.position = Vector3(TECH_WALL_X - 0.1, 0, TECH_Z)
+	root.rotation.y = -PI / 2.0
+	_tech_tex_closed = load(TEX + "approach_fused_closed.png")
+	_tech_tex_open = load(TEX + "approach_fused_open.png")
+	# ⭐ 2026-09-24 (the user: "a man holding a wheel looks very two D. Can we make it more three D?"):
+	# a BAS-RELIEF MESH, displaced out of the wall by the art's height map, not a flat quad
+	var relief := _build_relief_mesh()
+	relief.name = "TechnicianBody"
+	root.add_child(relief)
+	relief.position = Vector3(0, _tech_art_top() - TECH_W * 0.5, 0)
+	_tech_mat = relief.material_override as StandardMaterial3D
+	_tech_head = root.to_global(_tech_uv(TECH_ART_EYES_UV, TECH_RELIEF_Z + _tech_height_at(TECH_ART_EYES_UV) + 0.03))
+	var flesh := _growth_mat(Color(1.0, 0.92, 0.92))
+	var deep := _growth_mat(Color(0.6, 0.52, 0.56))
+	# 1. the SPREAD: the veins across the tiles behind him (the user's art, keyed and faded radially),
+	# alpha-BLENDED so they thin away into the wall; the relief, drawn opaque in front, occludes it
+	var spread := _quad("GrowthSpread", load(TEX + "approach_growth_spread.png"), Vector2(TECH_SPREAD_W, TECH_SPREAD_W), false, true, root)
+	spread.position = Vector3(0.0, 0.03 + TECH_SPREAD_W * 0.5, 0.022)     # its bottom edge 3 cm above the floor
+	var smat := spread.material_override as StandardMaterial3D
+	smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	smat.roughness = 0.5
+	smat.metallic_specular = 0.55
+	# 2. THREE thin 3D tendrils out of the swallowed body at the relief's foot, lying ON the wall and
+	# curving down it to the floor: they lap over the relief's bottom edge and carry the growth to the
+	# floor. (The first build also ran them out across the floor and laid short ones over the side edges:
+	# they stood off the wall like spider legs and black sticks, so they are gone.)
+	for spec in [[0.44, 0.035, 0.4, 0.8], [0.52, -0.045, 2.1, 1.0], [0.6, 0.05, 4.0, 0.9]]:
+		_wall_tendril(root, _tech_uv(Vector2(spec[0], 0.88), 0.0), float(spec[1]), float(spec[2]), float(spec[3]), flesh)
+	# 3. THE WHEEL, flush to his chest, its rim through both painted fists
+	_tech_wheel = Node3D.new()
+	_tech_wheel.name = "TechnicianWheel"
+	root.add_child(_tech_wheel)
+	_tech_wheel.position = _tech_wheel_centre()
+	_tech_wheel.rotation.z = 0.2
+	_build_valve_wheel(_tech_wheel)
+	# 4. HIS LIGHT: a small caged lamp on the wall above him, raking down over the relief and catching
+	# the wheel's bare steel, shadowed so the wall keeps it on his side
+	var lamp_at := Vector3(0.0, _tech_art_top() + 0.14, 0.34)
+	var cage := _material(Color(0.06, 0.06, 0.055), 0.6)
+	_box("TechLampBracket", lamp_at + Vector3(0, 0.03, -0.18), Vector3(0.04, 0.04, 0.36), cage, root)
+	for k in 4:
+		var bar := _box("TechLampCage", lamp_at + Vector3(cos(k * PI / 2.0) * 0.045, -0.03, sin(k * PI / 2.0) * 0.045),
+			Vector3(0.008, 0.09, 0.008), cage, root)
+		bar.name = "TechLampCage"
+	var bulb_mat := _material(Color(0.07, 0.06, 0.05), 0.0)
+	bulb_mat.emission_enabled = true
+	bulb_mat.emission = Color(1.0, 0.8, 0.55)
+	bulb_mat.emission_energy_multiplier = 0.85
+	var bulb := MeshInstance3D.new()
+	bulb.name = "TechLampBulb"
+	var bm := SphereMesh.new()
+	bm.radius = 0.028
+	bm.height = 0.06
+	bulb.mesh = bm
+	bulb.material_override = bulb_mat
+	root.add_child(bulb)
+	bulb.position = lamp_at + Vector3(0, -0.04, 0)
+	var spot := SpotLight3D.new()
+	spot.name = "TechnicianLamp"
+	spot.light_color = Color(0.95, 0.8, 0.6)
+	spot.light_energy = TECH_LAMP_ENERGY
+	spot.spot_range = 3.4
+	spot.spot_angle = 44.0
+	spot.spot_attenuation = 0.9
+	spot.shadow_enabled = true
+	root.add_child(spot)
+	spot.position = lamp_at + Vector3(0, -0.06, 0.05)
+	# aimed down across his face to his chest: the lamp is 0.34 m out on its bracket, so the light
+	# rakes down the relief and the normal map models the brow, the cheekbones and the folds
+	spot.look_at(root.to_global(_tech_uv(Vector2(0.5, 0.55), 0.05)), Vector3.UP)
+	# a faint cool fill from the room so the lamp's shadows are not pure black
 	var fill := OmniLight3D.new()
 	fill.name = "TechnicianFill"
-	fill.light_color = Color(0.74, 0.64, 0.5)
-	fill.light_energy = 0.9
-	fill.omni_range = 2.3
+	fill.light_color = Color(0.55, 0.62, 0.6)
+	fill.light_energy = 0.25
+	fill.omni_range = 3.0
 	fill.shadow_enabled = true
 	add_child(fill)
-	fill.position = Vector3(-45.95, 1.35, -31.35)
-	# P6: he is solid — a low box for the body and the legs out along the floor
-	_collide(root, Vector3(0.72, 0.9, 0.52), Vector3(0.05, 0.45, 0.22))
-	# E anywhere on him takes the handle; the volume is a few cm LARGER than the solid box
-	_proxy("TechnicianInteract", Vector3(0.05, 0.5, 0.24), Vector3(0.84, 1.0, 0.62),
-		_on_technician_interact, _technician_can, func() -> String: return "E — take the handle", root)
+	fill.global_position = root.to_global(Vector3(0.3, 1.2, 1.6))
+	# P6: he is solid, a thin slab from the floor (the growth that swallowed his legs) to his head
+	_collide(root, Vector3(1.0, 1.85, 0.24), Vector3(0.0, 0.925, 0.12))
+	# E anywhere on him (face, body, the wheel) takes the wheel; larger than the solid box
+	_proxy("TechnicianInteract", Vector3(0.0, 1.1, 0.25), Vector3(0.95, 1.6, 0.45),
+		_on_technician_interact, _technician_can, func() -> String: return "E — take the wheel", root)
+
+
+# ⭐ THE BAS-RELIEF. A grid of TECH_MESH_N² cells over the art, each vertex pushed out of the wall by
+# `approach_fused_height.png` (tools/make_breach_pass4_art.py: the body inflated from measured capsules
+# so the head, chest, arms and fists are round, ~13–17 cm proud; the growth 1–4 cm; a luminance detail
+# term; no cliffs). The height is 16-bit in R/G; B is the alpha dilated by 5 px, and a cell is only built
+# if one of its corners is under it, so the empty backdrop costs no triangles. Normals come from the
+# height grid; the normal map carries the detail finer than the grid. Alpha scissor gives the silhouette,
+# and it casts shadows: the lamp above throws the head, the fists and the wheel onto his body and the wall.
+func _build_relief_mesh() -> MeshInstance3D:
+	var himg: Image = (load(TEX + "approach_fused_height.png") as Texture2D).get_image()
+	if himg.is_compressed():
+		himg.decompress()
+	var n := TECH_MESH_N
+	var w := himg.get_width()
+	var hh := himg.get_height()
+	_tech_heights = PackedFloat32Array()
+	_tech_heights.resize((n + 1) * (n + 1))
+	var cover := PackedByteArray()
+	cover.resize((n + 1) * (n + 1))
+	for j in n + 1:
+		for i in n + 1:
+			var c := himg.get_pixel(mini(w - 1, int(float(i) / n * w)), mini(hh - 1, int(float(j) / n * hh)))
+			var v16 := c.r8 * 256 + c.g8
+			_tech_heights[j * (n + 1) + i] = float(v16) / 65535.0 * TECH_RELIEF_DEPTH
+			cover[j * (n + 1) + i] = 1 if c.b8 > 10 else 0
+	var dx := TECH_W / n
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for j in n + 1:
+		for i in n + 1:
+			var hc := _tech_heights[j * (n + 1) + i]
+			var hl := _tech_heights[j * (n + 1) + maxi(i - 1, 0)]
+			var hr := _tech_heights[j * (n + 1) + mini(i + 1, n)]
+			var hu := _tech_heights[maxi(j - 1, 0) * (n + 1) + i]
+			var hd := _tech_heights[mini(j + 1, n) * (n + 1) + i]
+			# y is up and j runs down the image, so d(height)/d(y) = (hu - hd) / 2dx
+			var nrm := Vector3(-(hr - hl) / (2.0 * dx), -(hu - hd) / (2.0 * dx), 1.0).normalized()
+			st.set_normal(nrm)
+			st.set_uv(Vector2(float(i) / n, float(j) / n))
+			st.add_vertex(Vector3((float(i) / n - 0.5) * TECH_W, (0.5 - float(j) / n) * TECH_W, TECH_RELIEF_Z + hc))
+	for j in n:
+		for i in n:
+			var a := j * (n + 1) + i
+			var b := a + 1
+			var c := a + n + 1
+			var d := c + 1
+			if cover[a] + cover[b] + cover[c] + cover[d] == 0:
+				continue
+			# clockwise seen from the front (+z): Godot's front face
+			st.add_index(a)
+			st.add_index(b)
+			st.add_index(c)
+			st.add_index(b)
+			st.add_index(d)
+			st.add_index(c)
+	st.generate_tangents()
+	var mi := MeshInstance3D.new()
+	mi.mesh = st.commit()
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = _tech_tex_closed
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	m.alpha_scissor_threshold = 0.5
+	m.roughness = 0.6
+	var nrm_tex: Texture2D = load(TEX + "approach_fused_normal.png")
+	if nrm_tex:
+		m.normal_enabled = true
+		m.normal_texture = nrm_tex
+		m.normal_scale = 0.7
+	mi.material_override = m
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+	return mi
+
+
+# The relief's height (m, off its base) at an art UV, from the vertex grid (bilinear).
+func _tech_height_at(uv: Vector2) -> float:
+	var n := TECH_MESH_N
+	if _tech_heights.size() != (n + 1) * (n + 1):
+		return 0.0
+	var fx := clampf(uv.x, 0.0, 1.0) * n
+	var fy := clampf(uv.y, 0.0, 1.0) * n
+	var i := mini(int(fx), n - 1)
+	var j := mini(int(fy), n - 1)
+	var tx := fx - i
+	var ty := fy - j
+	var h00 := _tech_heights[j * (n + 1) + i]
+	var h10 := _tech_heights[j * (n + 1) + i + 1]
+	var h01 := _tech_heights[(j + 1) * (n + 1) + i]
+	var h11 := _tech_heights[(j + 1) * (n + 1) + i + 1]
+	return lerpf(lerpf(h00, h10, tx), lerpf(h01, h11, tx), ty)
+
+
+# The same, from a point in the technician's space.
+func _tech_height_local(x: float, y: float) -> float:
+	return _tech_height_at(Vector2(x / TECH_W + 0.5, (_tech_art_top() - y) / TECH_W))
+
+
+# A thin tendril from `from` (on the relief) down the wall to the floor, swaying `sway` m side to side,
+# tapering from 0.02 m to 0.006 m. In front of the relief it lies just proud of it; below the relief's
+# foot it lies on the wall; it ends touching the floor.
+func _wall_tendril(parent: Node3D, from: Vector3, sway: float, phase: float, reach: float, mat: Material) -> void:
+	const SEGS := 10
+	var bottom := _tech_art_top() - TECH_W
+	var prev := Vector3.ZERO
+	for i in SEGS + 1:
+		var t := float(i) / SEGS
+		var y := lerpf(from.y, 0.012, t * reach + (1.0 - reach) * t * t)
+		var r := lerpf(0.02, 0.006, t)
+		var x := from.x + sway * sin(t * PI * 1.3 + phase) - sway * sin(phase)
+		# over the relief it lies ON the displaced surface; below its foot, on the wall
+		var z := TECH_RELIEF_Z + _tech_height_local(x, y) + r * 0.7 if y > bottom + 0.02 else r + 0.004
+		var p := Vector3(x, y, z)
+		if i > 0:
+			_limb(parent, prev, p, r, mat, "GrowthTendril")
+		prev = p
+
+
+# The relief's top edge in the technician's space: his eyes (`TECH_ART_EYES_UV`) sit at TECH_FACE_Y.
+func _tech_art_top() -> float:
+	return TECH_FACE_Y + TECH_ART_EYES_UV.y * TECH_W
+
+
+# A point on the relief, from the art's UV (0..1, y down), `z` off the wall.
+func _tech_uv(uv: Vector2, z: float) -> Vector3:
+	return Vector3((uv.x - 0.5) * TECH_W, _tech_art_top() - uv.y * TECH_W, z)
+
+
+# The wheel's centre: on the circle of radius VALVE_R through both painted fists, on the side toward his
+# left shoulder (up and to the viewer's right), `TECH_WHEEL_OFF` off the relief.
+func _tech_wheel_centre() -> Vector3:
+	var g1 := _tech_uv(TECH_ART_GRIPS_UV[0], 0.0)
+	var g2 := _tech_uv(TECH_ART_GRIPS_UV[1], 0.0)
+	var m := Vector2((g1.x + g2.x) * 0.5, (g1.y + g2.y) * 0.5)
+	var ch := Vector2(g2.x - g1.x, g2.y - g1.y)
+	var perp := Vector2(-ch.y, ch.x).normalized()
+	var t := sqrt(maxf(0.0, VALVE_R * VALVE_R - ch.length_squared() * 0.25))
+	var c := m + perp * t
+	# ⭐ AT THE HANDS' DISPLACED DEPTH, not the wall's: the rim's tube is centred at the fists' surface,
+	# so it sinks into the curl of each painted fist (the fingers close over it) — but never into the
+	# chest: the plane is also kept a tube's width clear of the highest point under the wheel's disc.
+	var hands := maxf(_tech_height_at(TECH_ART_GRIPS_UV[0]), _tech_height_at(TECH_ART_GRIPS_UV[1]))
+	var disc := 0.0
+	for k in 25:
+		var a := TAU * k / 25.0
+		for rr in [0.0, 0.45, 0.8]:
+			var q: Vector2 = c + Vector2(cos(a), sin(a)) * VALVE_R * float(rr)
+			disc = maxf(disc, _tech_height_local(q.x, q.y))
+	return Vector3(c.x, c.y, TECH_RELIEF_Z + maxf(hands + TECH_WHEEL_OFF, disc + 0.016))
+
+
+# THE VALVE WHEEL, the porthole door's missing part: a bare-steel rim, five spokes, a hub with a
+# square socket (the door's spindle seats in it) and a spinner knob on the rim. Built in the XY plane,
+# facing +z. The same model on the door and in his arms. Bright, worn steel, never emissive: it reads
+# because the lamp above him catches it.
+func _build_valve_wheel(parent: Node3D) -> void:
+	# (metallic 0.55, not 0.85: a mirror-metal rim reflects the dark room and read as dark grey in the
+	# renders; the lamp has to be able to catch it)
+	var steel := _material(Color(0.74, 0.74, 0.7), 0.55)
+	steel.roughness = 0.34
+	var rim := MeshInstance3D.new()
+	rim.name = "WheelRim"
+	var ring := TorusMesh.new()
+	ring.inner_radius = VALVE_R - 0.013
+	ring.outer_radius = VALVE_R + 0.013
+	ring.rings = 40
+	ring.ring_segments = 14
+	rim.mesh = ring
+	rim.material_override = steel
+	parent.add_child(rim)
+	rim.rotation.x = PI / 2.0
+	for k in 5:
+		var a := TAU * k / 5.0 + PI / 2.0
+		var spoke := _limb(parent, Vector3(cos(a), sin(a), 0.0) * 0.028, Vector3(cos(a), sin(a), 0.0) * (VALVE_R - 0.01),
+			0.0085, steel, "WheelSpoke")
+		spoke.name = "WheelSpoke"
+	var hub := _cylinder("WheelHub", Vector3(0, 0, 0.0), 0.032, 0.05, steel, parent)
+	hub.rotation.x = PI / 2.0
+	_box("WheelSocket", Vector3(0, 0, 0.026), Vector3(0.02, 0.02, 0.004), _dark, parent)
+	var knob := _cylinder("WheelKnob", Vector3(VALVE_R * 0.9, 0, 0.035), 0.011, 0.055, _dark, parent)
+	knob.rotation.x = PI / 2.0
+
+
+# Object 12's growth: a tangle of wet tendrils (`approach_growth_flesh.png`, tools/make_breach_pass4_art.py)
+# at a fixed WORLD scale, so a flattened lump and a thin vine carry the same size of strand. Matte-wet:
+# the first build's roughness 0.26 turned every sphere into black plastic with one hot highlight.
+# `tint` multiplies the texture (near white = as drawn). Never emissive.
+func _growth_mat(tint: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = load(TEX + "approach_growth_flesh.png")
+	m.albedo_color = tint
+	m.uv1_triplanar = true
+	m.uv1_world_triplanar = true
+	m.uv1_scale = Vector3(2.2, -2.2, 2.2)
+	m.roughness = 0.5
+	m.metallic_specular = 0.55
+	return m
+
+
+# A vine lying on the wall: a chain of `SEGS` capsules from `from`, heading along `dir` (in the wall's
+# x/y plane, unless `dir3` gives a 3D heading), bending a little at every joint and tapering to a point.
+# It stays within a few centimetres of the wall (and of the floor, once it reaches it).
+func _vine(parent: Node3D, from: Vector3, dir: Vector2, length: float, r0: float, mat: Material, dir3 := Vector3.ZERO,
+		min_z := 0.015) -> void:
+	const SEGS := 5
+	var a := from
+	var heading := dir3.normalized() if dir3 != Vector3.ZERO else Vector3(dir.x, dir.y, 0.0).normalized()
+	for i in SEGS:
+		var bend := _rng.randf_range(-0.45, 0.45)
+		heading = heading.rotated(Vector3(0, 0, 1), bend).normalized() if dir3 == Vector3.ZERO else heading
+		var b := a + heading * (length / SEGS)
+		if dir3 == Vector3.ZERO:
+			b.z = maxf(min_z, r0 * 0.5)
+			if b.y < 0.02:
+				# on the floor now: run out along it, away from the wall
+				b.y = r0 * 0.5
+				b.z = a.z + length / SEGS * 0.8
+		var r := r0 * (1.0 - float(i) / SEGS * 0.75)
+		_limb(parent, a, b, r, mat, "GrowthTendril")
+		a = b
+
+
+# A capsule from `a` to `b` in `parent`'s space: a limb, a tendril, a finger.
+func _limb(parent: Node3D, a: Vector3, b: Vector3, r: float, mat: Material, label: String) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.name = label
+	var cm := CapsuleMesh.new()
+	cm.radius = r
+	cm.height = maxf(a.distance_to(b) + r * 2.0, r * 2.2)
+	cm.radial_segments = 10
+	cm.rings = 4
+	mi.mesh = cm
+	mi.material_override = mat
+	parent.add_child(mi, true)
+	mi.position = (a + b) * 0.5
+	var dir := (b - a).normalized()
+	var up := Vector3(0, 1, 0)
+	if absf(dir.dot(up)) > 0.999:
+		mi.basis = Basis.IDENTITY if dir.y > 0 else Basis(Vector3(1, 0, 0), PI)
+	else:
+		var axis := up.cross(dir).normalized()
+		mi.basis = Basis(axis, acos(clampf(up.dot(dir), -1.0, 1.0)))
+	return mi
 
 
 # ⚠️ THE PLENUM'S DOORWAY TO CONTAINMENT IS COLLAPSED (P3). The main duct's last section fell across
@@ -1038,7 +1439,7 @@ func _build_containment() -> void:
 	# ⚠️ The east lamp is short-range on purpose: approach lamps cast no shadows, so at 7.5 m it
 	# lit the Threshold duct's end cap THROUGH the wall into a red panel (second render).
 	for spec in [[-21.0, 7.5], [-13.0, 7.5], [-7.5, 5.5]]:
-		_lamp(Vector3(spec[0], 2.5, -24.05), Color(0.7, 0.38, 0.22), 0.65, spec[1], true)
+		_containment_lamps.append(_lamp(Vector3(spec[0], 2.5, -24.05), Color(0.7, 0.38, 0.22), 0.65, spec[1], true))
 	for x in [-21.0, -13.0, -5.0]:
 		_box("DamagedCableTray", Vector3(x, 2.8, -28.0), Vector3(6.7, 0.15, 0.5), _rust)
 	# The chamber doorway: a head turns the full-height opening into a doorway. ⚠️ PASS 3: the bent
@@ -1082,6 +1483,237 @@ func _build_containment() -> void:
 	_build_dark_room()
 	_build_passage()
 	_build_cell_chamber()
+	_build_ceiling_drop()
+
+
+# ============================================================== the ceiling drop (pass 4)
+
+# ⭐ THE WALK-IN'S ONE SUDDEN SCARE (the user: *"there should be at least one place where the element
+# of unexpectedness and suddenness will make the player scared … besides this hand"*). Where the user
+# paused in Containment, a service duct runs under the ceiling beside the lane. As the player walks
+# east past x DROP_TRIGGER_X, its hatch bursts open. The DRAGGED TECHNICIAN'S BODY drops out on a chain,
+# upside down by the ankles, ~2.3 m ahead and 1.2 m to the side, with a crash, and the lamp beside it
+# flickers. It swings and twists, then settles. It pays off the drag heard behind the porthole door.
+# - Triggered by POSITION, never by gaze, so it is actually sudden. Once per run.
+# - No panic, no creature, and it hangs clear of the lane.
+# - ⚠️ 3D, not flat art (the user rejected "very 2d"). A body cocooned in Object 12's membrane, built
+#   from capsules, with one bare arm hanging out.
+func _build_ceiling_drop() -> void:
+	var duct := _material(Color(0.2, 0.21, 0.2), 0.55)
+	var x0 := -9.3
+	var x1 := -4.5
+	var zc := DROP_PIVOT.z
+	var y0 := DROP_PIVOT.y
+	var y1 := 3.34
+	var xc := (x0 + x1) * 0.5
+	var hx := DROP_PIVOT.x
+	# the duct, from parts, with a real hole in its underside where the hatch is
+	_box("DropDuctSideN", Vector3(xc, (y0 + y1) * 0.5, zc - 0.4), Vector3(x1 - x0, y1 - y0, 0.04), duct)
+	_box("DropDuctSideS", Vector3(xc, (y0 + y1) * 0.5, zc + 0.4), Vector3(x1 - x0, y1 - y0, 0.04), duct)
+	_box("DropDuctBottomW", Vector3((x0 + hx - 0.4) * 0.5, y0, zc), Vector3((hx - 0.4) - x0, 0.04, 0.84), duct)
+	_box("DropDuctBottomE", Vector3((hx + 0.4 + x1) * 0.5, y0, zc), Vector3(x1 - (hx + 0.4), 0.04, 0.84), duct)
+	for x in [x0, x1]:
+		_box("DropDuctCap", Vector3(x, (y0 + y1) * 0.5, zc), Vector3(0.04, y1 - y0, 0.84), duct)
+	for x in [-8.6, -5.2]:
+		_box("DropDuctHanger", Vector3(x, y1 - 0.02, zc), Vector3(0.9, 0.04, 0.05), _dark)
+	# the hatch, hinged on its west edge, flush and shut until the drop
+	_drop_hatch = Node3D.new()
+	_drop_hatch.name = "DropHatch"
+	add_child(_drop_hatch)
+	_drop_hatch.position = Vector3(hx - 0.4, y0, zc)
+	_box("DropHatchPanel", Vector3(0.4, -0.01, 0), Vector3(0.78, 0.035, 0.78), duct, _drop_hatch)
+	for k in 3:
+		_box("DropHatchSlat", Vector3(0.14 + k * 0.26, -0.03, 0), Vector3(0.03, 0.02, 0.7), _dark, _drop_hatch)
+	# the rig: pivot at the hatch; the body hangs below it and is hidden until it falls
+	_drop_rig = Node3D.new()
+	_drop_rig.name = "CeilingDrop"
+	add_child(_drop_rig)
+	_drop_rig.position = DROP_PIVOT
+	_drop_body = Node3D.new()
+	_drop_body.name = "CocoonedVictim"
+	_drop_rig.add_child(_drop_body)
+	var chain := _material(Color(0.24, 0.23, 0.21), 0.9)
+	chain.roughness = 0.4
+	for k in 5:
+		var link := MeshInstance3D.new()
+		link.name = "ChainLink"
+		var t := TorusMesh.new()
+		t.inner_radius = 0.022
+		t.outer_radius = 0.034
+		link.mesh = t
+		link.material_override = chain
+		_drop_body.add_child(link)
+		link.position = Vector3(0, -0.05 - k * 0.055, 0)
+		link.rotation = Vector3(PI / 2.0, 0.0, 0.0) if k % 2 == 0 else Vector3(PI / 2.0, PI / 2.0, 0.0)
+	var membrane := _growth_mat(Color(1.0, 0.9, 0.86))
+	var dark_membrane := _growth_mat(Color(0.55, 0.48, 0.52))
+	# upside down: ankles at the top, head at the bottom
+	_limb(_drop_body, Vector3(-0.05, -0.32, 0.0), Vector3(0.05, -0.32, 0.0), 0.075, dark_membrane, "CocoonAnkles")
+	_limb(_drop_body, Vector3(0.0, -0.36, 0.0), Vector3(0.0, -1.05, 0.02), 0.155, membrane, "CocoonLegs")
+	_limb(_drop_body, Vector3(0.0, -1.0, 0.02), Vector3(0.0, -1.62, 0.0), 0.205, membrane, "CocoonTorso")
+	_limb(_drop_body, Vector3(0.0, -1.64, 0.02), Vector3(0.0, -1.84, 0.04), 0.125, dark_membrane, "CocoonHead")
+	# the body's shape under the wrap: shoulders at the bottom (it hangs head-down), a narrower waist,
+	# knees — so the cocoon reads as a PERSON bound up, not a capsule (the first render: a bronze buoy)
+	for spec in [[Vector3(-0.19, -1.5, 0.02), 0.13], [Vector3(0.2, -1.52, 0.03), 0.13], [Vector3(-0.05, -0.62, -0.08), 0.13],
+			[Vector3(0.06, -0.66, -0.07), 0.12], [Vector3(-0.2, -1.2, -0.02), 0.1]]:
+		var lump := MeshInstance3D.new()
+		lump.name = "CocoonForm"
+		var lm := SphereMesh.new()
+		lm.radius = spec[1]
+		lm.height = spec[1] * 2.0
+		lump.mesh = lm
+		lump.material_override = membrane
+		_drop_body.add_child(lump, true)
+		lump.position = spec[0]
+	# strands wound ROUND it: tilted binding rings, tight on the body, all the way down
+	for k in 8:
+		var y := -0.42 - k * 0.17
+		var ring := MeshInstance3D.new()
+		ring.name = "CocoonStrand"
+		var tm := TorusMesh.new()
+		var girth := 0.2 if y < -0.95 else 0.16
+		tm.inner_radius = girth - 0.01
+		tm.outer_radius = girth + 0.02
+		tm.rings = 20
+		ring.mesh = tm
+		ring.material_override = dark_membrane
+		_drop_body.add_child(ring, true)
+		ring.position = Vector3(0.0, y, 0.02)
+		ring.rotation = Vector3(0.28 * (1.0 if k % 2 else -1.0), 0.0, 0.2 * (1.0 if k % 3 else -1.0))
+	for k in 3:
+		_limb(_drop_body, Vector3(0.08 * k - 0.08, -1.86, 0.0), Vector3(0.1 * k - 0.1, -2.08 - 0.05 * k, 0.03), 0.012, membrane, "CocoonDrip")
+	# HAIR hanging from the head, which is at the bottom: the one thing that makes a wrapped bundle read
+	# as a person at a glance (the first render of this cocoon read as a punching bag)
+	var hair := _material(Color(0.03, 0.025, 0.02), 0.0)
+	hair.roughness = 0.9
+	for k in 11:
+		var a := TAU * k / 11.0
+		var root_at := Vector3(cos(a) * 0.075, -1.9, 0.04 + sin(a) * 0.075)
+		var tip := root_at + Vector3(cos(a) * 0.03 + _rng.randf_range(-0.02, 0.02), -_rng.randf_range(0.24, 0.4), sin(a) * 0.03)
+		_limb(_drop_body, root_at, tip, _rng.randf_range(0.006, 0.011), hair, "CocoonHair")
+	# ⭐ ONE BARE ARM hanging out of the cocoon: shoulder at the torso's side, hanging to the floor
+	var skin := _material(Color(0.6, 0.57, 0.5), 0.0)
+	skin.roughness = 0.6
+	var shoulder := Vector3(0.2, -1.5, 0.05)
+	var elbow := Vector3(0.26, -1.78, 0.1)
+	var wrist := Vector3(0.24, -2.02, 0.08)
+	_limb(_drop_body, shoulder, elbow, 0.048, skin, "HangingArmUpper")
+	_limb(_drop_body, elbow, wrist, 0.04, skin, "HangingArmFore")
+	var hand := Node3D.new()
+	hand.name = "HangingHand"
+	_drop_body.add_child(hand)
+	hand.position = wrist + Vector3(0, -0.06, 0)
+	_box("HangingPalm", Vector3.ZERO, Vector3(0.08, 0.1, 0.03), skin, hand)
+	for k in 4:
+		_limb(hand, Vector3(-0.028 + k * 0.019, -0.05, 0.0), Vector3(-0.03 + k * 0.02, -0.11, 0.02), 0.01, skin, "HangingFinger")
+	# ⭐ THE WORK LAMP tangled in the chain, dragged out of the duct with him (the first render: the
+	# Containment lamp is on the WALL side, so it backlit the body into a flat black shape, and the user
+	# asked for a body that reads as 3D). It hangs on the lane side of the body, swings with it, and casts
+	# a shadow, so the cocoon is modelled from the front and throws a moving shadow on the wall behind.
+	var cord_top := Vector3(0.12, -0.12, -0.08)
+	var bulb_at := Vector3(0.3, -0.62, -0.46)
+	_limb(_drop_body, cord_top, bulb_at + Vector3(0, 0.06, 0), 0.006, _dark, "WorkLampCord")
+	var cage := _material(Color(0.05, 0.045, 0.04), 0.0)
+	_box("WorkLampCage", bulb_at, Vector3(0.09, 0.13, 0.09), cage, _drop_body)
+	# a dark albedo and emission under 1.0, so it reads as a lit bulb and goes visibly dead with the light
+	var bulb_mat := _material(Color(0.06, 0.05, 0.04), 0.0)
+	bulb_mat.emission_enabled = true
+	bulb_mat.emission = Color(1.0, 0.72, 0.42)
+	bulb_mat.emission_energy_multiplier = 0.9
+	_drop_bulb_mat = bulb_mat
+	var bulb := MeshInstance3D.new()
+	bulb.name = "WorkLampBulb"
+	var bm := SphereMesh.new()
+	bm.radius = 0.028
+	bm.height = 0.07
+	bulb.mesh = bm
+	bulb.material_override = bulb_mat
+	_drop_body.add_child(bulb)
+	bulb.position = bulb_at
+	_drop_lamp = OmniLight3D.new()
+	_drop_lamp.name = "WorkLampLight"
+	_drop_lamp.light_color = Color(1.0, 0.72, 0.46)
+	_drop_lamp.light_energy = DROP_LAMP_ENERGY
+	_drop_lamp.omni_range = 3.2
+	_drop_lamp.shadow_enabled = true
+	_drop_body.add_child(_drop_lamp)
+	_drop_lamp.position = bulb_at + Vector3(0, 0, -0.06)
+	var body := StaticBody3D.new()
+	body.name = "CocoonedVictimSolid"
+	body.collision_layer = 1
+	body.collision_mask = 1
+	_drop_body.add_child(body)
+	body.position = Vector3(0, -1.1, 0.02)
+	_drop_solid = CollisionShape3D.new()
+	var cap := CapsuleShape3D.new()
+	cap.radius = 0.24
+	cap.height = 1.7
+	_drop_solid.shape = cap
+	_drop_solid.disabled = true
+	body.add_child(_drop_solid)
+	_drop_body.visible = false
+
+
+func drop_rig() -> Node3D:
+	return _drop_rig
+
+
+func _ceiling_drop() -> void:
+	_log_beat("ceiling_drop")
+	var cam: Camera3D = _player.get_node_or_null("Camera3D")
+	var eye: Vector3 = cam.global_position if cam else _player.global_position
+	var body_at := Vector3(DROP_PIVOT.x, 1.3, DROP_PIVOT.z)
+	drop_ahead = absf(body_at.x - eye.x)
+	drop_distance = Vector2(body_at.x - eye.x, body_at.z - eye.z).length()
+	_drop_body.visible = true
+	_drop_solid.set_deferred("disabled", false)
+	# ⭐ 2026-09-24, the user's call ("should be louder"): the crash file is denser (+4 dB RMS,
+	# tools/prepare_breach_user_sfx.py), +1 dB here, and the chain +3 dB (probe_breach_drop_loudness.gd).
+	_one_shot(DROP_PIVOT, load(AUD + SND_DROP_CRASH + ".wav"), MASTER, 3.0, 4.0, 40.0)
+	_one_shot(DROP_PIVOT + Vector3(0, -0.3, 0), load(AUD + SND_DROP_CHAIN + ".wav"), MASTER, 3.0, 3.0, 30.0)
+	# ⭐ …AND CONTRAST, because the impact already hits the Master limiter (-0.5 dBFS ceiling; measured
+	# loudest window -6.2 dB at the listener), so it cannot get louder in absolute terms. Everything the
+	# approach owns (music, vent, level beds) drops DROP_IMPACT_DUCK_DB in 0.03 s and climbs back over
+	# 1 s: the Screamer's lesson — the dip before the hit is worth more than any re-master.
+	_duck_to(DROP_IMPACT_DUCK_DB, 0.03)
+	_at(DROP_IMPACT_HOLD, func() -> void: _duck_to(THRESHOLD_DUCK_DB if _threshold_quiet else 0.0, 1.0))
+	var tw := create_tween()
+	_tweens.append(tw)
+	tw.tween_property(_drop_hatch, "rotation:z", deg_to_rad(-118.0), 0.12).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	# the fall: out of the duct in 0.3 s, the chain snaps taut past its length and springs back
+	_drop_body.position = Vector3(0, 1.9, 0)
+	var fall := create_tween()
+	_tweens.append(fall)
+	fall.tween_property(_drop_body, "position:y", -0.12, 0.3).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	fall.tween_property(_drop_body, "position:y", 0.04, 0.12).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	fall.tween_property(_drop_body, "position:y", 0.0, 0.1)
+	_drop_t = 0.0
+	# the work lamp on his chain catches, dies, catches (it is only lit while he is shown anyway)
+	for spec in [[0.0, false], [0.34, true], [0.42, false], [0.5, true], [1.1, false], [1.16, true]]:
+		_at(spec[0], func() -> void:
+			if is_instance_valid(_drop_lamp):
+				_drop_lamp.visible = spec[1]
+				_drop_bulb_mat.emission_enabled = spec[1])
+	# the lamp beside it stutters
+	if _containment_lamps.size() >= 3:
+		var lamp: Dictionary = _containment_lamps[2]
+		for spec in [[0.0, false], [0.07, true], [0.16, false], [0.3, true], [0.62, false], [0.7, true]]:
+			_at(spec[0], _light_on.bind(lamp, spec[1]))
+
+
+# The swing: mostly ALONG the corridor (about z), barely across it (about x), so it never reaches the
+# lane; a twist about the chain; both decaying to rest in a few seconds.
+func _tick_drop(delta: float) -> void:
+	if _drop_t < 0.0 or not is_instance_valid(_drop_rig):
+		return
+	_drop_t += delta
+	var t := maxf(0.0, _drop_t - 0.3)
+	var decay := exp(-t / 2.6)
+	var w := 3.0
+	_drop_rig.rotation = Vector3(0.05 * decay * sin(w * t + 1.1), 0.9 * exp(-t / 4.5) * sin(1.7 * t),
+		0.3 * decay * sin(w * t))
+	if _drop_t > 14.0:
+		_drop_t = -1.0
 
 
 # ============================================================== the dark room (P4)
@@ -1862,6 +2494,13 @@ func _stop_all() -> void:
 	_players.clear()
 	if is_instance_valid(_vent):
 		_vent.stop()
+	if is_instance_valid(_music):
+		_music.stop()
+		_music.queue_free()
+	_music = null
+	if is_instance_valid(_face):
+		_face.queue_free()
+	_face = null
 	if is_instance_valid(_pa):
 		_pa.stop()
 	if is_instance_valid(_shutter_speaker):
@@ -1922,6 +2561,8 @@ func _process(delta: float) -> void:
 	_tick_dark_bed(delta)
 	_tick_glass(p)
 	_tick_cctv(delta)
+	_tick_shutter(p)
+	_tick_drop(delta)
 
 
 func _tick_timeline() -> void:
@@ -1981,8 +2622,11 @@ func _tick_triggers(p: Vector3) -> void:
 	if p.z > -63.0 and _in_room(p, "ApproachPumpReturn") and _once("door_tell"):
 		_request_story("door_tell", _door_tell, 4.2)
 	if p.x < -56.0 and _in_room(p, "ApproachObservation") and _once("shutter"):
+		# ⭐ 2026-09-24 (the user reversed it): the FIRST opening shows the face. Arming only: the first
+		# cycle waits in `_tick_shutter()` until the player is looking at the niche, so it is never spent
+		# on a back.
 		_log_beat("shutter")
-		_cycle_shutter()
+		_shutter_next = _time
 	if not _smashed_sputter.is_empty() and p.distance_to(_smashed_sputter["pos"]) < 5.0 and _once("smashed_lamp"):
 		_log_beat("smashed_lamp")
 		_sputter()
@@ -1999,6 +2643,9 @@ func _tick_triggers(p: Vector3) -> void:
 		_log_beat("dark_room")
 	if _in_room(p, "ApproachCell12", -0.3) and _once("cell_chamber"):
 		_log_beat("cell_chamber")
+	if _in_room(p, "ApproachContainment", -0.2) and p.x > DROP_TRIGGER_X and p.x < DROP_PIVOT.x \
+			and _once("ceiling_drop"):
+		_ceiling_drop()
 	if _in_room(p, "ApproachThreshold", -0.2) and p.z > -22.8 and _once("threshold_quiet"):
 		_log_beat("threshold_quiet")
 		_threshold_quiet = true
@@ -2029,6 +2676,11 @@ func _story_idle(quiet: float) -> bool:
 
 # ============================================================== the beats
 
+# A PA line is playing, or its chime is (the music makes room for the tannoy's words).
+func _pa_active() -> bool:
+	return _time < _pa_chime_until or (is_instance_valid(_pa) and _pa.playing)
+
+
 func _play_pa(base: String, chime: bool) -> void:
 	if not is_instance_valid(_pa):
 		_pa = AudioStreamPlayer.new()
@@ -2039,6 +2691,7 @@ func _play_pa(base: String, chime: bool) -> void:
 	var line := load(AUD + base + ".wav")
 	if chime:
 		# KONTUR's own chime: the same building, still talking.
+		_pa_chime_until = _time + 1.0
 		_play_flat(GameState.load_audio("pa_kontur_chime"), PA_DB)
 		_at(0.9, func() -> void:
 			_pa.stream = line
@@ -2109,7 +2762,22 @@ func _self_waking_lamp() -> void:
 		_wake_performing = false)
 
 
-func _cycle_shutter() -> void:
+# ⭐ PASS 4, REVERSED 2026-09-24 by the user (*"now you can see the creature the second time the door
+# opens, and the first time it opens you cannot see it. Let's make it vice versa"*): the FIRST opening
+# shows the face, and it waits until the player is looking at the niche. The face stays still, turned
+# to them, through the hold, and the roll comes down over it. Every later cycle is empty, while the
+# player stays near bay B. Once per run.
+func _cycle_shutter(face: bool = false) -> void:
+	_shutter_busy = true
+	_shutter_cycles += 1
+	if face and is_instance_valid(_face):
+		var cam: Camera3D = _player.get_node_or_null("Camera3D")
+		_face.reveal(cam.global_position if cam else _player.global_position)
+		_face_cycle = _shutter_cycles
+		_log_beat("shutter_face")
+		var breath := _one_shot(_niche_centre + Vector3(0, 0.2, 0), load(AUD + SND_FACE_BREATH + ".wav"), MASTER, -14.0, 2.0, 18.0)
+		if breath:
+			breath.pitch_scale = 0.8
 	var motor := load(AUD + "approach_shutter_motor.wav")
 	_shutter_speaker.stream = motor
 	_shutter_speaker.play()
@@ -2122,7 +2790,30 @@ func _cycle_shutter() -> void:
 		_shutter_speaker.play())
 	tw.tween_property(_shutter_pivot, "scale:y", 1.0, 3.0).set_trans(Tween.TRANS_SINE)
 	tw.tween_callback(func() -> void:
-		_one_shot(_shutter_speaker.global_position, load(AUD + "approach_mach_relay_clunk.wav"), AMBIENCE, -6.0, 5.0, 30.0))
+		_one_shot(_shutter_speaker.global_position, load(AUD + "approach_mach_relay_clunk.wav"), AMBIENCE, -6.0, 5.0, 30.0)
+		if face and is_instance_valid(_face):
+			_face.queue_free()
+			_face = null
+			_face_done = true
+			_log_beat("shutter_face_gone")
+		_shutter_busy = false
+		_shutter_next = _time + _rng.randf_range(1.5, 3.0))
+
+
+func _tick_shutter(p: Vector3) -> void:
+	if not _fired.has("shutter") or _shutter_busy or _time < _shutter_next:
+		return
+	if _shutter_cycles >= SHUTTER_MAX_CYCLES or p.distance_to(SHUTTER_WINDOW) > SHUTTER_NEAR:
+		return
+	var cam: Camera3D = _player.get_node_or_null("Camera3D")
+	var looking := cam != null and _camera_dot(_niche_centre) >= FACE_LOOK_DOT \
+		and cam.global_position.distance_to(_niche_centre) <= FACE_LOOK_DIST
+	if _shutter_cycles == 0 and not _face_done and is_instance_valid(_face):
+		# the FIRST opening is the face's, and it waits for the look
+		if looking:
+			_cycle_shutter(true)
+		return
+	_cycle_shutter(false)     # every later cycle is empty
 
 
 func _sputter() -> void:
@@ -2169,28 +2860,28 @@ func _duct_crawl(from_x: float) -> void:
 func _victim() -> void:
 	var behind := Vector3(PORTHOLE_X, 1.3, -34.0)
 	var deep := Vector3(PORTHOLE_X, 1.5, -36.5)
-	_one_shot(behind, load(AUD + "approach_victim_hammer.wav"), MASTER, -2.0, 5.0, 45.0, 3200.0)
+	_victim_shot(behind, load(AUD + "approach_victim_hammer.wav"), MASTER, -2.0, 5.0, 45.0, 3200.0)
 	_at(3.4, func() -> void:
 		_log_beat("victim_roar")
-		_one_shot(deep, load(AUD + "approach_victim_roar.wav"), MASTER, 4.0, 6.0, 50.0)
+		_victim_shot(deep, load(AUD + "approach_victim_roar.wav"), MASTER, 4.0, 6.0, 50.0)
 		for spec in [[0.0, false], [0.09, true], [0.5, false], [0.62, true], [1.05, false], [1.13, true]]:
 			_at(spec[0], _light_on.bind(_door_lamp, spec[1])))
 	_at(5.6, func() -> void:
 		_log_beat("victim_scream")
-		_one_shot(behind, load(AUD + "approach_victim_scream.wav"), MASTER, -8.0, 5.0, 45.0, 3200.0))
+		_victim_shot(behind, load(AUD + "approach_victim_scream.wav"), MASTER, -8.0, 5.0, 45.0, 3200.0))
 	_at(8.3, func() -> void:
-		_one_shot(behind, load(AUD + "approach_building_scream.wav"), MASTER, -2.0, 6.0, 50.0, 4200.0))
+		_victim_shot(behind, load(AUD + "approach_building_scream.wav"), MASTER, -2.0, 6.0, 50.0, 4200.0))
 	_at(8.5, _building_answers)
 	_at(11.2, func() -> void:
 		_log_beat("victim_thump")
-		var thud := _one_shot(behind + Vector3(0, -0.8, 0), GameState.load_audio("impact_thud"), MASTER, 2.0, 6.0, 40.0, 2400.0)
+		var thud := _victim_shot(behind + Vector3(0, -0.8, 0), GameState.load_audio("impact_thud"), MASTER, 2.0, 6.0, 40.0, 2400.0)
 		if thud:
 			thud.pitch_scale = 0.7
 		_log_beat("victim_silence")
 		_silence(1.1, -30.0))
 	_at(12.3, func() -> void:
 		_log_beat("victim_drag")
-		var sp := _one_shot(Vector3(PORTHOLE_X, 0.4, -34.0), load(AUD + "approach_drag.wav"), MASTER, 1.0, 5.0, 40.0, 2600.0)
+		var sp := _victim_shot(Vector3(PORTHOLE_X, 0.4, -34.0), load(AUD + "approach_drag.wav"), MASTER, 1.0, 5.0, 40.0, 2600.0)
 		var tw := create_tween()
 		_tweens.append(tw)
 		# ⭐ PASS 3: it recedes the way the player will follow — across the dark room to its far door
@@ -2199,25 +2890,36 @@ func _victim() -> void:
 	_mach_next = maxf(_mach_next, _time + 18.0)
 
 
+# A victim-scene one-shot: the same as `_one_shot`, and remembered with its gain so it can DUCK under
+# the technician's beat (pass 5) rather than being cut.
+func _victim_shot(pos: Vector3, stream: AudioStream, bus: String, gain: float, unit: float,
+		max_dist: float, cutoff: float = 20500.0) -> AudioStreamPlayer3D:
+	var sp := _one_shot(pos, stream, bus, gain, unit, max_dist, cutoff)
+	if sp:
+		_victim_speakers.append([sp, gain])
+		sp.volume_db = gain + _victim_duck_db
+	return sp
+
+
 func _building_answers() -> void:
 	_log_beat("building_answers")
 	for i in _receivers.size():
 		var at: Vector3 = _receivers[i]
 		_at(i * 0.14, func() -> void:
-			var ring := _one_shot(at, load(AUD + "approach_receiver_ring.wav"), MASTER, -7.0, 5.0, 35.0)
+			var ring := _victim_shot(at, load(AUD + "approach_receiver_ring.wav"), MASTER, -7.0, 5.0, 35.0)
 			if ring:
 				ring.pitch_scale = 0.9 + 0.07 * i)
-	_one_shot(_housing.global_position, load(AUD + "approach_duct_rattle.wav"), MASTER, -3.0, 5.0, 35.0)
+	_victim_shot(_housing.global_position, load(AUD + "approach_duct_rattle.wav"), MASTER, -3.0, 5.0, 35.0)
 	var tw := create_tween()
 	_tweens.append(tw)
 	for k in 8:
 		tw.tween_property(_housing, "rotation:z", 0.06 * (1 if k % 2 == 0 else -1) * (1.0 - k / 8.0), 0.07)
 	tw.tween_property(_housing, "rotation:z", 0.0, 0.07)
 	_at(0.35, func() -> void:
-		_one_shot(Vector3(-50, 4.4, -28.8), GameState.load_audio("pipe_groan"), MASTER, -6.0, 6.0, 40.0))
+		_victim_shot(Vector3(-50, 4.4, -28.8), GameState.load_audio("pipe_groan"), MASTER, -6.0, 6.0, 40.0))
 	for x in [-57.0, -46.0, -35.0]:
 		_dust(Vector3(x, 3.6, -23.45), 1.6)
-	_one_shot(Vector3(-46, 3.6, -23.8), load(AUD + "approach_dust.wav"), AMBIENCE, 0.0, 4.0, 25.0)
+	_victim_shot(Vector3(-46, 3.6, -23.8), load(AUD + "approach_dust.wav"), AMBIENCE, 0.0, 4.0, 25.0)
 	var grow := create_tween()
 	_tweens.append(grow)
 	grow.tween_property(_residue_growth, "scale", Vector3.ONE, 9.0).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
@@ -2257,11 +2959,12 @@ func _tick_hand(p: Vector3) -> void:
 
 # ============================================================== pass 3: the technician
 
-# He does not answer while the story channel is busy. The victim sequence behind this very door
-# (12.3 s, and its 4.3 s drag) would otherwise bury the whisper, and a player at the door hears
-# all of it first. The prompt only appears once the drag has gone.
+# ⭐ PASS 5 (2026-09-24, the user: "Take the wheel button is not active at first. Let's make it active
+# straight away"): he answers AT ONCE. The old gate waited out the victim sequence behind the porthole
+# door (12.3 s, and its drag) so it could not bury the whisper; now the victim scene DUCKS under his
+# beat instead (`VICTIM_TECH_DUCK`, `_victim_shot`), and is never cut.
 func _technician_can() -> bool:
-	return not handle_taken and not _tech_busy and _story_idle(0.3)
+	return not handle_taken and not _tech_busy
 
 
 func _on_technician_interact() -> void:
@@ -2269,33 +2972,48 @@ func _on_technician_interact() -> void:
 		return
 	_tech_busy = true
 	_log_beat("technician")
+	# ⭐ PASS 5 (the user: "after we press an E something like a scream of this man should appear,
+	# followed by this 'Don't go in there'"): the grip, then his eyes open WITH the scream, then the
+	# whisper, then the eyes close. The music, the beds and the victim scene duck under all of it.
+	var scream: AudioStream = load(AUD + SND_TECH_SCREAM + ".wav")
+	var scream_len := scream.get_length() if scream else 0.0
 	var whisper: AudioStream = load(AUD + SND_WHISPER + ".wav")
 	var words := whisper.get_length() if whisper else 2.5
-	_story_busy_until = maxf(_story_busy_until, _time + 0.5 + words + 0.8)
-	_mach_next = maxf(_mach_next, _time + 0.5 + words + 4.0)
-	# the grip: the dead hand pulls the handle back toward him, twice, for ~0.5 s
-	var base := _tech_handle.position
+	var whisper_at := 0.5 + scream_len + 0.25
+	_tech_beat_until = _time + whisper_at + words + 0.3
+	_whisper_until = _tech_beat_until
+	_story_busy_until = maxf(_story_busy_until, _time + whisper_at + words + 0.8)
+	_mach_next = maxf(_mach_next, _time + whisper_at + words + 4.0)
+	# the grip: the dead hands pull the wheel back against his chest, twice, for ~0.5 s
+	var base := _tech_wheel.position
 	var tw := create_tween()
 	_tweens.append(tw)
-	tw.tween_property(_tech_handle, "position", base + Vector3(-0.03, -0.015, -0.035), 0.12)
-	tw.tween_property(_tech_handle, "position", base + Vector3(0.01, 0.0, 0.012), 0.1)
-	tw.tween_property(_tech_handle, "position", base + Vector3(-0.035, -0.02, -0.04), 0.12)
-	tw.tween_property(_tech_handle, "position", base, 0.16)
+	# (a small pull: the rim is 4 cm off the relief and must never pass through it)
+	tw.tween_property(_tech_wheel, "position", base + Vector3(-0.01, -0.012, -0.012), 0.12)
+	tw.tween_property(_tech_wheel, "position", base + Vector3(0.004, 0.0, 0.006), 0.1)
+	tw.tween_property(_tech_wheel, "position", base + Vector3(-0.012, -0.016, -0.014), 0.12)
+	tw.tween_property(_tech_wheel, "position", base, 0.16)
 	_log_beat("technician_grip")
 	_at(0.5, func() -> void:
 		_tech_mat.albedo_texture = _tech_tex_open
 		_log_beat("technician_eyes_open")
+		# the scream, from his head: a jolt, on Master
+		if scream:
+			_one_shot(_tech_head, scream, MASTER, TECH_SCREAM_DB, 2.0, 30.0)
+			_log_beat("technician_scream"))
+	_at(whisper_at, func() -> void:
 		# close and hoarse, from his head: a story beat, on Master
-		_one_shot(_tech_head, whisper, MASTER, 3.0, 1.6, 12.0))
-	_at(0.5 + words + 0.25, func() -> void:
-		if is_instance_valid(_tech_handle):
-			_tech_handle.queue_free()
-		_tech_handle = null
+		_one_shot(_tech_head, whisper, MASTER, 3.0, 1.6, 12.0)
+		_log_beat("technician_whisper"))
+	_at(whisper_at + words + 0.25, func() -> void:
+		if is_instance_valid(_tech_wheel):
+			_tech_wheel.queue_free()
+		_tech_wheel = null
 		handle_taken = true
-		GameState.set_carried("A WHEEL HANDLE")
+		GameState.set_carried(CARRIED_WHEEL)
 		_one_shot(_tech_head + Vector3(0.2, -0.6, 0.2), load(AUD + SND_CLACK + ".wav"), MASTER, -10.0, 1.5, 10.0)
 		_log_beat("technician_released"))
-	_at(0.5 + words + 0.8, func() -> void:
+	_at(whisper_at + words + 0.8, func() -> void:
 		_tech_mat.albedo_texture = _tech_tex_closed
 		_tech_busy = false
 		_log_beat("technician_eyes_closed"))
@@ -2317,23 +3035,23 @@ func _wheel_prompt() -> String:
 	if handle_fitted:
 		return "E — turn the wheel"
 	if handle_taken:
-		return "E — fit the handle"
-	return "E — try the wheel"
+		return "E — fit the wheel"
+	return "E — try the spindle"
 
 
 func _on_wheel_interact() -> void:
 	if porthole_open or wheel_engaged:
 		return
 	if not handle_taken:
-		# the empty boss rattles; nothing turns
+		# the bare spindle rattles in its collar; nothing turns
 		_one_shot(_wheel.global_position, load(AUD + SND_CREAK + ".wav"), AMBIENCE, -12.0, 2.0, 12.0)
 		if _time - _wheel_toast_t > 2.0:
 			_wheel_toast_t = _time
-			ScreenText.toast(get_tree(), "THE WHEEL HAS NO HANDLE", Color(0.8, 0.78, 0.7))
+			ScreenText.toast(get_tree(), "THE WHEEL IS MISSING", Color(0.8, 0.78, 0.7))
 		return
 	if not handle_fitted:
 		handle_fitted = true
-		_wheel_handle.visible = true
+		_wheel.visible = true
 		GameState.set_carried("")
 		_one_shot(_wheel.global_position, load(AUD + SND_CLACK + ".wav"), MASTER, 0.0, 2.0, 16.0)
 		if _once("wheel_fitted"):
@@ -2452,8 +3170,8 @@ func _open_porthole(instant: bool) -> void:
 	porthole_open = true
 	if wheel_engaged:
 		_release_wheel()
-	if _wheel_handle:
-		_wheel_handle.visible = true
+	if _wheel:
+		_wheel.visible = true
 	for entry in _bolts:
 		var bar: Node3D = entry[0]
 		bar.position.x -= float(entry[1]) * 0.3
@@ -2595,16 +3313,16 @@ func restore_state(state: Dictionary) -> void:
 	handle_taken = true
 	for beat in ["technician"]:
 		_fired[beat] = true
-	if is_instance_valid(_tech_handle):
-		_tech_handle.queue_free()
-	_tech_handle = null
+	if is_instance_valid(_tech_wheel):
+		_tech_wheel.queue_free()
+	_tech_wheel = null
 	if bool(state.get("porthole_open", false)):
 		handle_fitted = true
 		_fired["wheel_fitted"] = true
 		_fired["porthole_open"] = true
 		_open_porthole(true)
 	else:
-		GameState.set_carried("A WHEEL HANDLE")
+		GameState.set_carried(CARRIED_WHEEL)
 
 
 # ============================================================== lamps
@@ -2684,17 +3402,60 @@ func _start_beds() -> void:
 	add_child(_vent)
 	_vent.finished.connect(_vent.play)   # every .wav.import here is loop_mode=0
 	_vent.play()
+	# ⭐ PASS 4: the user's walk-in music, looped from the spawn, on AMBIENCE so every silence beat
+	# (HoldBreath.dip) takes it down with the beds; faded out at the Threshold; stopped at the seal.
+	var music: AudioStream = load(AUD + "approach_corridor_music.ogg")
+	if music:
+		if music is AudioStreamOggVorbis:
+			(music as AudioStreamOggVorbis).loop = true
+		_music = AudioStreamPlayer.new()
+		_music.name = "ApproachMusic"
+		_music.stream = music
+		_music.bus = AMBIENCE
+		_music.volume_db = MUSIC_DB
+		add_child(_music)
+		_music.play()
 	for base in MACHINERY:
 		_mach_streams[base] = load(AUD + base + ".wav")
 
 
 func _tick_audio(delta: float) -> void:
 	_duck_db = move_toward(_duck_db, _duck_target, _duck_speed * delta)
+	if is_instance_valid(_music) and _music.playing:
+		# under the story beats, never over them, and furthest under the PA; gone at the Threshold
+		# (the hand's corner is silent)
+		var target := MUSIC_DB
+		if _threshold_quiet:
+			target = -60.0
+		elif _pa_active():
+			target = MUSIC_DB + MUSIC_PA_DUCK
+		elif _time < _whisper_until:
+			target = MUSIC_DB + MUSIC_WHISPER_DUCK
+		elif not _story_idle(0.0):
+			target = MUSIC_DB + MUSIC_STORY_DUCK
+		var rate := MUSIC_DUCK_DB_S if target < _music_db else MUSIC_FADE_DB_S
+		_music_db = move_toward(_music_db, target, rate * delta)
+		# + the approach's own silence duck, as the vent gets: HoldBreath refuses a second dip while one
+		# is running, and the music must still drop out on a silence beat that lands inside another
+		_music.volume_db = _music_db + _duck_db
+		if _threshold_quiet and _music_db <= -59.5:
+			_music.stop()
+	var bed_target := BED_PA_DUCK if ((_pa_active() or _time < _tech_beat_until) and not _threshold_quiet) else 0.0
+	# the victim scene behind the porthole door ducks under the technician's beat, never cut
+	var vt := VICTIM_TECH_DUCK if _time < _tech_beat_until else 0.0
+	_victim_duck_db = move_toward(_victim_duck_db, vt, (40.0 if vt < _victim_duck_db else 8.0) * delta)
+	for i in range(_victim_speakers.size() - 1, -1, -1):
+		var e: Array = _victim_speakers[i]
+		if not is_instance_valid(e[0]):
+			_victim_speakers.remove_at(i)
+			continue
+		(e[0] as AudioStreamPlayer3D).volume_db = float(e[1]) + _victim_duck_db
+	_bed_pa_db = move_toward(_bed_pa_db, bed_target, (20.0 if bed_target < _bed_pa_db else 6.0) * delta)
 	if is_instance_valid(_vent):
-		_vent.volume_db = VENT_DB + VENT_LFO_DB * sin(TAU * _time / VENT_LFO_PERIOD) + _duck_db
+		_vent.volume_db = VENT_DB + VENT_LFO_DB * sin(TAU * _time / VENT_LFO_PERIOD) + _duck_db + _bed_pa_db
 	for bed in _level_beds:
 		if is_instance_valid(bed):
-			bed.volume_db = _level_beds[bed] + _duck_db
+			bed.volume_db = _level_beds[bed] + _duck_db + _bed_pa_db
 
 
 func _duck_to(db: float, fade: float) -> void:

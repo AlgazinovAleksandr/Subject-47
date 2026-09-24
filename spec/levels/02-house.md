@@ -5,6 +5,173 @@
 ## SPEC
 
 **Level 2 — The House (abandoned domestic interior)** — rebuilt procedurally (Session 10)
+- ⭐⭐ **2026-09-24 (b): THE FIRST NOTE MOVES TO THE BEDROOM; THE USER'S SOUNDS GO IN.**
+  - **The first safe note (digit 4) moves from the Living Room to the Bedroom's north wall**
+    (the user: the Living Room now holds the way to the forest, and the Bedroom, with its bed and
+    the child's drawing, was left with nothing once the cutters left). It is renamed
+    `SafeNote_Living` → `SafeNote_First`. Each room now has a job: the Living Room has the
+    window and the forest, the Bedroom has digit 4.
+  - **The user's recordings replace the stand-ins, outright.** The code loads only the user's
+    file; the stand-ins it replaced, and the unused `witch_hum`, are **untracked and gitignored**
+    (the user: *"we do not want to commit files that are not being used"*), and
+    `make_sfx_house_porch.py` now writes only the three stand-ins still played
+    (`porch_wind_gust`, `guillotine_rope`, `forest_run_leaves`):
+    | beat | user file | replaces |
+    |---|---|---|
+    | the night outside | `dark_forest_soundtrack` (50 s stereo) | `porch_forest_night` |
+    | the pane bursts | `window_glass_break` (the user's `glass_break.wav`, renamed because `shared/glass_break` shadows the same base name) | `window_burst` |
+    | the blade drops | `guillotine` | `guillotine_drop` |
+    | the melon bursts | `watermelon_crack` | `melon_burst` |
+    | every ghost run-by | `ghost_sound`, pitched per kind | the three synthetic screams |
+    | the witch's second glimpse | `witch_scream` | — (**new**: this glimpse is no longer silent) |
+
+    The soundtrack becomes **one non-positional** player instead of two positional beds: two
+    unsynchronised copies of a musical track would clash. It keeps the same outside / through
+    the broken window / through the glass gain offsets. The witch screams from **behind you in the
+    Hallway** the moment glimpse 2 is placed, so the sound is what turns you round to see her.
+    Still zero panic.
+  - The user's `dark_forest_soundtrack.wav` (14.5 MB, 24-bit/48 kHz) ships as a q6 `.ogg`
+    (2.4 MB); the original is kept at `assets_src/audio/level_2_house/`. Its gain is
+    `FOREST_TRACK_DB` −8. `watermelon_crack` is quiet (mean −31.6 dBFS), so it plays at +8 dB;
+    `witch_scream` is hot (mean −5.6), so `WITCH_SCREAM_DB` is 0.
+  - **What proves it:** `check_house_porch.gd` §0 (82 checks now): every one of the six base
+    names resolves to the user's file; `ForestNight` is one `AudioStreamPlayer` on the user's
+    track; `SafeNote_First` is in the Bedroom on its north wall and nothing is named
+    `SafeNote_Living`; glimpse 2 leaves a `WitchScream` player within 2 m of her. The render
+    `07_bedroom` (`screenshot_level.gd`) shows the page on the north wall.
+- ⭐⭐ **2026-09-24: THE PORCH, THE FOREST, THE GUILLOTINE AND THE WITCH** (the user's design,
+  Granny-referenced, grilled 2026-09-24 — `backlogs/02-house-porch.md`). **Replaced** the bolt
+  cutters under the Bedroom bed (`_spawn_cutters`, `_tick_cutters`, `CUTTERS_PITCH_DEG`,
+  `CUTTERS_DIST`: all deleted, nothing under the bed any more) and the north-wall painted-forest
+  window (`forest.png` quad, glass, frame bars and `EM_FOREST`: deleted). **The chain for digit 2
+  is:** the witch's note (Entry Hall) → the window scare → the window **bursts** → the **first
+  porch visit** (red scrawl **SHALL I PUT SOMETHING THERE?**, plus one ghost pass along the tree
+  line) → **this is what arms the falling painting** (it used to be armed by solving the map,
+  `_apply_guest_stage(1)`, whose stage is now kept empty so `guest_stage` keeps its numbering; the
+  fall trigger itself is unchanged: 4.5 m, facing, line of sight) → behind the fallen painting is
+  **a ragged hole in the plaster with a watermelon in it** → carry it to the guillotine → place
+  → pull → **bolt cutters** in the basket → the fridge chain → the head → digit 2. Geometry lives
+  in `house_outdoors.gd` / `house_window.gd`, the props in `house_guillotine.gd` /
+  `house_watermelon.gd`, and every BEAT (clock, ghosts, witch, scrawl, save/restore) in
+  `level_2.gd`, which logs each one to `DebugLog` (`PORCH …`, `FOREST …`, `WITCH …`).
+  - **The tall window** (`HouseWindow`) is on the LivingRoom's **west** wall (x = −8.5, centred
+    z = 6), a real outside wall. It is floor-length, **1.4 × 2.3 m**, because the controller
+    cannot step over a sill. The opening is a RoomBuilder cut (`WALL_CUTS`, *not* `DOORS` —
+    `check_doorways.gd` rays through every doorway and would find the pane) closed above 2.3 m by
+    a `WindowLintel` CSG block exactly the gap's width. In the opening: a fixed casing (jambs,
+    head) and a breakable sash (stiles, rails, low kick boards, a mullion, two transoms, two glass
+    `QuadMesh` leaves facing the room) plus `Pane`, a real layer-1 collider. `_tick_forest` is
+    unchanged in its numbers (≤ `FOREST_SCARE_DIST` 1.5 m of the glass's centre →
+    `flash_scare(screamer_forest)` + jolt + `FOREST_SCARE_PANIC` 25). **0.6 s after the flash
+    CLEARS** (`FOREST_SCARE_HOLD` 0.8 + `WINDOW_BREAK_DELAY` 0.6, a non-pausing-through timer) the
+    pane **bursts inward**: the user's `window_glass_break` (fallback the shared
+    `glass_break`; 2026-09-24 b), a `porch_wind_gust` loop at
+    the opening, the collider is freed, and 18 shards + 7 splinters land on the living-room floor
+    (visual only — no collider, so nothing to trip on). Any burst, including the silent restore
+    one, sets `_forest_fired`: a spent window can never re-fire the face on the deck.
+  - **The porch**: a deck at x −12…−8.6, z 3…9, **level with the house floor at y = 0** (the
+    doorway bridge under the opening is 4 mm below it, the RoomBuilder convention). A roof on four
+    posts at 2.75 m, **board screens closing the north and south ends** (the porch looks out one
+    way only), a rail along the west edge with a **1.8 m gap** (z 5.1…6.9) facing the yard, and
+    weatherboards over the house wall behind it. The guillotine stands at the north end
+    (`GUILLOTINE_AT` (−10.35, 0, 7.75)), its front turned toward the window. ⚠️ **Zero forest
+    panic on the deck**: the guillotine is worked standing there (Issue 18).
+  - **The yard and forest** (**optional**: the quest never needs it): walkable x −40…−12,
+    z −12…24 (28 × 36 m) on a `forest_floor.png` ground flush with the deck; 85 trunks with
+    colliders (seeded, `TREE_SEED` 2409; never inside `CLEAR_SPOTS` — the witch's and the
+    ghosts' lanes — or the arrival apron in front of the rail gap), each with a `forest_pine.png`
+    canopy billboard; a dense ring of trunks at the edge, invisible walls just outside it, and a
+    2.4 m fence along x = −12 either side of the porch (over eye height, so the void behind it is
+    never seen). Pine silhouettes stand on the ground out to x −66 / z −36…48. A radius-100
+    unshaded inward **sky dome** (`night_sky.png`, yawed 122° so its painted moon is in the west)
+    is seen outdoors and through the window. **Moonlight** is a `DirectionalLight3D`, energy 0.32,
+    cold, shadow-casting — and its `light_cull_mask` is **render layer 2 only**: everything
+    outdoors is put on layer 2 as well as 1 (`HouseOutdoors.moonlit()`), nothing RoomBuilder builds
+    ever is, so **no interior surface can receive moonlight by construction**. Measured below.
+  - **The forest clock** (`_tick_forest_clock`, a level-driven `add_panic(rate · delta)`, the
+    idiom of KONTUR's phone; ⚠️ **a new panic term, explicitly approved by the user, grill Q4**):
+    d = metres past the porch rail (`HouseOutdoors.forest_depth`). **0 on the deck and indoors.**
+    Off the deck the rate is `FOREST_RATE_EDGE` **3.5 /s** = `PANIC_DECAY_RATE`, so at the tree
+    line the bar **holds**, rising linearly to `FOREST_RATE_DEEP` **5.5 /s** at `FOREST_DEEP`
+    **20 m** — **net +2 /s ⇒ 25 s from calm to death** (all three marked `⚠️ DELIBERATE — the
+    user's call 2026-09-24`). Sprinting stacks on top, deliberately. It is suspended while the
+    tree is paused, a note is open or input is frozen. `player.gd` is untouched.
+  - **Ghost run-bys** (`DoorLunger`, the Corridor's run-away billboard): an RGBA cutout with its
+    scream attached (and `forest_run_leaves`), appearing 8–14 m ahead within ±25°, running ACROSS
+    the view between the trunks, fading over its last 2 m and freeing itself; its sound is
+    reparented to finish where it was. **Three kinds**: the barefoot woman (1.75 m, 5.5 m/s), the
+    thing on all fours (0.95 m, 7 m/s) and the tall forest creature from the window scare, far off
+    (3.1 m, 14–19 m out, 3 m/s, `set_glow` 0.6 because its 38/255 cutout read as nothing among the
+    trunks). The cutouts all run right; one crossing to the left is mirrored by a negative U scale.
+    **Zero panic, no collider, no rules.** Cadence 6–10 s random while d > 2 m, plus **one
+    guaranteed pass** along the tree line (x = −19.5) `PORCH_GHOST_DELAY` 4 s after the
+    first-visit scrawl, once the player looks out at the yard (or 6 s later regardless, heard).
+  - **The first porch visit** (`_tick_porch`): on the deck and either facing the guillotine or
+    `PORCH_VISIT_DWELL` 2 s there. It scrawls once, arms the painting and queues the ghost.
+  - **The painting → the hole → the watermelon**: the hole is a second `WALL_CUTS` entry in the
+    ChildRoom's exterior north wall at `PAINTING_X`, 0.62 × 0.62 m (y 1.19…1.81, inside the
+    0.8 × 1.0 panel), filled below and above by wall-material blocks and backed by a small dark
+    housing outside the wall **0.28 m deep** (`NICHE_BACK_Z` 19.18). Over it, hidden until the fall,
+    a `plaster_hole_ring.png` decal: the art agent's `plaster_hole.png` with its painted-black
+    middle flood-filled transparent (it would have hidden the fruit), so the real recess shows
+    through a ragged edge that covers the cut's square corners. `HouseWatermelon` sits in it and
+    is **completely inert until the painting is down** (`reveal()`). E → carried.
+  - **The guillotine** (`house_guillotine.gd`, built from parts: runners, uprights, rear braces, a
+    crossbar, a two-board lunette with its neck gap, an iron weight over an oblique steel blade
+    riding IN FRONT of the lunette, a bascule bench, a rope over a pulley to a toggle, and a wicker
+    basket). EMPTY → LOADED → CUT → DONE, with a `prompt_text()` per state. With the fruit, E sets
+    it in the lunette (where it reads as a head); a second E pulls the rope (`guillotine_rope`), the
+    blade drops (the user's `guillotine`; 0.16 s), the fruit bursts
+    (the user's `watermelon_crack`) into two halves, flesh
+    up — one in the basket, one on the bench — and a compact `BoltCutters` (`size_scale` 0.55,
+    0.31 m) lies in the basket for a third E. E while EMPTY without the fruit repeats the red
+    thought, throttled to `PORCH_SCRAWL_REPEAT` 4 s. **No fail state: it can never hurt you.**
+  - **The witch**: a note on a small side table in the Entry Hall, 1.6 m ahead-right of the spawn.
+    It is journal-archived and is **neither a safe note nor a trap** (named `WitchNote`, never
+    connected to `_on_safe_note_read`; `SAFE_NOTES_TOTAL` stays 3). Text: *"An old woman lives in
+    this house. She follows you everywhere, even when you think you are alone. Do not look for her.
+    She likes to hide things inside fruit."* **Three one-shot, zero-panic `Watcher` glimpses**
+    (`house_witch.png`, 1.65 m), silent except the second, which screams (2026-09-24 b):
+    1. note read, window not yet broken, in the Living Room facing the glass: she stands in the
+       yard on the view line through it (x −17.5…−21). ⚠️ The **one** `require_los = false` call
+       in this level, with `watcher.gd`'s required argument: its own LOS ray would stop on the
+       pane (which has to be a layer-1 collider to stop the player), so `_clear_through_glass()`
+       runs the same ray excluding only the pane — it still catches "inside a wall or trunk". Her
+       look-away rule is the level's (`_tick_witch_glass`, 0.5 s unseen after being seen), because
+       `Watcher._is_seen()` cannot see through the pane either. The forest scare's face replaces
+       her;
+    2. fruit taken: at the far end of the Hallway (z 4.2…6.6), **behind** the player (dot < 0.2),
+       retried for `WITCH_2_PATIENCE` 20 s and then dropped with a log line (also dropped if the
+       fruit reaches the lunette first);
+    3. fruit cut: on the tree line, off-centre in view first.
+    A glimpse that cannot be placed yet stays **pending**, never latched. **She follows**: a later
+    glimpse that is due removes the previous figure if nobody is looking at it. ⚠️ **She never
+    moves toward you, chases or kills.** SCARY §8.4: the Breach stays the only chase level.
+  - **The carried HUD** is `_refresh_carried()`, which rewrites the whole line from state and
+    joins every held item: `cellar key · watermelon · bolt cutters` (the cutters only while the
+    fridge they exist for is still chained). This fixed a latent overwrite (below).
+  - ~~**`SafeNote_Living` moved to the living room's NORTH wall centre**~~ — superseded the same
+    day by 2026-09-24 (b): it is `SafeNote_First` on the **Bedroom's** north wall. (It had left
+    the living room's west wall because the window took that spot: read there, your face would
+    be inside `FOREST_SCARE_DIST`.)
+  - **Save/restore** gains `window_broken`, `porch_visited`, `painting_armed` / `painting_fallen`
+    (**no longer derived from `guest_stage`** — `_force_guest_stages` does not touch the painting),
+    `melon_state` (wall | held | placed | cut) and `witch_note` / `witch_glimpses`;
+    `cutters_held` now means "taken from the basket". Everything is restored by
+    `_restore_porch()` on a back-door return and nothing is replayed (a broken window stays broken
+    silently, the guillotine is forced to its state, no scrawl, no witch).
+  - **What proves it:** `check_house_porch.gd` (72 checks, ~150 s) — the note through the ray and
+    not counted as safe; glimpse 1 beyond the glass; a capsule query and a real walk stopped by the
+    pane; the scare, the burst 0.6 s after the flash clears, a ray through where the pane was, and
+    a real `AutoPlayer` walk out onto the deck; the scrawl once; the guaranteed ghost; E on the
+    empty lunette; the clock measured (below); ghost cadence and zero panic; the painting → hole →
+    fruit through the ray; glimpse 2 behind you; EMPTY → LOADED → CUT → cutters through the ray;
+    glimpse 3; every new key; three snapshots (held / placed / done) reloaded through
+    `_restore_progress()`; the fridge chain cut with the restored cutters. Also updated:
+    `check_house_fridge_chain`, `check_house_guest`, `autoplay_house_route`, `check_window`
+    (rewritten for the west window), `check_reachable` (two gates), `check_prop_mounting` (House
+    floor 9 → 5), the House screenshot poses, and a new `screenshot_house_porch.gd` that
+    photographs every state and measures the interior darkness.
 - ⭐ **2026-09-16 (H4, `BACKLOG_Sep_16c.md`):** the cellar child fires when the **cellar NOTE is
   closed** (`_arm_child_on_note_close`, a one-shot on `NoteUI.closed`), pinning the player at the
   note; the ramp's foot keeps only the scrawl. Its scream is **`screamer_house`** (baba yaga, the
@@ -27,15 +194,17 @@
   `glass_shatter` + cracked case for `WIN_HOLD` 0.4 s on the win; no mechanic moved). The
   **second digit is on the forehead of the head in the fridge** (`house_fridge_thing_digit.png`,
   read by gaze → `SafeNote_Head`), the fridge wears a **chain + padlock** (`chained`,
-  `chain_tried` → the level cuts it if the **bolt cutters** are held), and the cutters lie
+  `chain_tried` → the level cuts it if the **bolt cutters** are held), and ~~the cutters lie
   half under the Bedroom bed, `visible` only with the torch aimed ≤ −30° from within 3.2 m
-  (`bolt_cutters.gd`, `_tick_cutters`). `SafeNote_Bedroom` is gone; `SAFE_NOTES_TOTAL` stays 3.
+  (`bolt_cutters.gd`, `_tick_cutters`)~~ — ⚠️ **superseded 2026-09-24**: the cutters come out of
+  the watermelon in the porch guillotine's basket (the entry at the top of SPEC); `_tick_cutters`
+  is deleted. `SafeNote_Bedroom` is gone; `SAFE_NOTES_TOTAL` stays 3.
   The cellar child's scream is re-mastered to −3 dBFS and lands 0.3 s into the dip. The
   correct code makes the lock FALL (`lock_drop.wav`) and the door asks **ARE YOU SURE YOU WANT
   TO GO IN THERE?** Guards: `check_house_fridge_chain`, `check_house_lock`, `check_maze_traps`.
 - ⭐⭐ **AND DARKER STILL SINCE 2026-09-07** — the same change as the Lab, for the same reason:
   `set_torch_profile(11.0, 24.0)` and `DARK_AMBIENT` 0.02 → **0.0**, with every self-lit prop
-  halved (the forest window 0.90 → 0.40, the TV static panel 0.70 → 0.30, notes 0.60 → 0.25, the
+  halved (the forest window 0.90 → 0.40 — that painted window is deleted since 2026-09-24, the TV static panel 0.70 → 0.30, notes 0.60 → 0.25, the
   cellar key's card 0.50 → 0.30, the two `LivingMirror` figures 0.50 → 0.25, the doors 0.08 →
   0.03). ⚠️ **And the cellar key's own `OmniLight3D` is OFF.** It was created as a child of the key
   and never appended to `_lights`, so `_drive_lights()` — the one function that holds this level's
@@ -117,7 +286,7 @@
   → ChildRoom lock crosses the ground floor repeatedly), and this is what that traffic is for:
   | milestone | what changes |
   |---|---|
-  | map solved | **arms** the child's-room painting; it comes off the wall **beside the exit lock** when you are within 4.5 m, facing it, **and can actually see it**, with `painting_fall` at +8 dB and a camera jolt |
+  | map solved | ~~**arms** the child's-room painting~~ — ⚠️ **since 2026-09-24 nothing; the FIRST PORCH VISIT arms it** (top of SPEC). It comes off the wall **beside the exit lock** when you are within 4.5 m, facing it, **and can actually see it**, with `painting_fall` at +8 dB and a camera jolt |
   | key taken | (nothing) |
   | cellar gate opened | arms **the cellar sequence** (below) |
   | third note read | the **music box** has moved to the Hallway, still playing, between you and the exit |
@@ -129,7 +298,7 @@
     reason the sound travels with it. It used to be a bare `_loop_audio` with no body at all. **E
     winds it**: the crank turns and the tune comes up out of the room tone for ~22 s, re-windable
   - ⚠️ **The falling painting moved BEDROOM → CHILD'S ROOM (2026-08-16, the user's proposal).** Stage 1
-    fires when the map is solved, and after that the Bedroom is off every remaining route — map → key
+    (history: since 2026-09-24 the porch arms it, not the map) fired when the map was solved, and after that the Bedroom is off every remaining route — map → key
     → Kitchen → cellar → the exit lock never re-enters it — so the level's most expensive scripted
     beat was staged in a room the player had already finished with. The ChildRoom holds the exit lock
     and cannot be skipped. `painting_house.png` and the child's crayon drawing simply **swapped
@@ -143,7 +312,9 @@
     `PAINTING_X = 0.85` on the north wall; the exit door occupies x −1.33…−0.08, so there is ~0.5 m
     of wall between them and the panel is in the frame you are looking at while you work the lock.
     ⚠️ Not on a doorway — ChildRoom's only `RoomBuilder` doorway is SOUTH at (0, 14); the exit door
-    in the north wall is a prop. The 0.55 m landing slide puts it at (0.85, 0.06, 18.29), clear of
+    in the north wall is a prop. (⭐ Since 2026-09-24 there IS a RoomBuilder cut behind the panel —
+    `WALL_CUTS`' 0.62 m hole, filled back to a 0.62 × 0.62 m opening — but it is a hole the panel
+    is MEANT to cover, not a way through, and it is not in `DOORS`.) The 0.55 m landing slide puts it at (0.85, 0.06, 18.29), clear of
     the small bed and clear of the walking line to the lock at x = −0.7
   - ⚠️ **The drop needs LINE OF SIGHT, not just range and a facing dot** (Issue 77). Distance +
     facing alone is a test for *pointing at*, and in a house it is satisfied through walls: the
@@ -258,8 +429,8 @@
   were **deleted** rather than rebuilt — they sat in near-total darkness and read as nothing
 - 3 safe notes (one digit each — **the third is in the cellar**, forcing the descent), 2 trap notes (`is_trap`, read-to-die)
 - Win: read the 3 safe notes, enter code **472** on the combination lock by the child's-room exit (`CODE_ENTERED`)
-- Fail: read a trap note **fully**; the apparition rush; or panic bar fills. Read-to-die: trap notes feed +12 panic/s while open (`TRAP_PANIC_RATE` in `note.gd`, ticked by `note_ui.gd`); text bleeds red; close early to survive
-- **The window + Forest scare** (`_spawn_window()`): a moonlit forest (`forest.png`) behind glass on the living-room north wall (quads rotated PI to face the room, inset 0.25 to sit proud of the wall, culling disabled). Press up (≤1.5 m) → SURVIVABLE `flash_scare(screamer_forest.png)` + jolt + 25 panic
+- Fail: read a trap note **fully**; the apparition rush; or panic bar fills — which since 2026-09-24 includes **staying out in the forest** (the forest clock, ~25 s from calm at the deepest point). Read-to-die: trap notes feed +12 panic/s while open (`TRAP_PANIC_RATE` in `note.gd`, ticked by `note_ui.gd`); text bleeds red; close early to survive
+- **The window + Forest scare** (`_spawn_window()` → `HouseWindow`): since 2026-09-24 a real floor-length window in the living room's WEST wall with the porch and the moonlit forest behind it (the north-wall painted `forest.png` quad is deleted). Press up (≤1.5 m) → SURVIVABLE `flash_scare(screamer_forest.png)` + jolt + 25 panic, and 0.6 s after the flash clears the pane bursts and the porch is open (top of SPEC)
 - **Scares**: cursed props (bedroom painting 0.8, living-room mirror 1.2) + a TV-static gaze panel (`tv_static_face.jpg`); a one-way mirror (`living_mirror.gd`) in the bathroom; a music box (`music_box.wav`) in the child's room; the cellar is a `DreadZone` with water drips, a beartrap; pipe groans + random blackouts on timers; 3 `CorridorEvent` triggers (door slam +8, footsteps overhead +6, bedroom light dies +6)
 - **Lock penalty**: each wrong combination = harsh buzz (`lock_buzz.wav`) + 10 panic — brute-forcing the lock is itself a fail path
 
@@ -275,6 +446,57 @@ things like *"every paragraph below that says 320 m is history"*.
 
 Use this section only for rationale that leaves **no trace** in the level — something tried and
 abandoned. Anything describing what the level *is* belongs in SPEC.
+
+### The Porch pass (2026-09-24) — measured, and what was decided on the way
+
+- **The house stays black with the moon in the scene — MEASURED, not assumed.**
+  `screenshot_house_porch.gd` renders four interior poses torch-off with the moon + dome ON and OFF
+  and takes the per-pixel luminance difference: Living Room floor 0.00, Living Room north wall
+  0.00, Bedroom 0.00, Hallway 0.00 **outside the window opening** (inside it you are looking at the
+  moonlit porch: 38.9 and 7.0 there, which is the point of a window). Frame maxima are unchanged by
+  the moon (55.7 / 85.1 / 0.0 / 72.8 — the self-lit notes and TV that were already there). ⚠️ The
+  first run read 178 everywhere: that was the HUD objective line and then the crosshair dot, both
+  now masked. **Why it holds:** the moon's `light_cull_mask` is render layer 2, and only outdoor
+  geometry is on layer 2 — no shadow map is being trusted to keep it out.
+- **The forest clock, measured in `check_house_porch.gd`** (real time, RandomAmbient and the
+  blackout clock disarmed): deck −3.50 /s (decay alone); tree line d = 0.6, net **+0.06 /s**;
+  d = 20, net **+2.00 /s**; deepest reachable (x −39.3, d = 27.3) **+2.00 /s** (capped); 0 → 45 in
+  22.5 s ⇒ **25.0 s from calm to death**; input frozen, −3.49 /s (suspended). ⚠️ A first version
+  measured the death time on `Engine.time_scale` 4 and got 20.8 s against a 1x slope of exactly
+  +2.00 — the harness measuring its own clock; it runs in real time now. ⚠️ And the global
+  `RandomAmbient` (+5/+8/+12 at random) once landed a +12 inside a 2 s window and read as
+  "+8.00 /s" — any slope measured in this level must disarm it.
+- **Ghost cadence, measured:** 5 in 40 s of forest, gaps 7.6–10.0 s.
+- **The window bursts 0.6 s after the flash CLEARS, not 0.6 s after it starts.** At 0.6 s from
+  the start the burst lands under the 0.8 s fullscreen face and the one moment the player could see
+  the glass go is spent. Recorded here because the grill's wording ("about 0.6 s after the flash")
+  was read as the flash ending.
+- **Glimpse 1 is the level's only `require_los = false`.** The pane has to be a layer-1 collider
+  (it stops the player), and `Watcher`'s LOS ray is layer-1 too, so it refused every spot beyond
+  the glass. `_clear_through_glass()` is the same ray with only the pane excluded.
+- **The roof is a body, not CSG — because of `check_shell_sealed.gd`.** Its sampling grid is
+  derived from every `CSGBox3D`'s extent at a 1.5 m step; a CSG roof reaching x −12.35 shifted the
+  grid's phase so no sample landed on the cellar ramp's 1.2 m standable band, and the sweep's
+  "y = −0.8" floor level measured 0 points on a level nobody had touched there. (The same sweep
+  found a 1 cm slot between the fence's and the north screen's colliders; the fence collider now
+  overlaps the screen by 0.3 m.) ⚠️ That guard's per-level zones are a grid lottery on the ramp —
+  cross-level, filed in the backlog's Deferred.
+- **The recess is 0.28 m, not 0.34.** The painting hangs 6 cm proud of the wall directly over the
+  hole, and `check_note_mounting.gd` requires a wall within 0.35 m behind every wall panel: the
+  recess's back plate is that wall (0.34 m from the panel's centre). At 0.34 m deep it measured 0.40.
+- **The painted hole was opaque.** `plaster_hole.png` is a ragged hole with its middle painted black
+  (alpha 255 at the centre), so it would have covered the fruit. `plaster_hole_ring.png` is it with
+  the dark middle flood-filled transparent inside a 168 px disc (0.328 of the quad), so the ring
+  covers the square cut's corners (0.438 m at `HOLE_DECAL_SIZE` 0.96) and the real recess shows.
+- **The watermelon flesh texture is a whole round slice**, so the cut face uses object-space
+  triplanar scaled to exactly one tile per disc. The first try tiled it (four rind corners round a
+  black star — photographed in `17_basket`).
+- **The carried HUD overwrite (Issue 274).** Taking the bolt cutters while carrying the cellar key
+  replaced "cellar key" with "BOLT CUTTERS", and using either cleared the line with the other still
+  in hand, because every site wrote its own item into the single-string `set_carried()`.
+  `_refresh_carried()` rebuilds the line from state; `GameState` is untouched.
+- **Rejected in the grill, not built:** the guillotine as a trap (the user chose no fail state), and
+  the door-blows-open / front-door porch access (the user chose the breaking window).
 
 ### Superseded, moved out of SPEC on the 2026-09-19 audit
 
@@ -311,6 +533,40 @@ place. Verified against the code before moving; the winning statement is named o
   `# ---- apparition` section of `level_2.gd` is now a comment block explaining that the scripted
   HOLD apparition is gone (the director's random one stays upstairs).
 
+### The user's sounds and the first note (2026-09-24 b)
+
+- **`glass_break` could not keep its name.** `GameState.load_audio()` walks `AUDIO_SUBDIRS` in
+  order and `shared` comes first, so a `level_2_house/glass_break.wav` would never load:
+  `shared/glass_break.wav` answers first. It was renamed `window_glass_break`, and
+  `check_house_porch.gd` §0 asserts each user base name resolves to the user's own path. That is
+  the only check that can see a shadowed name; the sound still plays either way, just the wrong
+  one.
+- **The soundtrack is one 2D player, not the stand-in's two 3D beds.** The stand-in was noise, and
+  two unsynchronised positional copies of noise read as one space. Two copies of a track with a
+  melody in it read as two radios. The outside / broken-window / glass gain offsets
+  (`_tick_outdoor_audio`) carry over unchanged. The price is that the track no longer pans with
+  the player's head; accepted, because it is a bed.
+- **The witch screams on glimpse 2, not 1 or 3** (the user supplied `witch_scream` without placing
+  it). Glimpse 2 is the one spawned *behind* you, so a scream is the only way it is ever seen: it
+  is what turns you round. Glimpse 1 is framed by the window and glimpse 3 by the tree line, and
+  both are already in view. `witch_hum` stays unwired.
+- **The first note went to the Bedroom, not back to the Living Room.** It was the user's call: the
+  Living Room holds the forest now, and the Bedroom had lost its only purpose when the cutters
+  left the bed. The node was renamed `SafeNote_First`. `safe_notes` snapshots store node names, so
+  a snapshot taken before the rename would not recognise the note, but snapshots are per session,
+  so nothing persisted can hold the old name.
+- **The repo ships only what the game loads (2026-09-24 b, the user's rule).** Untracked with
+  `git rm --cached` after `9bd0f19` had committed and pushed them, and gitignored:
+  - the 49 raw porch generations;
+  - the user's 14.5 MB forest master (the game plays the `.ogg`);
+  - the eight replaced or unwired stand-ins;
+  - `plaster_hole.png` (the level loads `plaster_hole_ring.png`);
+  - the painted `forest.png`.
+
+  Their bytes stay in `9bd0f19`'s history; only a rewrite of a pushed branch would reclaim them.
+  ⚠️ Consequence: `tools/make_house_porch_art.py` cannot be re-run from a fresh clone. The
+  finals it made are committed, and `prompts.txt` records how they were made.
+
 ## NEEDS A PLAYTEST
 
 Claims the code cannot settle. Nothing here is a defect — it is what a hand-play or a harness re-run
@@ -330,8 +586,24 @@ has to answer before SPEC can state it flatly.
   previous version. Only a screenshot from inside the level answers it.
 - **`Lamp_Lock` as the level's one relief.** Whether a single warm point at the far end of a black
   house reads as a payoff or as an unexplained light needs a play, not a render.
-- **The bolt cutters' discovery rule.** `visible` only with the torch aimed ≤ −30° from within 3.2 m,
-  half under the Bedroom bed, in a house at ambient 0.0 — findable, or a dead end?
+- **The porch chain, end to end (2026-09-24, not hand-played).** Is the witch's note enough of a
+  hint that the fruit behind the painting goes in the guillotine, or does the red thought on the
+  porch carry it alone? Does a player who never walks up to the window ever get the porch — the
+  window scare is the only way out, and nothing but the view through the glass points at it?
+- **The forest clock's feel.** Measured +0.06 /s at the tree line and +2.00 /s deep, 25.0 s from
+  calm to death — but whether "the bar holds at the edge" reads as a warning or as nothing happening
+  (the HUD does not move) needs a hand-play. The numbers are the user's; only their legibility is open.
+- **Are the ghosts seen?** The woman and the crawler read in the renders; the tall creature, far off
+  among the trunks, measured faint even with `set_glow` 0.6. And the trunks are plain 14 m
+  cylinders under billboard canopies — a forest of poles, or a forest?
+- **The witch's three glimpses.** Placement is verified by the harness; whether a silent figure at
+  14 m through the glass is ever NOTICED is a playtest question. Glimpse 2 now screams from behind
+  you in the Hallway: does the scream turn the player round in time to see her before she vanishes
+  (`vanish_within` 5 m)?
+- **The user's sounds in the mix (2026-09-24 b).** Gains were set from measured loudness, not by
+  ear: the forest track at −8 on AMBIENCE, the glass at +4, the melon at +8, the witch at 0, and
+  `ghost_sound` pitched 1.1 / 1.35 / 0.62 for the woman / crawler / tall one. Does one recording
+  pitched three ways still read as three different things?
 - **The cellar beartrap on the forced-blind entry line.** The user's decision, and it fired in both
   playtest sessions. Now that the blackout also *pins* the player, the collision's shape has changed
   and wants re-observing.

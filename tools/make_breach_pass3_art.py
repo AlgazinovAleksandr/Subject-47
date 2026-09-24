@@ -125,7 +125,7 @@ def key_white(img, lo=205, keep_largest=False, erase=(), erase_poly=()):
     return rgba
 
 
-def key_shadow(img, lo=120, protect=(), erase=()):
+def key_shadow(img, lo=120, protect=(), erase=(), halo_pass=True, protect_lo=216):
     """A figure lying on a white floor, with flux's soft pale shadow round it. The flood region is
     everything backdrop-coloured reachable from the border; in it, near-white goes fully clear and
     the grey halo becomes a DARK contact shadow (black, alpha from how dark it was), so on the
@@ -167,14 +167,15 @@ def key_shadow(img, lo=120, protect=(), erase=()):
                 lum = max(r, g, b)
                 a = 0 if lum >= 236 else int(min(150, (236 - lum) * 1.5))
                 op[x, y] = (6, 6, 7, a)
-            elif guard[y * w + x] and _is_bg((r, g, b), 216):
+            elif guard[y * w + x] and _is_bg((r, g, b), protect_lo):
                 op[x, y] = (0, 0, 0, 0)       # inside a protect box, the white floor still keys
             else:
                 op[x, y] = (r, g, b, 255)
     # Second pass: flux's halo is not one flood region — JPEG chroma and the blood's pink fringe
     # (sat 40-60) wall pockets of it off. Anything still pale and grey-ish outside a protect box is
     # halo, never body, on these two raws (the one exception, a white collar, reads fine dark).
-    for y in range(h):
+    # ⚠️ OFF for pale grey subjects (pass 4's fused face is exactly that colour).
+    for y in range(h if halo_pass else 0):
         for x in range(w):
             r, g, b, a0 = op[x, y]
             if a0 > 0 and not guard[y * w + x] and max(r, g, b) > 84 and max(r, g, b) - min(r, g, b) < 34:

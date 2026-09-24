@@ -40,16 +40,26 @@ const HOUSE_SHOTS := [
 	[0.0, 16.5, 0.0, 1.0, "09_childroom_exit"],
 	[0.0, 7.0, 0.0, 1.0, "10_hallway"],
 	[5.5, 7.0, 1.0, 0.6, "11_kitchen_key"],
-	[-5.0, 6.5, 0.0, 1.0, "12_living_window"],
+	# ⭐ 2026-09-24: the window is on the living room's WEST wall now (x = -8.5, centred z = 6).
+	[-4.5, 6.0, -1.0, 0.0, "12_living_window"],
 	# Just outside FOREST_SCARE_DIST (1.5 m) so the window can be photographed
 	# without the proximity scare firing over it.
-	[-5.0, 6.9, 0.0, 1.0, "13_window_frame"],
+	[-6.9, 6.0, -1.0, 0.0, "13_window_frame"],
 	# The two beds and the music box. Added 2026-07-29 because playtest photographed all
 	# three as unidentifiable boxes and NONE of the shots above pointed at any of them —
 	# a level's screenshot set is only as good as what it happens to aim at.
 	[-6.6, 12.5, -1.0, 0.0, "14_bedroom_bed"],
 	[1.4, 15.2, 0.0, 1.0, "15_childroom_bed"],
 	[-1.6, 13.9, 0.0, 1.0, "16_music_box"],
+	# ⭐ 2026-09-24 (the Porch pass). This file only PLACES the player, so these are the geometry
+	# as built at load (pane intact, painting up). The broken window, the fallen painting's hole,
+	# the loaded and cut guillotine, a ghost and the witch are photographed in their STATES by
+	# `screenshot_house_porch.gd`, which also measures the interior darkness with the moon on/off.
+	[-9.3, 6.4, -0.6, 0.8, "17_porch_guillotine"],
+	[-10.5, 5.2, -1.0, 0.0, "18_porch_to_yard"],
+	[-20.0, 6.0, -1.0, -0.1, "19_forest"],
+	[-22.0, 6.5, 1.0, 0.0, "20_forest_back_to_house"],
+	[0.85, 17.0, 0.0, 1.0, "21_painting_over_the_hole"],
 ]
 
 var SHOTS := LAB_SHOTS

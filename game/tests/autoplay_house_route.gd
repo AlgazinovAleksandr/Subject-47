@@ -252,9 +252,9 @@ func _process(delta: float) -> bool:
 				int(_before["reach"].size()) >= MIN_CELLS,
 				"%d of %d free cells reachable" % [_before["reach"].size(),
 					_before["free"].size()])
-			# Arm the painting the way the game does (map solved), then let the real
-			# `_tick_painting()` decide when it falls.
-			_scene.call("_advance_guest", 1)
+			# Arm the painting the way the game does (the first porch visit since 2026-09-24 —
+			# it was the map), then let the real `_tick_painting()` decide when it falls.
+			_scene.call("_arm_painting")
 			_begin_leg([
 				Vector3(0, 0, 1.0), Vector3(0, 0, 5.0), Vector3(2.4, 0, 6.0),
 				Vector3(2.4, 0, 7.4), Vector3(4.0, 0, 7.45),

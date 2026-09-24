@@ -2,21 +2,20 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c7136javtqitt"
-path.s3tc="res://.godot/imported/forest.png-5b5f6d91b0bd628aa210909ab49f0e1c.s3tc.ctex"
+uid="uid://v74bj5jnw1hk"
+path="res://.godot/imported/approach_fused_open.png-b80e34c2fecac1be19e807511ea945b0.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
-"vram_texture": true
+"vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/textures/level_2_house/forest.png"
-dest_files=["res://.godot/imported/forest.png-5b5f6d91b0bd628aa210909ab49f0e1c.s3tc.ctex"]
+source_file="res://assets/textures/level_6_breach/approach_fused_open.png"
+dest_files=["res://.godot/imported/approach_fused_open.png-b80e34c2fecac1be19e807511ea945b0.ctex"]
 
 [params]
 
-compress/mode=2
+compress/mode=0
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
