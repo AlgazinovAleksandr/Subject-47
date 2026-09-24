@@ -11,18 +11,32 @@ extends SceneTree
 #   2. THE WINDOW — a capsule query and a real walk both stop at the pane; the forest scare
 #      fires at FOREST_SCARE_DIST; ~0.6 s after the flash CLEARS the pane is gone (a physics
 #      ray passes) and the real AutoPlayer walks out through the opening onto the deck.
-#   3. THE FIRST PORCH VISIT — the scrawl fires ONCE (counted on screen), the painting is armed,
-#      and the guaranteed tree-line ghost runs. E on the empty lunette re-thinks the thought.
+#   3. THE FIRST PORCH VISIT — ⭐ 2026-09-24 (c): the first step onto the deck ARMS THE PAINTING,
+#      but 3 s on the deck NOT looking at the guillotine fires NO scrawl; a real look does, ONCE,
+#      within ~0.5 s (measured). No tree-line ghost while the camera is on the guillotine; turned
+#      west, it runs, and its world position is PROJECTED on screen and ray-checked for occlusion
+#      (the fence hid the old lane). The frame starts BLADELESS and the blade is in the stump;
+#      E on it says there is no blade. ⭐⭐ 2026-09-24 (d): the stump is in the FAR NORTH-WEST
+#      CORNER (d 25.5) and HIDDEN: physics rays from the rail gap and from the forest's middle to
+#      the blade stop on the one thick trunk (`HidingTrunk`), and a CONTROL ray with that trunk
+#      excluded reaches the stump. The blade is ARTWORK on quads (never on a box face).
 #   4. THE FOREST CLOCK, MEASURED — panic slope on the deck, at the tree line and deep, and the
 #      time from 0 to death at the deepest reachable point; suspended while input is frozen.
 #   5. THE GHOSTS — spawned on cadence out in the trees; no collider, no ScaryObject, and zero
 #      panic measured on the deck while three of them run across the view.
 #   6. THE PAINTING -> THE HOLE -> THE FRUIT — falls when seen; the fruit is taken via the ray;
-#      glimpse 2 appears behind the player.
-#   7. THE GUILLOTINE — EMPTY -> LOADED -> CUT -> the cutters, every step through the ray;
+#      ⭐ 2026-09-24 (d): NO witch appears (glimpse 2 is deleted — the house sightings are
+#      `check_house_witch.gd`'s).
+#   7. THE GUILLOTINE — the fruit set, the pull REFUSED without a blade; ⭐ THE REAL WALK from the
+#      rail gap to the stump in the clearing and back (a grid A* round the level's own trunks,
+#      driven by the real AutoPlayer), its panic cost measured from 0 (asserted survivable) and
+#      from 25 (reported); the blade pulled out through the ray, carried, mounted through the
+#      ray; the pull; the cutters ON THE DECK BOARDS (physics rays) taken through the ray;
 #      glimpse 3 on the tree line; the carried line lists what is held.
-#   8. SAVE / RESTORE — three snapshots (fruit held, fruit placed, all done) reloaded through the
-#      level's own `_restore_progress()`: nothing replays, every state is forced.
+#   8. SAVE / RESTORE — snapshots (fruit held, fruit placed, blade held, all done, plus a
+#      blade-first snapshot that proves "either order") reloaded through the level's own
+#      `_restore_progress()`: nothing replays, every state is forced — `blade_state` in all three
+#      of its values.
 #   9. THE FRIDGE CHAIN — cut with the restored cutters, through the ray.
 #
 # ⚠️ Disarmed for determinism, and said so: the random `ApparitionDirector` (a HOLD apparition
@@ -93,10 +107,11 @@ func _panic() -> float:
 
 
 # Count the red thought on screen right now (ScreenText puts each scrawl on its own label).
-func _scrawls() -> int:
+func _scrawls(text: String = "") -> int:
+	var want := text if text != "" else String(_l.get("PORCH_SCRAWL"))
 	var n := 0
 	for c in _all(root, []):
-		if c is Label and (c as Label).text == String(_l.get("PORCH_SCRAWL")) and (c as Label).is_visible_in_tree():
+		if c is Label and (c as Label).text == want and (c as Label).is_visible_in_tree():
 			n += 1
 	return n
 
@@ -152,6 +167,213 @@ func _slope(start: float, sec: float) -> float:
 	await _wait(sec)
 	var dt := float(Time.get_ticks_msec() - t_a) / 1000.0 * Engine.time_scale
 	return (_panic() - p0) / maxf(0.001, dt)
+
+
+# ---------------------------------------------------------------- the walk to the stump
+# ⭐ 2026-09-24 (c). A grid A* over the yard round the level's OWN trunks (`HouseOutdoors.trunks`,
+# the seeded layout as built) and the stump, then line-of-sight smoothing — so the route follows
+# whatever the seed produced, and the REAL AutoPlayer walks it with the real capsule.
+const GRID := 0.5
+const TRUNK_CLEAR := 1.0      # trunk r (<= 0.34) + capsule 0.4 + margin
+# ⭐ 2026-09-24 (d): the thick trunk the stump hides behind (r 0.55) + capsule + margin.
+const HIDE_CLEAR := HouseOutdoors.HIDE_TRUNK_R + 0.4 + 0.25
+
+func _blocked(c: Vector2, trunks: Array, stump: Vector2) -> bool:
+	if c.x > -12.3 or c.x < HouseOutdoors.YARD_X.x + 1.2 or c.y < HouseOutdoors.YARD_Z.x + 1.2 \
+			or c.y > HouseOutdoors.YARD_Z.y - 1.2:
+		return true
+	if c.distance_to(stump) < 1.15:
+		return true
+	if c.distance_to(HouseOutdoors.HIDE_TRUNK) < HIDE_CLEAR:
+		return true
+	for t in trunks:
+		if c.distance_to(t) < TRUNK_CLEAR:
+			return true
+	return false
+
+
+func _seg_clear(a: Vector2, b: Vector2, trunks: Array, stump: Vector2) -> bool:
+	var n := int(ceil(a.distance_to(b) / 0.2))
+	for i in range(n + 1):
+		var c := a.lerp(b, float(i) / maxf(1.0, float(n)))
+		if c.distance_to(stump) < 1.1:
+			return false
+		if c.distance_to(HouseOutdoors.HIDE_TRUNK) < HIDE_CLEAR + 0.05:
+			return false
+		for t in trunks:
+			if c.distance_to(t) < TRUNK_CLEAR + 0.05:
+				return false
+	return true
+
+
+# From this cell can the player actually SEE the stump (eye height, layer 1, the stump's own solid
+# counts as seeing it)? ⭐ 2026-09-24 (d): a cell 1.2–1.7 m from the stump can now be right behind
+# the thick trunk, and the E ray from there would meet bark.
+func _sees_stump(c: Vector2, stump: Vector2) -> bool:
+	var q := PhysicsRayQueryParameters3D.create(Vector3(c.x, 1.6, c.y), Vector3(stump.x, 0.7, stump.y))
+	q.collision_mask = 1
+	q.exclude = [_p.get_rid()]
+	var hit := _p.get_world_3d().direct_space_state.intersect_ray(q)
+	return hit.is_empty() or String((hit["collider"] as Node).name) == "StumpBody"
+
+
+# Waypoints (world, y = 0.1) from `from` to a free spot 1.2–1.7 m from the stump.
+func _plan_to_stump(from: Vector2, stump: Vector2) -> Array:
+	var trunks: Array = (_l.get_node("HouseOutdoors").get("trunks") as Array).duplicate()
+	trunks.append_array(_l.get_node("HouseOutdoors").get("ring_trunks") as Array)
+	var key := func(c: Vector2) -> Vector2i: return Vector2i(roundi(c.x / GRID), roundi(c.y / GRID))
+	var start: Vector2i = key.call(from)
+	var open: Array = [start]
+	var came := {start: start}
+	var g := {start: 0.0}
+	var goal := Vector2i(999999, 0)
+	var guard := 0
+	while not open.is_empty() and guard < 40000:
+		guard += 1
+		var bi := 0
+		var best := INF
+		for i in range(open.size()):
+			var f: float = float(g[open[i]]) + (Vector2(open[i]) * GRID).distance_to(stump)
+			if f < best:
+				best = f
+				bi = i
+		var cur: Vector2i = open[bi]
+		open.remove_at(bi)
+		var cw := Vector2(cur) * GRID
+		var ds := cw.distance_to(stump)
+		if ds >= 1.2 and ds <= 1.7 and _sees_stump(cw, stump):
+			goal = cur
+			break
+		for dx in [-1, 0, 1]:
+			for dz in [-1, 0, 1]:
+				if dx == 0 and dz == 0:
+					continue
+				var nb := cur + Vector2i(dx, dz)
+				var nw := Vector2(nb) * GRID
+				if _blocked(nw, trunks, stump):
+					continue
+				var ng: float = float(g[cur]) + GRID * (1.4142 if dx != 0 and dz != 0 else 1.0)
+				if not g.has(nb) or ng < float(g[nb]):
+					g[nb] = ng
+					came[nb] = cur
+					if not open.has(nb):
+						open.append(nb)
+	if goal.x == 999999:
+		return []
+	var cells: Array = []
+	var c: Vector2i = goal
+	while c != start:
+		cells.push_front(Vector2(c) * GRID)
+		c = came[c]
+	cells.push_front(from)
+	# Smooth: from each kept point, jump to the furthest point still in the clear.
+	var pts: Array = [cells[0]]
+	var i := 0
+	while i < cells.size() - 1:
+		var j := cells.size() - 1
+		while j > i + 1 and not _seg_clear(cells[i], cells[j], trunks, stump):
+			j -= 1
+		pts.append(cells[j])
+		i = j
+	var out: Array = []
+	for pt in pts:
+		out.append(Vector3(pt.x, 0.1, pt.y))
+	return out
+
+
+# Walk a route with the real AutoPlayer. Tracks panic WITHOUT letting it reach PANIC_MAX (the
+# screamer would reload the scene mid-test): above 44 it is shifted down by 20 and the 20 is
+# carried in `overflow`. Decay is a constant rate, so the shift is exact while the bar is > 0.
+# Returns {ok, peak, end, deepest, secs}.
+var _overflow := 0.0
+
+func _walk_route(pts: Array, max_sec: float) -> Dictionary:
+	var ap := AUTOPLAYER.new(_p)
+	var t0 := Time.get_ticks_msec()
+	var peak := _panic() + _overflow
+	var deepest := 0.0
+	var ok := true
+	for w in pts:
+		ap.reset_stuck()
+		var arrived := false
+		while float(Time.get_ticks_msec() - t0) / 1000.0 < max_sec:
+			if ap.step_toward(w):
+				arrived = true
+				break
+			if ap.stuck:
+				break
+			await physics_frame
+			if _panic() > 44.0:
+				_p.set("_panic", _panic() - 20.0)
+				_overflow += 20.0
+			peak = maxf(peak, _panic() + _overflow)
+			deepest = maxf(deepest, HouseOutdoors.forest_depth(_p.global_position))
+		if not arrived:
+			ok = false
+			print("    walk stopped short of %v at %v (stuck=%s)" % [w, _p.global_position.snappedf(0.01), ap.stuck])
+			break
+	ap.stop()
+	ap.release()
+	return {"ok": ok, "peak": peak, "end": _panic() + _overflow, "deepest": deepest,
+		"secs": float(Time.get_ticks_msec() - t0) / 1000.0}
+
+
+# Hold still (as a player pressing E does) while the clock keeps running; same overflow rule.
+func _linger(sec: float) -> float:
+	var peak := _panic() + _overflow
+	var t0 := Time.get_ticks_msec()
+	while float(Time.get_ticks_msec() - t0) / 1000.0 < sec:
+		await physics_frame
+		if _panic() > 44.0:
+			_p.set("_panic", _panic() - 20.0)
+			_overflow += 20.0
+		peak = maxf(peak, _panic() + _overflow)
+	return peak
+
+
+# Sample a running ghost every physics frame until it is gone: is its body's centre inside the
+# camera's view (unproject + is_position_behind), and does a physics ray from the camera reach it
+# (layer 1, the player excluded)? A figure is ~0.9 m wide, so three rays go out — to its centre and
+# 0.3 m either side of it across the view — and it counts as SEEN if any one arrives: a 12 cm porch
+# post crossing the centre does not hide it. It counts as HIDDEN BY THE PORCH only when all three are
+# stopped and one of them by the fence or the porch's own body (screens, rail, posts, roof).
+# Returns {n, on_screen, clear, seen, fence}.
+func _sample_ghost(g: Node3D, h: float) -> Dictionary:
+	var cam := _p.get_node("Camera3D") as Camera3D
+	var vp := root.get_viewport().get_visible_rect().size
+	var space := _p.get_world_3d().direct_space_state
+	var out := {"n": 0, "on_screen": 0, "clear": 0, "fence": 0, "seen": 0}
+	while is_instance_valid(g) and not g.is_queued_for_deletion():
+		var a: float = float(g.call("alpha")) if g.has_method("alpha") else 1.0
+		if a >= 0.3:
+			var c := g.global_position + Vector3(0, h * 0.5, 0)
+			out["n"] += 1
+			var on := false
+			if not cam.is_position_behind(c):
+				var q2 := cam.unproject_position(c)
+				on = q2.x >= 0.0 and q2.x <= vp.x and q2.y >= 0.0 and q2.y <= vp.y
+			if on:
+				out["on_screen"] += 1
+			var side := cam.global_basis.x.normalized() * 0.3
+			var any_clear := false
+			var porch := false
+			for pt in [c, c + side, c - side]:
+				var rq := PhysicsRayQueryParameters3D.create(cam.global_position, pt)
+				rq.collision_mask = 1
+				rq.exclude = [_p.get_rid()]
+				var hit := space.intersect_ray(rq)
+				if hit.is_empty():
+					any_clear = true
+				elif String((hit["collider"] as Node).name) in ["YardFence", "PorchRailBody"]:
+					porch = true
+			if any_clear:
+				out["clear"] += 1
+				if on:
+					out["seen"] += 1
+			elif porch:
+				out["fence"] += 1
+		await physics_frame
+	return out
 
 
 func _run() -> void:
@@ -260,32 +482,183 @@ func _run() -> void:
 
 	# ----------------------------------------------------------------- 3. the first porch visit
 	print("--- 3. the first porch visit ---")
-	await _wait(2.3)
-	_ok("the first porch visit is registered", bool(_l.get("_porch_visited")))
-	_ok("…it arms the painting", bool(_l.get("_painting_armed")) and not bool(_l.get("_painting_fallen")))
-	_ok("…and the thought is on screen, ONCE", _scrawls() == 1, "%d on screen" % _scrawls())
-	# Turn to the yard for the guaranteed tree-line pass.
-	_p.call("ai_look_at", Vector3(-20.0, 1.4, 6.0))
-	var ghost_seen := false
-	for i in range(80):
-		await _wait(0.1)
-		if _count_named("ForestGhost") > 0:
-			ghost_seen = true
-			break
-	_ok("the guaranteed ghost runs along the tree line", ghost_seen,
-		"%d spawned" % int(_l.get("_ghosts_spawned")))
-	# E on the empty lunette, once the first thought has faded.
-	await _wait(3.0)
 	var g := _l.get_node("Guillotine") as Node3D
+	var gc := g.global_position + Vector3(0, float(_l.get("GUILLOTINE_LOOK_Y")), 0)
+	var stump := _l.get_node_or_null("BladeStump") as Node3D
+	await physics_frame
+	# ⭐ 2026-09-24 (c): the painting is armed by the FIRST STEP onto the deck, not by the look.
+	_ok("the first step onto the deck arms the painting", bool(_l.get("_painting_armed"))
+		and not bool(_l.get("_painting_fallen")))
+	var cam := _p.get_node("Camera3D") as Camera3D
+	var dot0 := (-cam.global_basis.z).normalized().dot((gc - cam.global_position).normalized())
+	# Stand there, as the walk left us (facing west out of the window), for 3 s — NOT looking at it.
+	await _wait(3.0)
+	_ok("3 s on the deck NOT looking at the guillotine fires NO scrawl (no dwell fallback)",
+		not bool(_l.get("_porch_visited")) and _scrawls() == 0,
+		"3-D dot to its centre %.2f (< %.2f), on deck %s" % [dot0, float(_l.get("GUILLOTINE_LOOK_DOT")),
+			HouseOutdoors.on_deck(_p.global_position)])
+	# The frame is bladeless; the blade is in the stump in the clearing.
+	_ok("the guillotine starts WITHOUT its blade", not bool(g.call("has_blade"))
+		and not (g.call("blade_node") as Node3D).visible)
+	_ok("…the blade is in the stump in the FAR NORTH-WEST CORNER (d 25.5)", stump != null and bool(stump.call("has_blade"))
+		and (stump.call("blade_node") as Node3D).visible
+		and Vector2(stump.global_position.x, stump.global_position.z).distance_to(HouseOutdoors.BLADE_CLEARING) < 0.01
+		and absf(HouseOutdoors.forest_depth(stump.global_position) - 25.5) < 0.01
+		and stump.global_position.x < -36.0 and stump.global_position.z > 20.0,
+		str(stump.global_position) if stump else "no stump")
+	# ⭐⭐ 2026-09-24 (d): HIDDEN behind one thick trunk. Rays from the rail gap (three points across
+	# it) and from the forest's middle to the blade (its centre and both ends) and to the stump's
+	# top: with every OTHER trunk excluded, each must stop on `HidingTrunk`; a CONTROL ray with
+	# HidingTrunk excluded too must reach the stump (layer 1 solid or layer 2 interact volume).
+	if stump:
+		var sp3 := _p.get_world_3d().direct_space_state
+		var hide := _l.get_node("HouseOutdoors").get_node_or_null("HidingTrunk") as StaticBody3D
+		var others := _l.get_node("HouseOutdoors").get_node_or_null("YardTrunks") as StaticBody3D
+		_ok("the thick trunk exists (r %.2f, its own body)" % HouseOutdoors.HIDE_TRUNK_R, hide != null and others != null)
+		var bl := stump.call("blade_node") as Node3D
+		# ⚠️ Loaded at RUN time, never named statically: a class that references an autoload
+		# (GameState) cannot compile while this SceneTree script compiles — the autoloads are not
+		# registered yet — and the failed compile then breaks the level itself.
+		var GUILL = load("res://scripts/house_guillotine.gd")
+		var prof: Dictionary = GUILL.blade_profile()
+		var bh: float = float(GUILL.BLADE_ART_W) / float(prof["aspect"]) if bool(prof.get("ok", false)) else 0.42
+		var mid_y: float = float(GUILL.BLADE_TOP) - bh / 2.0
+		var targets := {
+			"blade centre": bl.global_transform * Vector3(0, mid_y, 0),
+			"blade left end": bl.global_transform * Vector3(-0.22, mid_y, 0),
+			"blade right end": bl.global_transform * Vector3(0.22, mid_y, 0),
+			"stump top": stump.global_position + Vector3(0, float(stump.get("STUMP_H")), 0),
+		}
+		var eyes := {
+			"rail gap z 5.1": Vector3(-12.0, 1.6, 5.1), "rail gap z 6.0": Vector3(-12.0, 1.6, 6.0),
+			"rail gap z 6.9": Vector3(-12.0, 1.6, 6.9), "forest middle (-26, 6)": Vector3(-26.0, 1.6, 6.0),
+		}
+		var n_rays := 0
+		var n_hidden := 0
+		var n_control := 0
+		var n_full_blocked := 0
+		for en in eyes:
+			for tn in targets:
+				var e: Vector3 = eyes[en]
+				var t: Vector3 = targets[tn]
+				n_rays += 1
+				var q1 := PhysicsRayQueryParameters3D.create(e, t)
+				q1.collision_mask = 1 | 2
+				q1.exclude = [_p.get_rid(), others.get_rid()]
+				var h1 := sp3.intersect_ray(q1)
+				if not h1.is_empty() and h1["collider"] == hide:
+					n_hidden += 1
+				else:
+					print("    NOT hidden by the thick trunk: %s -> %s  (hit %s)" % [en, tn,
+						str(h1.get("collider")) if not h1.is_empty() else "nothing"])
+				var q2 := PhysicsRayQueryParameters3D.create(e, t)
+				q2.collision_mask = 1 | 2
+				q2.exclude = [_p.get_rid(), others.get_rid(), hide.get_rid()]
+				var h2 := sp3.intersect_ray(q2)
+				if not h2.is_empty() and (h2["collider"] == stump or String((h2["collider"] as Node).name) == "StumpBody"):
+					n_control += 1
+				# The whole scene (only the player excluded): blocked by SOMETHING.
+				var q3 := PhysicsRayQueryParameters3D.create(e, t)
+				q3.collision_mask = 1
+				q3.exclude = [_p.get_rid()]
+				if not sp3.intersect_ray(q3).is_empty():
+					n_full_blocked += 1
+		_note("hiding trunk: %d of %d rays (rail gap x3 + forest middle, to the blade's centre / ends and the stump top) stop on it; control (trunk excluded) reaches the stump on %d of %d; whole scene blocked %d of %d"
+			% [n_hidden, n_rays, n_control, n_rays, n_full_blocked, n_rays])
+		_ok("the THICK TRUNK hides the blade and the stump from the rail gap AND the forest's middle",
+			n_rays == 16 and n_hidden == n_rays, "%d of %d" % [n_hidden, n_rays])
+		_ok("…control: with that trunk excluded every ray REACHES the stump (the check can fail)",
+			n_control == n_rays, "%d of %d" % [n_control, n_rays])
+		# ⭐⭐ The blade is ARTWORK on quads, never on a box face (Issue 24).
+		for owner_name in ["stump", "frame"]:
+			var bn: Node3D = (stump.call("blade_node") if owner_name == "stump" else g.call("blade_node")) as Node3D
+			var art_quads := 0
+			var art_on_box := 0
+			var emissive := 0
+			var unlit := 0
+			for mi in bn.find_children("*", "MeshInstance3D", true, false):
+				var m := (mi as MeshInstance3D).get_surface_override_material(0) as StandardMaterial3D
+				var textured := m != null and m.albedo_texture != null \
+					and m.albedo_texture.resource_path.ends_with("guillotine_blade.png")
+				if textured and (mi as MeshInstance3D).mesh is QuadMesh:
+					art_quads += 1
+				if textured and (mi as MeshInstance3D).mesh is BoxMesh:
+					art_on_box += 1
+				if m and m.emission_enabled:
+					emissive += 1
+				if ((mi as MeshInstance3D).layers & 2) == 0:
+					unlit += 1
+			if ResourceLoader.exists(String(GUILL.BLADE_TEX)):
+				_ok("the %s's blade carries guillotine_blade.png on QUADS (front + back), on no box face" % owner_name,
+					art_quads >= 2 and art_on_box == 0, "%d quads, %d boxes" % [art_quads, art_on_box])
+			else:
+				print("    (guillotine_blade.png not present: the %s's blade is the fallback boxes)" % owner_name)
+			_ok("…no emission on the %s's blade, and every part moonlit (render layer 2)" % owner_name,
+				emissive == 0 and unlit == 0, "%d emissive, %d off layer 2" % [emissive, unlit])
+	var trunks_near := 99.0
+	for t in (_l.get_node("HouseOutdoors").get("trunks") as Array):
+		trunks_near = minf(trunks_near, (t as Vector2).distance_to(HouseOutdoors.BLADE_CLEARING))
+	_ok("…in a clearing: no SEEDED trunk within 3.5 m of it", trunks_near >= 3.5, "nearest trunk %.2f m" % trunks_near)
+	# Physics, not flags: a ray straight down onto the stump's top meets its interact volume.
+	if stump:
+		var sq := PhysicsRayQueryParameters3D.create(stump.global_position + Vector3(0, 2.0, 0),
+			stump.global_position + Vector3(0, 0.3, 0))
+		sq.collision_mask = 2
+		var sh := _p.get_world_3d().direct_space_state.intersect_ray(sq)
+		_ok("…and a physics ray down onto the stump meets the blade's interact volume",
+			not sh.is_empty() and sh["collider"] == stump)
+	# Now LOOK at it.
+	var t_look := Time.get_ticks_msec()
+	_p.call("ai_look_at", gc)
+	var fired_after := -1.0
+	for i in range(60):
+		await physics_frame
+		if bool(_l.get("_porch_visited")):
+			fired_after = float(Time.get_ticks_msec() - t_look) / 1000.0
+			break
+	_note("scrawl after the first real look at the guillotine: %.2f s (hold %.2f s)" % [fired_after,
+		float(_l.get("GUILLOTINE_LOOK_HOLD"))])
+	_ok("a real look at the guillotine fires the scrawl within ~0.5 s", fired_after >= 0.25 and fired_after <= 0.6,
+		"%.2f s" % fired_after)
+	await physics_frame
+	_ok("…and the thought is on screen, ONCE", _scrawls() == 1, "%d on screen" % _scrawls())
+	# ⭐ The guaranteed tree-line ghost waits for a look WEST — the camera on the guillotine is not
+	# "looking at the yard" any more (it was: fwd.x -0.42 < -0.35, and the lane went behind the fence).
+	await _wait(float(_l.get("PORCH_GHOST_DELAY")) + 0.8)
+	_ok("no tree-line ghost while the camera is on the guillotine", int(_l.get("_ghosts_spawned")) == 0
+		and _count_named("ForestGhost") == 0, "%d spawned" % int(_l.get("_ghosts_spawned")))
+	_p.call("ai_look_at", Vector3(-20.0, 1.4, 6.0))
+	var ghost: Node3D = null
+	for i in range(20):
+		await physics_frame
+		for c in _l.get_children():
+			if String(c.name).begins_with("ForestGhost") and not c.is_queued_for_deletion():
+				ghost = c
+		if ghost:
+			break
+	_ok("turned west, the guaranteed ghost runs along the tree line", ghost != null
+		and absf(ghost.global_position.x - float(_l.get("TREE_LINE_GHOST_X"))) < 0.2,
+		str(ghost.global_position.snappedf(0.1)) if ghost else "none")
+	if ghost:
+		var vis: Dictionary = await _sample_ghost(ghost, 1.75)
+		var frac := float(vis["seen"]) / maxf(1.0, float(vis["n"]))
+		_note("tree-line ghost from the deck: %d frames sampled, %d on screen, %d unoccluded, %d SEEN (%.0f %%), %d hidden by the porch/fence"
+			% [vis["n"], vis["on_screen"], vis["clear"], vis["seen"], frac * 100.0, vis["fence"]])
+		_ok("…a meaningful sample of its run (>= 30 frames)", int(vis["n"]) >= 30, "%d" % vis["n"])
+		_ok("…never hidden by the fence or the porch's own screens", int(vis["fence"]) == 0, "%d frames" % vis["fence"])
+		_ok("…on screen AND unoccluded for most of its run (>= 60 %)", frac >= 0.6, "%.0f %%" % (frac * 100.0))
+	# E on the frame with no blade and nothing in hand, once the first thought has faded.
+	await _wait(1.0)
 	var front := g.global_position + g.global_transform.basis.z * 1.25
 	_stand(Vector3(front.x, 0.1, front.z), g.global_position + Vector3(0, 0.7, 0))
-	var before := _scrawls()
+	var blade_txt := String(_l.get("BLADE_SCRAWL"))
+	var before := _scrawls(blade_txt)
 	tgt = await _press(g.global_position + Vector3(0, 0.7, 0))
 	await _wait(0.3)
-	_ok("E on the EMPTY lunette (no fruit) re-thinks the thought", tgt == g and _scrawls() == before + 1,
-		"target %s, scrawls %d -> %d" % [str(tgt), before, _scrawls()])
+	_ok("E on the BLADELESS frame thinks WHERE IS THE BLADE?", tgt == g and _scrawls(blade_txt) == before + 1,
+		"target %s, scrawls %d -> %d" % [str(tgt), before, _scrawls(blade_txt)])
 	_ok("…and loads nothing", String(g.call("state_name")) == "EMPTY")
-	_ok("…and the prompt says so", String(g.call("prompt_text")).contains("empty"))
+	_ok("…and the prompt says so", String(g.call("prompt_text")).contains("no blade"), String(g.call("prompt_text")))
 	await _wait(3.2)
 	_p.call("ai_look_at", Vector3(-8.7, 1.0, 6.0))    # back toward the house
 	_stand(Vector3(-9.5, 0.1, 4.2), Vector3(-9.5, 1.0, 8.0))
@@ -393,44 +766,168 @@ func _run() -> void:
 	await _wait(0.2)
 	_ok("the shipping ray takes the watermelon", tgt == melon and String(_l.get("_melon_state")) == "held")
 	_ok("the HUD carries it", String(_gs.get("carried_item")) == "watermelon", "'%s'" % _gs.get("carried_item"))
-	await _wait(1.5)
-	var w2 := _l.get_node_or_null("Witch2") as Node3D
-	_ok("glimpse 2: she is at the far end of the Hallway, BEHIND you",
-		w2 != null and w2.global_position.z < 8.0 and absf(w2.global_position.x) < 1.2,
-		str(w2.global_position.snappedf(0.1)) if w2 else "no figure")
-	_ok("…zero panic", _panic() < 0.05, "%.3f" % _panic())
-	var ws := _l.get_node_or_null("WitchScream") as AudioStreamPlayer3D
-	_ok("…and she SCREAMS (the user's witch_scream), from behind you",
-		ws != null and w2 != null and ws.global_position.distance_to(w2.global_position) < 2.0,
-		"no scream player" if ws == null else str(ws.global_position.snappedf(0.1)))
+	# ⭐ 2026-09-24 (d): glimpse 2 is DELETED — taking the fruit brings no witch and no scream.
+	var witch_figs := 0
+	for i in range(30):
+		await _wait(0.05)
+		for c in _l.get_children():
+			if c is Watcher and String(c.name).begins_with("Witch") and not c.is_queued_for_deletion():
+				witch_figs += 1
+	_ok("taking the fruit spawns NO witch (glimpse 2 is gone) and no scream",
+		witch_figs == 0 and _l.get_node_or_null("WitchScream") == null and _p.call("is_input_frozen") != true,
+		"%d witch-frames" % witch_figs)
 	var snap_held: Dictionary = _l.call("save_progress")
 
 	# ----------------------------------------------------------------- 7. the guillotine
 	print("--- 7. the guillotine ---")
 	_stand(Vector3(front.x, 0.1, front.z), g.global_position + Vector3(0, 0.7, 0))
-	_ok("with the fruit in hand the prompt offers the lunette",
-		String(g.call("prompt_text")).contains("watermelon"))
+	_ok("with the fruit in hand the prompt offers the lunette (no blade needed for that)",
+		String(g.call("prompt_text")).contains("watermelon"), String(g.call("prompt_text")))
 	tgt = await _press(g.global_position + Vector3(0, 0.7, 0))
 	await _wait(0.4)
 	_ok("E sets it in the lunette", String(g.call("state_name")) == "LOADED" and String(_l.get("_melon_state")) == "placed")
 	_ok("…and it leaves the carried line", String(_gs.get("carried_item")) == "", "'%s'" % _gs.get("carried_item"))
 	var snap_placed: Dictionary = _l.call("save_progress")
+	# ⭐ LOADED WITHOUT A BLADE: the pull is refused — nothing drops, nothing is cut.
+	_ok("loaded but bladeless, the prompt says there is no blade", String(g.call("prompt_text")).contains("no blade"),
+		String(g.call("prompt_text")))
+	var blade_before := _scrawls(blade_txt)
+	tgt = await _press(g.global_position + Vector3(0, 0.7, 0))
+	await _wait(1.2)
+	_ok("E on the loaded, BLADELESS frame REFUSES the pull: no cut", tgt == g
+		and String(g.call("state_name")) == "LOADED" and String(_l.get("_melon_state")) == "placed"
+		and (g.call("halves") as Array).is_empty() and g.call("cutters_node") == null)
+	_ok("…and thinks WHERE IS THE BLADE?", _scrawls(blade_txt) == blade_before + 1,
+		"%d -> %d" % [blade_before, _scrawls(blade_txt)])
+
+	# ⭐⭐ THE WALK: from the rail gap to the stump and back, the real AutoPlayer round the real
+	# trunks. Twice: from 25 panic (just after the window scare — reported, not asserted) without
+	# pulling, then from 0 with the pull through the shipping ray (asserted survivable).
+	print("--- 7b. the walk to the stump and back ---")
+	var sp := Vector2(stump.global_position.x, stump.global_position.z)
+	var gap := Vector3(-12.6, 0.1, 6.0)
+	var deck_back := Vector3(-10.3, 0.1, 6.0)
+	var route: Array = _plan_to_stump(Vector2(gap.x, gap.z), sp)
+	var route_len := 0.0
+	for i in range(1, route.size()):
+		route_len += (route[i] as Vector3).distance_to(route[i - 1])
+	_ok("a walkable route to the stump exists round the seeded trunks", route.size() >= 2,
+		"%d waypoints, %.1f m from the rail gap" % [route.size(), route_len])
+	var back: Array = route.duplicate()
+	back.reverse()
+	back.append(deck_back)
+	var trips := {}
+	var heard := ""
+	for start_panic in [25.0, 0.0]:
+		_stand(Vector3(-11.0, 0.1, 6.0), Vector3(-20.0, 1.4, 6.0))
+		await _wait(0.3)
+		_overflow = 0.0
+		_p.set("_panic", start_panic)
+		var out: Dictionary = await _walk_route(route, 40.0)
+		var at_stump := Vector2(_p.global_position.x, _p.global_position.z).distance_to(sp)
+		_p.call("ai_look_at", stump.global_position + Vector3(0, 0.7, 0))
+		await physics_frame
+		var st_tgt: Node = _p.call("ai_interact_target")
+		var pulled_here := false
+		if start_panic == 0.0:
+			_ok("from %.1f m, the shipping ray finds the blade in the stump" % at_stump, st_tgt == stump, str(st_tgt))
+			_ok("…and the prompt says what E does", st_tgt != null and String(st_tgt.call("prompt_text")).contains("blade"))
+			_p.call("ai_interact")
+			pulled_here = true
+			await physics_frame
+			var bp := stump.get_node_or_null("BladePull") as AudioStreamPlayer3D
+			heard = bp.stream.resource_path if bp and bp.stream and bp.playing else ""
+		var linger: float = await _linger(0.6)     # the press, as a person makes it
+		var home: Dictionary = await _walk_route(back, 40.0)
+		await physics_frame
+		var peak := maxf(maxf(float(out["peak"]), linger), float(home["peak"]))
+		trips[start_panic] = {"ok": bool(out["ok"]) and bool(home["ok"]), "peak": peak,
+			"end": float(home["end"]), "deepest": maxf(float(out["deepest"]), float(home["deepest"])),
+			"secs": float(out["secs"]) + float(home["secs"]) + 0.6, "pulled": pulled_here}
+		_note("round trip rail gap -> stump -> deck from %2.0f panic: peak %.1f of 50 (cost %+.1f), back on the deck at %.1f, deepest d = %.1f m, %.1f s walking, route %.1f m each way"
+			% [start_panic, peak, peak - start_panic, float(home["end"]), trips[start_panic]["deepest"],
+				trips[start_panic]["secs"], route_len])
+		_ok("the round trip from %.0f was actually walked, out and back to the deck" % start_panic,
+			bool(trips[start_panic]["ok"]) and HouseOutdoors.on_deck(_p.global_position),
+			"at %v" % _p.global_position.snappedf(0.01))
+		_overflow = 0.0
+	_ok("from CALM (0) the round trip is survivable (peak < 50)", float(trips[0.0]["peak"]) < 50.0,
+		"peak %.1f" % float(trips[0.0]["peak"]))
+	_ok("…the blade came out of the stump", not bool(stump.call("has_blade"))
+		and not (stump.call("blade_node") as Node3D).visible and String(_l.get("_blade_state")) == "held")
+	_ok("…the pull was HEARD at the stump (blade_pull, playing there)", heard.ends_with("blade_pull.wav"), heard)
+	_ok("…and the carried line lists it", String(_gs.get("carried_item")).contains("guillotine blade"),
+		"'%s'" % _gs.get("carried_item"))
+	if stump:
+		var sq2 := PhysicsRayQueryParameters3D.create(stump.global_position + Vector3(0, 2.0, 0),
+			stump.global_position + Vector3(0, 0.3, 0))
+		sq2.collision_mask = 2
+		_ok("…and the stump's interact volume is gone (physics ray)",
+			_p.get_world_3d().direct_space_state.intersect_ray(sq2).is_empty())
+	var snap_blade_held: Dictionary = _l.call("save_progress")
+	_p.set("_panic", 0.0)
+
+	# Mount it, through the ray.
+	_stand(Vector3(front.x, 0.1, front.z), g.global_position + Vector3(0, 0.7, 0))
+	_ok("with the blade in hand the prompt offers to mount it", String(g.call("prompt_text")).contains("Mount"),
+		String(g.call("prompt_text")))
+	tgt = await _press(g.global_position + Vector3(0, 0.7, 0))
+	await _wait(0.8)
+	var bn := g.call("blade_node") as Node3D
+	_ok("E mounts the blade: it hangs in the frame", tgt == g and bool(g.call("has_blade")) and bn.visible
+		and bn.global_position.y > 1.8 and String(_l.get("_blade_state")) == "mounted")
+	_ok("…and it leaves the carried line", not String(_gs.get("carried_item")).contains("blade"),
+		"'%s'" % _gs.get("carried_item"))
+	_ok("…the prompt is the rope now", String(g.call("prompt_text")).contains("rope"), String(g.call("prompt_text")))
 	_p.set("_panic", 0.0)
 	tgt = await _press(g.global_position + Vector3(0, 0.7, 0))
 	await _wait(1.2)
 	_ok("E pulls the rope: the blade drops and the fruit is CUT", String(g.call("state_name")) == "CUT")
 	var cut_panic := _panic()
 	_ok("…no fail state and no panic from the machine itself", cut_panic < 0.05, "%.3f" % cut_panic)
-	var halves := 0
-	for c in g.get_children():
-		if String(c.name).begins_with("MelonHalf"):
-			halves += 1
-	_ok("…two halves, flesh up", halves == 2, "%d" % halves)
+	var halves := g.call("halves") as Array
+	_ok("…two halves, flesh up", halves.size() == 2, "%d" % halves.size())
+	var on_boards := 0
+	for h in halves:
+		if (h as Node3D).global_position.y < 0.25:
+			on_boards += 1
+	_ok("…one of them on the deck boards", on_boards == 1, "%d below 0.25 m" % on_boards)
 	var cutters := g.call("cutters_node") as Node3D
-	_ok("…and the bolt cutters lie in the basket", cutters != null)
+	_ok("…and the bolt cutters lie in front of it", cutters != null)
+	var space2 := _p.get_world_3d().direct_space_state
+	if cutters:
+		# ON THE FLOOR, by physics: straight down from above them, the first layer-2 thing is the
+		# cutters, and under them (layer 1, the frame excluded) the deck — within a few cm.
+		var top := cutters.global_position + Vector3(0, 1.0, 0)
+		var c2 := PhysicsRayQueryParameters3D.create(top, cutters.global_position - Vector3(0, 0.5, 0))
+		c2.collision_mask = 2
+		var ch := space2.intersect_ray(c2)
+		var d1 := PhysicsRayQueryParameters3D.create(top, cutters.global_position - Vector3(0, 0.5, 0))
+		d1.collision_mask = 1
+		d1.exclude = [g.get_rid(), _p.get_rid()]
+		var dh := space2.intersect_ray(d1)
+		var floor_y: float = (dh["position"] as Vector3).y if not dh.is_empty() else -99.0
+		_ok("the cutters are ON THE DECK: a ray down meets them, and the boards right under them",
+			not ch.is_empty() and ch["collider"] == cutters and absf(floor_y) < 0.02
+			and cutters.global_position.y - floor_y < 0.05 and HouseOutdoors.on_deck(cutters.global_position),
+			"cutters y %.3f, floor y %.3f, collider %s" % [cutters.global_position.y, floor_y,
+				str(ch.get("collider")) if not ch.is_empty() else "none"])
+	# No basket: nothing named one, and a ray down where it stood meets the deck, not a wicker box.
+	var old_basket := g.global_transform * Vector3(0, 0.6, 0.46)
+	var bq := PhysicsRayQueryParameters3D.create(old_basket, old_basket - Vector3(0, 1.0, 0))
+	bq.collision_mask = 1
+	bq.exclude = [_p.get_rid()]
+	var bh := space2.intersect_ray(bq)
+	_ok("there is NO basket: nothing named one, and a ray where it stood meets the deck",
+		g.find_child("Basket*", true, false) == null and not bh.is_empty() and bh["collider"] != g
+		and absf((bh["position"] as Vector3).y) < 0.02,
+		str(bh.get("collider")) if not bh.is_empty() else "no hit")
+	_stand(Vector3(front.x, 0.1, front.z), cutters.global_position if cutters else g.global_position)
 	tgt = await _press(cutters.global_position if cutters else g.global_position)
+	var tgt_name := String(tgt.name) if is_instance_valid(tgt) else "none"
 	await _wait(0.3)
-	_ok("E takes the cutters", bool(_l.get("_cutters_held")) and String(g.call("state_name")) == "DONE")
+	_ok("the shipping ray takes the cutters off the floor", tgt == cutters and bool(_l.get("_cutters_held"))
+		and String(g.call("state_name")) == "DONE", tgt_name)
 	_ok("the carried line lists them", String(_gs.get("carried_item")) == "bolt cutters", "'%s'" % _gs.get("carried_item"))
 	_ok("the guillotine goes inert", not bool(g.call("can_interact")))
 	_p.call("ai_look_at", Vector3(-18.0, 1.2, 5.0))
@@ -444,12 +941,14 @@ func _run() -> void:
 		str(w3.global_position.snappedf(0.1)) if w3 else "no figure")
 	var snap_done: Dictionary = _l.call("save_progress")
 	for k in ["window_broken", "porch_visited", "painting_armed", "painting_fallen", "melon_state",
-			"witch_note", "witch_glimpses", "cutters_held"]:
+			"witch_note", "witch_glimpses", "cutters_held", "blade_state"]:
 		_ok("save_progress carries '%s'" % k, snap_done.has(k), str(snap_done.get(k)))
 	_ok("…with the values this run reached",
 		bool(snap_done["window_broken"]) and bool(snap_done["porch_visited"]) and bool(snap_done["painting_fallen"])
 		and String(snap_done["melon_state"]) == "cut" and bool(snap_done["witch_note"])
-		and (snap_done["witch_glimpses"] as Array).size() == 3 and bool(snap_done["cutters_held"]))
+		and (snap_done["witch_glimpses"] as Array).size() == 2
+		and (snap_done["witch_glimpses"] as Array).has(1) and (snap_done["witch_glimpses"] as Array).has(3) and bool(snap_done["cutters_held"])
+		and String(snap_done["blade_state"]) == "mounted")
 
 	# ----------------------------------------------------------------- 8. save / restore
 	print("--- 8. save / restore ---")
@@ -463,19 +962,71 @@ func _run() -> void:
 	_ok("…the painting is on the floor, the hole open",
 		bool(_l.get("_painting_fallen")) and (_l.find_child("FallingPainting", true, false) as Node3D).position.y < 0.3
 		and (_l.get_node("PlasterHole") as Node3D).visible)
+	var st2 := _l.get_node("BladeStump")
+	_ok("…blade_state 'stump': the blade is still in the stump, the frame bladeless",
+		String(_l.get("_blade_state")) == "stump" and bool(st2.call("has_blade"))
+		and not bool(g2.call("has_blade")) and not (g2.call("blade_node") as Node3D).visible)
 	await _load(snap_placed)
 	_ok("restore 'placed': the fruit sits in the lunette", String(_l.get_node("Guillotine").call("state_name")) == "LOADED")
+	await _load(snap_blade_held)
+	var g4 := _l.get_node("Guillotine")
+	var st4 := _l.get_node("BladeStump") as Node3D
+	var sq4 := PhysicsRayQueryParameters3D.create(st4.global_position + Vector3(0, 2.0, 0),
+		st4.global_position + Vector3(0, 0.3, 0))
+	sq4.collision_mask = 2
+	await physics_frame
+	_ok("restore blade_state 'held': the stump is EMPTY (no blade, no interact volume by ray)",
+		not bool(st4.call("has_blade")) and not (st4.call("blade_node") as Node3D).visible
+		and _p.get_world_3d().direct_space_state.intersect_ray(sq4).is_empty())
+	_ok("…the blade is carried, silently", String(_gs.get("carried_item")).contains("guillotine blade")
+		and bool(g4.get("blade_in_hand")) and st4.get_node_or_null("BladePull") == null,
+		"'%s'" % _gs.get("carried_item"))
+	_ok("…and the frame offers to mount it, the fruit still in the lunette",
+		String(g4.call("prompt_text")).contains("Mount") and String(g4.call("state_name")) == "LOADED")
+	# ⭐ EITHER ORDER: a snapshot with the blade mounted FIRST and the fruit still in the wall.
+	var snap_blade_first := snap_held.duplicate(true)
+	snap_blade_first["melon_state"] = "wall"
+	snap_blade_first["blade_state"] = "mounted"
+	await _load(snap_blade_first)
+	var g5 := _l.get_node("Guillotine") as Node3D
+	_ok("restore blade_state 'mounted' (blade first): it hangs in the frame, the stump is empty",
+		bool(g5.call("has_blade")) and (g5.call("blade_node") as Node3D).visible
+		and not bool(_l.get_node("BladeStump").call("has_blade")) and String(g5.call("state_name")) == "EMPTY")
+	var f5 := g5.global_position + g5.global_transform.basis.z * 1.25
+	_stand(Vector3(f5.x, 0.1, f5.z), g5.global_position + Vector3(0, 0.7, 0))
+	await _wait(0.2)
+	_ok("…the empty lunette, bladed, asks for something to put there", String(g5.call("prompt_text")).contains("empty"),
+		String(g5.call("prompt_text")))
+	var th0 := _scrawls()
+	tgt = await _press(g5.global_position + Vector3(0, 0.7, 0))
+	await _wait(0.3)
+	_ok("…E there thinks SHALL I PUT SOMETHING THERE? (not the blade line)", tgt == g5 and _scrawls() == th0 + 1
+		and _scrawls(String(_l.get("BLADE_SCRAWL"))) == 0)
+	var melon5 := _l.get_node("HouseWatermelon") as Node3D
+	_stand(Vector3(0.85, 0.1, 17.7), melon5.global_position)
+	tgt = await _press(melon5.global_position)
+	await _wait(0.2)
+	_stand(Vector3(f5.x, 0.1, f5.z), g5.global_position + Vector3(0, 0.7, 0))
+	tgt = await _press(g5.global_position + Vector3(0, 0.7, 0))
+	await _wait(0.4)
+	tgt = await _press(g5.global_position + Vector3(0, 0.7, 0))
+	await _wait(1.2)
+	_ok("…blade first, then the fruit, then the rope: CUT (either order works)",
+		String(g5.call("state_name")) == "CUT" and g5.call("cutters_node") != null)
 	await _load(snap_done)
 	var g3 := _l.get_node("Guillotine")
 	_ok("restore 'done': the guillotine is spent, the blade down, the cutters in hand",
 		String(g3.call("state_name")) == "DONE" and not bool(g3.call("has_cutters"))
 		and String(_gs.get("carried_item")) == "bolt cutters", "'%s'" % _gs.get("carried_item"))
+	_ok("…blade_state 'mounted': the blade is in the frame (down), the stump empty",
+		bool(g3.call("has_blade")) and (g3.call("blade_node") as Node3D).visible
+		and not bool(_l.get_node("BladeStump").call("has_blade")))
 	_ok("…the porch visit is remembered: no thought replays", bool(_l.get("_porch_visited")))
 	_stand(Vector3(-9.6, 0.1, 5.5), Vector3(-10.35, 1.0, 7.75))
 	await _wait(2.5)
 	_ok("…standing on the deck again does not re-scrawl", _scrawls() == 0)
-	var witches := _count_named("Witch1") + _count_named("Witch2") + _count_named("Witch3")
-	_ok("…the witch does not come back (all three glimpses spent)", witches == 0, "%d figures" % witches)
+	var witches := _count_named("Witch1") + _count_named("Witch3")
+	_ok("…the witch does not come back (both glimpses spent)", witches == 0, "%d figures" % witches)
 	_ok("…nor does the forest scare (the window is spent)", _panic() < 1.0, "panic %.2f" % _panic())
 
 	# ----------------------------------------------------------------- 9. the fridge chain

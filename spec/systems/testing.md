@@ -2,6 +2,24 @@
 
 ## Testing
 
+**🔨 2026-09-24 — the Intro's Intake Wing (phases 1–3; closed with the wing).** New
+`check_intro_glimpse.gd` (17 checks): through the real strap sequence the cell bed is empty; the
+player opens the hall door through `ai_look_at` + `ai_interact` and WALKS in on `ai_move_dir`; the
+occupant is absent for every sampled frame of the walk-in, including in the doorway; inside, it is
+on the cell bed, silent, the eye-line meets the solid glass pane first and — with the pane excluded
+— the occupant's own collider, and it is in the camera frustum; walking back out frees it; walking
+back in, it is still gone. ⚠️ Proved to fail: with the `queue_free()` in `_tick_hall()` disabled,
+three checks go red. `check_intro_beats.gd` walks the cell / hall / blackout before its old ward
+stages (58 checks; panic exactly 0 through all three rooms, the 0.6 ceiling set).
+`check_intro_gate.gd` checks the ledger's synchronous half; `check_intro_geometry.gd` finds every
+wall by RAY (RoomBuilder has no `WallBack`), asserts the `ExitDoor` is in the airlock, and in the
+ending that the ward is sealed and the wing unbuilt. The sweeps enrolled the wing:
+`check_doorways` (5 doorways, all five `WingDoor`s opened first through `move_aside_instantly()`
+via a new `open` row key — an open leaf must clear its own opening, and the control needs a clear
+doorway), `check_note_mounting` (the intro has a room table now), `check_reachable` (the five
+doors as gates; it caught the cell door's leaf walling off the sink — the door opens outward now),
+`check_wall_overlap` (the cell bed's pad art joins the waived flat props, count 3).
+
 **2026-09-21 audio regression:** `check_breach_voice.gd` now has 45 checks, including exact
 `crate_jumpscare.ogg` identity and decoded voice/music balance at 3.5, 18 and 30 m while facing
 away. `check_breach_kill.gd` has 35 checks, including exact `level_6_jumpscare.wav` identity,
@@ -555,7 +573,7 @@ once and never again; the guaranteed tree-line ghost; E on the empty lunette re-
 clock's slope measured on the deck (−3.50 /s), at the tree line (+0.06), at 20 m (+2.00), at the deepest
 reachable point (+2.00, capped) and frozen (−3.49); 0 → death 25.0 s; ghost cadence (5 in 40 s, gaps
 7.6–10.0) and zero panic with three ghosts in view; the painting → hole → fruit through the ray; glimpse 2
-behind you; EMPTY → LOADED → CUT → cutters through the ray; glimpse 3; every new save key; three snapshots
+behind you (⭐ deleted 2026-09-24 d: the check is now "no witch after the fruit"); EMPTY → LOADED → CUT → cutters through the ray; glimpse 3; every new save key; three snapshots
 (held / placed / done) reloaded through the level's own `_restore_progress()`; the fridge chain cut with
 the restored cutters. **Proved it can fail**: one run with three mutations — the burst suppressed, the
 clock charging 3.5 /s everywhere, the watermelon left off the carried line — went red on 19 checks, each
@@ -574,3 +592,115 @@ the west window, with physics rays for the pane, the lintel and the burst), `che
 is phased off the scene's CSG extent, and the ramp's standable band is 1.2 m wide, so a CSG porch roof
 reaching x −12.35 (instead of −12.0) put zero samples on the ramp and turned the sweep red for a level
 nobody had touched there. The roof became a body; the fragility is filed in the backlog's Deferred.
+
+⭐ **2026-09-24 (c) — the porch playtest pass: `check_house_porch.gd` is 121 checks now** (it was 82
+after the (b) pass added §0). What it gained, and why each one was shaped that way:
+- **A look is not a dwell.** It stands 3 s on the deck facing west (a 3-D dot of 0.70 to the guillotine,
+  which the old flat ≥ 0.6 test accepted) and asserts NO scrawl but an ARMED painting. It then
+  `ai_look_at()`s the frame and times the scrawl (0.32 s against a 0.3 s hold).
+- **A ghost that spawns is not a ghost that is seen.** It asserts no tree-line ghost while the camera is
+  on the guillotine. Once the camera is turned west, `_sample_ghost()` projects the figure's centre
+  EVERY FRAME of its run (`is_position_behind` + `unproject_position` against the viewport rect) and
+  rays it on layer 1: three rays, to the centre and 0.3 m either side across the view, because a
+  12 cm porch post crossing a 0.9 m figure's middle does not hide it. A centre-only ray measured 85 %
+  and blamed the posts. It fails under 60 % "on screen and unoccluded", or on any frame where all
+  three rays stop and one of them on `YardFence` / `PorchRailBody`. It also asserts its own sample
+  size (≥ 30 frames). Measured: 120 frames, 100 % on screen, 100 % seen, 0 hidden.
+- **The walk is real.** `_plan_to_stump()` is a grid A* (0.5 m) over the yard round the level's OWN
+  `HouseOutdoors.trunks`, so a re-seeded layout re-plans instead of breaking. It ends 1.2–1.7 m from
+  the stump, is smoothed by line of sight, and is driven waypoint by waypoint by the real `AutoPlayer`.
+  `_walk_route()` tracks panic without letting the screamer fire: above 44 it shifts the bar down 20
+  and carries the 20. That is exact because decay is a constant rate. It does two round trips, from
+  25 (reported: peak 34.6) and from 0 (asserted < 50: peak 10.6). The second presses E through the
+  shipping ray at the stump and asserts the `BladePull` player is PLAYING the right file there.
+- **The floor is measured, not assumed.** A ray down (mask 2) meets the cutters; a ray down (mask 1, the
+  frame excluded) meets the deck within 2 cm under them; a ray where the basket stood meets
+  `PorchDeck`.
+- **`blade_state` in all three values**, plus a blade-FIRST snapshot. That one also covers the empty
+  lunette's thought: E on the empty lunette → the fruit through the ray → the pull → CUT.
+
+**Proved it can fail**, four mutation runs, each restored byte-identical and green:
+- the old flat-dot + dwell rule, a bladeless pull allowed, and the cutters 0.3 m in the air: 15 red;
+- the old `fwd.x < −0.35` yard look: 1 red;
+- the old z 25 → 15 lane: 2 red (0 % seen, 21 frames hidden by the porch or fence);
+- the cutters in the air alone: the floor check red.
+
+`check_house_fridge_chain.gd` and `screenshot_house_h2.gd` put the frame in CUT with
+`restore("cut", false, true)` (blade mounted). `check_house_guest.gd` arms the painting by standing
+on the deck and running the level's own `_tick_porch()`: it used to call `_on_first_porch_visit()`,
+which no longer arms anything, and went 9 red. It also asserts that no scrawl fires without a look. `screenshot_sep16c.gd`'s cellar timings follow
+`CHILD_APPEAR_DELAY` 4.5 (shots at 4.2 / 5.6 / 8.6 s).
+
+⭐ **2026-09-24 (d) — the second playtest pass: `check_house_porch.gd` 126 checks, and a new
+`check_house_witch.gd` (40 checks, ~33 s, in `run_tests.sh`).**
+- **Hidden is a ray, and the ray has a control.** 16 rays (three points across the rail gap and the
+  forest's middle, to the blade's centre, both ends and the stump's top) must stop on
+  `HidingTrunk` with every OTHER trunk excluded. The same 16 with it excluded too must reach the
+  stump (layer 1 or the layer-2 interact volume). Without the control, a trunk-shaped anything
+  would pass. Measured by mutation: moving the trunk's collider 3 m gives 0 of 16, and the whole
+  scene then blocks only 12 of 16.
+- **Art on quads, by mesh type.** For both blades (the stump's and the frame's), every
+  `MeshInstance3D` carrying `guillotine_blade.png` must be a `QuadMesh`, at least two of them and
+  none a `BoxMesh`. No part may be emissive, and every part must be on render layer 2. Mutation:
+  the texture on the edge boxes turns it red with 7 boxes.
+- **The route must end where the stump can be seen.** `_plan_to_stump()` now also blocks the thick
+  trunk and the ring trunks, and it only accepts a goal cell with an eye-height line of sight to
+  the stump. A cell 1.2–1.7 m out can sit right behind the trunk.
+- **`check_house_witch.gd` — the witch SEEN.** The note is opened through the shipping ray and
+  closed by a real `interact` `InputEventAction` into NoteUI's `_unhandled_input`, with a
+  `_close()` fallback that prints if it is ever needed; it has not been. Each sighting is watched
+  frame by frame:
+  - the time to the pin;
+  - the time until the camera's 3-D dot to her chest reaches 0.9;
+  - mid-hold: that dot, the flat distance, a camera→chest physics ray and still-pinned;
+  - the release, and the figure gone;
+  - her scream player within 0.5 m of her;
+  - the panic MAXIMUM across the beat.
+
+  B is checked not to fire before the hooked timer, on the deck, or with a note open. Then "behind"
+  is the pre-turn facing dotted with the direction to her. A is also run from three more reading
+  spots, which exercises every rung of the ladder, and the test asserts all three ran.
+  - ⚠️ **The deck case must be one that WOULD place.** With the pane intact the pane blocks the LOS
+    and the check passed with the room gate deleted. It now breaks the window first (Issue 277).
+  - **Proved it can fail:** no freeze, +5 panic, and no room gate each turned it red, with 12 red
+    for the first two together; restored green.
+  - It asserts `WITCH_B_AFTER` is still 480. The test shortens `witch_b_after`, never the constant.
+- `screenshot_house_porch.gd` gained `22a`–`22c`, `25`, `25b`, `26` and `27`, and now disarms the
+  level's blackout clock. With the player's physics off, any `add_panic()` leaves the HUD blurred
+  for the rest of the run.
+
+### The House map's curated twelve (2026-09-24 e) — `check_maze_gen` / `check_maze_chase` / `check_maze_no_death`
+
+The map no longer deals random layouts, so its guards moved from "the generator on average" to "each
+of the twelve the player can meet" (`MazeChaseUI.CURATED_SEEDS`). **`tests/lib/maze_curation.gd`** is
+the one copy of the harness bot (`fresh()`, `play()`, `step_toward()`) and of the fairness filters
+(`analyse()`: cut vertices of each tour leg, the hunter-vs-player race at each, the hunter's start,
+the patroller's free circuit). `probe_maze_curate.gd` (not in the suite, ~4.5 min) chose the twelve
+with it. `check_maze_chase.gd` and `probe_maze_variance.gd` delegate to it, so the three cannot drift.
+- `check_maze_gen.gd` asserts filters (a)–(c) on all twelve; each must also have ≥ 2 mandatory cells
+  and ≥ 3 patroller cells, so a filter that measured nothing fails. It also asserts:
+  - the dealer: 600 deals, all 12 dealt, 0 repeats in a row, 0 strays;
+  - a seed rebuilds the same layout after unrelated RNG use;
+  - `_load_layout()` hands the global RNG back;
+  - the patroller's circuit replays on the same sub-seed.
+
+  The 200-seed structural sweep still runs.
+- `check_maze_chase.gd` replays the probe's band exactly: 12 × 20 runs, the patroller's sub-seed
+  `seed×100+k`. Each seed must win 9–18 / 20, a little wider than the 50–85 % it was selected on.
+  There must be no stall or timeout, and the aggregate must be 50–85 %. Measured **160/240 = 66.7 %,
+  median win 20.4 s**. CATCH / SKIP / PURSUE run on the 12 plus 40 raw seeds (52/52, 0/52, 52/52).
+  The raw 9000–9039 escape rate is printed as a reference only (27/40). ⚠️ The run is
+  deterministic, so on an unchanged build it reproduces the probe's wins/20 exactly; a drift means
+  the generator, a monster or `_pick_patrol_target()` changed, and the twelve must be re-picked.
+- `check_maze_no_death.gd` (new, in `run_tests.sh`, 22 checks, ~10 s) runs the real `HouseMap` and UI
+  in the House, through `interact()` and the UI's own `_process()`:
+  - drip + proximity + a snare at 98 % → no screamer, held at 0.98;
+  - catches 1 and 2 at 90 % → no death, and the ejected player survives 2 s of 3D;
+  - ESC → the streak is unchanged;
+  - a won standalone map → the streak goes 2 → 0 (read inside the `won` emission, the last moment
+    the prop exists);
+  - catch 3 at 0 % → `Screamer._is_triggering`.
+- **Proved able to fail**, nine mutations, each restored byte-identical. ⚠️ The first run of the
+  no-clamp mutation HUNG instead of failing. The death reloaded the House, the next stage threw on a
+  freed node, and the frame aborted before the timeout check at the bottom of `_process`. **A scene
+  test that can reload must check liveness and its timeout at the TOP of `_process`.**

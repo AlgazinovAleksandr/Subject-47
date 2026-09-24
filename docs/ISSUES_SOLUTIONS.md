@@ -3106,6 +3106,14 @@ exist.** Any game script that touches an autoload at class scope will fail there
 lands in the SCENE, not in the test. Prefer `get_script().resource_path`, node groups, or duck-typed
 `has_method()` checks when a test needs to identify a class.
 
+⭐ **Recurrence, 2026-09-24 (d):** `check_house_porch.gd` read `HouseGuillotine.blade_profile()` and
+`HouseBladeStump.STUMP_H` by class name. Both scripts reach `GameState`, so they failed to compile
+while the test compiled. The House then threw `Nonexistent function 'new'` building its guillotine,
+and the run hung at §3 on a null stump. The test now `load()`s the script at run time
+(`GUILL = load("res://scripts/house_guillotine.gd")`, then `GUILL.blade_profile()`) and reads the
+stump's constant through the instance. The same rule applies to a static helper: call it on a
+script loaded after the autoloads.
+
 ---
 
 ## Issue 83 — A prop whose front faced into the wall: invisible while it was a symmetric box, blank the moment it got artwork
@@ -7101,3 +7109,188 @@ spec's own tactic ("blind it, then seal it") is exactly that combination.
 promises. `force_block()` had the same shape once (Issue 176). When a new system gains control over an
 existing state machine, grep which states it can override, and test it combined with every other tool
 the player holds at that moment.
+
+## Issue 276 — The porch's two "look" tests measured the wrong thing: the scrawl fired on stepping out, and the one guaranteed ghost ran behind the porch (2026-09-24)
+
+**Symptom:** the first hand playtest of the House porch pass (2026-09-24, J-capture #1): *"SHALL I PUT
+SOMETHING THERE? … should appear after you first look at the gilatin, not … immediately after you enter
+the back yard"*. The log put the scrawl 0.25 s after the window burst, on the first frame on the deck. A
+second defect was found while diagnosing the first, and the user did not report it: the "guaranteed"
+tree-line ghost, queued 4 s after that scrawl, was almost certainly never seen.
+
+**Cause:** both tests were written as "is the player facing X?", and both measured something much looser.
+- **The scrawl.** `_tick_porch` fired on `_facing(p, guillotine, 0.6)` or a 2 s dwell on the deck.
+  `_facing` is a FLAT (y-zeroed) dot with no range and no line of sight. Stepping west out of the window
+  gives a flat dot of 0.69 to the guillotine (0.70 in 3-D), because the frame stands just to the right of
+  the opening, so the "look" was satisfied by walking out. And the dwell fallback would have fired it 2 s
+  later regardless.
+- **The ghost.** `_looking_at_yard()` was `fwd.x < −0.35`, which a camera pointed at the guillotine passes
+  (−0.39 to −0.64 from the arrival spots). The ghost's lane was then projected from that heading onto
+  x = −19.5 and clamped. With the camera on the guillotine it ran z ≈ 15 → 25, i.e. off to the north
+  behind the porch. Measured with a probe from the deck, the camera on the guillotine: **3 of 21** lane
+  points were visible. The rest were blocked by the guillotine itself (11–18), the porch's north screen
+  (`PorchRailBody`, 4), the 2.4 m fence (2) and a trunk. Looking west, the same code gave a visible lane
+  (16–19 of 21), so it was only wrong in the one situation the design had just created: the scrawl had
+  told the player to look at the guillotine.
+
+**Fix (`level_2.gd`):**
+- `_looking_at_guillotine()` needs all of these, held for `GUILLOTINE_LOOK_HOLD` 0.3 s:
+  - the frame's centre within `GUILLOTINE_LOOK_RANGE` 5 m;
+  - a 3-D camera dot of at least `GUILLOTINE_LOOK_DOT` 0.9;
+  - a layer-1 line-of-sight ray (the guillotine's own body counts as a hit).
+- The dwell fallback is deleted. The painting's arming, which the scrawl used to carry, moved to the
+  first deck frame, so nobody is stranded.
+- `_looking_at_yard()` is `fwd.x < YARD_LOOK_X` (−0.7).
+- The lane is fixed at x −19.5, z 12 ↔ 0, straight across the porch's open west side.
+
+Measured: the scrawl fires 0.31–0.32 s after a real look and never on a 3 s westward stand. The ghost's
+run is 100 % on screen and 100 % seen (three rays across the figure's width), with 0 frames hidden by the
+porch.
+
+**Why the tests missed it:** `check_house_porch.gd` asserted that the scrawl fired and that the ghost
+*spawned*. Both were true. It never asserted that the player had looked, or that the ghost could be
+seen. The test turned the camera to the yard itself before waiting for the ghost, so it ran the one
+heading where the projection happened to work. It now:
+- stands 3 s facing west and asserts no scrawl;
+- asserts no ghost while the camera is on the guillotine;
+- projects the ghost's world position with `unproject_position` / `is_position_behind` every frame of its
+  run, and ray-checks each frame for occlusion with three rays across the figure's width. It fails at
+  < 60 % seen, or at any frame hidden by the porch. (A single centre ray blamed the thin porch posts for
+  15 % of the run: measure the silhouette, not a point.)
+
+Proved: restoring the flat-dot/dwell rule, the −0.35 threshold, or the z 25 → 15 lane each turns it red.
+
+**General lesson:** "facing" is not "looking at". A flat dot with no range and no line of sight is true for
+anything roughly ahead, including things behind a wall or merely beside a doorway you walk out of. And a
+scare placed relative to the camera's heading must be checked from the heading the player will actually
+have at that moment, which is usually the one your own scripted beat just gave them. Assert what the
+player can SEE (a projection plus a ray), not that the object exists.
+
+---
+
+## Issue 277 — The House witch's only indoor glimpse was placed where it could not be seen: 12.9 m behind the player, past an 11 m torch, at ambient 0.0 (2026-09-24)
+
+**Symptom:** the second hand playtest of the House porch pass (J-capture #3): *"At least one time the
+baba yaga should be seen in the house. I heard it but did not see"*. Glimpse 2 fired (the log has the
+placement and the scream), and the player never saw her.
+
+**Cause:** the placement was correct by its own rules and wrong for this house. Glimpse 2 stood at
+the far end of the Hallway (z 4.2…6.6), **behind** the player (dot < 0.2), at least 5 m away. It was
+a `Watcher` with a 5 m vanish radius, waiting for the player to turn round. In the logged run she was
+**12.9 m** away. The House's torch is `set_torch_profile(11 m, 24°)` and its ambient is 0.0. A turn at
+the scream put her outside the beam. She was also a figure to be *found* by a player who had no
+reason to turn round slowly and search the dark. The (b) pass added the scream precisely so it would
+turn the player round, and it did turn them. There was nothing lit to find.
+
+**Fix (`level_2.gd`, 2026-09-24 d):** glimpse 2 is deleted, with its constants and its scream call.
+Two **sightings** take its place, using the Lab nook's and the cellar child's idiom without the
+nook's panic:
+- the scream leads, at her;
+- the player is pinned (`freeze_input()`, velocity zeroed by hand, Issue 49);
+- they are `turn_to_face()`d onto her chest over 0.45 s;
+- she holds 1.5 s, fades, and they are released;
+- a `Watcher` with `require_los`, placed on a ladder of spots 1.6–4 m away.
+
+A fires on closing the first note (she is in the Bedroom doorway, 2.37 m). B fires after 8 minutes
+of game time (she is behind the player, 3.0 m). Zero panic.
+
+**Why the tests missed it:** `check_house_porch.gd` asserted that she existed, stood in the Hallway
+behind the player, and screamed from within 2 m of where she stood. All three were true. None of
+them was *seen*. The replacement, `check_house_witch.gd`, asserts:
+- the camera's 3-D dot to her chest (≥ 0.9, measured 1.000);
+- the distance (≤ 4 m);
+- a physics ray from the camera to her;
+- that the player was pinned and released.
+
+A second hole was found by mutation on the way. The first "not outdoors" check stood on the deck
+with the window pane intact, so the pane's collider refused every spot behind the player by line of
+sight. Deleting the "player inside the house" gate went unnoticed. The check now breaks the window
+first, so the Living Room is in plain sight behind the player, and the same mutation goes red.
+
+**General lesson:** a figure placed "behind the player, for the sound to turn them round" must also
+land **inside what they can see once they have turned**. In this project's dark levels that is the
+torch's range and cone, not the room. If a beat must be seen, give the player the camera (the
+nook's `turn_to_face`) rather than hoping they aim it. And a negative check ("nothing fires here")
+has to be run where the positive case would otherwise succeed, or it passes for a reason unrelated
+to the gate it claims to test.
+
+---
+
+## Issue 278 — The Intake Wing's painted wainscot band floated to mid-wall, then to the ceiling: `RoomBuilder.make_material()`'s triplanar is OBJECT-local (2026-09-24)
+
+**Symptom:** the intro's new `asylum_wall.png` has a dark painted wainscot in the bottom 1.0 m of a
+3.6 m tile. In the first render of the wing the band sat at a different height on every wall — mid-
+wall in the 3.6 m ward, somewhere else in the 3.0 m rooms — and the window's sill and head boxes each
+started the pattern afresh, so the wall under the one-way glass wore a stripe that matched nothing
+beside it. With the first fix in, the band moved to the CEILING.
+
+**Cause:** two layers. (1) `StandardMaterial3D.uv1_triplanar` maps in the node's LOCAL space unless
+`uv1_world_triplanar` is set, and `make_material()` never sets it. Every RoomBuilder wall is a
+`CSGBox3D` centred at `h / 2`, so a texture's V origin is each box's centre, not the floor. For the
+grungy, structureless skins every other level uses this is invisible. A texture with a HORIZONTAL
+feature (a band, a baseboard, a dado) exposes it at once. (2) `make_material()` negates V (correct for
+object space — its own ⚠️ explains the upside-down wainscot it fixed), and in WORLD space that same
+negation turns the texture upside down again.
+
+**Fix (`intro_room.gd:_build_room()`):** the wing's wall material sets `uv1_world_triplanar = true`
+and a POSITIVE V scale of exactly 1 / 3.6, so world y = 0 is the texture's bottom edge in every box —
+walls, door infills, window sill and head alike. `room_builder.gd` is untouched (shared; every other
+level's skins are structureless and correct as they are).
+
+**Why tests missed it:** nothing measures where a texture lands. `check_wall_overlap` sees geometry,
+`check_art_aspect` sees quad aspect, and a triplanar wall has no quad. It was caught by looking at the
+screenshot tour, twice.
+
+**General lesson:** a tiled wall texture with vertical STRUCTURE needs world-space mapping, and then
+the V sign has to be re-checked by eye. "Triplanar" alone means "per object".
+
+---
+
+## Issue 279 — An open door sealed half a room: the cell door's leaf and the foot of the bed walled off the sink (2026-09-24)
+
+**Symptom:** `check_reachable.gd` on the new intro reported `Tap … UNREACHABLE, nearest cell 1.50 m`,
+and the straps and wristband as INERT rather than reachable.
+
+**Cause:** two faults, one hiding the other. (1) The cell door (`WingDoor`) swung INTO the cell and
+its leaf lay along z = 21.45. The foot of the bed starts at z = 21.55. For a 0.8 m capsule the gap
+between them is nothing, so the cell's south strip — the sink, the tap and the mirror — was a pocket
+you could see and not enter. The door had been hinged to keep its leaf out of the stand-up spot.
+Nobody measured the other side of it. (2) The one-way glass was two QUADS in a wall opening. Quads
+have no collision, so the opening was air. The fill's interact rays reached the straps and the
+wristband from the HALL, through the glass. That is why they read as INERT instead of unreachable.
+In the game it would have let a player take the wristband from the other room.
+
+**Fix:** the cell door opens OUT, into the corridor, where its leaf lies along the wall with 1.1 m of
+corridor beside it. The glass has a solid `_Pane` collider (`_build_windows()`).
+`check_intro_glimpse.gd` asserts the eye-line hits the pane first.
+
+**Why tests missed it:** they didn't — `check_reachable` caught it on its first run, which is what it
+exists for. Recorded because both halves are general.
+
+**General lesson:** an OPEN door is geometry. Its leaf is a wall 1 m long placed wherever the swing
+leaves it, and the room must still be walkable around it. A window made of quads is a hole until
+something solid is put in it.
+
+## Issue 280 — The House map's glass stayed broken across a reopen while being drawn sealed (2026-09-24)
+
+**Symptom:** in the Bathroom map, if you break the glass room with the hammer, close the map with
+ESC and open it again, the key's room is drawn with sealed panes and the hammer is back on the
+board. But the panes do not block, and standing on the key wins with no hammer. It looked shut and
+was open. Found by reading the code during the curated-mazes pass; nobody had reported it.
+
+**Cause:** `_reset_positions()` re-arms the fragments on every reopen, by the standing rule that ESC
+must not become a checkpoint. It never reset `_glass_broken`. `_rebuild_glass_visuals()` redraws
+the panes unconditionally, while `_check_glass()`, the pane collision and `_is_won()` all read
+`_glass_broken`, so the picture and the rule disagreed.
+
+**Fix:** `_reset_positions()` sets `_glass_broken = false` next to re-arming the fragments. A close
+banks nothing: the hammer and the glass come back together.
+
+**Why tests missed it:** `check_maze_traps.gd` drove the hammer → glass → key run once, straight
+through, and never closed the map in between. It now breaks the glass, closes, reopens and asserts
+that the glass is sealed, the hammer is re-armed, the drawn panes are the blocking panes, and
+standing on the key does not win. With the fix removed, two checks go red.
+
+**General lesson:** when a reset re-arms one half of a lock (the key), grep for every flag the
+other half reads (the door). A "reset" that restores some of a puzzle's state is a new state the
+puzzle was never designed for.

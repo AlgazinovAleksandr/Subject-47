@@ -8,10 +8,12 @@ class_name BoltCutters
 #
 # ⭐ 2026-09-24 (the Porch pass): they are NO LONGER UNDER THE BEDROOM BED. The user: *"the cutter
 # is located just under the bed, which doesn't make a lot of sense for me because it's like too
-# simple"*. They are inside the watermelon behind the falling painting now, and they fall into the
-# guillotine's basket when the blade cuts it (`house_guillotine.gd` builds them there, at
-# `size_scale` 0.55 — 0.31 m, shorter than the 0.34 m fruit they came out of). The level's old
-# torch-aimed-at-the-floor visibility rule (`_tick_cutters`, `CUTTERS_PITCH_DEG`) is deleted.
+# simple"*. They are inside the watermelon behind the falling painting now, and they fall onto the
+# porch's deck boards in front of the guillotine when the blade cuts it (`house_guillotine.gd`
+# builds them there, at `size_scale` 0.55 — 0.31 m, shorter than the 0.34 m fruit they came out
+# of; there was a wicker basket until 2026-09-24 c, removed on the user's playtest note). The
+# level's old torch-aimed-at-the-floor visibility rule (`_tick_cutters`, `CUTTERS_PITCH_DEG`) is
+# deleted.
 
 signal picked_up
 

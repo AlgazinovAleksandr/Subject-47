@@ -16,6 +16,12 @@ extends SceneTree
 # ⚠️ Assertions are PHYSICS QUERIES wherever a physics query can answer, per the project's
 # verification rules — a node's transform said the door was fine for the life of the bug.
 #
+# ⭐ 2026-09-24 (the Intake Wing): the room is built by RoomBuilder now, so there is no node called
+# `WallBack` or `WallLeft` to look up — every wall face here is found with a RAY, which is what
+# the rule above asked for anyway. The advancing `ExitDoor` is in the AIRLOCK in the opening build
+# and on the ward's back wall in the ending; both are measured. That the ending's ward is SEALED
+# (both wing doorways solid, no wing built) is check_intro_ending.gd's.
+#
 #   Godot --headless --path game --script res://tests/check_intro_geometry.gd
 
 const SETTLE := 2.6       # geometry is built in _ready(); the switch waits on the 1.8 s tween
@@ -47,6 +53,7 @@ func _process(delta: float) -> bool:
 		_scene = current_scene
 		_gs = get_root().get_node_or_null("/root/GameState")
 		print("--- the opening room ---")
+		_check_exit_in_airlock()
 		_check_door()
 		_check_casing()
 		_check_switch()
@@ -76,13 +83,18 @@ func _process(delta: float) -> bool:
 
 # ---------------------------------------------------------------- helpers
 
+# The face of the wall the exit door is set into, found with a ray fired at the wall BESIDE the
+# door (clear of the leaf and of the collider-less casing). Derived from the built world, never
+# from the script's constants — a test that reads the same constant the code does proves only
+# that arithmetic is deterministic.
 func _wall_face_z() -> float:
-	# Derived from the built node, never from the script's constants — a test that reads the
-	# same constant the code does proves only that arithmetic is deterministic.
-	var wall := _scene.get_node_or_null("WallBack") as CSGBox3D
-	if not wall:
+	var door := _scene.get_node_or_null("ExitDoor") as Node3D
+	var at := door.global_position if door else Vector3(0, 1.1, -8.8)
+	var x := at.x + 0.95
+	var r := _ray(Vector3(x, 1.1, at.z + 1.5), Vector3(x, 1.1, at.z - 1.0))
+	if r.is_empty() or not (r["collider"] is CSGShape3D):
 		return NAN
-	return wall.global_position.z + wall.size.z / 2.0
+	return float(r["position"].z)
 
 
 func _box_span_z(mi: MeshInstance3D) -> Vector2:
@@ -106,7 +118,7 @@ func _ray(from: Vector3, to: Vector3) -> Dictionary:
 func _check_door() -> void:
 	var wall_z := _wall_face_z()
 	var door := _scene.get_node_or_null("ExitDoor") as Node3D
-	_ok("WallBack found", not is_nan(wall_z), "inner face z = %.4f" % wall_z)
+	_ok("the wall behind the exit door found by ray", not is_nan(wall_z), "inner face z = %.4f" % wall_z)
 	_ok("ExitDoor found", door != null)
 	if not door or is_nan(wall_z):
 		return
@@ -117,7 +129,7 @@ func _check_door() -> void:
 		return
 	var span := _box_span_z(slab)
 	var bite := wall_z - span.x            # >0 means the back face is inside the wall
-	_ok("the door leaf is SET INTO WallBack, not floating in front of it",
+	_ok("the door leaf is SET INTO its wall, not floating in front of it",
 		bite >= MIN_BITE and bite <= MAX_BITE,
 		"back face %.4f, wall face %.4f, bite %+.4f m (was -0.2750 = a 27.5 cm gap)"
 			% [span.x, wall_z, bite])
@@ -129,8 +141,11 @@ func _check_door() -> void:
 	var probe_z: float = (wall_z + span.y) / 2.0
 	var hits := 0
 	var heights := [0.30, 1.10, 2.00]
+	var dx: float = door.global_position.x
 	for y in heights:
-		var r := _ray(Vector3(-4.0, y, probe_z), Vector3(4.0, y, probe_z))
+		# From just inside the room's side of the casing (the casing has no collider), not from
+		# far outside: the airlock is only 3 m wide.
+		var r := _ray(Vector3(dx - 0.9, y, probe_z), Vector3(dx + 0.9, y, probe_z))
 		var who: String = str(r.get("collider").name) if r else "NOTHING"
 		if r and r.get("collider") == door:
 			hits += 1
@@ -169,37 +184,52 @@ func _check_casing() -> void:
 	# BEHIND it, which can only happen if the jamb is not solid.
 	for jamb in [jamb_l, jamb_r]:
 		var x: float = (jamb as Node3D).global_position.x
-		var r := _ray(Vector3(x, 1.10, -6.0), Vector3(x, 1.10, wall_z - 0.10))
+		var r := _ray(Vector3(x, 1.10, wall_z + 1.8), Vector3(x, 1.10, wall_z - 0.10))
 		var who: String = str(r.get("collider").name) if r else "NOTHING"
 		_ok("%s is visual only — nothing solid was added to the doorway wall" % jamb.name,
-			who == "WallBack", "ray at x=%.2f hit %s" % [x, who])
+			not r.is_empty() and r["collider"] is CSGShape3D
+				and absf(float(r["position"].z) - wall_z) < 0.01,
+			"ray at x=%.2f hit %s" % [x, who])
 
 
 func _check_switch() -> void:
-	var wall := _scene.get_node_or_null("WallLeft") as CSGBox3D
 	var sw := _scene.get_node_or_null("LightSwitch") as Node3D
-	_ok("WallLeft found", wall != null)
-	# The switch is spawned by _on_wakeup_finished(), i.e. after the 1.8 s tween. At SETTLE
-	# it does not exist yet — assert the mounting from its CONSTANT instead of skipping,
-	# because "not there yet" must not read as a pass.
-	if not wall:
+	var script_pos: Vector3 = _scene.get_script().get("SWITCH_POS")
+	# The ward's west wall, by a ray fired at it ABOVE the switch plate.
+	var r := _ray(Vector3(script_pos.x + 1.5, 2.1, script_pos.z), Vector3(script_pos.x - 0.5, 2.1, script_pos.z))
+	_ok("the ward's west wall found by ray", not r.is_empty() and r["collider"] is CSGShape3D)
+	# The switch is built at _ready() since the Intake Wing; if it were ever deferred again,
+	# assert the mounting from its CONSTANT instead of skipping — "not there yet" must not read
+	# as a pass.
+	if r.is_empty():
 		return
-	var face_x: float = wall.global_position.x + wall.size.x / 2.0
+	var face_x: float = float(r["position"].x)
 	if sw:
 		var backing := sw.get_child(0) as MeshInstance3D
 		var bm: BoxMesh = backing.mesh
 		var back_x: float = sw.global_position.x - bm.size.z / 2.0
 		var bite := back_x - face_x
-		_ok("the switch plate is mounted ON WallLeft",
+		_ok("the switch plate is mounted ON the ward's west wall",
 			bite <= -MIN_BITE and bite >= -MAX_BITE,
 			"plate back %.4f, wall face %.4f, bite %+.4f m (was +0.0600 = a 6 cm gap)"
 				% [back_x, face_x, -bite])
 	else:
-		var script_pos: Vector3 = _scene.get_script().get("SWITCH_POS")
 		var back_x2: float = script_pos.x - 0.02
-		_ok("the switch plate is mounted ON WallLeft (from SWITCH_POS — not spawned yet)",
+		_ok("the switch plate is mounted ON the west wall (from SWITCH_POS — not spawned yet)",
 			back_x2 < face_x and face_x - back_x2 <= MAX_BITE,
 			"plate back %.4f, wall face %.4f" % [back_x2, face_x])
+
+
+func _check_exit_in_airlock() -> void:
+	var door := _scene.get_node_or_null("ExitDoor") as Node3D
+	_ok("the advancing ExitDoor exists", door != null)
+	if door == null:
+		return
+	var p := door.global_position
+	# Airlock: centre (-5.5, -18.5), 3 x 3 (intro_room.gd ROOMS).
+	_ok("…and it stands in the AIRLOCK, not the ward", p.x > -7.0 and p.x < -4.0 and p.z > -20.0 and p.z < -17.0,
+		"at %v" % p)
+	_ok("…and it still advances the level", bool(door.get("advances_level")))
 
 
 func _check_planks() -> void:

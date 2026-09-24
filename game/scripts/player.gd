@@ -91,6 +91,7 @@ var _standstill_timer: float = 0.0
 var _standstill_suspended: bool = false  # Sprawl only — its tell requires standing still
 var _smiler_active: bool = false        # suspends standstill + dark ticks (Smiler runs its own dread)
 var _no_decay: bool = false             # THE NIGHTMARE's silence: panic holds, never climbs
+var _panic_ceiling: float = 1.0          # Intro only (2026-09-24): ratio of PANIC_MAX panic may reach; 1.0 = off
 var _flashlight_dead: bool = false      # force-killed: F only clicks, never re-enables
 var _flashlight_locked: bool = false    # reversible; distinct from _flashlight_dead (Intro Room)
 var _flash_was_on: bool = false         # remembered across force_flashlight_off()
@@ -608,12 +609,34 @@ func _update_panic(delta: float, target: Node) -> void:
 	else:
 		_standstill_timer = 0.0
 
+	_apply_panic_ceiling()
 	if _panic >= PANIC_MAX:
 		_panic = 0.0
 		Screamer.trigger()
 
 	if _panic_hud:
 		_panic_hud.set_panic_ratio(_panic / PANIC_MAX)
+
+
+# ⭐ The Intake Wing's panic CEILING (2026-09-24, spec/levels/00-intro.md). The intro teaches panic
+# by letting the bar really move — the projector, the sprint line, the forbidden tray — and stays
+# UNLOSEABLE by construction because nothing can carry `_panic` to PANIC_MAX while this is < 1.0.
+# It also closes the intro's old hole: sprint +6/s with decay suppressed and no level-0 exemption,
+# so ~8.3 s of Shift fired the screamer in the one room with no fail state. Default 1.0 = off, and
+# the Player is re-instanced per scene, so no other level can inherit it.
+# ⚠️ Panic only. A 3 s trigger-object stare and direct `Screamer.trigger()` calls are not panic.
+func set_panic_ceiling(ratio: float) -> void:
+	_panic_ceiling = clampf(ratio, 0.0, 1.0)
+	_apply_panic_ceiling()
+
+
+func get_panic_ceiling() -> float:
+	return _panic_ceiling
+
+
+func _apply_panic_ceiling() -> void:
+	if _panic_ceiling < 1.0:
+		_panic = minf(_panic, PANIC_MAX * _panic_ceiling)
 
 
 func get_panic_ratio() -> float:
@@ -626,6 +649,7 @@ func get_panic_hud() -> Node:
 
 func add_panic(amount: float) -> void:
 	_panic += amount
+	_apply_panic_ceiling()
 	if _panic >= PANIC_MAX:
 		_panic = 0.0
 		Screamer.trigger()
@@ -643,6 +667,7 @@ func relieve_panic(amount: float) -> void:
 
 func set_panic_ratio(ratio: float) -> void:
 	_panic = clampf(ratio, 0.0, 1.0) * PANIC_MAX
+	_apply_panic_ceiling()
 
 
 func apply_slow(duration: float) -> void:

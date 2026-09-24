@@ -468,7 +468,7 @@ class NotePaper extends StaticBody3D:
 		_taken = true
 		# Archived like any other safe note, so TAB can return it three levels later at the
 		# Flood's seam wall — which is the entire reason the journal exists.
-		GameState.record_note(text, 1)
+		GameState.record_note(text, GameState.current_level)
 		NoteUI.show_note(text)
 		if drawer:
 			drawer.call("_on_note_taken")

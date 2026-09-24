@@ -20,12 +20,26 @@ extends SceneTree
 #   * the wheelchair turns from the line the player actually walks, with margin
 #   * the breathing is gone once the lights are on
 #
+# ⭐ 2026-09-24, THE INTAKE WING. The ward is now the fourth room of six, and this test walks the
+# three before it first, driving the level's own beats (the straps' interact(), the torch KeyItem,
+# the ward door's interact()) rather than faking their state:
+#   * the cell: you wake on the CELL bed; no covered body there; three straps, in order only;
+#     the cell door is locked until the third, then buzzes open; the torch is locked
+#   * the hall: the torch is ISSUED there, and taking it unlocks the ward door
+#   * the ward door's opening blacks the wing out BEFORE the old beats begin: every bulb dead,
+#     the ambient at zero, the torch taken back, the breathing and the path glow spawned
+# ⚠️ The unloseable rule changed with it (the user's call, 2026-09-24): the intro has a panic
+# CEILING of 0.6 (check_intro_panic_ceiling.gd) because calibration will teach panic. What this
+# file asserts is that the bar stays at EXACTLY ZERO through the cell, the hall and the ward — none
+# of those three may move it — and never passes the ceiling.
+#
 # ⚠️ TIME-based, not frame-based. Headless runs uncapped so a frame count is not a clock;
 # check_audio_buses.gd reported a false failure that way before it was fixed.
 #
 #   Godot --headless --path game --script res://tests/check_intro_beats.gd
 
-const WAKE_WAIT := 3.0        # WAKEUP_TWEEN_TIME is 1.8 s, then the switch is spawned
+const WAKE_WAIT := 0.5        # the cell is built in _ready(); sample it before the tween ends
+const STRAP_WAIT := 9.0       # 1.8 s wake + 1.2 s pause + the ~4.8 s VO1 line, then the straps
 const GLIMPSE_SAMPLE := 0.22  # inside the stuck press's 0.06 up + 0.4 hold
 const REVEAL_WAIT := 1.4      # _flicker_on is 0.6 s; the breath fade is 0.5 s
 
@@ -40,6 +54,12 @@ var _switch: Node = null
 var _peak_panic := 0.0
 var _wc: Node3D = null
 var _wc_yaw := 0.0
+var _wstage := 0              # the wing's own sub-stages, before the old ward stages
+var _cstage := 0              # calibration + airlock sub-stages, after the old ward stages
+var _in_calib := false        # _peak_panic stops at the calibration door; _peak_all never does
+var _peak_all := 0.0
+var _screamed := false
+var _vo3_checked := false
 
 
 func _initialize() -> void:
@@ -77,22 +97,141 @@ func _advance(next: int) -> void:
 	_stage_at = _t
 
 
+func _consts() -> Dictionary:
+	return _scene.get_script().get_script_constant_map()
+
+
+# The wing, stage by stage. Returns true once it is done and the old ward stages may run.
+func _wing(delta: float) -> bool:
+	match _wstage:
+		0:
+			_scene = current_scene
+			if _t < WAKE_WAIT:
+				return false
+			_player = _scene.get_node_or_null("Player") as CharacterBody3D
+			_ok("player found", _player != null)
+			if _player == null:
+				quit(1)
+				return false
+			var c := _consts()
+			var cell_bed: Vector3 = c["CELL_GURNEY_POS"]
+			var p := _player.global_position
+			_ok("you wake on the CELL bed", Vector2(p.x, p.z).distance_to(Vector2(cell_bed.x, cell_bed.z)) < 0.8,
+				"at %v" % p)
+			var nearest := 999.0
+			for sh in _sheets():
+				var sp: Vector3 = (sh as Node3D).position
+				nearest = minf(nearest, Vector2(sp.x, sp.z).distance_to(Vector2(cell_bed.x, cell_bed.z)))
+			_ok("no covered body on the bed you wake on", nearest > 2.0, "nearest %.2f m" % nearest)
+			_ok("and nobody else in it yet (the occupant is the hall's beat)",
+				_scene.get_node_or_null("CellOccupant") == null)
+			_ok("the breathing waits for the ward (it spawns on the blackout)",
+				_scene.get_node_or_null("FarBreath") == null)
+			_ok("the cell has three straps", _scene.get_node_or_null("Strap_2") != null
+				and _scene.get_node_or_null("Strap_3") == null)
+			var door: Node = _scene.get_node_or_null("CellDoor")
+			_ok("the cell door exists and is LOCKED", door != null and door.get("locked") == true)
+			_ok("the torch is locked in the cell", _player.get("_flashlight_locked") == true)
+			_ok("the player is frozen — strapped down", _player.is_input_frozen())
+			_wstage = 1
+		1:
+			if _t < STRAP_WAIT:
+				return false
+			_ok("the level has turned to the straps by now", _scene.get("_strap_phase") == true)
+			var s1: Node = _scene.get_node("Strap_1")
+			var s2: Node = _scene.get_node("Strap_2")
+			_ok("straps come off IN ORDER — the second refuses before the first", s1.call("can_interact") == false)
+			s2.call("interact")
+			_ok("…and pressing it anyway does nothing", int(s2.get("times_used")) == 0)
+			_scene.get_node("Strap_0").call("interact")
+			_stage_at = _t
+			_wstage = 2
+		2:
+			if _t - _stage_at < 0.8:
+				return false
+			_ok("the first strap is off", _scene.get_node("Strap_0").call("can_interact") == false
+				and int(_scene.get_node("Strap_0").get("times_used")) == 1)
+			_scene.get_node("Strap_1").call("interact")
+			_stage_at = _t
+			_wstage = 3
+		3:
+			if _t - _stage_at < 0.8:
+				return false
+			var door: Node = _scene.get_node("CellDoor")
+			_ok("two straps off and the cell door is STILL locked", door.get("locked") == true)
+			_scene.get_node("Strap_2").call("interact")
+			_stage_at = _t
+			_wstage = 4
+		4:
+			# 1.3 s stand-up, then the 1.15 s buzz, then the leaf swings.
+			if _t - _stage_at < 3.2:
+				return false
+			var door: Node = _scene.get_node("CellDoor")
+			_ok("the third strap buzzes the cell door open", door.call("is_open") == true)
+			_ok("and the player is on their feet and free", not _player.is_input_frozen()
+				and _player.global_position.y < 0.3, "y %.2f" % _player.global_position.y)
+			_ok("the ward door is locked until the torch is taken",
+				_scene.get_node("WardEntryDoor").get("locked") == true)
+			# The hall. (Its glimpse is check_intro_glimpse.gd's.)
+			_player.global_position = Vector3(-7.0, 0.05, 16.5)
+			_stage_at = _t
+			_wstage = 5
+		5:
+			if _t - _stage_at < 0.4:
+				return false
+			var torch: Node = _scene.get_node_or_null("IssuedTorch")
+			_ok("the torch is on its tray in the hall", torch != null)
+			if torch:
+				torch.call("interact")
+			_ok("taking it unlocks the torch", _player.get("_flashlight_locked") == false)
+			_ok("…and the ward door", _scene.get_node("WardEntryDoor").get("locked") == false)
+			var lit := 0
+			for b in _scene.get("_bulbs"):
+				if (b[0] as Light3D).light_energy > 0.05:
+					lit += 1
+			_ok("the wing's bulbs are burning before the ward door opens", lit >= 7, "%d lit" % lit)
+			_player.global_position = Vector3(-3.0, 0.05, 10.3)
+			_scene.get_node("WardEntryDoor").call("interact")
+			_stage_at = _t
+			_wstage = 6
+		6:
+			if _t - _stage_at < 0.3:
+				return false
+			var lit := 0
+			for b in _scene.get("_bulbs"):
+				if (b[0] as Light3D).light_energy > 0.001:
+					lit += 1
+			_ok("opening the ward door kills EVERY light in the wing", lit == 0, "%d still lit" % lit)
+			var env: Environment = _scene.get("_env")
+			_ok("…and the ambient", env != null and env.ambient_light_energy < 0.001)
+			_ok("…and takes the torch back", _player.get("_flashlight_locked") == true)
+			_ok("the breathing starts in the dark ward", _scene.get_node_or_null("FarBreath") != null)
+			var glows: int = (_scene.get("_path_glow_lights") as Array).size()
+			_ok("the path glow leads from the ward entry", glows > 0, "%d lights" % glows)
+			_ok("still ZERO panic after the cell, the hall and the blackout", is_zero_approx(_peak_panic),
+				"peak %.4f" % _peak_panic)
+			_switch = _scene.get_node_or_null("LightSwitch")
+			_ok("the ward's light switch exists", _switch != null)
+			if _switch == null:
+				quit(1)
+				return false
+			return true
+	return false
+
+
 func _process(delta: float) -> bool:
 	_t += delta
 	if _player:
-		_peak_panic = maxf(_peak_panic, _player.get_panic_ratio())
+		if not _in_calib:
+			_peak_panic = maxf(_peak_panic, _player.get_panic_ratio())
+		_peak_all = maxf(_peak_all, _player.get_panic_ratio())
+		var scr := root.get_node_or_null("Screamer")
+		if scr and scr.get("_is_triggering") == true:
+			_screamed = true
 
 	if _stage == 0:
-		_scene = current_scene
-		if _t < WAKE_WAIT:
+		if not _wing(delta):
 			return false
-		_player = _scene.get_node_or_null("Player") as CharacterBody3D
-		_switch = _scene.get_node_or_null("LightSwitch")
-		_ok("player found", _player != null)
-		_ok("light switch spawned after the wake-up", _switch != null)
-		if not (_player and _switch):
-			quit(1)
-			return true
 
 		# --- the occupied ward -------------------------------------------------------
 		var sheets := _sheets()
@@ -100,12 +239,12 @@ func _process(delta: float) -> bool:
 		# ⚠️ The player spawns lying on GURNEY_POS. A solid form on THAT bed would push
 		# them out of the world, which is the class of bug check_spawn_blocked.gd exists
 		# for — so assert the sheets keep well clear of it.
-		var spawn_xz := Vector2(0.0, 7.0)   # intro_room.gd GURNEY_POS
+		var spawn_xz := Vector2(0.0, 7.0)   # intro_room.gd GURNEY_POS — the ward's EMPTY bed now
 		var nearest := 999.0
 		for s in sheets:
 			var p: Vector3 = (s as Node3D).position
 			nearest = minf(nearest, Vector2(p.x, p.z).distance_to(spawn_xz))
-		_ok("no sheeted form on the player's own gurney", nearest > 2.0,
+		_ok("no sheeted form on the ward's empty gurney", nearest > 2.0,
 			"nearest is %.2f m away" % nearest)
 
 		_ok("the breathing at the far wall is playing",
@@ -304,20 +443,224 @@ func _process(delta: float) -> bool:
 			"turned %.1f degrees" % rad_to_deg(_wc.rotation.y - _wc_yaw))
 		_ok("…and the whole wheelchair beat still cost ZERO panic",
 			is_zero_approx(_peak_panic), "peak %.4f" % _peak_panic)
-		_finish()
-		return true
+		_advance(8)
 
-	if _t > 25.0:
+	elif _stage == 8:
+		if _calibration(delta):
+			_finish()
+			return true
+
+	if _t > 150.0:
 		print("RESULT: FAIL — timed out at stage %d" % _stage)
 		quit(1)
 		return true
 	return false
 
 
+func _captions() -> Array:
+	return _scene.get("_captions") as Array
+
+
+func _has_caption(text: String) -> bool:
+	return _captions().has(text)
+
+
+# ⭐ CALIBRATION + THE AIRLOCK (phase 5). Gaze through the REAL camera (ai_look_at; the player's
+# own _handle_gaze raycast and _update_panic do the rest), the sprint on the SHIPPING movement path
+# (ai_move_dir + ai_sprint), the tray and every door through the real interact ray.
+func _look(at: Vector3) -> void:
+	# ⚠️ The wheelchair stages above aim the CAMERA itself (cam.look_at), which leaves a yaw on the
+	# camera node that ai_look_at (body yaw + camera pitch) never clears — the gaze ray then points
+	# somewhere else entirely. Zero it first.
+	var cam := _player.get_node("Camera3D") as Camera3D
+	cam.rotation = Vector3(cam.rotation.x, 0.0, 0.0)
+	_player.ai_look_at(at)
+	_player.set("_pitch", (_player.get_node("Camera3D") as Camera3D).rotation.x)
+
+
+func _calibration(delta: float) -> bool:
+	var el := _t - _stage_at
+	match _cstage:
+		0:
+			var note: Node = _scene.get_node("Note")
+			note.call("interact")
+			root.get_node("NoteUI").call("_close")
+			var ward: Node = _scene.get_node("WardDoor")
+			_ok("lit + the note read unlocks the ward's far door", ward.get("locked") == false)
+			var exit: Node = _scene.get_node("ExitDoor")
+			_ok("…but the airlock exit waits for calibration", exit.call("_is_unlocked") == false,
+				"'%s'" % exit.get("locked_message"))
+			_ok("…and so does the airlock door", _scene.get_node("AirlockDoor").get("locked") == true)
+			_player.global_position = Vector3(0.6, 0.05, -7.6)
+			_player.velocity = Vector3.ZERO
+			_look(Vector3(0, 1.3, -9.0))
+			_cstage = 1
+			_stage_at = _t
+		1:
+			if el < 0.2:
+				return false
+			var ward: Node3D = _scene.get_node("WardDoor")
+			var tgt: Node = _player.ai_interact_target()
+			_ok("the ward door answers the real interact ray", tgt != null and ward.is_ancestor_of(tgt),
+				"target %s" % (str(tgt.get_path()) if tgt else "nothing"))
+			_player.ai_interact()
+			_cstage = 2
+			_stage_at = _t
+		2:
+			if el < 1.4:
+				return false
+			_ok("the ward door opened", _scene.get_node("WardDoor").call("is_open") == true)
+			_ok("ZERO panic through the cell, the hall and the ward — up to the calibration door",
+				is_zero_approx(_peak_panic), "peak %.4f" % _peak_panic)
+			_in_calib = true
+			_player.global_position = Vector3(0, 0.05, -10.4)
+			_cstage = 3
+			_stage_at = _t
+		3:
+			# VO3 (~3.5 s) and then the projector.
+			if el < 0.5:
+				return false
+			if not _vo3_checked:
+				_vo3_checked = true
+				_ok("entering calibration: VO3", _has_caption("Look at the screen, forty-seven."))
+			if el < 4.6:
+				return false
+			var scary: Node = _scene.get_node("ProjectorScary")
+			_ok("the projector is running — the screen is a gaze source",
+				float(scary.get("scare_intensity")) > 0.0, "intensity %.2f" % float(scary.get("scare_intensity")))
+			_ok("…and the mark is called", _has_caption("STAND ON THE MARK."))
+			var mark: Vector3 = _scene.get_script().get_script_constant_map()["MARK_POS"]
+			_player.global_position = mark + Vector3(0, 0.05, 0)
+			_player.velocity = Vector3.ZERO
+			_cstage = 4
+			_stage_at = _t
+		4:
+			var screen: Vector3 = _scene.get_script().get_script_constant_map()["SCREEN_POS"]
+			_look(screen)
+			if _has_caption("LOOK AWAY."):
+				_ok("watching the slides fills the bar to LOOK AWAY.",
+					_player.get_panic_ratio() >= 0.34, "panic %.3f after %.1f s" % [_player.get_panic_ratio(), el])
+				var cam := _player.get_node("Camera3D") as Camera3D
+				var q := PhysicsRayQueryParameters3D.create(cam.global_position,
+					cam.global_position - cam.global_basis.z * 3.0)
+				q.exclude = [_player.get_rid()]
+				var h := _player.get_world_3d().direct_space_state.intersect_ray(q)
+				_ok("…through a gaze ray that really lands on the screen's ScaryObject body",
+					not h.is_empty() and String(h["collider"].name) == "ProjectorScreen"
+						and h["collider"].get_parent() == _scene.get_node("ProjectorScary"),
+					"hit %s" % (str(h["collider"].name) if not h.is_empty() else "nothing"))
+				_look(screen + Vector3(0, 0, 12.0))      # turn round, away from the screen
+				_cstage = 5
+				_stage_at = _t
+			elif el > 40.0:
+				_ok("watching the slides fills the bar to LOOK AWAY.", false,
+					"panic %.3f after 40 s" % _player.get_panic_ratio())
+				return true
+		5:
+			if not _has_caption("GOOD."):
+				if el > 4.0:
+					_ok("looking away for 1.5 s completes the lesson", false)
+					return true
+				return false
+			_ok("looking away for 1.5 s completes the lesson (GOOD.)", el >= 1.4, "after %.2f s" % el)
+			_ok("…and the projector stops", float(_scene.get_node("ProjectorScary").get("scare_intensity")) == 0.0)
+			_cstage = 6
+			_stage_at = _t
+		6:
+			if not _has_caption("WALK TO THE LINE."):
+				if el > 5.0:
+					_ok("then: WALK TO THE LINE.", false)
+					return true
+				return false
+			_ok("then: WALK TO THE LINE.", true)
+			# Sprint to it — the tutorial's temptation — on the shipping movement path.
+			_player.rotation.y = PI            # face +z, toward the line by the ward door
+			_player.ai_active = true
+			_player.ai_sprint = true
+			_player.ai_move_dir = Vector2(0, -1)
+			_cstage = 7
+			_stage_at = _t
+		7:
+			if _has_caption("HEART RATE 131. NOTED.") or _has_caption("NOTED."):
+				_player.ai_sprint = false
+				_player.ai_move_dir = Vector2.ZERO
+				_ok("sprinting to the line is NOTED as a heart rate", _has_caption("HEART RATE 131. NOTED."))
+				_cstage = 8
+				_stage_at = _t
+			elif el > 8.0:
+				_ok("the player reached the line", false, "z %.2f" % _player.global_position.z)
+				return true
+		8:
+			if el < 0.5:
+				return false
+			# The forbidden tray, through the real ray.
+			var tray: Node3D = _scene.get_node("ForbiddenTray")
+			_player.global_position = tray.global_position + Vector3(-1.0, -0.85, 0.3)
+			_player.velocity = Vector3.ZERO
+			_look(tray.global_position)
+			_cstage = 9
+			_stage_at = _t
+		9:
+			if el < 0.2:
+				return false
+			var tray: Node = _scene.get_node("ForbiddenTray")
+			_ok("the DO NOT TOUCH tray answers the real interact ray", _player.ai_interact_target() == tray)
+			_player.ai_interact()
+			_ok("touching it spikes panic — pinned at the 0.6 ceiling",
+				is_equal_approx(_player.get_panic_ratio(), 0.6), "panic %.3f" % _player.get_panic_ratio())
+			_ok("…and is rebuked", _has_caption("WE SAID NOT TO TOUCH IT. NOTED."))
+			_cstage = 10
+			_stage_at = _t
+		10:
+			if _scene.get_node("AirlockDoor").get("locked") == false:
+				_ok("VO4, and the airlock door unlocks", _has_caption("Much better than last time."))
+				var ad: Node3D = _scene.get_node("AirlockDoor")
+				_player.global_position = Vector3(-2.8, 0.05, -18.5)
+				_player.velocity = Vector3.ZERO
+				_look(ad.global_position + Vector3(0, 1.3, 0))
+				_cstage = 11
+				_stage_at = _t
+			elif el > 9.0:
+				_ok("VO4, and the airlock door unlocks", false)
+				return true
+		11:
+			if el < 0.2:
+				return false
+			var ad: Node3D = _scene.get_node("AirlockDoor")
+			var tgt: Node = _player.ai_interact_target()
+			_ok("the airlock door answers the real interact ray", tgt != null and ad.is_ancestor_of(tgt))
+			_player.ai_interact()
+			_cstage = 12
+			_stage_at = _t
+		12:
+			if el < 1.4:
+				return false
+			_player.global_position = Vector3(-5.6, 0.05, -18.4)
+			_player.velocity = Vector3.ZERO
+			_cstage = 13
+			_stage_at = _t
+		13:
+			var exit: Node = _scene.get_node("ExitDoor")
+			if exit.call("_is_unlocked") == true:
+				_ok("the airlock: buzzer, VO5, and the exit unlocks", _has_caption("You may proceed."))
+				_ok("the whole calibration peaked AT the ceiling and never past it",
+					_peak_all <= 0.6001 and _peak_all >= 0.55, "peak %.4f" % _peak_all)
+				_ok("…and no screamer fired, anywhere in the intro", not _screamed)
+				return true
+			elif el > 9.0:
+				_ok("the airlock: buzzer, VO5, and the exit unlocks", false)
+				return true
+	return false
+
+
 func _finish() -> void:
-	# The whole point of the room.
-	_ok("panic NEVER rose — the intro is still unloseable",
+	# The whole point of the room. ⭐ 2026-09-24: ZERO through cell, hall and ward; calibration —
+	# the only room allowed to move the bar — peaks at the ceiling and no further (asserted above).
+	_ok("panic stayed at ZERO through the cell, the hall and the ward",
 		is_zero_approx(_peak_panic), "peak %.4f of PANIC_MAX" % _peak_panic)
+	_ok("…and the intro's panic ceiling is set (unloseable by construction)",
+		is_equal_approx(float(_player.call("get_panic_ceiling")), 0.6),
+		"ceiling %.2f" % float(_player.call("get_panic_ceiling")))
 
 	print("")
 	print("%d checks, %d failed" % [_checks, _fails.size()])

@@ -4,6 +4,101 @@
 
 ## SPEC
 
+### 🔨 PLANNED — THE INTAKE WING (2026-09-24, grill-me with the user)
+
+**Why.** Seen in-engine the lit ward is a bare dark box — a black-cube table, dark slab cabinets,
+empty side walls, no visible fittings — with 4 interactables and a 60–120 s run. It teaches none of
+the rules the game kills you with (panic, gaze, sprint cost, trigger objects), and ⚠️ **it is not
+actually unloseable**: `player.gd:569-570` charges sprint +6/s with decay suppressed and nothing
+exempts level 0, so ~8.3 s of Shift fires `Screamer.trigger()` — in the room whose hint line says
+*"Shift — run"*. `check_intro_beats.gd` never sprints, so it could not see it. The user: the intro
+is the most important level for the vibe; if a player doesn't feel it here they never reach the
+levels that are better.
+
+**What it becomes.** A 5–8 minute, six-space intake wing in the derelict-asylum look of the cold-open
+video (`intro_scene.ogv`: peeling grey-green plaster over a dark wainscot, caged bare bulbs, stained
+floors). The experiment's own kit — speakers, camera, red monitor lamp, one-way glass, the tray and
+projector — is newer than the building, and that contrast is the "someone is running this" tell.
+The ward stays at its current coordinates and keeps every beat below this block.
+
+| # | Space | What happens | Leaves when |
+|---|---|---|---|
+| 1 | **Cell** 4×4 | wake strapped on the bed (frozen tween); "IT WAS ONLY A DREAM."; **VO** *"Good morning, forty-six— forty-seven."*; **E on three straps** (camera turned to each); sink + tap (E: rust-brown then clear); mirror smashed out of its frame; tally marks; wristband note; red monitor lamp + camera | 3rd strap → the door buzzes open |
+| 2 | **Corridor** 2.4×16 | the dream's corridor, awake — caged bulbs, locked doors both sides, drip, hum. **Nothing happens.** | — |
+| 3 | **Observation hall** 6×6 | the observers' side: two chairs, smoking ashtray, warm coffee, **reel-to-reel** (E → "SESSION 46", sound only), desk cabinet (wristbands 44/45/46), **your file** + stapled Subject 46 page TERMINATED; **torch tray** "SUBJECT 47 — ISSUED" (E → torch + F hint). Through the one-way glass **someone is strapped to the bed you just left**; after you leave the hall it is gone | torch taken → ward door unlocks |
+| 4 | **Ward** 12×18 | on the door's `opened`, before the leaf moves: **VO** *"—we have a fault in—"*, every light in the wing dies, torch locked, breathing → path glow from the entry → today's 2-press switch, glimpse, empty bed, candle + note, wheelchair; ward cabinets openable with finds | lit **and** note read |
+| 5 | **Calibration** 8×12 | **VO** *"Look at the screen, forty-seven."* → projector of classic psych stimuli (Rorschach, clinical photos, eyes-blacked faces) is a gaze source → caption *LOOK AWAY.* → *WALK TO THE LINE.* (sprinting → *HEART RATE 131. NOTED.*) → red-tagged tray *DO NOT TOUCH* live throughout (E → panic to the ceiling + rebuke caption, no death) → **VO** *"Much better than last time."* | after the last VO |
+| 6 | **Airlock** 3×3 | buzzer, **VO** *"You may proceed."*, E on `ExitDoor` → Lab | — |
+
+**Rules this changes (and the guard that proves each):**
+- ⚠️ **"Nothing here calls `add_panic()`" / "fails if the bar moves at all" is REPLACED by a panic
+  CEILING.** `player.set_panic_ceiling(0.6)` — additive opt-in, default 1.0 = off everywhere else —
+  clamps panic to 60 % of `PANIC_MAX` in both `_update_panic` and `add_panic`, so the screamer is
+  unreachable **by construction**, sprint included. The room is still **UNLOSEABLE** and still has
+  **NO jumpscare**. The bar stays at exactly 0 through cell, hall and ward; only calibration moves
+  it. New `check_intro_panic_ceiling.gd` (20 s sprint peaks in [0.55, 0.60], `add_panic(MAX)` →
+  0.6, projector gaze, control at the default ceiling); `check_intro_beats.gd` asserts 0 before
+  calibration and ≤ 0.6 overall.
+- **The voice is rationed — five lines, no more** (user: *"be careful with TTS … mix between notes,
+  text on the screen and TTS"*). macOS `say` "Daniel" through the `make_pa_voice.py` tannoy chain —
+  the same person as the Lab's `pa_trial4`. Every other observer line is a `ScreenText.caption` in
+  the terse monitor register; everything else is paper (journal-archived notes).
+- **The torch is ISSUED in the hall and taken by the ward's blackout** — the switch gives both back.
+- **Built on `RoomBuilder`** (six rooms is a graph; INTRO.md §1's "one room, not RoomBuilder" no
+  longer applies). Walls become `RoomBuilder.T` 0.2 (was 0.3) — every derived constant re-derives,
+  the ward's centre/size/props do not move. New generic scripts `wing_door.gd` (hinged interior
+  door + transom) and `use_prop.gd` (straps, tap, reel, tray).
+- **Spawn moves to the cell bed** (`CELL_GURNEY_POS`); `GURNEY_POS` (0,0,7) stays as an empty ward
+  bed. `FarBreath` moves with the blackout (it is spawned on ward entry, not at wake).
+- **The ending builds the WARD ONLY** (sealed, no doorways), then `_corrupt_room()` and the ending
+  video exactly as today — `check_intro_ending.gd`. *Follow-up, not built:* the ending wakes you
+  strapped in the same cell — *"Good morning, forty-eight."*
+- **Coming back from the Lab** builds the wing solved (doors open, power on, torch unlocked, no
+  occupant, no VO) and places you in the Airlock — `save_progress()` / `_restore_progress()`.
+- **The cold-open scream no longer bleeds into the wake-up** — `flash_scare(…, cut_audio=true)`
+  from `main_menu.gd` (`nightmare_scream.ogg` is 10.28 s; `flash_scare` never stopped it).
+  `check_cold_open_scream.gd`.
+- Sounds are procedural stand-ins, every one listed in `docs/TODO_sounds.md` for the user to replace
+  by filename.
+
+**🔨 Build progress — phases 1–3 landed 2026-09-24 (geometry, cell, hall); 4–5 still to come.**
+Notes for whoever closes this block — the marker stays until the whole wing is built.
+- **Built:** `RoomBuilder` wing (`ROOMS` / `DOORS` / `WINDOWS` in `intro_room.gd`); `wing_door.gd`
+  (`WingDoor`: hinged leaf whose own `LeafBody` answers E, frame lapping 2 cm into the opening,
+  a CSG infill in the room's wall material above the lintel, `flush` mode for the five locked
+  corridor doors, `opened` emitted BEFORE the leaf moves, `move_aside_instantly()` for sweeps);
+  `use_prop.gd` (`UseProp`, layer 2, `used(times)` — straps, tap, reel); caged bulbs (emission
+  0.5, shadowed, shadowless socket/cage); the cell (wake on the cell bed, three straps in order
+  with the head turned to each and E polled, VO1 + caption, sink + tap rust→clear, empty mirror
+  frame with shards, 46 tally marks, wristband note, camera + blinking red lamp, tannoy; the cell
+  door buzzes and swings open after the third strap); the hall (one-way glass as two single-sided
+  quads + a solid pane collider, desk with reel / file / cup / ashtray / mic / lamp, two chairs,
+  LabCabinet with the 44/45/46 wristbands page, the observation log on the wall, the torch trolley
+  "SUBJECT 47 — ISSUED" → `unlock_flashlight()` + an "F — torch" hint → the ward entry unlocks);
+  the occupant (`CellOccupant`, spawned 0.6 m inside the hall, freed on the first step back into
+  the corridor, never again); the blackout on the ward entry's `opened` (every bulb + the ambient to
+  zero, torch locked, `FarBreath` + path glow from the ward entry); the switch restores the wing's
+  bulbs too. Ending: `build([WARD], [])`, `ExitDoor` back on the ward wall, `_corrupt_room()` as before.
+- **Measured:** glass from the hall — cell interior mean 33/255 against the hall wall's 3.4
+  (≈10×, it reads as a window into a lit room); from the cell — the pane 11 against the wall's 40
+  (a dark pane with the bulb's highlight). Blackout frame mean 3.0/255.
+- **Now false in the prose below** (for the closing pass to rewrite): `FarBreath` is spawned at the
+  blackout at (0, 1.4, 8.4), 3 m from the ward entry — not "1.61 m from where the player wakes";
+  the exit door is in the AIRLOCK (`AIRLOCK_EXIT_POS`) and only the ending seats it in the ward's
+  back wall; there are no `WallBack` / `WallLeft` nodes (RoomBuilder names every wall `Wall`); walls
+  are 0.2 m; the ward's player gurney is an empty bed and you wake in the cell.
+- **Not yet built (phases 4–5):** VO2 at the ward door (the file exists; the blackout is built
+  without it), the ward cabinets' finds, calibration (projector, the line, the tray), VO3–5, the
+  airlock gate, and the back-door restore. Until calibration exists the airlock `ExitDoor` carries
+  the ward's own gate (lit + note read), so the level stays completable and the note unskippable.
+- **Art:** the flux quota was exhausted (HTTP 429) on the day, so the surfaces are COMPOSED from the
+  room's own shipped textures by `tools/make_intro_wing_art.py`; `docs/TEXTURES.md` carries a flux
+  prompt per file for a generated replacement.
+
+**Declined in the same session — do not re-pitch:** a calm-light lesson in calibration · level
+previews or photos of the player on the projector · bed curtains · a KONTUR gate-8 catch in the
+airlock · the voice degrading room by room · a clean/modern clinic look.
+
 **Intro Room** — a 12×18 m asylum ward, built at runtime by `intro_room.gd` (see `INTRO.md`)
 Note text: *"You are Subject 47. This is a psychological experiment... Stay calm. Do not touch what you are not meant to touch. If something calls out to you — a voice, a ringing, anything that asks for an answer — do not answer it. You are not meant to speak to anyone but us. The door ahead is your first test. We are watching."* (the "do not answer" paragraph is **BUG_FIX.md 2.1** — plants a hint against the Backrooms rotary phone before the player ever meets it)
 - ⚠️ **UNLOSEABLE, and it must stay that way.** Nothing here calls `add_panic()`; `RandomAmbient`

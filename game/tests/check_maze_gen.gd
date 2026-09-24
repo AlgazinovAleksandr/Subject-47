@@ -20,6 +20,129 @@ extends SceneTree
 #                  seeds started it ON the route, and those seeds won 28 % against 83-100 %).
 # Each is checked against an INDEPENDENT recomputation, never against the value the
 # generator recorded for itself.
+#
+# ⭐ 2026-09-24 (e) — THE TWELVE CURATED LAYOUTS. The player is never dealt a random layout any
+# more (`MazeChaseUI.CURATED_SEEDS`), so the fairness filters `probe_maze_curate.gd` chose them
+# by are asserted here on every one of them, measured by the same `tests/lib/maze_curation.gd`:
+#   (a) no unavoidable race — the hunter cannot reach a cell the tour cannot avoid within
+#       RACE_MARGIN_S of the player;
+#   (b) neither the hammer nor the key is behind the hunter;
+#   (c) the patroller's free circuit (the layout's own sub-seed) never enters such a cell.
+# Plus the dealing rules: only curated seeds, never the same twice in a row, every one reachable;
+# a seed fixes the layout; the patroller's circuit replays; and the global RNG is handed back.
+# The 200-seed structural sweep below still runs: it guards the ALGORITHM, which the twelve
+# are only a sample of.
+
+const Curation := preload("res://tests/lib/maze_curation.gd")
+
+
+func _snapshot(ui: Node) -> String:
+	return "%s|%s|%s|%s|%s|%s|%s" % [ui.get("_wall_rects"), ui.get("_target_cell"),
+		ui.get("_fragment_cells"), ui.get("_monster_start"), ui.get("_patrol_start"),
+		ui.get("_snares_initial"), ui.get("_pane_rects")]
+
+
+func _curated_checks(ui: MazeChaseUI) -> int:
+	var failures := 0
+	var curated: Array = MazeChaseUI.CURATED_SEEDS
+	print("--- the %d CURATED layouts: fairness filters (a)-(c) ---" % curated.size())
+	if curated.size() != 12:
+		print("FAIL: CURATED_SEEDS has %d entries, the user's call is 12" % curated.size())
+		failures += 1
+	var measured := 0
+	for s: int in curated:
+		Curation.fresh(ui, s, s)
+		var f: Dictionary = Curation.analyse(ui)
+		measured += 1
+		print("  seed %d  tour %d  cut vertices %d  mandatory %d  race margin %.2f s  patrol cells %d"
+			% [s, f["tour"], f["cuts"], f["mandatory"], f["min_margin"], f["patrol_cells"]])
+		# A filter that measured nothing is not a filter: every tour has at least its two ends.
+		if int(f["mandatory"]) < 2:
+			print("FAIL seed=%d: only %d mandatory cells measured — the tour was not walked" % [s, f["mandatory"]])
+			failures += 1
+		if not bool(f["race_ok"]):
+			print("FAIL seed=%d: (a) UNAVOIDABLE RACE — the hunter reaches %s only %.2f s after the player (need > %.1f)"
+				% [s, f["worst_cell"], f["min_margin"], Curation.RACE_MARGIN_S])
+			failures += 1
+		if bool(f["behind"]):
+			print("FAIL seed=%d: (b) BEHIND THE MONSTER — %s" % [s, f["behind_why"]])
+			failures += 1
+		if bool(f["patrol_hit"]):
+			print("FAIL seed=%d: (c) the patroller's circuit enters mandatory cell %s at %.1f s"
+				% [s, f["patrol_hit_cell"], f["patrol_hit_t"]])
+			failures += 1
+		if int(f["patrol_cells"]) < 3:
+			print("FAIL seed=%d: the patroller visited %d cells in %.0f s — (c) sampled nothing"
+				% [s, f["patrol_cells"], Curation.PATROL_SIM_S])
+			failures += 1
+	if measured != curated.size() or measured == 0:
+		print("FAIL: measured %d of %d curated layouts" % [measured, curated.size()])
+		failures += 1
+
+	# ---- dealing: only curated seeds, never twice in a row, every one reachable ------------
+	var dealt: Dictionary = {}
+	var repeats := 0
+	var strays := 0
+	ui.set("_last_layout_seed", -1)
+	for i in range(600):
+		var s: int = ui._pick_layout_seed()
+		if not curated.has(s):
+			strays += 1
+		if s == int(ui.get("_last_layout_seed")):
+			repeats += 1
+		ui.set("_last_layout_seed", s)
+		dealt[s] = int(dealt.get(s, 0)) + 1
+	print("  600 deals: %d distinct, %d repeats in a row, %d not curated" % [dealt.size(), repeats, strays])
+	if strays > 0 or repeats > 0 or dealt.size() != curated.size():
+		print("FAIL: the dealer must use only curated seeds, never repeat, and reach all %d" % curated.size())
+		failures += 1
+
+	# ---- a seed fixes the layout, whatever the RNG did in between -------------------------
+	var s0: int = curated[0]
+	seed(s0)
+	ui._generate_maze()
+	var a := _snapshot(ui)
+	seed(123456)
+	for _i in range(37):
+		randi()
+	ui._generate_maze()                  # something else, to move every piece of state
+	seed(s0)
+	ui._generate_maze()
+	if _snapshot(ui) != a:
+		print("FAIL: seed %d built two different layouts" % s0)
+		failures += 1
+
+	# ---- `_load_layout()` hands the global RNG back (the rest of the game stays random) ----
+	seed(s0)
+	ui._generate_maze()
+	var deterministic_next: int = randi()
+	ui._load_layout(s0)
+	var after_load: int = randi()
+	if after_load == deterministic_next:
+		print("FAIL: after _load_layout() the global RNG is still on the layout's sequence")
+		failures += 1
+	if int(ui.get("patrol_seed")) != s0 or int(ui.get("_layout_seed")) != s0:
+		print("FAIL: _load_layout(%d) left patrol_seed %d / _layout_seed %d"
+			% [s0, int(ui.get("patrol_seed")), int(ui.get("_layout_seed"))])
+		failures += 1
+
+	# ---- the patroller's circuit REPLAYS on the same sub-seed ------------------------------
+	var trails: Array = []
+	for rep in range(2):
+		Curation.fresh(ui, s0, s0)
+		ui.set("_player_pos", Vector2(-100000.0, -100000.0))
+		randi()                           # global RNG noise must not matter
+		var trail: Array = []
+		for _f in range(1200):
+			ui._tick_patroller(1.0 / 60.0)
+			if _f % 30 == 0:
+				trail.append(ui.get("_patrol_pos"))
+		trails.append(str(trail))
+	if trails[0] != trails[1]:
+		print("FAIL: the patroller's circuit on seed %d did not replay" % s0)
+		failures += 1
+	print("  curated checks: %d failure(s)" % failures)
+	return failures
 
 
 func _initialize() -> void:
@@ -35,6 +158,7 @@ func _initialize() -> void:
 	var tour_in_band := 0
 	var tour_lengths: Array = []
 	var direct_lengths: Array = []
+	failures += _curated_checks(ui)
 	for i in range(runs):
 		seed(i * 7919 + 13)
 		ui._generate_maze()

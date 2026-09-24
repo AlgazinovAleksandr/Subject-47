@@ -137,8 +137,19 @@ const CONFIG := {
 		# stepping off means the capsule clipping the frame, which a grid of standing
 		# positions cannot represent and a walking player does without noticing. Seed the
 		# floor beside the gurney instead, derived from the level's own constant.
-		"seeds": ["@intro_floor"], "gates": {}, "ignore": {},
-		"min_cells": 6000, "min_targets": 2,
+		# ⭐ 2026-09-24, the Intake Wing: five WingDoors, every one shut at load. Each is opened
+		# through its own `move_aside_instantly()` (the restore path), so the fill answers "with the
+		# wing solved, can the player reach everything in it?". The ward floor stays the seed.
+		"seeds": ["@intro_floor"], "gates": {
+			"CellDoor": "buzzes open after the third strap (the level drives it)",
+			"HallDoor": "opens on E",
+			"WardEntryDoor": "unlocks when the torch is taken",
+			"WardDoor": "unlocks when the ward is lit and the note read",
+			"AirlockDoor": "opens on E",
+		}, "ignore": {},
+		# Measured 2026-09-24 with the five doors open: 37 targets (the wing's doors, straps, tap,
+		# reel, notes, cabinet drawers, torch, the ward's switch and note).
+		"min_cells": 16000, "min_targets": 30,
 	},
 	"SCENE_LEVEL_1": {
 		"seeds": ["@player"],

@@ -12,6 +12,9 @@ class_name HouseOutdoors
 #   * THE YARD — walkable x -40..-12, z -12..24 (28 x 36 m), a leaf-litter floor flush with the
 #     deck. Trunks with colliders inside it; a dense ring of trunks just inside its edge and
 #     invisible walls just outside that; a tall fence along x = -12 either side of the porch.
+#     ⭐ 2026-09-24 (c): one trunk-free CLEARING at BLADE_CLEARING, where the guillotine's blade
+#     is driven into a stump (the stump itself is `house_blade_stump.gd`, placed by the level).
+#     ⭐⭐ (d): the clearing is in the far north-west corner now, behind one thick trunk.
 #   * THE SKY — an unshaded, inward-facing dome (`night_sky.png`), and the MOON: a low-energy,
 #     shadow-casting `DirectionalLight3D` whose `light_cull_mask` is ONLY render layer 2.
 #
@@ -62,12 +65,36 @@ const CLEAR_SPOTS := [
 	Vector2(-17.5, 12.5), Vector2(-16.5, 4.0), Vector2(-17.0, 1.0), Vector2(-18.0, 7.0),
 ]
 const CLEAR_R := 1.7
+# ⭐ 2026-09-24 (c): THE CLEARING WITH THE BLADE IN IT (`house_blade_stump.gd`). A fixed spot,
+# never re-rolled. No trunk stands within BLADE_CLEAR_R of it. ⚠️ The exclusion changes the seeded
+# layout from the first trunk that used to fall inside it — accepted; `check_reachable` /
+# `check_wall_overlap` re-run.
+# ⭐⭐ 2026-09-24 (d, playtest 2 capture #1: *"too simple to find it. Let's put it somewhere in the
+# corner of the forest just behind the tree so that you need to actually search for it, probably
+# in several runs"*): moved from (-32, 15) to the FAR NORTH-WEST CORNER, d = 25.5 m, 2 m inside
+# the west trunk ring and 2.5 m inside the north one — and HIDDEN BEHIND ONE THICK TRUNK
+# (HIDE_TRUNK). Still fixed, still no hint (no path, sound, glint or emission).
+const BLADE_CLEARING := Vector2(-37.5, 21.0)
+const BLADE_CLEAR_R := 3.5
+# The stump's yaw. With the blade's own 35 deg across the cut this lays the blade's long axis along
+# HIDE_DIR, i.e. EDGE-ON to both sightlines the trunk covers, so its width cannot peek round it.
+const BLADE_STUMP_YAW_DEG := 6.5
+# ⭐ 2026-09-24 (d): THE TRUNK IT HIDES BEHIND — one deliberately THICK trunk (every seeded one is
+# r 0.16–0.34), same bark, a solid collider. It stands HIDE_TRUNK_DIST from the stump along
+# HIDE_DIR, the bisector of the two sightlines it must cut: from the rail gap (-12, 6) and from
+# the forest's middle (-26, 6). Measured by rays in `check_house_porch.gd` (§3), with a control
+# ray that reaches the stump once this trunk is excluded.
+const HIDE_DIR := Vector2(0.749, -0.6626)
+const HIDE_TRUNK_DIST := 1.2
+const HIDE_TRUNK_R := 0.55
+const HIDE_TRUNK := Vector2(-37.5 + 0.749 * 1.2, 21.0 - 0.6626 * 1.2)   # (-36.60, 20.20)
 const ARRIVAL := Rect2(-16.0, 1.5, 4.0, 9.0)      # x -16..-12, z 1.5..10.5
 const TRUNK_GAP := 2.4
 const TRUNK_MAX := 85
 const TREE_SEED := 2409
 
 var trunks: Array[Vector2] = []     # the walkable yard's trunks (with colliders), for tests
+var ring_trunks: Array[Vector2] = []  # the edge ring's trunks, for tests (the corner route)
 
 
 static func on_deck(p: Vector3) -> bool:
@@ -241,6 +268,8 @@ func _build_trees() -> void:
 			if p.distance_to(c) < CLEAR_R:
 				ok = false
 				break
+		if ok and p.distance_to(BLADE_CLEARING) < BLADE_CLEAR_R:
+			ok = false
 		if ok:
 			for t in trunks:
 				if p.distance_to(t) < TRUNK_GAP:
@@ -271,6 +300,7 @@ func _build_trees() -> void:
 		ring.append(Vector2(x, YARD_Z.x + 0.55 + rng.randf_range(-0.25, 0.25)))
 		ring.append(Vector2(x + rng.randf_range(-0.4, 0.4), YARD_Z.y - 0.55 + rng.randf_range(-0.25, 0.25)))
 		x += rng.randf_range(1.0, 1.5)
+	ring_trunks = ring.duplicate()
 	for p in ring:
 		var r := rng.randf_range(0.18, 0.34)
 		_trunk(p, r, bark)
@@ -296,8 +326,25 @@ func _build_trees() -> void:
 			q = Vector2(rng.randf_range(YARD_X.x - 1.0, RAIL_X - 1.0), rng.randf_range(YARD_Z.y + 1.5, GROUND_Z.y - 2.0))
 		_pine(pine_tex, Vector3(q.x, 0, q.y), rng.randf_range(9.0, 16.0), 0.0)
 
+	# 4. ⭐ 2026-09-24 (d): the THICK trunk the blade's stump hides behind. Built AFTER the seeded
+	# passes and outside the RNG, so the seeded layout is exactly what the clearing alone made. Its
+	# own body (`HidingTrunk`) so a test can exclude it for the control ray.
+	var hide_body := StaticBody3D.new()
+	hide_body.name = "HidingTrunk"
+	add_child(hide_body)
+	var hide_cs := CollisionShape3D.new()
+	var hide_cyl := CylinderShape3D.new()
+	hide_cyl.radius = HIDE_TRUNK_R
+	hide_cyl.height = 3.0
+	hide_cs.shape = hide_cyl
+	hide_cs.position = Vector3(HIDE_TRUNK.x, 1.5, HIDE_TRUNK.y)
+	hide_body.add_child(hide_cs)
+	var hide_mi := _trunk(HIDE_TRUNK, HIDE_TRUNK_R, bark)
+	hide_mi.name = "HidingTrunkMesh"
+	_pine(pine_tex, Vector3(HIDE_TRUNK.x, 0, HIDE_TRUNK.y), 11.0, 3.0)
 
-func _trunk(p: Vector2, r: float, bark: Material) -> void:
+
+func _trunk(p: Vector2, r: float, bark: Material) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
 	mi.name = "Trunk"
 	var cm := CylinderMesh.new()
@@ -310,6 +357,7 @@ func _trunk(p: Vector2, r: float, bark: Material) -> void:
 	mi.set_surface_override_material(0, bark)
 	mi.position = Vector3(p.x, 7.0, p.y)
 	add_child(mi)
+	return mi
 
 
 # A pine silhouette on a fixed-Y billboard. Unshaded and dark on purpose: against the dome it is

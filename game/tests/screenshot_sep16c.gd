@@ -124,14 +124,16 @@ func _process(delta: float) -> bool:
 				if not _shots.has("_where_logged"):
 					_shots["_where_logged"] = true
 					print("at 2.0 s: WHERE AM I? on screen = %s; dark=%s pinned=%s torch=%s" % [_where_on_screen(), _lvl.get("_child_dark"), _p.is_input_frozen(), _p.call("is_flashlight_on")])
-			if _t > 5.2 and not _shots.has("_where_gone"):
+			# ⭐ 2026-09-24 (c): the doll comes at CHILD_APPEAR_DELAY 4.5 (was 5.5) and WHERE AM I? is
+			# gone by 3.9 s (0.7 + 0.6 + hold 1.2 + 1.4); the lights return at 7.5 s (was 8.5).
+			if _t > 4.2 and not _shots.has("_where_gone"):
 				_shots["_where_gone"] = true
-				print("at 5.2 s (before the doll): WHERE AM I? on screen = %s" % _where_on_screen())
-			if _t > 6.6:
+				print("at 4.2 s (before the doll at 4.5): WHERE AM I? on screen = %s" % _where_on_screen())
+			if _t > 5.6:
 				_shoot("7_cellar_doll")
 				var audio := _lvl.get_node_or_null("GuestChildAudio") as AudioStreamPlayer3D
 				print("doll: %s, scream stream %s" % [_lvl.get_node_or_null("GuestChild") != null, (audio.stream.resource_path.get_file() if audio and audio.stream else "none")])
-			if _t > 9.6:
+			if _t > 8.6:
 				_shoot("8_cellar_lights_back")
 				print("after: dark=%s pinned=%s torch=%s" % [_lvl.get("_child_dark"), _p.is_input_frozen(), _p.call("is_flashlight_on")])
 				print("RESULT: PASS")

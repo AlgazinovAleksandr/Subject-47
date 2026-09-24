@@ -120,7 +120,9 @@ const CORRIDOR_CORNER := "corner square is covered by both segments; " \
 
 const CONFIG := {
 	"SCENE_INTRO": {
-		"min_boxes": 20, "min_quads": 8, "min_solids": 4,
+		# ⭐ 2026-09-24 the Intake Wing: six RoomBuilder rooms, measured 69 boxes / 41 flat props /
+		# 196 solid props (was 27 boxes for the lone ward).
+		"min_boxes": 60, "min_quads": 35, "min_solids": 170,
 		# ⚠️ IGNORED WITH THE MEASUREMENT, not filtered. Both are flat art laid on the TOP
 		# FACE of a prop the player looks down on, which is the one place in this project
 		# where a quad legitimately sits inside `MIN_CLEAR` of a box: the gurney's sheet art
@@ -132,8 +134,10 @@ const CONFIG := {
 		"quad_ignore": {
 			"GurneyMattressArt_0_70": "sheet art 0.005 m proud of the mattress it lies on",
 			"NoteFace": "the note's face 0.0035 m proud of the table it lies on",
+			# The cell bed (2026-09-24) is the same empty gurney, built by the same function.
+			"GurneyMattressArt_-64_225": "the cell bed's pad art, 0.005 m proud of its mattress",
 		},
-		"min_quad_ignored": 2,
+		"min_quad_ignored": 3,
 	},
 	"SCENE_LEVEL_1": {"min_boxes": 150, "min_quads": 10, "min_solids": 140},
 	"SCENE_LEVEL_2": {

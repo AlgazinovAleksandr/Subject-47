@@ -1,10 +1,11 @@
 extends CanvasLayer
 class_name MazeChaseUI
 
-# The House map-and-chase minigame (new feature). A fresh braided maze (randomized DFS,
-# never memorizable) is generated for every genuine ATTEMPT — i.e. on a win or a catch, not
-# on a close-and-reopen; see `_instance_live` for the measurement behind that. The player
-# drags their icon around the map with the mouse while a monster icon hunts them.
+# The House map-and-chase minigame (new feature). Every genuine ATTEMPT — i.e. after a win or
+# a catch, not on a close-and-reopen (see `_instance_live`) — is dealt one of TWELVE CURATED
+# layouts of the braided randomized-DFS generator below, never the same one twice in a row
+# (`CURATED_SEEDS`, 2026-09-24 e; it was a fresh random maze every attempt until then). The
+# player drags their icon around the map with the mouse while a monster icon hunts them.
 #
 # ⭐ THE OBJECTIVE IS TWO-STAGE (2026-08-16, the user's own redesign, approved after a
 # brainstorm): COLLECT every fragment, THEN escape to the mark. The mark is inert — visibly
@@ -23,14 +24,16 @@ class_name MazeChaseUI
 #
 # house_map_prop.gd owns the fail consequence. Panic rises the whole time it's open — a flat
 # drip plus a proximity term — via the same "a paused UI's own _process still calls
-# player.add_panic() every frame" idiom note_ui.gd already uses for trap notes.
+# player.add_panic() every frame" idiom note_ui.gd already uses for trap notes. ⭐ Since
+# 2026-09-24 (e) every map panic write goes through `add_map_panic()`, clamped below
+# PANIC_MAX: the map can no longer kill by panic, only by `HouseMap`'s third catch in a row.
 #
 # Pause convention matches combination_lock.gd/note_ui.gd exactly: get_tree().paused
 # = true while open, MOUSE_MODE_VISIBLE, reversed on close — this freezes the whole
-# 3D game for free, no changes needed to player.gd or any creature script. Because
-# this UI's own add_panic() call can itself push panic to PANIC_MAX and trigger a
-# fatal Screamer.trigger() mid-minigame, the Issue-9 pause-race guard below is not
-# optional — copied verbatim from the same lesson in note_ui.gd/combination_lock.gd.
+# 3D game for free, no changes needed to player.gd or any creature script. This UI's
+# own panic can no longer reach PANIC_MAX (see `add_map_panic()`), but a screamer from
+# ELSEWHERE can still unpause the tree under it, so the Issue-9 pause-race guard below
+# stays — copied verbatim from the same lesson in note_ui.gd/combination_lock.gd.
 
 signal won
 signal caught
@@ -335,17 +338,78 @@ func _ready() -> void:
 # none. It also narrows the design line "a fresh braided maze every attempt (never
 # memorizable)" to *every genuine attempt* — a catch still costs CATCH_PANIC and still hands
 # out a brand-new maze, so nothing is memorizable across attempts, only within one.
+# ⭐ Superseded in part 2026-09-24 (e): a catch now deals a DIFFERENT CURATED layout, not a
+# fresh one, so across many attempts the twelve ARE learnable — the user's call ("10-15
+# possible ones"). ESC still resumes the same instance, so this block still holds as written.
 #
 # ⚠️ Positions are still reset on every open. Persisting the icon's position instead would make
 # ESC a panic button that teleports the hunter off your back, which is the opposite of the
 # intent.
 var _instance_live: bool = false
 
+# ⭐⭐ TWELVE CURATED LAYOUTS, NOT A FRESH RANDOM MAZE (2026-09-24 e, the user's call).
+#
+# Capture #1 of the third playtest: *"There are many geometries in this map that are impossible.
+# We need … 10-15 possible ones that are not simple but not impossible either — no dead loops, no
+# situations where it is unavoidable to bump into the monster."* The generator below is
+# UNCHANGED; what changed is WHICH of its outputs a player can be dealt. Each entry is a seed for
+# `_generate_maze()`, and a seed fixes the whole layout: the walls and the braid, the hammer, the
+# glass room, the hunter's and the patroller's starts, and the snares.
+#
+# ⚠️ CHOSEN BY A MEASUREMENT, NOT BY EYE — `tests/probe_maze_curate.gd` (reproducible, headless).
+# Of generator seeds 1000-1999 it rejects every one where (a) the hunter can reach a cell the
+# tour cannot avoid (a cut vertex of start → hammer → key) before the player can, with the
+# `RACE_MARGIN_S` margin the probe states; (b) the hammer or the key lies behind the hunter;
+# (c) the patroller's free circuit walks through such a cell; (d) the harness bot stalls or
+# times out. The survivors are each played 20 times by the harness bot with a different
+# patroller sub-seed, kept if it wins 50-85 %, and the 12 nearest the band's middle ship.
+# `check_maze_gen.gd` asserts (a)-(c) on every entry; `check_maze_chase.gd` replays the band.
+# ⚠️ Any change to the generator, the monsters or `_pick_patrol_target()` silently changes what
+# these seeds MEAN — re-run the probe and re-pick, never hand-edit this list.
+#
+# Chosen 2026-09-24 from seeds 1000-1999: 451 rejected on (a), 23 on (b), 335 on (c), 0 on (d),
+# 34 below the band and 125 above it; 32 kept, the 12 nearest 67.5 % ship (bot wins / 20):
+#   1030 14 · 1085 14 · 1101 13 · 1146 14 · 1356 13 · 1472 13
+#   1534 14 · 1611 13 · 1767 14 · 1804 13 · 1930 13 · 1134 12
+const CURATED_SEEDS: Array[int] = [1030, 1085, 1101, 1146, 1356, 1472, 1534, 1611, 1767, 1804, 1930, 1134]
+
+var _layout_seed: int = -1        # the seed of the live instance (-1 = none yet)
+var _last_layout_seed: int = -1   # the one dealt last time — never dealt twice in a row
+
+
+# A curated seed, uniformly, never the one dealt last. Pure apart from the global RNG, so
+# `check_maze_gen.gd` can drive it without a scene.
+func _pick_layout_seed() -> int:
+	var n: int = CURATED_SEEDS.size()
+	if n == 0:
+		return randi()                      # no curation loaded: the old fresh-random behaviour
+	var i: int = randi() % n
+	if n > 1 and CURATED_SEEDS[i] == _last_layout_seed:
+		i = (i + 1 + randi() % (n - 1)) % n   # any OTHER entry, still uniformly
+	return CURATED_SEEDS[i]
+
+
+# Build the layout for `layout_seed` and make it the live instance. The seed drives the global
+# RNG only for the duration of `_generate_maze()`; `randomize()` hands it straight back, so
+# nothing else in the game (the director, the guest, the ghosts) becomes deterministic because
+# the player opened a map.
+func _load_layout(layout_seed: int) -> void:
+	_layout_seed = layout_seed
+	_last_layout_seed = layout_seed
+	patrol_seed = layout_seed
+	seed(layout_seed)
+	_generate_maze()
+	randomize()
+	_instance_live = true
+	if is_inside_tree():
+		var dbg := get_node_or_null("/root/DebugLog")
+		if dbg and dbg.has_method("note"):
+			dbg.note("MAP layout seed %d" % layout_seed)
+
 
 func open() -> void:
 	if not _instance_live:
-		_generate_maze()
-		_instance_live = true
+		_load_layout(_pick_layout_seed())
 	_reset_positions()
 	_rebuild_wall_visuals()
 	_rebuild_snare_visuals()
@@ -449,8 +513,7 @@ func _process(delta: float) -> void:
 		if dist_to_monster < PROXIMITY_RANGE:
 			var ratio: float = 1.0 - dist_to_monster / PROXIMITY_RANGE
 			proximity_rate = PROXIMITY_MAX_RATE * ratio * ratio
-		if p and p.has_method("add_panic"):
-			p.add_panic(delta * (MAZE_DRIP_RATE + proximity_rate))
+		add_map_panic(p, delta * (MAZE_DRIP_RATE + proximity_rate))
 
 	_update_visual_positions()
 
@@ -477,6 +540,35 @@ func _process(delta: float) -> void:
 
 func _player() -> CharacterBody3D:
 	return get_tree().current_scene.get_node_or_null("Player") as CharacterBody3D
+
+
+# ⭐⭐ THE MAP CANNOT KILL YOU WHILE YOU PLAY IT (2026-09-24 e, the user's call).
+#
+# Capture #1 of the third playtest: *"there can be no way you die from the level screamer while
+# you are still playing the game. Only after you lost it several times in a row from the
+# monster."* That session's one death was a panic death INSIDE the map. So every panic write the
+# map makes — the drip, the proximity term, a snare, and `HouseMap.CATCH_PANIC` — goes through
+# here and is clamped to `MAP_PANIC_CAP` of the bar. The bar and the heartbeat still climb to the
+# cap; they never reach `PANIC_MAX`, so `player.add_panic()` never fires the screamer from the
+# map. The map's one death is `HouseMap`'s third catch in a row.
+#
+# ⚠️ No shared file was touched: this reads `get_panic_ratio()` and adds only the room that is
+# left. ⚠️ The RATES are untouched (`MAZE_DRIP_RATE`, `PROXIMITY_*`, `SNARE_PANIC`,
+# `CATCH_PANIC`) — only where the sum may end moved. ⚠️ Keep the Issue-9 guard in `_process()`
+# anyway: a screamer from ELSEWHERE can still unpause the tree under this overlay.
+const MAP_PANIC_CAP := 0.98   # of PANIC_MAX — 49 of 50, i.e. PANIC_MAX − 1
+
+
+static func add_map_panic(p: Node, amount: float) -> void:
+	if p == null or amount <= 0.0 or not p.has_method("add_panic"):
+		return
+	var ratio: float = float(p.call("get_panic_ratio")) if p.has_method("get_panic_ratio") else 0.0
+	var pmax: Variant = (p.get_script() as Script).get("PANIC_MAX") if p.get_script() else null
+	var panic_max: float = float(pmax) if pmax != null else 50.0
+	var room: float = (MAP_PANIC_CAP - ratio) * panic_max
+	var give: float = minf(amount, room)
+	if give > 0.0:
+		p.call("add_panic", give)
 
 
 # ---------------------------------------------------------------- the patroller
@@ -519,6 +611,15 @@ var _patrol_target := Vector2i.ZERO
 var _patrol_chasing := false
 var _patrol_flow: Dictionary = {}
 var _patrol_flow_origin := Vector2i(-99, -99)
+# ⭐ THE PATROLLER'S CIRCUIT HAS ITS OWN RNG (2026-09-24 e, spec `02-house.md`). Its runtime
+# choices — a new circuit target on arrival, on giving up a chase, on every open — used to draw
+# from the GLOBAL RNG, so a curated layout would still have played differently every time.
+# `_reset_positions()` reseeds this from `patrol_seed` on every open, so one layout plays the
+# same way each time it is dealt (given the same hand on the mouse). `open()` sets
+# `patrol_seed` to the layout's own seed; the harnesses vary ONLY this to sample how much the
+# patroller's circuit decides a layout (`tests/probe_maze_curate.gd`).
+var patrol_seed: int = 0
+var _patrol_rng := RandomNumberGenerator.new()
 
 
 func _place_patroller(dist: Dictionary) -> void:
@@ -601,10 +702,11 @@ func _pick_patrol_target() -> void:
 			var c := Vector2i(col, row)
 			if not _route_cells.has(c):
 				options.append(c)
+	# ⭐ `_patrol_rng`, never the global RNG (2026-09-24 e) — see `patrol_seed`.
 	if options.is_empty():
-		_patrol_target = Vector2i(randi() % GRID_COLS, randi() % GRID_ROWS)
+		_patrol_target = Vector2i(_patrol_rng.randi() % GRID_COLS, _patrol_rng.randi() % GRID_ROWS)
 		return
-	_patrol_target = options[randi() % options.size()]
+	_patrol_target = options[_patrol_rng.randi() % options.size()]
 
 
 func _tick_patroller(delta: float) -> void:
@@ -790,8 +892,7 @@ func _check_snares(p: Node) -> void:
 			_snares.erase(s)          # one-shot: a snare you already sprang is spent
 			_snare_hold = SNARE_HOLD
 			_snared_at = _player_pos
-			if p and p.has_method("add_panic"):
-				p.add_panic(SNARE_PANIC)
+			add_map_panic(p, SNARE_PANIC)
 			_rebuild_snare_visuals()
 			return
 
@@ -1404,6 +1505,7 @@ func _reset_positions() -> void:
 	_patrol_chasing = false
 	_patrol_flow.clear()
 	_patrol_flow_origin = Vector2i(-99, -99)
+	_patrol_rng.seed = patrol_seed
 	if not _cells.is_empty():
 		_pick_patrol_target()
 	_snares = _snares_initial.duplicate()
@@ -1414,6 +1516,10 @@ func _reset_positions() -> void:
 	# the opposite of what killing the re-roll was for. A catch loses them too — there is no
 	# partial-progress carry-over anywhere in this minigame.
 	_fragments = _fragments_initial.duplicate()
+	# ⭐ 2026-09-24 (f): …and so does the GLASS. It used to stay broken across a reopen while
+	# `_rebuild_glass_visuals()` drew it sealed — a room that looked shut and was open, with the
+	# hammer re-armed on the board. A close banks nothing: hammer and glass come back together.
+	_glass_broken = false
 	_monster_start_timer = MONSTER_START_DELAY
 	_flow.clear()
 	_flow_origin = Vector2i(-1, -1)
