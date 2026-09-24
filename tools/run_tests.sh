@@ -66,6 +66,7 @@ TESTS=(
   check_breach_seal_race      # pass 4: SEAL_RACE on = deep seals, shallow jams, release rolls back; off = the old instant slam
   check_breach_contained_xor_killed  # pass 5: a death during the seal aborts the purge; a seal first means no death
   check_breach_search_motion  # pass 5: the Breach creature never stands still before a teleport; the Matron's search unchanged
+  check_breach_seal_stagger  # Issue 275: a creature blinded by the light weapon stays blinded through the seal race, and the door shuts on it
   check_audio_buses           # the silence architecture: Body survives a dip, beds nest
   check_scare_loudness        # the stings are LOUD, and the fatal path cuts to black first
   check_creature_model        # the ASSET: six clips, no root motion, not metal, not self-lit

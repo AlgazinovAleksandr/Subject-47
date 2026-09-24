@@ -35,7 +35,10 @@ KNEE = 10 ** (-3.0 / 20.0)
 # source -> (target, match mode, reference dBFS, loop seam seconds)
 JOBS = [
     ('drop_chain.wav',       'approach_drop_chain.wav',     'rms',  -17.56, 0.0),
-    ('drop_crash.wav',       'approach_drop_crash.wav',     'rms',  -14.71, 0.0),
+    # ⭐ 2026-09-24 (the user: "should be louder"): +4 dB denser than the placeholder it replaced. The
+    # measured loudest window was already -7.5 dB at the listener, so a plain gain only hits the Master
+    # limiter; raising the RMS through the soft knee packs more energy into the impact instead.
+    ('drop_crash.wav',       'approach_drop_crash.wav',     'rms',  -10.7, 0.0),
     ('wheel_grind.wav',      'approach_wheel_grind.wav',    'rms',  -14.16, 0.4),
     ('metal_door_open.wav',  'approach_porthole_swing.wav', 'rms',  -20.44, 0.0),
     ('metal_door_close.wav', 'purge_door_slam.wav',         'peak', -1.01,  0.0),

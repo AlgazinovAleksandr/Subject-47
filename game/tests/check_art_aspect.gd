@@ -98,7 +98,6 @@ const CONFIG := {
 			"house_fridge.png": "3.997x on the fridge door — the worst stretch in the game "
 				+ "after the Intro gurney that started this guard",
 			"painting_house.png": "2.292x — the bedroom painting THE GUEST drops",
-			"forest.png": "1.625x — the living-room window's moonlit forest",
 			"note_paper.png": "1.433x — the fridge note",
 			"house_lock_transparent.png": "1.250x — the combination lock's face",
 			"lab_oneway_mirror.png": "1.874x — two LivingMirrors, the shared-prop stretch X41",

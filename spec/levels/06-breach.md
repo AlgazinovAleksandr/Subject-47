@@ -4,6 +4,56 @@
 
 ## SPEC
 
+### Shipped — 2026-09-24 pass 6: a blind is honoured through the seal race, and the ceiling drop is louder
+
+**Why.** The user played by hand:
+- *"when I blinded the creature with the flashlight for 7 seconds in the purge room - it killed me while
+  I was closing the door, even though 7 seconds have not passed yet. So it is a bug"*
+- *"the noise of the red object falling from the ceiling in the corridor part of the breach level should
+  be louder"*
+
+1. **A stagger survives the seal race** (Issue 275; `creature_object12.gd`, `purge_chamber.gd`).
+   - **The cause.** 0.8 s into a held close, the race released the creature and called `force_chase()`.
+     That entered CHASE unconditionally, so a STAGGERED creature left its 5–7 s blind early. It came out
+     non-solid and tilted, because only the stagger's own recovery restores the collider and the lean.
+     It reached the doorway, jammed the leaf and killed the player.
+   - **The fix.**
+     - `force_chase()` refuses while STAGGERED. Only the stagger's recovery ends a stagger.
+     - The race never releases or charges a staggered creature: it stays purge-frozen through the whole
+       close, the door shuts on it, and it is purged.
+     - Letting go of E releases it through the ordinary roll-back, **still staggered**, and its blind
+       clock runs on.
+     - New public `is_staggered()`.
+   - **Proof:** `check_breach_seal_stagger.gd`, with the real E ray held, a real light-weapon stagger,
+     and the creature 2.0 m inside ExitVault (a jamming depth). It had 6 of 11 checks red before the
+     fix and is 11/0 after. Its control, the same depth but not blinded, still jams.
+   - **The tactic is now true:** blind it, then seal it, anywhere in ExitVault. A blind is 5–7 s and the
+     close is 1.25 s, so a stagger landed at the press always covers the close. That makes the seal
+     easier *only* for a player who used the light first. The race and its timings are unchanged.
+2. **The ceiling drop is louder** (`breach_approach.gd:_ceiling_drop`,
+   `tools/prepare_breach_user_sfx.py`).
+   - **The file is denser.** The `drop_crash` job's loudness reference went −14.71 → −10.7 dBFS RMS,
+     and the output measures RMS −11.7, peak −0.3.
+   - **Playback is hotter:** the crash at gain 3.0 with unit size 4.0, and the chain at 3.0 / 3.0.
+   - **An impact duck.** The music, vent and level beds drop to `DROP_IMPACT_DUCK_DB` **−14 dB** in
+     0.03 s at the crash, hold for `DROP_IMPACT_HOLD` 1.2 s, then return over 1.0 s. They return to the
+     threshold's own quiet level if the player is already in it.
+   - **Why the duck is the real lever.** The Master bus has a hard limiter at −0.5 dBFS, so the crash's
+     peak already hits the ceiling. Gain alone moved the loudest 0.1 s window only −7.5 → −6.2 dB.
+     Loudness past that has to come from contrast: making the room drop out under the hit.
+   - **Measured** by `probe_breach_drop_loudness.gd` (a real walk under the hatch, Master bus captured
+     in 0.1 s RMS windows):
+
+     | | background (1.5 s before) | loudest window | first 1.0 s |
+     |---|---|---|---|
+     | before | −23.7 | −7.5 | −12.7 |
+     | after | −23.1 | −6.0 | −12.9 |
+
+     The beds read −14.0 dB at +0.3 s and +1.1 s after the drop, and 0.0 again at +2.8 s. The crash now
+     peaks 17 dB over the room, against 16 dB before. The ducked room under it is what is heard as
+     "louder". The first second's average is unchanged because the duck takes out as much bed as the
+     gain adds.
+
 ### Shipped — 2026-09-24 pass 5: contained XOR killed, no frozen creature before a teleport, the technician's scream
 
 **Why.** The user's fifth hand playtest (2026-09-24, session 01:23): four J-captures, 5 deaths, then a
@@ -224,7 +274,8 @@ The user also supplied the walk-in music: `breach_corridor_music.wav`, for the c
      y 2.55–3.34), with a real hole in its underside and a hinged hatch at x −6.9.
    - **Trigger: position only.** Crossing x > −9.2 in Containment, once. Measured: it fired with the
      player at x −9.17 and the body **2.27 m ahead** (2.56 m away), 1.2 m to the side of the lane.
-   - The hatch bursts open (−118° in 0.12 s), the crash and the chain play, and the body falls 1.9 m in
+   - The hatch bursts open (−118° in 0.12 s), the crash and the chain play (the beds duck −14 dB under
+     them since pass 6), and the body falls 1.9 m in
      0.3 s, snaps taut past the chain's length and springs back. It swings mostly along the corridor
      and twists about the chain (peak 0.91 rad), and settles in ~20 s. Containment's third lamp stutters.
    - **The body is 3D parts, nothing flat:** a cocoon of capsules (ankles, legs, torso, head, upside
@@ -319,6 +370,8 @@ The user also supplied the walk-in music: `breach_corridor_music.wav`, for the c
      ends the attempt. The HUD prompt reads **"Hold E — seal the door"** (race off: the old "Press E").
    - A creature inside is purge-frozen at the press. After 0.8 s it is released and `force_chase`d, so
      it charges the doorway at the player.
+     ⚠️ **Except a staggered one** (pass 6, Issue 275): a creature the light weapon has blinded stays
+     frozen through the whole close and is sealed in. Its blind is never cut short.
    - If it comes within 0.8 m of the doorway plane first, the door **jams**: it is flung back open over
      0.4 s (`door_break`), the creature is held by the door for those 0.4 s (`force_block`), and it is
      loose. That is not a death by itself, and the door can be tried again.
@@ -1284,6 +1337,20 @@ ending at a scorched-steel Incinerator.
 
 ## DECISIONS & GOTCHAS
 
+**2026-09-24: pass 6, the blinded seal and the louder drop.**
+- **A scripted override must not bypass a state's own exit path.** `force_chase()` was the seal race's
+  way to make the creature charge, and it silently ended the one state that is a promise to the player.
+  The guard lives in `force_chase()` itself, not only in the race, so no future caller can cut a blind
+  short either. Same shape as `force_block()` (Issue 176).
+- **Rejected:** letting the race charge a staggered creature once its stagger ends mid-close. A 5–7 s
+  blind always outlasts the 1.25 s close, so the branch could never run. It would only be code to
+  misread.
+- **Not a difficulty change:** the race's times, the chase speed and the jam distance are all
+  untouched. The only difference is that the blind the HUD already announces ("IT RECOILS") now holds.
+- **Louder = contrast, not gain.** The limiter caps every one-shot at −0.5 dBFS. Any future "make X
+  louder" on this level should go through a duck (`_duck_to`) before any more gain. More gain on an
+  already-limited peak only flattens the transient.
+
 **2026-09-23: pass 4, the user's calls, and what the renders changed.**
 - **The user's words set every item** (grilled one at a time):
   - The shutter: *"Maybe the face of the creature should appear behind this room which first opens and
@@ -1627,6 +1694,11 @@ stays in SPEC.
 
 ## NEEDS A PLAYTEST
 
+- **Pass 6.**
+  - **Blind it, then seal it.** Blind Object 12 inside ExitVault and hold E. It should stay down and be
+    sealed in, even near the doorway. Let go mid-close: it should still be reeling.
+  - **The ceiling drop.** Is it loud enough now? Does the room going quiet under the crash read as a
+    hit, or as the sound cutting out?
 - **Pass 5.**
   - **The seal.** Try to die inside ExitVault while holding E, and try sealing it as it lunges: does
     each end in exactly one outcome?

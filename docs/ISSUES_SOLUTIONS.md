@@ -7066,3 +7066,38 @@ were in hand.
 **General lesson:** a single display slot fed by several writers is a last-writer-wins bug waiting for a
 second item. Derive the display from state in one function, and call it from every place that changes that
 state.
+
+## Issue 275 — A blinded Object 12 was snapped out of its stagger 0.8 s into the seal race, and killed the player at the door (2026-09-24)
+
+**Symptom:** the user, playing by hand: *"when I blinded the creature with the flashlight for 7 seconds
+in the purge room - it killed me while I was closing the door, even though 7 seconds have not passed
+yet."*
+
+**Cause:** the seal race (`purge_chamber.gd:_process`, pass 4) purge-freezes a creature inside at the
+press, then `seal_react_delay` (0.8 s) later releases it and calls `force_chase()` so it charges the
+doorway. `force_chase()` did `_enter(State.CHASE)` unconditionally, so a STAGGERED creature left its
+5–7 s blind at 0.8 s. It also came out non-solid and tilted, because only `_tick_staggered()`'s
+recovery re-enables its collider and resets its lean. It then reached the doorway, jammed the leaf, and
+the contact kill fired. Reproduced headless: `check_breach_seal_stagger` went 6 red out of 11 before
+the fix. A real light-weapon stagger with the creature 2.0 m deep gave "jam (left STAGGERED during the
+close)" and the player dead.
+
+**Fix:**
+- `force_chase()` refuses while STAGGERED. Only the stagger's own recovery ends a stagger; it is a
+  promise the level states on screen ("IT RECOILS — 6 SECONDS").
+- The race keeps a staggered creature purge-frozen through the whole close. It never releases or
+  charges it, so the door shuts on it and it is purged.
+- Letting go of E still releases it through `_race_abort`, still staggered, and its blind clock runs
+  on.
+- New public `is_staggered()`.
+- `check_breach_seal_stagger` is now 11/0. Its control (same depth, not blinded) still jams, which
+  proves the depth is a real test.
+
+**Why the tests missed it:** `check_breach_seal_race` only ever raced an *active, chasing* creature.
+None of the pass-4 tests combined the two player tools, the light weapon and the seal, even though the
+spec's own tactic ("blind it, then seal it") is exactly that combination.
+
+**General lesson:** a "force" entry point into a state machine must respect the states that are
+promises. `force_block()` had the same shape once (Issue 176). When a new system gains control over an
+existing state machine, grep which states it can override, and test it combined with every other tool
+the player holds at that moment.

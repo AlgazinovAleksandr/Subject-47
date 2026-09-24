@@ -414,7 +414,12 @@ func _process(delta: float) -> void:
 		return
 	_close_u = minf(1.0, _close_u + delta / maxf(0.05, seal_close_time))
 	_hinge.rotation_degrees.y = lerpf(-95.0, 0.0, _close_u)
-	if _race_inside and not _race_charging and _race_t >= seal_react_delay:
+	# ⚠️ A BLINDED CREATURE CANNOT REACT (2026-09-24, Issue 275). If the light weapon staggered it, it
+	# stays purge-frozen through the whole close and the door shuts on it — the blind the player paid
+	# for is honoured. (Releasing it here and force_chase-ing it is what killed the playtester at the
+	# door 0.8 s into the close.) Letting go of E still releases it via `_race_abort`, still staggered.
+	var blinded: bool = _race_inside and _creature.has_method("is_staggered") and _creature.is_staggered()
+	if _race_inside and not _race_charging and not blinded and _race_t >= seal_react_delay:
 		_race_charging = true
 		race_log.append(["charge", _race_t, _plane_distance()])
 		if _creature.has_method("unfreeze_for_purge"):

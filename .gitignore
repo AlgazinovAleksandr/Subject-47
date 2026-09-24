@@ -158,3 +158,26 @@ assets_src/models/
 !assets_src/textures/level_6_breach/breach_door_raw.jpg
 
 VIDEO_PROMPTS.md
+
+# ⭐ THE HOUSE PORCH PASS (2026-09-24, the user's call: "we do not want to commit files that are
+# not being used"). The repo ships only what the game loads. Local-only, and untracked with
+# `git rm --cached` after 9bd0f19 had committed them (their blobs stay in that commit's history):
+# - the 49 raw flux generations the porch art was cut from (tools/make_house_porch_art.py reads
+#   11 of them, so that tool cannot be re-run from a fresh clone; the finals it made are committed;
+#   prompts.txt beside them stays tracked as the provenance record);
+assets_src/textures/level_2_house/porch/*.jpg
+# - the user's 14.5 MB 24-bit master of the forest track (the game plays the .ogg made from it);
+assets_src/audio/level_2_house/dark_forest_soundtrack.wav
+# - the synthetic stand-ins the user's recordings replaced, and witch_hum (never wired);
+game/assets/audio/level_2_house/porch_forest_night.wav*
+game/assets/audio/level_2_house/window_burst.wav*
+game/assets/audio/level_2_house/guillotine_drop.wav*
+game/assets/audio/level_2_house/melon_burst.wav*
+game/assets/audio/level_2_house/ghost_woman_scream.wav*
+game/assets/audio/level_2_house/ghost_crawler_screech.wav*
+game/assets/audio/level_2_house/ghost_tall_howl.wav*
+game/assets/audio/level_2_house/witch_hum.wav*
+# - textures nothing loads: the art agent's opaque-centre hole (the level loads plaster_hole_ring)
+#   and the painted forest the tall window replaced.
+game/assets/textures/level_2_house/plaster_hole.png*
+game/assets/textures/level_2_house/forest.png*

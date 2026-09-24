@@ -431,9 +431,20 @@ func force_chase() -> void:
 		_ensure_player()
 	if not _active or not is_instance_valid(_player):
 		return
+	# ⚠️ NEVER OUT OF A STAGGER (2026-09-24, Issue 275). A blind the light weapon bought is a promise the
+	# level states out loud ("IT RECOILS — 6 SECONDS"). The seal race called this 0.8 s into a close and
+	# `_enter(CHASE)` snapped a blinded creature straight out of its 5-7 s stagger — with its collider
+	# still off and its body still tilted, because only `_tick_staggered()` restores those — and it killed
+	# the player at the door. Only the stagger's own recovery ends a stagger.
+	if _state == State.STAGGERED:
+		return
 	_last_seen_pos = _player.global_position
 	_los_lost_t = 0.0
 	_enter(State.CHASE)
+
+
+func is_staggered() -> bool:
+	return _state == State.STAGGERED
 
 
 # Put the body somewhere, facing something. `_body` is the thing that moves (Issue 10) and it is

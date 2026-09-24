@@ -25,6 +25,22 @@ it will tick once per cycle.
 
 ## 2026-09-24 — House porch pass (stand-ins)
 
+✅ **2026-09-24 (b): six of these are the user's recordings now**, under the user's own names. The
+code loads only the user's file. The stand-ins they replaced, and `witch_hum`, are **untracked and
+gitignored** (the user's rule: the repo ships only what the game loads), and the tool now writes
+only the three stand-ins still played:
+- the night outside: **`dark_forest_soundtrack.ogg`**, replacing `porch_forest_night`. The user's
+  14.5 MB `.wav` became a q6 `.ogg`; the original is in `assets_src/audio/level_2_house/`.
+- the pane bursting: **`window_glass_break.wav`**, replacing `window_burst`. It is the user's
+  `glass_break.wav`, renamed because `shared/glass_break` would have shadowed it.
+- the blade: **`guillotine.mp3`**, replacing `guillotine_drop`.
+- the melon: **`watermelon_crack.wav`**, replacing `melon_burst`.
+- all three ghosts: **`ghost_sound.wav`** at pitch 1.1 / 1.35 / 0.62, replacing the three
+  synthetic screams.
+- **`witch_scream.mp3`** is new: the witch's second glimpse, behind you in the Hallway.
+
+Still stand-ins, still wanted: `porch_wind_gust`, `guillotine_rope`, `forest_run_leaves`. The rows below for the other eight are history.
+
 ⚠️ PLACEHOLDERS at the final path, **synthesised** by `tools/make_sfx_house_porch.py` (stdlib, seeded
 per sound, 44.1 kHz 16-bit mono). The user is supplying the real ones: drop the real file over the
 `.wav` with the same base name (or as `.ogg`/`.mp3` and delete the `.wav`), `--import`, then **remove

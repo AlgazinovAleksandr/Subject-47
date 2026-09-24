@@ -102,7 +102,10 @@ func break_pane(animate: bool) -> void:
 		tw.tween_property(mi, "position", rest, t).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 		tw.tween_property(mi, "rotation", rest_rot, t)
 	if animate:
-		var s := GameState.load_audio("window_burst")
+		# ⭐ 2026-09-24 (b): the user's recording (`glass_break.wav`, renamed
+		# `window_glass_break` because `shared/glass_break` is searched first and would shadow
+		# it); the shared break only if it is ever missing.
+		var s := GameState.load_audio("window_glass_break")
 		if s == null:
 			s = GameState.load_audio("glass_break")
 		if s:

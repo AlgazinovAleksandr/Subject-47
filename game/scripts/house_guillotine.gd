@@ -159,7 +159,8 @@ func _pull() -> void:
 	tw.tween_property(_toggle, "position:y", _toggle.position.y - 0.28, PULL_TIME)
 	tw.parallel().tween_property(_rope, "scale:y", 1.2, PULL_TIME)
 	tw.tween_callback(func() -> void:
-		_play("guillotine_drop", Vector3(0, BLADE_UP_Y, BLADE_Z), 2.0))
+		# ⭐ 2026-09-24 (b): the user's `guillotine`.
+		_play("guillotine", Vector3(0, BLADE_UP_Y, BLADE_Z), 2.0))
 	tw.tween_property(_blade, "position:y", BLADE_DOWN_Y, DROP_TIME) \
 		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tw.tween_callback(_on_blade_down)
@@ -168,7 +169,8 @@ func _pull() -> void:
 
 
 func _on_blade_down() -> void:
-	_play("melon_burst", Vector3(0, LUNETTE_Y, 0), 2.0)
+	# The user's `watermelon_crack` is quiet (mean −31.6 dBFS, peak −5), hence +8.
+	_play("watermelon_crack", Vector3(0, LUNETTE_Y, 0), 8.0)
 	_fruit.visible = false
 	_lay_halves(true)
 	_spawn_cutters()
@@ -394,7 +396,7 @@ func _play(base: String, local_pos: Vector3, db: float) -> void:
 	p.stream = s
 	p.volume_db = db
 	p.unit_size = 6.0
-	p.max_db = 6.0
+	p.max_db = maxf(6.0, db + 2.0)
 	p.position = local_pos
 	add_child(p)
 	p.finished.connect(p.queue_free)

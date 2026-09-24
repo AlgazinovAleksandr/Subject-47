@@ -5,6 +5,40 @@
 ## SPEC
 
 **Level 2 — The House (abandoned domestic interior)** — rebuilt procedurally (Session 10)
+- ⭐⭐ **2026-09-24 (b): THE FIRST NOTE MOVES TO THE BEDROOM; THE USER'S SOUNDS GO IN.**
+  - **The first safe note (digit 4) moves from the Living Room to the Bedroom's north wall**
+    (the user: the Living Room now holds the way to the forest, and the Bedroom, with its bed and
+    the child's drawing, was left with nothing once the cutters left). It is renamed
+    `SafeNote_Living` → `SafeNote_First`. Each room now has a job: the Living Room has the
+    window and the forest, the Bedroom has digit 4.
+  - **The user's recordings replace the stand-ins, outright.** The code loads only the user's
+    file; the stand-ins it replaced, and the unused `witch_hum`, are **untracked and gitignored**
+    (the user: *"we do not want to commit files that are not being used"*), and
+    `make_sfx_house_porch.py` now writes only the three stand-ins still played
+    (`porch_wind_gust`, `guillotine_rope`, `forest_run_leaves`):
+    | beat | user file | replaces |
+    |---|---|---|
+    | the night outside | `dark_forest_soundtrack` (50 s stereo) | `porch_forest_night` |
+    | the pane bursts | `window_glass_break` (the user's `glass_break.wav`, renamed because `shared/glass_break` shadows the same base name) | `window_burst` |
+    | the blade drops | `guillotine` | `guillotine_drop` |
+    | the melon bursts | `watermelon_crack` | `melon_burst` |
+    | every ghost run-by | `ghost_sound`, pitched per kind | the three synthetic screams |
+    | the witch's second glimpse | `witch_scream` | — (**new**: this glimpse is no longer silent) |
+
+    The soundtrack becomes **one non-positional** player instead of two positional beds: two
+    unsynchronised copies of a musical track would clash. It keeps the same outside / through
+    the broken window / through the glass gain offsets. The witch screams from **behind you in the
+    Hallway** the moment glimpse 2 is placed, so the sound is what turns you round to see her.
+    Still zero panic.
+  - The user's `dark_forest_soundtrack.wav` (14.5 MB, 24-bit/48 kHz) ships as a q6 `.ogg`
+    (2.4 MB); the original is kept at `assets_src/audio/level_2_house/`. Its gain is
+    `FOREST_TRACK_DB` −8. `watermelon_crack` is quiet (mean −31.6 dBFS), so it plays at +8 dB;
+    `witch_scream` is hot (mean −5.6), so `WITCH_SCREAM_DB` is 0.
+  - **What proves it:** `check_house_porch.gd` §0 (82 checks now): every one of the six base
+    names resolves to the user's file; `ForestNight` is one `AudioStreamPlayer` on the user's
+    track; `SafeNote_First` is in the Bedroom on its north wall and nothing is named
+    `SafeNote_Living`; glimpse 2 leaves a `WitchScream` player within 2 m of her. The render
+    `07_bedroom` (`screenshot_level.gd`) shows the page on the north wall.
 - ⭐⭐ **2026-09-24: THE PORCH, THE FOREST, THE GUILLOTINE AND THE WITCH** (the user's design,
   Granny-referenced, grilled 2026-09-24 — `backlogs/02-house-porch.md`). **Replaced** the bolt
   cutters under the Bedroom bed (`_spawn_cutters`, `_tick_cutters`, `CUTTERS_PITCH_DEG`,
@@ -30,7 +64,8 @@
     unchanged in its numbers (≤ `FOREST_SCARE_DIST` 1.5 m of the glass's centre →
     `flash_scare(screamer_forest)` + jolt + `FOREST_SCARE_PANIC` 25). **0.6 s after the flash
     CLEARS** (`FOREST_SCARE_HOLD` 0.8 + `WINDOW_BREAK_DELAY` 0.6, a non-pausing-through timer) the
-    pane **bursts inward**: `window_burst` (fallback `glass_break`), a `porch_wind_gust` loop at
+    pane **bursts inward**: the user's `window_glass_break` (fallback the shared
+    `glass_break`; 2026-09-24 b), a `porch_wind_gust` loop at
     the opening, the collider is freed, and 18 shards + 7 splinters land on the living-room floor
     (visual only — no collider, so nothing to trip on). Any burst, including the silent restore
     one, sets `_forest_fired`: a spent window can never re-fire the face on the deck.
@@ -86,7 +121,8 @@
     riding IN FRONT of the lunette, a bascule bench, a rope over a pulley to a toggle, and a wicker
     basket). EMPTY → LOADED → CUT → DONE, with a `prompt_text()` per state. With the fruit, E sets
     it in the lunette (where it reads as a head); a second E pulls the rope (`guillotine_rope`), the
-    blade drops (`guillotine_drop`, 0.16 s), the fruit bursts (`melon_burst`) into two halves, flesh
+    blade drops (the user's `guillotine`; 0.16 s), the fruit bursts
+    (the user's `watermelon_crack`) into two halves, flesh
     up — one in the basket, one on the bench — and a compact `BoltCutters` (`size_scale` 0.55,
     0.31 m) lies in the basket for a third E. E while EMPTY without the fruit repeats the red
     thought, throttled to `PORCH_SCRAWL_REPEAT` 4 s. **No fail state: it can never hurt you.**
@@ -94,8 +130,8 @@
     It is journal-archived and is **neither a safe note nor a trap** (named `WitchNote`, never
     connected to `_on_safe_note_read`; `SAFE_NOTES_TOTAL` stays 3). Text: *"An old woman lives in
     this house. She follows you everywhere, even when you think you are alone. Do not look for her.
-    She likes to hide things inside fruit."* **Three one-shot, silent, zero-panic `Watcher`
-    glimpses** (`house_witch.png`, 1.65 m):
+    She likes to hide things inside fruit."* **Three one-shot, zero-panic `Watcher` glimpses**
+    (`house_witch.png`, 1.65 m), silent except the second, which screams (2026-09-24 b):
     1. note read, window not yet broken, in the Living Room facing the glass: she stands in the
        yard on the view line through it (x −17.5…−21). ⚠️ The **one** `require_los = false` call
        in this level, with `watcher.gd`'s required argument: its own LOS ray would stop on the
@@ -114,8 +150,10 @@
   - **The carried HUD** is `_refresh_carried()`, which rewrites the whole line from state and
     joins every held item: `cellar key · watermelon · bolt cutters` (the cutters only while the
     fridge they exist for is still chained). This fixed a latent overwrite (below).
-  - **`SafeNote_Living` moved to the living room's NORTH wall centre** (it was the west wall's
-    centre — exactly where the window is now, i.e. read with your face inside `FOREST_SCARE_DIST`).
+  - ~~**`SafeNote_Living` moved to the living room's NORTH wall centre**~~ — superseded the same
+    day by 2026-09-24 (b): it is `SafeNote_First` on the **Bedroom's** north wall. (It had left
+    the living room's west wall because the window took that spot: read there, your face would
+    be inside `FOREST_SCARE_DIST`.)
   - **Save/restore** gains `window_broken`, `porch_visited`, `painting_armed` / `painting_fallen`
     (**no longer derived from `guest_stage`** — `_force_guest_stages` does not touch the painting),
     `melon_state` (wall | held | placed | cut) and `witch_note` / `witch_glimpses`;
@@ -495,6 +533,40 @@ place. Verified against the code before moving; the winning statement is named o
   `# ---- apparition` section of `level_2.gd` is now a comment block explaining that the scripted
   HOLD apparition is gone (the director's random one stays upstairs).
 
+### The user's sounds and the first note (2026-09-24 b)
+
+- **`glass_break` could not keep its name.** `GameState.load_audio()` walks `AUDIO_SUBDIRS` in
+  order and `shared` comes first, so a `level_2_house/glass_break.wav` would never load:
+  `shared/glass_break.wav` answers first. It was renamed `window_glass_break`, and
+  `check_house_porch.gd` §0 asserts each user base name resolves to the user's own path. That is
+  the only check that can see a shadowed name; the sound still plays either way, just the wrong
+  one.
+- **The soundtrack is one 2D player, not the stand-in's two 3D beds.** The stand-in was noise, and
+  two unsynchronised positional copies of noise read as one space. Two copies of a track with a
+  melody in it read as two radios. The outside / broken-window / glass gain offsets
+  (`_tick_outdoor_audio`) carry over unchanged. The price is that the track no longer pans with
+  the player's head; accepted, because it is a bed.
+- **The witch screams on glimpse 2, not 1 or 3** (the user supplied `witch_scream` without placing
+  it). Glimpse 2 is the one spawned *behind* you, so a scream is the only way it is ever seen: it
+  is what turns you round. Glimpse 1 is framed by the window and glimpse 3 by the tree line, and
+  both are already in view. `witch_hum` stays unwired.
+- **The first note went to the Bedroom, not back to the Living Room.** It was the user's call: the
+  Living Room holds the forest now, and the Bedroom had lost its only purpose when the cutters
+  left the bed. The node was renamed `SafeNote_First`. `safe_notes` snapshots store node names, so
+  a snapshot taken before the rename would not recognise the note, but snapshots are per session,
+  so nothing persisted can hold the old name.
+- **The repo ships only what the game loads (2026-09-24 b, the user's rule).** Untracked with
+  `git rm --cached` after `9bd0f19` had committed and pushed them, and gitignored:
+  - the 49 raw porch generations;
+  - the user's 14.5 MB forest master (the game plays the `.ogg`);
+  - the eight replaced or unwired stand-ins;
+  - `plaster_hole.png` (the level loads `plaster_hole_ring.png`);
+  - the painted `forest.png`.
+
+  Their bytes stay in `9bd0f19`'s history; only a rewrite of a pushed branch would reclaim them.
+  ⚠️ Consequence: `tools/make_house_porch_art.py` cannot be re-run from a fresh clone. The
+  finals it made are committed, and `prompts.txt` records how they were made.
+
 ## NEEDS A PLAYTEST
 
 Claims the code cannot settle. Nothing here is a defect — it is what a hand-play or a harness re-run
@@ -525,7 +597,13 @@ has to answer before SPEC can state it flatly.
   among the trunks, measured faint even with `set_glow` 0.6. And the trunks are plain 14 m
   cylinders under billboard canopies — a forest of poles, or a forest?
 - **The witch's three glimpses.** Placement is verified by the harness; whether a silent figure at
-  14 m through the glass, or behind you in the Hallway, is ever NOTICED is a playtest question.
+  14 m through the glass is ever NOTICED is a playtest question. Glimpse 2 now screams from behind
+  you in the Hallway: does the scream turn the player round in time to see her before she vanishes
+  (`vanish_within` 5 m)?
+- **The user's sounds in the mix (2026-09-24 b).** Gains were set from measured loudness, not by
+  ear: the forest track at −8 on AMBIENCE, the glass at +4, the melon at +8, the witch at 0, and
+  `ghost_sound` pitched 1.1 / 1.35 / 0.62 for the woman / crawler / tall one. Does one recording
+  pitched three ways still read as three different things?
 - **The cellar beartrap on the forced-blind entry line.** The user's decision, and it fired in both
   playtest sessions. Now that the blackout also *pins* the player, the collision's shape has changed
   and wants re-observing.

@@ -196,6 +196,8 @@ const GUILLOTINE_AT := Vector3(-10.35, 0.0, 7.75)
 const FOREST_RATE_EDGE := 3.5    # ⚠️ DELIBERATE — the user's call 2026-09-24 (= PANIC_DECAY_RATE)
 const FOREST_RATE_DEEP := 5.5    # ⚠️ DELIBERATE — the user's call 2026-09-24
 const FOREST_DEEP := 20.0        # ⚠️ DELIBERATE — the user's call 2026-09-24
+# The user's night track, full outside; −8 dB through the broken window, −18 through the glass.
+const FOREST_TRACK_DB := -8.0
 
 # The ghosts: zero panic, no collider, no rules — pictures that run and scream (DoorLunger).
 const GHOST_GAP_MIN := 6.0
@@ -205,22 +207,23 @@ const GHOST_RUN_HALF := Vector2(3.5, 5.0)
 const GHOST_FAN_DEG := 25.0
 const GHOST_KINDS := [
 	{ "kind": "woman", "tex": "forest_ghost_woman.png", "height": 1.75, "speed": 5.5,
-		"sound": "ghost_woman_scream", "near": 8.0, "far": 14.0 },
+		"pitch": 1.1, "near": 8.0, "far": 14.0 },
 	{ "kind": "crawler", "tex": "forest_ghost_crawler.png", "height": 0.95, "speed": 7.0,
-		"sound": "ghost_crawler_screech", "near": 8.0, "far": 13.0 },
+		"pitch": 1.35, "near": 8.0, "far": 13.0 },
 	# The forest creature from the window scare, far off.
 	# ⚠️ `glow`: its cutout averages 38/255 and at 16 m among dark trunks it measured as nearly
 	# nothing in the render (screenshot_house_porch.gd, 12_ghost_tall) — DoorLunger.set_glow, the
 	# Lab wing's Issue-208 knob, below 1.0 (Issue 21).
 	{ "kind": "tall", "tex": "forest_ghost_tall.png", "height": 3.1, "speed": 3.0,
-		"sound": "ghost_tall_howl", "near": 14.0, "far": 19.0, "glow": 0.6 },
+		"pitch": 0.62, "near": 14.0, "far": 19.0, "glow": 0.6 },
 ]
 
-# The witch: a note and three silent, zero-panic glimpses. She NEVER moves toward you, chases or
+# The witch: a note and three zero-panic glimpses (the second one screams — 2026-09-24 b). She NEVER moves toward you, chases or
 # kills (SCARY §8.4 — the Breach stays the only chase level).
 const WITCH_TEX := TEX + "house_witch.png"
 const WITCH_HEIGHT := 1.65
 const WITCH_RETRY := 0.3
+const WITCH_SCREAM_DB := 0.0     # the user's witch_scream is already hot (mean −5.6 dBFS)
 const WITCH_2_PATIENCE := 20.0   # glimpse 2 needs the Hallway BEHIND you; past this it is dropped
 const WITCH_1_SPOTS_X := [-19.0, -21.0, -17.5]   # along the view line through the glass
 const WITCH_2_SPOTS := [Vector3(0, 0, 4.2), Vector3(0, 0, 5.4), Vector3(0.5, 0, 4.6),
@@ -293,7 +296,7 @@ var _witch_unseen_t: float = 0.0
 var _witch_2_wait: float = -1.0             # >= 0 while glimpse 2 is pending
 var _witch_3_pending: bool = false
 var _witch_logged: Dictionary = {}
-var _forest_beds: Array = []                # [AudioStreamPlayer3D, base_db] — the night outside
+var _forest_beds: Array = []                # [player (2D or 3D), base_db] — the night outside
 
 
 func _ready() -> void:
@@ -785,12 +788,14 @@ func _add_fixture(lamp: OmniLight3D, color: Color) -> StandardMaterial3D:
 
 func _spawn_notes() -> void:
 	# Three safe notes — one digit each (code 472). The third is in the cellar.
-	# ⭐ 2026-09-24: on the living room's NORTH wall (its centre — the wall has no doorway). It was
-	# the WEST wall's centre, which is exactly where the tall window is now: a note there would be
-	# read with your face at the glass, inside FOREST_SCARE_DIST, i.e. the scare would fire over
-	# the page. The north wall is 3.4 m from the window centre.
-	_safe_1 = _make_note(_builder.wall_point("LivingRoom", Vector2(0, 1), 1.4, 0.13), PI,
-		"The first number is scratched by the door frame. It is 4.", false, "SafeNote_Living")
+	# ⭐ 2026-09-24 (b): the first note hangs in the BEDROOM, on its north wall's centre (an outside
+	# wall with no doorway; the bed is on the west, the child's drawing on the south, the doorway on
+	# the east). The user: the Living Room now holds the way to the forest, and the Bedroom — its
+	# bed and drawing — was left with nothing once the cutters moved to the guillotine. It was on
+	# the Living Room's west wall until the tall window took that spot, then briefly on its north
+	# wall. Renamed SafeNote_Living -> SafeNote_First.
+	_safe_1 = _make_note(_builder.wall_point("Bedroom", Vector2(0, 1), 1.4, 0.13), PI,
+		"The first number is scratched by the door frame. It is 4.", false, "SafeNote_First")
 	# H2 (2026-09-13): the second digit is no longer a page on the Bedroom wall — it is written
 	# on the forehead of the head in the chained fridge (see _tick_head_digit). The user: "one
 	# number is hard to get — while the others are just there".
@@ -1027,24 +1032,24 @@ func _spawn_porch() -> void:
 
 	_ghost_clock = randf_range(GHOST_GAP_MIN, GHOST_GAP_MAX)
 
-	# The night outside: one bed on the porch, one out in the trees. Faint through the glass,
-	# fuller once it is broken, full outside (`_tick_outdoor_audio`). Every .wav/.ogg here imports
-	# loop_mode=0, so the loop is restarted in code.
-	var s := GameState.load_audio("porch_forest_night")
-	if s:
-		for spec in [[Vector3(-10.5, 1.8, 6.0), -10.0, 5.0, 18.0], [Vector3(-26.0, 2.5, 6.0), -6.0, 10.0, 30.0]]:
-			var a := AudioStreamPlayer3D.new()
-			a.name = "ForestNight"
-			a.stream = s
-			a.volume_db = float(spec[1]) - 18.0
-			a.unit_size = float(spec[2])
-			a.max_distance = float(spec[3])
-			a.bus = AudioBuses.AMBIENCE
-			a.position = spec[0]
-			add_child(a)
-			a.finished.connect(a.play)
-			a.play()
-			_forest_beds.append([a, float(spec[1])])
+	# The night outside. Faint through the glass, fuller once it is broken, full outside
+	# (`_tick_outdoor_audio`). Every .wav/.ogg here imports loop_mode=0, so the loop is restarted
+	# in code.
+	# ⭐ 2026-09-24 (b): the user's `dark_forest_soundtrack` (50 s, stereo, musical) is ONE
+	# non-positional player — two unsynchronised positional copies of a track with a melody in it
+	# would clash. (The synthetic `porch_forest_night` stand-in and its two positional beds were
+	# retired with it: the repo ships only what the game plays.)
+	var track := GameState.load_audio("dark_forest_soundtrack")
+	if track:
+		var m := AudioStreamPlayer.new()
+		m.name = "ForestNight"
+		m.stream = track
+		m.volume_db = FOREST_TRACK_DB - 18.0
+		m.bus = AudioBuses.AMBIENCE
+		add_child(m)
+		m.finished.connect(m.play)
+		m.play()
+		_forest_beds.append([m, FOREST_TRACK_DB])
 
 
 # The witch's note, on a small side table a few steps ahead of the spawn in the Entry Hall.
@@ -1372,13 +1377,16 @@ func _spawn_ghost(k: int, a: Vector3, b: Vector3, p: CharacterBody3D) -> void:
 		mat.uv1_scale = Vector3(-1, 1, 1)
 	g.flee_to(b, float(spec["speed"]), 2.0)
 	var voices: Array[AudioStreamPlayer3D] = []
-	for v in [[String(spec["sound"]), 0.0, 7.0, float(spec["height"]) * 0.7],
-			["forest_run_leaves", -6.0, 4.0, 0.2]]:
+	# ⭐ 2026-09-24 (b): every kind screams with the user's `ghost_sound`, pitched per kind
+	# (`pitch`: the woman a little up, the crawler higher, the tall one far down).
+	for v in [["ghost_sound", 0.0, 7.0, float(spec["height"]) * 0.7, float(spec["pitch"])],
+			["forest_run_leaves", -6.0, 4.0, 0.2, 1.0]]:
 		var s := GameState.load_audio(String(v[0]))
 		if s == null:
 			continue
 		var ap := AudioStreamPlayer3D.new()
 		ap.stream = s
+		ap.pitch_scale = float(v[4])
 		ap.volume_db = float(v[1])
 		ap.unit_size = float(v[2])
 		ap.max_db = 4.0
@@ -1569,6 +1577,25 @@ func _witch_placed(n: int, w: Watcher, p: CharacterBody3D) -> void:
 	w.name = "Witch%d" % n
 	_log("WITCH glimpse %d at %s  (player at %s)" % [n, w.global_position.snappedf(0.1),
 		p.global_position.snappedf(0.1)])
+	# ⭐ 2026-09-24 (b): glimpse 2 — the one placed BEHIND you in the Hallway — screams, with the
+	# user's `witch_scream`, from where she stands. The sound is what turns you round; the figure
+	# is what you find. Zero panic, like every glimpse. The player is left at the level (not the
+	# Watcher) so the scream is not cut off when she vanishes on approach.
+	if n == 2:
+		var s := GameState.load_audio("witch_scream")
+		if s:
+			var a := AudioStreamPlayer3D.new()
+			a.name = "WitchScream"
+			a.stream = s
+			a.volume_db = WITCH_SCREAM_DB
+			a.max_db = WITCH_SCREAM_DB + 4.0
+			a.unit_size = 5.0
+			a.max_distance = 40.0
+			add_child(a)
+			a.global_position = w.global_position + Vector3(0, WITCH_HEIGHT * 0.85, 0)
+			a.finished.connect(a.queue_free)
+			a.play()
+			_log("WITCH glimpse 2 screams")
 
 
 func _witch_postponed(n: int) -> void:
@@ -1601,7 +1628,7 @@ func _tick_outdoor_audio(delta: float) -> void:
 	var open := is_instance_valid(_window) and _window.is_broken()
 	var offset := 0.0 if outside else (-8.0 if open else -18.0)
 	for b in _forest_beds:
-		var a: AudioStreamPlayer3D = b[0]
+		var a = b[0]      # AudioStreamPlayer (the user's track) or AudioStreamPlayer3D
 		a.volume_db = move_toward(a.volume_db, float(b[1]) + offset, 12.0 * delta)
 
 
@@ -2099,8 +2126,8 @@ func _spawn_room_props() -> void:
 	_spawn_bathroom_map(bc)
 	# Bedroom: a bed, plus the child's crayon drawing — which swapped places with the falling
 	# painting on 2026-08-16 (capture B4; see _spawn_cursed_props for why). SOUTH wall: the
-	# east wall is the Bedroom's only doorway, the note with digit 2 is on the north, the bed
-	# is on the west.
+	# east wall is the Bedroom's only doorway, the first note (digit 4, SafeNote_First) is on the
+	# north, the bed is on the west.
 	var bd: Vector3 = _builder.room_center("Bedroom")
 	_build_bed(Vector3(bd.x - 1.6, 0.0, bd.z), Vector2(2.0, 1.4))
 	# ⭐ 2026-09-24: nothing under the bed any more. The bolt cutters are inside the watermelon

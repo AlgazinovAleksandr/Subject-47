@@ -157,6 +157,29 @@ func _slope(start: float, sec: float) -> float:
 func _run() -> void:
 	await _load()
 
+	# ----------------------------------------------------------------- 0. the user's sounds + note 1
+	# ⭐ 2026-09-24 (b): the user's recordings must resolve to THEIR files, not to a stand-in or to
+	# a same-named file in another folder (`shared/glass_break` shadowed the user's glass_break —
+	# load_audio searches `shared` first — which is why it is `window_glass_break` now).
+	print("--- 0. the user's sounds, the first note ---")
+	for pair in [["dark_forest_soundtrack", "level_2_house/dark_forest_soundtrack.ogg"],
+			["window_glass_break", "level_2_house/window_glass_break.wav"],
+			["guillotine", "level_2_house/guillotine.mp3"],
+			["watermelon_crack", "level_2_house/watermelon_crack.wav"],
+			["ghost_sound", "level_2_house/ghost_sound.wav"],
+			["witch_scream", "level_2_house/witch_scream.mp3"]]:
+		var st: AudioStream = _gs.call("load_audio", String(pair[0]))
+		_ok("load_audio('%s') is the user's file" % pair[0],
+			st != null and st.resource_path.ends_with(String(pair[1])), st.resource_path if st else "null")
+	var fn := _l.get_node_or_null("ForestNight")
+	_ok("the night outside is the user's track, one non-positional player",
+		fn is AudioStreamPlayer and (fn as AudioStreamPlayer).stream.resource_path.ends_with("dark_forest_soundtrack.ogg"))
+	var n1 := _l.get_node_or_null("SafeNote_First") as Node3D
+	_ok("the first note (digit 4) hangs on the Bedroom's north wall",
+		n1 != null and bool(_l.call("_in_room", n1.global_position, "Bedroom")) and n1.global_position.z > 15.0,
+		str(n1.global_position.snappedf(0.01)) if n1 else "missing")
+	_ok("…and nothing is left in the Living Room by the old name", _l.get_node_or_null("SafeNote_Living") == null)
+
 	# ----------------------------------------------------------------- 1. the witch's note
 	print("--- 1. the witch's note ---")
 	var wn := _l.get_node_or_null("WitchNote") as Node3D
@@ -376,6 +399,10 @@ func _run() -> void:
 		w2 != null and w2.global_position.z < 8.0 and absf(w2.global_position.x) < 1.2,
 		str(w2.global_position.snappedf(0.1)) if w2 else "no figure")
 	_ok("…zero panic", _panic() < 0.05, "%.3f" % _panic())
+	var ws := _l.get_node_or_null("WitchScream") as AudioStreamPlayer3D
+	_ok("…and she SCREAMS (the user's witch_scream), from behind you",
+		ws != null and w2 != null and ws.global_position.distance_to(w2.global_position) < 2.0,
+		"no scream player" if ws == null else str(ws.global_position.snappedf(0.1)))
 	var snap_held: Dictionary = _l.call("save_progress")
 
 	# ----------------------------------------------------------------- 7. the guillotine

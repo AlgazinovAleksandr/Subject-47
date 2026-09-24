@@ -227,6 +227,8 @@ const SHUTTER_WINDOW := Vector3(-62.4, 1.3, -45.0)   # bay B's glass, for "is th
 # ahead and 1.2 m to the side of the walking line (z -26), where it can swing without touching it.
 const DROP_TRIGGER_X := -9.2
 const DROP_PIVOT := Vector3(-6.9, 2.55, -24.8)
+const DROP_IMPACT_DUCK_DB := -14.0   # the beds dip under the crash (2026-09-24, "should be louder")
+const DROP_IMPACT_HOLD := 1.2
 const DROP_LAMP_ENERGY := 1.1                   # the work lamp on his chain (legibility, not a difficulty number)
 # The fused technician, on the Plenum's east wall north of the collapse, where the player must look.
 const TECH_WALL_X := -26.0
@@ -1665,8 +1667,16 @@ func _ceiling_drop() -> void:
 	drop_distance = Vector2(body_at.x - eye.x, body_at.z - eye.z).length()
 	_drop_body.visible = true
 	_drop_solid.set_deferred("disabled", false)
-	_one_shot(DROP_PIVOT, load(AUD + SND_DROP_CRASH + ".wav"), MASTER, 2.0, 4.0, 40.0)
-	_one_shot(DROP_PIVOT + Vector3(0, -0.3, 0), load(AUD + SND_DROP_CHAIN + ".wav"), MASTER, 0.0, 3.0, 30.0)
+	# ⭐ 2026-09-24, the user's call ("should be louder"): the crash file is denser (+4 dB RMS,
+	# tools/prepare_breach_user_sfx.py), +1 dB here, and the chain +3 dB (probe_breach_drop_loudness.gd).
+	_one_shot(DROP_PIVOT, load(AUD + SND_DROP_CRASH + ".wav"), MASTER, 3.0, 4.0, 40.0)
+	_one_shot(DROP_PIVOT + Vector3(0, -0.3, 0), load(AUD + SND_DROP_CHAIN + ".wav"), MASTER, 3.0, 3.0, 30.0)
+	# ⭐ …AND CONTRAST, because the impact already hits the Master limiter (-0.5 dBFS ceiling; measured
+	# loudest window -6.2 dB at the listener), so it cannot get louder in absolute terms. Everything the
+	# approach owns (music, vent, level beds) drops DROP_IMPACT_DUCK_DB in 0.03 s and climbs back over
+	# 1 s: the Screamer's lesson — the dip before the hit is worth more than any re-master.
+	_duck_to(DROP_IMPACT_DUCK_DB, 0.03)
+	_at(DROP_IMPACT_HOLD, func() -> void: _duck_to(THRESHOLD_DUCK_DB if _threshold_quiet else 0.0, 1.0))
 	var tw := create_tween()
 	_tweens.append(tw)
 	tw.tween_property(_drop_hatch, "rotation:z", deg_to_rad(-118.0), 0.12).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)

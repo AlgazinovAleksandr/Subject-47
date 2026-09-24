@@ -524,9 +524,11 @@ def witch_hum():
     write("witch_hum.wav", out, -10.0)
 
 
-SOUNDS = [porch_forest_night, window_burst, porch_wind_gust, guillotine_rope, guillotine_drop,
-          melon_burst, ghost_woman_scream, ghost_crawler_screech, ghost_tall_howl,
-          forest_run_leaves, witch_hum]
+# ⭐ 2026-09-24 (b): only the three stand-ins the game still plays. The others were replaced by
+# the user's recordings (dark_forest_soundtrack, window_glass_break, guillotine, watermelon_crack,
+# ghost_sound) or never wired (witch_hum); their functions stay below as reference, and their old
+# outputs are gitignored so a stray run cannot put them back in the repo.
+SOUNDS = [porch_wind_gust, guillotine_rope, forest_run_leaves]
 
 
 def main():
