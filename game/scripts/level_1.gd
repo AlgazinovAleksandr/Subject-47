@@ -93,6 +93,14 @@ var _dark_breaker_pos: Vector3
 var _in_breaker_nook: bool = false
 var _beacons: Array[AudioStreamPlayer3D] = []
 
+# ⭐ 2026-09-24 (the user's call): the nook panel shines faintly, but ONLY while the player is
+# inside BreakerNook itself — "just a slight shine so that you can see it in the dark, but only
+# when you get to the final room". Everywhere else it stays as dark as Issues 62/63 made it.
+# `_nook_glow` is the 0..1 fade fed to Breaker.set_glow(); the throw snaps it to 0.
+const NOOK_GLOW_FADE := 1.5
+var _nook_breaker: Breaker = null
+var _nook_glow: float = 0.0
+
 # The BreakerNook payoff (see _on_nook_breaker_flipped). Flipping the nook's breaker
 # starts a scripted, SURVIVABLE scare on a timer.
 var _nook_scare_done: bool = false
@@ -771,6 +779,7 @@ func _spawn_power_quest() -> void:
 	# necessarily the one standing in the dark.
 	dark.flipped.connect(_on_nook_breaker_flipped)
 	add_child(dark)
+	_nook_breaker = dark
 	_spawn_dark_beacon(dark_pos)
 	_spawn_wing_meter(dark_pos)
 	_spawn_breaker_nook_zone()
@@ -1582,6 +1591,37 @@ func _in_wing() -> bool:
 	return false
 
 
+# True only inside BreakerNook's own ROOMS rect — deliberately WITHOUT `_in_wing()`'s 0.3 m
+# margin, so the panel does not start to shine while the player is still on Shaft's side of
+# the doorway.
+func _in_nook_room() -> bool:
+	var p := _player()
+	if p == null:
+		return false
+	var pos := p.global_position
+	for r in ROOMS:
+		if String(r["name"]) != "BreakerNook":
+			continue
+		var c: Vector2 = r["pos"]
+		var s: Vector2 = r["size"]
+		return absf(pos.x - c.x) <= s.x * 0.5 and absf(pos.z - c.y) <= s.y * 0.5
+	return false
+
+
+# Fades the nook panel's glow in over NOOK_GLOW_FADE while the player is in the room, and out
+# when they leave. A thrown breaker never glows (that also covers a back-door restore, where
+# set_already_flipped() is the only thing that ran).
+func _tick_nook_glow(delta: float) -> void:
+	if not is_instance_valid(_nook_breaker):
+		return
+	var target := 1.0 if (_in_nook_room() and not _nook_breaker.is_flipped()) else 0.0
+	var k := move_toward(_nook_glow, target, delta / NOOK_GLOW_FADE)
+	if k == _nook_glow:
+		return
+	_nook_glow = k
+	_nook_breaker.set_glow(k)
+
+
 # ⚠️ THE SAME FOUR CONDITIONS `apparition_director.gd:_can_fire()` USES, and for the same
 # reasons: a HOLD apparition KILLS YOU FOR FLEEING, so it must not materialise at a moment when
 # the player cannot demonstrate that they are standing their ground. A tree pause or an open
@@ -1677,6 +1717,7 @@ func _process(delta: float) -> void:
 	_tick_pipes(delta)
 	_drive_lights(delta)
 	_tick_dark_breaker_tell(delta)
+	_tick_nook_glow(delta)
 	_tick_nook_breath()
 	_tick_nook_watch(delta)
 	_tick_wing_meter(delta)
@@ -1917,6 +1958,10 @@ func _on_nook_breaker_flipped() -> void:
 			b.stop()
 			b.queue_free()
 	_beacons.clear()
+	# The panel's shine dies with the hum — no fade, it is the equipment going dead.
+	_nook_glow = 0.0
+	if is_instance_valid(_nook_breaker):
+		_nook_breaker.set_glow(0.0)
 	# The meter reads the hum. There is no hum now.
 	if is_instance_valid(_wing_meter):
 		_wing_meter.set_active(false)

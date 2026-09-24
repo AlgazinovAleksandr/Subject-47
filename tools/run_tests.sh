@@ -138,7 +138,7 @@ TESTS=(
   check_interact_reach        # L6/L7 props answer E from a real distance, aiming at the ART
   check_lab_locker            # Lab locker gate + NO_LAMP_ROOMS stay dark
   check_lab_breaker_gate      # a partly-shoved locker must not SHOW or hand over the breaker
-  check_nook_dark             # the nook breaker panel is no brighter than its wall
+  check_nook_dark             # the nook breaker panel is no brighter than its wall; glows only inside the nook
   check_lab_cabinet           # the Records bank is a search: 8 drawers, 1 page, no penalty
   check_lab_hint              # the Lab's hint props are actually visible
   check_note_mounting         # ALL NINE levels: every note/panel is on a wall, not in a doorway

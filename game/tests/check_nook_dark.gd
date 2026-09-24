@@ -32,6 +32,12 @@ extends SceneTree
 #
 # Both are read from the shipping material, never typed in, so retuning the tint retunes the
 # test with it.
+#
+# ⭐ 2026-09-24 (the user's call): the panel now shines faintly — but ONLY while the player is
+# INSIDE BreakerNook. Everything above is checked at spawn and still has to hold; the second
+# half walks the player Shaft -> nook -> Shaft -> nook -> throw and asserts the glow is off
+# outside the room, on (and no more than Breaker.GLOW_MAX) inside it, fades out on leaving, and
+# dies the instant the lever is thrown.
 
 # Fraction of texels allowed above this sRGB luminance. The raw asset was 20.05 % near-white.
 const NEAR_WHITE := 0.90
@@ -44,6 +50,16 @@ const BORDER_MEAN_MAX := 0.45
 var _frame := 0
 var _fails := 0
 var _checks := 0
+
+# The walk: [label, where to stand (x, z), seconds to stay]. Shaft is the room the nook opens
+# off; its centre is 4.4 m from the nook's and on the far side of the doorway.
+const SHAFT := Vector2(-57.0, 12.1)
+const NOOK := Vector2(-57.0, 16.5)
+const SETTLE := 2.0
+var _phase := -1
+var _t := 0.0
+var _breaker: Node = null
+var _player: Node3D = null
 
 
 func _initialize() -> void:
@@ -135,10 +151,26 @@ func _load_src(mat: StandardMaterial3D) -> Image:
 	return Image.load_from_file(path)
 
 
-func _process(_delta: float) -> bool:
+func _emission(b: Node) -> float:
+	var panel := _find(b, func(n: Node) -> bool: return n is CSGBox3D) as CSGBox3D
+	var m := _mat_of(panel) if panel else null
+	if not m or not m.emission_enabled:
+		return 0.0
+	return m.emission_energy_multiplier
+
+
+func _stand(at: Vector2) -> void:
+	_player.global_position = Vector3(at.x, 0.1, at.y)
+	if _player is CharacterBody3D:
+		(_player as CharacterBody3D).velocity = Vector3.ZERO
+
+
+func _process(delta: float) -> bool:
 	_frame += 1
 	if _frame < 8:
 		return false
+	if _phase >= 0:
+		return _walk(delta)
 
 	print("--- nook breaker: darker than the wall it hangs on ---")
 	var scene := current_scene
@@ -222,7 +254,71 @@ func _process(_delta: float) -> bool:
 		float(lit["p999_linear"]) > float(w["p999_linear"]),
 		"lit p99.9 %.4f vs wall %.4f — if this fails, the two checks above prove nothing"
 			% [lit["p999_linear"], w["p999_linear"]])
-	return _finish()
+
+	_breaker = breaker
+	_player = _find(scene, func(n: Node) -> bool: return n.is_in_group("player")) as Node3D
+	_ok("the player exists to walk the nook", _player != null)
+	if not _player:
+		return _finish()
+	print("--- the nook panel shines, but only inside the nook ---")
+	_phase = 0
+	_t = 0.0
+	_stand(SHAFT)
+	return false
+
+
+# Keeps the player pinned on the mark (nothing else is driving them) and checks each leg once
+# it has had SETTLE seconds — longer than the level's 1.5 s fade.
+func _walk(delta: float) -> bool:
+	_t += delta
+	# Read off the live instance's script: naming `Breaker` here would compile breaker.gd
+	# before the autoloads exist (it references GameState) and fail the whole test.
+	var gmax: float = float((_breaker.get_script() as Script).get_script_constant_map()["GLOW_MAX"])
+	match _phase:
+		0:
+			_stand(SHAFT)
+			if _t < SETTLE:
+				return false
+			_ok("standing in Shaft, one room out, the panel does not glow",
+				_emission(_breaker) == 0.0, "emission %.4f" % _emission(_breaker))
+			_phase = 1
+			_t = 0.0
+		1:
+			_stand(NOOK)
+			if _t < SETTLE:
+				return false
+			var e := _emission(_breaker)
+			_ok("inside BreakerNook the panel glows", e > 0.0, "emission %.4f" % e)
+			_ok("and no brighter than the breaker's GLOW_MAX", e <= gmax + 0.0001,
+				"%.4f <= %.4f" % [e, gmax])
+			_phase = 2
+			_t = 0.0
+		2:
+			_stand(SHAFT)
+			if _t < SETTLE:
+				return false
+			_ok("walking back out into Shaft it fades off again", _emission(_breaker) == 0.0,
+				"emission %.4f" % _emission(_breaker))
+			_phase = 3
+			_t = 0.0
+		3:
+			_stand(NOOK)
+			if _t < SETTLE:
+				return false
+			_ok("back in the nook it glows again (the fade is not one-shot)",
+				_emission(_breaker) > 0.0, "emission %.4f" % _emission(_breaker))
+			_breaker.call("interact")
+			_ok("the instant the lever is thrown the glow is gone", _emission(_breaker) == 0.0,
+				"emission %.4f" % _emission(_breaker))
+			_phase = 4
+			_t = 0.0
+		4:
+			if _t < SETTLE:
+				return false
+			_ok("and it stays gone while you stand in front of the thrown breaker",
+				_emission(_breaker) == 0.0, "emission %.4f" % _emission(_breaker))
+			return _finish()
+	return false
 
 
 func _finish() -> bool:
