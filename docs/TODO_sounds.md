@@ -23,6 +23,31 @@ it will tick once per cycle.
 
 ---
 
+## 2026-09-24 — House porch pass (stand-ins)
+
+⚠️ PLACEHOLDERS at the final path, **synthesised** by `tools/make_sfx_house_porch.py` (stdlib, seeded
+per sound, 44.1 kHz 16-bit mono). The user is supplying the real ones: drop the real file over the
+`.wav` with the same base name (or as `.ogg`/`.mp3` and delete the `.wav`), `--import`, then **remove
+that name from `SOUNDS` in the tool**, or the next run of it silently overwrites the real recording.
+Levels are the tool's own measurements (peak / loudest-300 ms, dBFS) — set a caller's `volume_db`
+from those, not from a guess. The bus/volume column is a suggestion for the code, not a measurement.
+
+| File (in `game/assets/audio/level_2_house/`) | What it is | Real-sound prompt (for a sound designer / AI generator) | Stand-in (measured) | Suggested bus / volume |
+|---|---|---|---|---|
+| `porch_forest_night.wav` | The porch bed: the pine forest at night — ⚠️ a **seamless 20 s loop** | "Seamless 20-second loop, night pine forest ambience: low wind breathing through tall pines, needles hissing in slow swells, one distant trunk creak, no birds, no insects, no music, dark and lonely" | brown-noise wind + a breathing needle-hiss band, two low creaks at 6.3 s and 14.1 s; filtered circularly, every modulation a whole number of cycles, so the seam is clean. Peak −12, loudest −23.6 | Master, 2D bed, about −6 dB, restarted on `finished` |
+| `window_burst.wav` | The window blowing in | "Violent close glass window shattering inward, heavy impact then a long rain of glass shards falling on wooden floorboards, 2 seconds, dry, no reverb tail" | the shared `glass_break.wav` layered under a thump, a broadband crack and a dense rain of short inharmonic shard tinkles thinning over 1.8 s. Peak −3, loudest −7.5 | Master, 0 dB (a sting); 3D at the window if positional |
+| `porch_wind_gust.wav` | A cold gust through the broken window | "Single cold winter wind gust swelling through a broken window then dying away, whistling edge, 4 seconds, no rain" | a band-passed noise rush rising 350 → 1250 Hz and a narrow whistle band + tone, 1.4 s up, 2.6 s away. Peak −6, loudest −17.9 | Master, about −4 dB |
+| `guillotine_rope.wav` | The guillotine's rope being pulled up through its pulley | "Old hemp rope hauled through a rusty wooden pulley, creaking and squeaking, ending in a sharp iron catch clicking into place, 1 second" | a stick-slip pulse train through two pulley resonances + rope rustle, then a three-partial metal clack at 0.84 s. Peak −3 (the clack), loudest −22.4 | 3D, 0 dB |
+| `guillotine_drop.wav` | The blade dropping and hitting the block | "Heavy guillotine blade released: a fast rising metal scrape down wooden grooves, then a massive deep wooden thunk and a short ringing of the blade, 1.5 seconds" | a noise band and a screech both rising in pitch for 0.58 s, then a pitch-dropping 48 Hz thunk, a wood knock and a blade ring; tanh. Peak −3, loudest −8.3 | 3D, +2 dB (or Master, 0 dB if it must dominate) |
+| `melon_burst.wav` | The watermelon splitting under the blade | "Watermelon smashed and split open: a hard rind crack, then a wet juicy burst and splatter of pulp and juice onto wood, 1.5 seconds, gross, close" | a click and a hollow knock, a swell of low wet noise, then a rain of short resonant squelch drops thinning over 1.2 s; tanh. Peak −3, loudest −12.7 | 3D, 0 dB |
+| `ghost_woman_scream.wav` | The running ghost woman's scream | "Shrill piercing scream of a terrified woman, raw and cracking, strong vibrato, slightly inhuman, heard outdoors in a forest at night, 2.5 seconds" | an additive formant voice, f0 620 → 1000 Hz with 6.3 Hz vibrato and jitter, "aah" opening to "eeh", breath edge, tanh, a little reverb. Peak −3, loudest −8.7 | 3D on the ghost, 0 dB, unit size large so it carries |
+| `ghost_crawler_screech.wav` | The all-fours crawler's cry | "Guttural animal-like screech from an emaciated crawling creature: wet throat clicks, a low rattling growl rising into a harsh high shriek, 2 seconds" | a rough 88 Hz growl + sub-octave, a harsh 1.25–1.55 kHz formant screech from 0.55 s to 1.6 s, and an irregular train of hard resonant clicks throughout; tanh. Peak −3, loudest −10.7 | 3D on the crawler, 0 dB |
+| `ghost_tall_howl.wav` | The tall ghost's howl | "Very low, slow, inhuman howl of an enormous creature far off in a pine forest, a deep moan rising and falling, long echoing decay, 4 seconds" | two detuned additive "oo" voices at 52–78 Hz + a sub-octave + low breath, a long Schroeder tail. Peak −4, loudest −13.3. ⚠️ Mostly below 300 Hz — inaudible on laptop speakers | 3D, +3 dB, large attenuation distance |
+| `forest_run_leaves.wav` | Fast footfalls running through dry leaves (a ghost passing) | "Fast running footsteps through dry leaves and pine needles on a forest floor, 2 seconds, about seven steps, close then passing" | nine steps ~0.23 s apart, each a low thud + a cloud of 22–40 tiny dry crackles. Peak −5, loudest −24.6 | 3D on the runner, about +4 dB |
+| `witch_hum.wav` | The witch humming to herself | "Very quiet frail old woman humming a slow wavering minor lullaby through closed lips, breathy, unsteady pitch, close and intimate, 5 seconds, no words" | two slightly detuned nasal "mmm" voices sliding through A3 C4 B3 A3 G♯3 A3 with a wobbling 4.6 Hz vibrato, breath noise, a small room. Peak −10, loudest −15.4 | 3D on the witch, about −6 dB, small unit size so it is heard only close |
+
+---
+
 ## Requested 2026-09-23 (Level 6 — the approach, pass 4): placeholders at the user's fixed paths
 
 ⚠️ PLACEHOLDERS at the final path, from `tools/make_sfx_breach_pass4.py` (ffmpeg copies). Replace the file at

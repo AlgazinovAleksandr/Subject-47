@@ -4,7 +4,7 @@
 
 ## SPEC
 
-### 🔨 PLANNED — 2026-09-24 pass 5: contained XOR killed, no frozen creature before a teleport, the technician's scream
+### Shipped — 2026-09-24 pass 5: contained XOR killed, no frozen creature before a teleport, the technician's scream
 
 **Why.** The user's fifth hand playtest (2026-09-24, session 01:23): four J-captures, 5 deaths, then a
 real seal and the exit. Verbatim:
@@ -55,6 +55,62 @@ real seal and the exit. Verbatim:
   the mix.
 - Plus the full suite.
 
+**As built** (level-improver, 2026-09-24):
+1. **Contained XOR killed** (`purge_chamber.gd`, `level_6_breach.gd`).
+   - The level's `_death_claimed()`: its kill sequence is live, or ANY death transition is current (a
+     panic death goes through Screamer and takes the same transition). The purge chamber gets it as
+     `death_check`, and the level calls `_purge_chamber.abort_for_death()` the instant
+     `_on_contact_death()` takes the fatal transition.
+   - Aborting stops a held race close (the leaf stays where it is), and every timer callback
+     (`_confirm_trap`, `_run_purge_sequence`, `_finish_purge`) carries the generation it was scheduled
+     in, so a stale one does nothing. `interact()` refuses after an abort. `_on_creature_trapped()`
+     ignores a trap under a claimed death. No "SEALED", no `creature_defeated`.
+   - The reverse holds by construction: the race's shut `freeze_for_purge()`s Object 12 in the same
+     frame, and the chamber checks for a claimed death at the top of every frame before it can shut,
+     so within a frame the first outcome wins.
+   - Measured (`check_breach_contained_xor_killed`, the real E ray and the real chase, the player 2.2 m
+     inside the vault): **contact during the close** — killed at 0.97 s, the close never shut, no
+     SEALED; **the seal as it lunges** — shut at 1.27 s with Object 12 1.53 m from the player, SEALED
+     and contained, no death; **a death claimed during the pending confirm** — the chamber aborted, no
+     SEALED.
+2. **Never motionless before a teleport** (`creature_object12.gd`, gated on `forget_hidden_player and
+   relocate_when_lost`, which only the Breach sets).
+   - Arriving at a search point, the Breach's creature no longer stands turning for `SEARCH_TIME`: it
+     walks to a neighbouring room (never the hidden player's), then another, while the SAME timer runs;
+     at `SEARCH_TIME` the same give-up fires (a new roam destination for a hidden player,
+     `_relocate_near_player()` otherwise), and `HIDDEN_RELOCATE_INTERVAL` relocations are untouched.
+   - Measured (`check_breach_search_motion`): a hidden player's roam over 31 s, 3 relocations, the
+     longest still window **0.10 s** (it was 4.5 s before a relocation); the post-hide loss, the
+     longest still **0.08 s** before the teleport (it was **8.0 s**). With the Matron's flags the same
+     creature still stands scanning for 8.0 s, as before.
+3. **The technician: at once, the scream, the whisper** (`breach_approach.gd`).
+   - "E — take the wheel" answers the moment he is looked at, even with the victim scene still playing.
+     That scene's one-shots go through `_victim_shot()` and **duck 14 dB** under his beat
+     (`VICTIM_TECH_DUCK`); they are never cut.
+   - On E: the grip, then at 0.5 s his eyes open **with the user's scream**
+     (`approach_technician_scream.wav`, 2.27 s, from his head), then at 3.0 s the whisper (still the TTS
+     placeholder), then the release at 5.75 s (*CARRYING: THE VALVE WHEEL*) and the eyes close at 6.3 s.
+   - The music ducks 14 dB (`MUSIC_WHISPER_DUCK`) and the beds 4 dB (`BED_PA_DUCK`) under the whole beat.
+   - **The scream's gain is measured** (`probe_breach_music_mix.gd`, the player at `TECH_STOP`, the
+     victim scene still playing): at `TECH_SCREAM_DB` −2 dB it is **−14.8 dB RMS** at the listener
+     (loudest 0.1 s window −12.7), **11.4 dB over everything else** in that moment (−26.2), and **4.0 dB
+     under the kill sting** (`level_6_jumpscare`, flat at −8 dB: −10.8). At −10 dB it measured −22.8,
+     only 3.4 dB over the mix.
+4. **Pass 4's leftovers** are in the pass-4 entry below: the face on the FIRST opening, the relief-depth
+   checks, and the write-up of the shutter reversal and the 3D relief.
+   - The painted open eyes were brightened and widened after the scream-moment render: at 1.5 m, at the
+     game's half-scale 3D, the first cut vanished in the lamp's brow shadow.
+
+**Proof.**
+- `check_breach_contained_xor_killed.gd` (new, 7 checks) and `check_breach_search_motion.gd` (new, 6
+  checks), both in the suite, both proven to fail with their fix removed.
+- `check_breach_porthole.gd` (67): the prompt AT ONCE with the victim scene playing, the scream with
+  the eyes, the whisper after it, the victim duck at −14 dB, the steps in order.
+- `check_breach_approach.gd` (96): the route with `technician_scream` and `technician_whisper` as
+  sequence steps.
+- Renders: `backlogs/captures/breach-2026-09-23-pass4/03e_fused_face_1p5m_eyes_OPEN.png` and `03f_…`
+  (the scream moment).
+
 ### Shipped — 2026-09-23 pass 4: the shutter face, the ceiling drop, the fused technician, the walk-in music, a harder hunt
 
 **Why.** The user's third hand playtest (2026-09-23, session 17:40, six J-captures). They finished the
@@ -101,7 +157,8 @@ The user also supplied the walk-in music: `breach_corridor_music.wav`, for the c
      relief, so the flatness stops being a problem.
    - He moves away from the porthole door to the other side of the room, so the player searches for
      the handle.
-   - The grip, the eyes-open swap, the whisper and the story-channel wait are kept.
+   - The grip, the eyes-open swap, the whisper and the story-channel wait are kept. (⭐ Pass 5 dropped
+     the wait: he answers at once and the victim scene ducks; his scream comes before the whisper.)
    - ⭐ Corrected by the user after the renders: he holds **the whole valve wheel**, not the handle, and
      is life size and flush with the wall (see "As built" item 3).
 4. **The walk-in music** (the user's `breach_corridor_music.wav`, 72 s, 6-channel, 96 kHz, 24-bit,
@@ -214,8 +271,9 @@ The user also supplied the walk-in music: `breach_corridor_music.wav`, for the c
      behind him is the user's `growth_spread.jpg`, keyed and faded radially, alpha-blended.
    - **His light**: a caged lamp on a bracket above him (a shadowed spot, energy 2.6, 44°) aimed down
      across his face to his chest; a faint cool fill.
-   - The grip, the eye swap, the whisper and the story-channel wait are pass 3's. On a straight walk he
-     answers **7.2 s** after the player reaches his wall.
+   - The grip, the eye swap and the whisper are pass 3's. (Pass 4 kept pass 3's wait for the story
+     channel, 7.2 s on a straight walk; ⭐ pass 5 dropped it — he answers at once, the victim scene
+     ducks under his beat, and his eyes open with the user's scream before the whisper.)
    - He is solid (a box from the floor to his head, 24 cm deep), and E anywhere on him takes the wheel.
 4. **The walk-in music** (`approach_corridor_music.ogg`, 70.26 s, −14.4 LUFS, made by the parent's
    `tools/prepare_breach_music.py`), **the lead layer**. ⭐ **Corrected after the user watched the
@@ -426,6 +484,7 @@ Threshold → bulkhead.
        outside the eyes.
      - **He does not answer until the story channel is idle.** The victim sequence behind this very
        door plays first; on a straight walk he answers ~11.5 s after the player reaches the door.
+       ⚠️ **Superseded by pass 5:** he answers at once, and the victim scene ducks under his beat.
      - **Taking the handle (E):** the dead hand pulls it back twice (~0.5 s), the eyes OPEN at 0.50 s,
        and a close hoarse whisper plays from his head, *"don't… go in there…"*. The grip lets go at
        3.23 s and `set_carried("A WHEEL HANDLE")`. The eyes close for good at 3.78 s. It happens once.
@@ -1130,7 +1189,9 @@ ending at a scorched-steel Incinerator.
   **CHASE follows the player through the doorway graph regardless of gaze** — the opposite of `creature_stalker.gd`'s
   "freeze while observed" rule, which would let a persistent chaser be cheesed by simply staring at
   it. Losing sight of an exposed player enters `SEARCH`, walks to the last-seen position and scans
-  there for `SEARCH_TIME=8s`. **Entering a hiding spot instead clears that memory and starts
+  there for `SEARCH_TIME=8s`. (⭐ Since pass 5 the Breach's creature keeps WALKING to neighbouring
+  rooms through that 8 s instead of standing, and the same give-up/relocation follows; the Matron still
+  scans in place.) **Entering a hiding spot instead clears that memory and starts
   random wandering**, per the 2026-09-20 user ruling above. `CHASE_SPEED=5.0` sits
   deliberately between the player's walk (4.0) and sprint (6.4) — beatable only by sprinting, which
   costs `SPRINT_PANIC_RATE`. ⭐ **The Breach runs it at 5.5 since pass 4** (`BREACH_CHASE_SPEED`, the
@@ -1277,7 +1338,22 @@ ending at a scorched-steel Incinerator.
     bare spindle), he became life size (the old relief made his head 0.57 m across), the relief moved to
     the wall plane with growth over its edges, and a caged lamp above him lights him. The body art was
     not regenerated (no flux quota); see the as-built text.
-- **2026-09-24, three more of the user's calls:**
+- - **2026-09-24, pass 5, in the user's words:**
+  - **"It is either contained and you can get out or you get killed."** The first outcome wins. The
+    playtest's double outcome (killed at 314.58, SEALED at 316.93, then the restart) was the player
+    killed INSIDE ExitVault while their held E ran the close on, and the purge's timers finished the
+    win under the death (Issue 272).
+  - **"Change nothing about this, the only thing I wanted is to avoid the situation when the object is
+    not moving at all before teleporting."** Only the arrival behaviour changed, gated on the Breach's
+    flags; `SEARCH_TIME`, `HIDDEN_RELOCATE_INTERVAL`, detection and relocation did not move (Issue 273).
+  - **"Take the wheel button is not active at first. Let's make it active straight away"** and
+    **"after we press an E something like a scream of this man should appear, followed by this 'Don't
+    go in there'".** The victim scene ducks rather than gating him.
+  - **Difficulty is kept as it is** (the user's call): chase 5.5 and `SEAL_RACE` on, with 5 deaths in
+    the playtest, 4 of them inside ExitVault. Do not retune them from this playtest.
+  - ⚠️ The open eyes at 1.5 m are small: a life-size face's eyes are ~3 cm, and the game renders 3D at
+    half scale on HiDPI. The scream now carries the moment; the eyes open visibly but subtly.
+**2026-09-24, three more of the user's calls:**
   - **The technician is the user's own art.** The user generated five candidates with flux and chose
     D (a realistic technician pressed into the wall, swallowed below the waist, hands in an empty
     grip); A, B, C and E are kept as raws. The spread and flesh textures are the user's too, replacing
@@ -1322,7 +1398,8 @@ ending at a scorched-steel Incinerator.
   pass 4), and "no
   item puzzle" (now the handle). **"No new panic terms" is reversed for the dark room only**, and the
   term there is capped so it cannot kill.
-- **The technician waits for the story channel.** A straight walk reaches the door while the victim
+- **The technician waits for the story channel** (⚠️ reversed by pass 5 at the user's word: he answers
+  at once and the victim scene ducks instead). A straight walk reaches the door while the victim
   is still hammering behind it, and the whisper under the roar was inaudible. He answers when the drag
   has gone, ~11.5 s after the door is reached (pass 4 moved him to the far wall: ~7.2 s after his wall
   is reached). ⚠️ If that wait reads as a broken prop, the lever is to
@@ -1550,6 +1627,13 @@ stays in SPEC.
 
 ## NEEDS A PLAYTEST
 
+- **Pass 5.**
+  - **The seal.** Try to die inside ExitVault while holding E, and try sealing it as it lunges: does
+    each end in exactly one outcome?
+  - **The creature after you hide.** Does it keep prowling instead of standing, and does the teleport
+    still land where you have time to move?
+  - **The technician.** Does E work the moment you reach him, does the scream land (loud, but not the
+    kill sting), and is "don't… go in there…" still heard after it? Do you notice his eyes open?
 - **Pass 4, walk it straight, then slowly.**
   - **The shutter face** (reversed: the FIRST opening shows it, when you look). Did you see it? Did the
     quiet stare frighten, or read as a statue? A player who never looks at bay B never sees it open.

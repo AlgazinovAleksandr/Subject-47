@@ -32,6 +32,16 @@ edge, no single-vertex spikes), its aspect against its texture's (`check_art_asp
 no sphere mass or 3D limbs, and the wheel between the painted fists at their DISPLACED depth, with the grip
 UVs checked against the art's skin texels.
 
+`check_breach_contained_xor_killed.gd` (pass 5, 7 checks) stages the seal race with the player INSIDE
+ExitVault and Object 12's real chase: contact during the close must be a death only (no shut, no SEALED, no
+trap signal); a seal that shuts as it lunges must be SEALED only (no death); a death claimed during the pending
+confirm must leave the purge doing nothing. Issue 272.
+
+`check_breach_search_motion.gd` (pass 5, 6 checks) samples Object 12's position every physics frame through a
+hidden player's roam (31 s, ≥ 2 relocations) and a post-hide loss up to its teleport: no still window (< 5 cm)
+of 1.5 s or more, before a teleport or anywhere; and with the Matron's flags it still stands scanning ≥ 5 s.
+Issue 273.
+
 `probe_breach_music_mix.gd` (pass 4, a probe, not in the suite) MEASURES the approach's mix at the listener on
 a real walk: every speaker is re-routed onto a meter bus with an `AudioEffectCapture`, and it prints per-class
 RMS (music, beds, PA, whisper, story) as power averages and medians. Headless works (the Dummy driver mixes),
@@ -532,3 +542,35 @@ immediately after (peaks 55 % and 45 %). It is the one Void row that is not dete
 is a re-run first and a finding only if it repeats. The hazard it walks through is Issue 239's (creature E
 at the child room's doorway). Expected suite reds owned by the parallel Breach session as of
 2026-09-23: `check_darkness`, `check_art_aspect` (a bulkhead face 1.44× stretched), `check_fixtures`.
+
+### The House's Porch pass (2026-09-24) — `check_house_porch.gd`
+
+`check_house_porch.gd` (72 checks, ~150 s — the longest House row, because the forest clock's time to
+death is measured in REAL time) drives the new digit-2 chain end to end through the shipping paths: the
+witch's note through the E ray (archived, not counted as a safe note); glimpse 1 beyond the glass; a
+player-sized capsule query AND a real `AutoPlayer` walk both stopped by the window's `Pane`; the forest
+scare at 1.5 m (+25, unchanged), the pane still present under the 0.8 s flash and gone ~0.6 s after it
+clears (a physics ray passes); a real walk out onto the deck; the first-visit scrawl counted ON SCREEN
+once and never again; the guaranteed tree-line ghost; E on the empty lunette re-thinking the thought; the
+clock's slope measured on the deck (−3.50 /s), at the tree line (+0.06), at 20 m (+2.00), at the deepest
+reachable point (+2.00, capped) and frozen (−3.49); 0 → death 25.0 s; ghost cadence (5 in 40 s, gaps
+7.6–10.0) and zero panic with three ghosts in view; the painting → hole → fruit through the ray; glimpse 2
+behind you; EMPTY → LOADED → CUT → cutters through the ray; glimpse 3; every new save key; three snapshots
+(held / placed / done) reloaded through the level's own `_restore_progress()`; the fridge chain cut with
+the restored cutters. **Proved it can fail**: one run with three mutations — the burst suppressed, the
+clock charging 3.5 /s everywhere, the watermelon left off the carried line — went red on 19 checks, each
+where it should (restored, green). ⚠️ It disarms the level's `ApparitionDirector`, its random blackout
+clock and the global `RandomAmbient` scheduler, and says so: one `RandomAmbient` +12 inside a 2 s window
+read as "+8.00 /s". Any panic-slope measurement in this level must do the same. ⚠️ A first version
+measured the death time at `Engine.time_scale` 4 and got 20.8 s against a 1x slope of exactly +2.00 —
+the harness measuring its own clock; it is real time now. `screenshot_house_porch.gd` (needs a display)
+photographs every porch state and prints the interior darkness with the moon on vs off: 0.00 per-pixel
+contribution on four interior poses outside the window opening (HUD line and crosshair masked — the
+first run measured them at 178/255 and blamed the moon). Also moved: `check_window.gd` (rewritten for
+the west window, with physics rays for the pane, the lintel and the burst), `check_reachable.gd`
+(`HouseWindow` and `HouseWatermelon` gates, both through the level's own `move_aside_instantly()`), and
+`check_prop_mounting.gd`'s House floor 9 → 5 (the deleted window was six flat panels to it).
+⚠️ `check_shell_sealed.gd`'s per-floor-level zones are a GRID LOTTERY on the cellar ramp: its 1.5 m grid
+is phased off the scene's CSG extent, and the ramp's standable band is 1.2 m wide, so a CSG porch roof
+reaching x −12.35 (instead of −12.0) put zero samples on the ramp and turned the sweep red for a level
+nobody had touched there. The roof became a body; the fragility is filed in the backlog's Deferred.

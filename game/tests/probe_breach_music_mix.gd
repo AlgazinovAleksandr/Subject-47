@@ -19,7 +19,7 @@ extends SceneTree
 # Levels are RMS dBFS over 0.1 s windows, power-averaged per class; LUFS would read a few dB
 # different, but every comparison here is relative, which is what the mix targets are.
 const SCENE := "res://scenes/level_6_breach.tscn"
-const METERS := ["M_Music", "M_Amb", "M_Lvl", "M_PA", "M_Whisper", "M_Story"]
+const METERS := ["M_Music", "M_Amb", "M_Lvl", "M_PA", "M_Whisper", "M_Story", "M_Scream", "M_Kill"]
 const WIN := 0.1
 var _level: Node
 var _player: CharacterBody3D
@@ -94,6 +94,8 @@ func _route() -> void:
 			to = "M_PA"
 		elif path.contains("approach_whisper"):
 			to = "M_Whisper"
+		elif path.contains("approach_technician_scream"):
+			to = "M_Scream"
 		elif not _approach.is_ancestor_of(p) and p.bus == "Master":
 			to = "M_Lvl"
 		elif p.bus == "Ambience":
@@ -200,6 +202,15 @@ func _run() -> void:
 	music = _approach.get("_music")
 	var still := is_instance_valid(music) and music.playing
 	print("MUSIC at the Threshold +4 s: playing %s" % still)
+	# the kill sting as `breach_kill_sequence.gd` plays it (flat, -8 dB, Master): the scream's ceiling
+	var kill := AudioStreamPlayer.new()
+	kill.stream = load("res://assets/audio/level_6_breach/level_6_jumpscare.wav")
+	kill.volume_db = -8.0
+	kill.bus = "M_Kill"
+	kill.set_meta("probe_bus", "M_Kill")
+	_level.add_child(kill)
+	kill.play()
+	await _wait(2.0)
 	_report()
 	quit(0)
 
@@ -237,6 +248,19 @@ func _report() -> void:
 			_pavg(rows, "M_Whisper"), _pavg(rows, "M_Story"), _pavg(rows, "total")])
 	print("     beds between beats = approach Ambience speakers %.1f + the level's own beds %.1f" % [_pavg(idle, "M_Amb"), _pavg(idle, "M_Lvl")])
 	print("MIX  between beats: music - beds = %+.1f dB (target +3..+4)" % (_pavg(idle, "M_Music") - _pavg(idle, "beds")))
+	var scream := _windows.filter(func(w): return w["M_Scream"] > -45.0)
+	var killw := _windows.filter(func(w): return w["M_Kill"] > -45.0)
+	if not scream.is_empty():
+		var rest := []
+		for w in scream:
+			var o: float = pow(10.0, w["M_Music"] / 10.0) + pow(10.0, w["beds"] / 10.0) + pow(10.0, w["M_Story"] / 10.0) + pow(10.0, w["M_Whisper"] / 10.0) + pow(10.0, w["M_PA"] / 10.0)
+			rest.append({"o": _db(o)})
+		print("MIX  the technician's SCREAM: %.1f dB RMS (n=%d, loudest window %.1f)   everything else then %.1f   music then %.1f   beds %.1f   the victim scene %.1f" % [
+			_pavg(scream, "M_Scream"), scream.size(), scream.map(func(w): return w["M_Scream"]).max(), _pavg(rest, "o"),
+			_pavg(scream, "M_Music"), _pavg(scream, "beds"), _pavg(scream, "M_Story")])
+	if not killw.is_empty():
+		print("MIX  the KILL STING (flat, -8 dB): %.1f dB RMS (n=%d, loudest window %.1f)" % [_pavg(killw, "M_Kill"), killw.size(),
+			killw.map(func(w): return w["M_Kill"]).max()])
 	print("MIX  PA lines: PA - music = %+.1f dB (target >= +6)" % (_pavg(pa, "M_PA") - _pavg(pa, "M_Music")))
 	print("MIX  whisper: whisper - music = %+.1f dB (target >= +6)" % (_pavg(whisper, "M_Whisper") - _pavg(whisper, "M_Music")))
 	print("MIX  other story: story - music = %+.1f dB" % (_pavg(story, "M_Story") - _pavg(story, "M_Music")))

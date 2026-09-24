@@ -162,8 +162,13 @@ func _process(delta: float) -> bool:
 			for x in nodes2:
 				if x.get_script() != null \
 						and String(x.get_script().resource_path).ends_with("note.gd") \
-						and not bool(x.get("is_trap")):
+						and not bool(x.get("is_trap")) \
+						and String(x.name).begins_with("SafeNote_"):
 					safe.append(x)
+			# ⭐ 2026-09-24: by NAME, not "every non-trap note" — the witch's note (Entry Hall, the
+			# Porch pass) is a journal page that is neither a safe note nor a trap, and the level's own
+			# counter (`_on_safe_note_read`) refuses anything not named SafeNote_*. This file must pick
+			# the notes the same way the level does, or it counts a page the lamp never will.
 			# H2 (2026-09-13): TWO wall pages now — the third digit is on the head in the
 			# chained fridge and registers by gaze (`_mark_safe_note("SafeNote_Head")`).
 			_ok("House: found the two safe wall notes", safe.size() == 2,

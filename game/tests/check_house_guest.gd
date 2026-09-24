@@ -6,7 +6,8 @@ extends SceneTree
 #   Godot --headless --path game --script res://tests/check_house_guest.gd
 #
 # The ladder:
-#   1 map solved    -> the FALLING PAINTING goes face-down on the floor
+#   1 map solved    -> (nothing since 2026-09-24 — the first PORCH VISIT arms the painting now,
+#                      and it still falls only when seen; the hole + watermelon are behind it)
 #   2 key taken     -> (nothing changes in the house)
 #   3 cellar opened -> arms the cellar sequence
 #   4 note read     -> the music box has moved to the Hallway, still playing
@@ -257,9 +258,18 @@ func _process(delta: float) -> bool:
 		# are different claims and the shipped build only ever proved the first: the replay
 		# log has the painting hitting the floor 1.5 s after the key was taken, in a room the
 		# player did not enter for another ~130 s, through the Landing's south wall.
+		# ⭐ 2026-09-24 (the Porch pass): the MAP no longer arms it — the first porch visit does,
+		# because the painting now hides the watermelon the porch's guillotine is waiting for.
 		_scene.call("_advance_guest", 1)
-		_ok("stage 1 ARMS the painting rather than dropping it",
+		_ok("stage 1 (the map) no longer arms the painting",
+			not _flag("_painting_armed") and not _flag("_painting_fallen"))
+		_scene.call("_on_first_porch_visit")
+		_ok("the first porch visit ARMS the painting rather than dropping it",
 			_flag("_painting_armed") and not _flag("_painting_fallen"))
+		var hole := _scene.get_node_or_null("PlasterHole") as Node3D
+		var melon := _scene.get_node_or_null("HouseWatermelon")
+		_ok("before the fall the hole is hidden and the fruit is inert",
+			hole != null and not hole.visible and melon != null and not bool(melon.call("can_interact")))
 		print("  -- the painting falls only when it can actually be SEEN --")
 		# (a) In the Landing: the right heading, but out of range and behind a wall.
 		_stand(Vector3(0.85, 0.1, 13.0), Vector3(0.85, 1.5, 19.0))
@@ -291,6 +301,12 @@ func _process(delta: float) -> bool:
 	elif _stage == 92 and _t > 0.4:
 		_ok("it DOES fall when the player walks up to the exit lock",
 			_flag("_painting_fallen"), "at %v" % _player.global_position.snappedf(0.01))
+		# ⭐ 2026-09-24: behind it, the ragged hole with the watermelon in it.
+		var hole2 := _scene.get_node_or_null("PlasterHole") as Node3D
+		var melon2 := _scene.get_node_or_null("HouseWatermelon")
+		_ok("the fall reveals the hole behind the painting", hole2 != null and hole2.visible)
+		_ok("…and the watermelon in it becomes interactable",
+			melon2 != null and bool(melon2.call("can_interact")))
 		_stage = 1
 		_t = 0.0
 

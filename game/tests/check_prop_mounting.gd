@@ -106,7 +106,13 @@ const CONFIG := {
 		"filed": {},
 	},
 	"SCENE_LEVEL_1": {"min_props": 10, "min_free": 2, "filed": {}},
-	"SCENE_LEVEL_2": {"min_props": 9, "min_free": 4, "filed": {}},   # H2 (2026-09-13): SafeNote_Bedroom became the digit on the fridge head
+	# H2 (2026-09-13): SafeNote_Bedroom became the digit on the fridge head.
+	# ⭐ 2026-09-24 (the Porch pass): 9 -> 5, measured 6. The old north-wall window was SIX flat
+	# panels to this file (the painted forest, the glass and four frame bars, each a separate
+	# child of the level 0.15 m off the wall) and it is deleted; the new window is one
+	# `HouseWindow` prop 1.4 m deep, i.e. furniture here. And the falling painting now hangs over
+	# the hole it hides, so its back gap is the recess (0.34 m) and it counts as free-standing.
+	"SCENE_LEVEL_2": {"min_props": 5, "min_free": 4, "filed": {}},
 	"SCENE_CORRIDOR": {
 		# The Corridor's own convention, and its own guard's numbers, unchanged.
 		"min_gap": 0.005, "max_gap": 0.045, "require_wall": true, "near_wall": 0.80,

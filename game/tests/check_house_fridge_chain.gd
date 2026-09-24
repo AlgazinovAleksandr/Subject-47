@@ -1,14 +1,17 @@
 extends SceneTree
 
-# H2 (2026-09-13): the House's third digit is on the head in the CHAINED fridge; the bolt cutters
-# are under the Bedroom bed, seen only with the torch aimed at the floor.
+# H2 (2026-09-13): the House's third digit is on the head in the CHAINED fridge.
+# ⭐ 2026-09-24 (the Porch pass): the bolt cutters are no longer under the Bedroom bed — they come
+# out of the watermelon in the porch guillotine's basket. This file only needs them IN HAND, so it
+# puts the guillotine in its CUT state by the level's own restore path and then takes the cutters
+# through the shipping E ray; `check_house_porch.gd` walks the whole chain that gets them there.
 #
 #   Godot --headless --path game --script res://tests/check_house_fridge_chain.gd
 #
 #   * the Bedroom wall note is gone; SAFE_NOTES_TOTAL is still 3
 #   * E on the chained fridge opens nothing (and the chain is still there)
-#   * the cutters are invisible from standing height and found by the shipping ray from the
-#     bed's foot with the camera pitched down
+#   * nothing is under the Bedroom bed any more; the cutters lie in the guillotine's basket once
+#     the fruit is cut, and the shipping ray takes them from the deck
 #   * with the cutters in hand E cuts the chain; the fridge then opens; looking at the head for
 #     HEAD_READ_TIME registers SafeNote_Head and archives it
 #   * a snapshot round trip carries fridge_chained / cutters_held / the head digit
@@ -65,20 +68,27 @@ func _process(delta: float) -> bool:
 			_fridge.call("interact")
 			_ok("E on the chained fridge opens nothing", not bool(_fridge.call("is_open")))
 			_ok("…and the chain is still on it", _fridge.get_node_or_null("Chain") != null)
-			# The cutters: invisible from standing height at the bed's foot.
-			var c := _lvl.get_node_or_null("BoltCutters") as Node3D
-			_ok("the cutters exist under the Bedroom bed", c != null)
+			# The cutters: not under the bed any more (the Porch pass).
+			_ok("nothing lies under the Bedroom bed any more", _lvl.get_node_or_null("BoltCutters") == null)
+			var g := _lvl.get_node_or_null("Guillotine")
+			_ok("the porch guillotine exists", g != null)
+			if g == null:
+				return _done()
+			# Put the porch in the state the chain leaves it in — the level's own restore path
+			# (window burst silently, fruit cut, cutters in the basket), never a hand-built copy.
+			_lvl.get_node("HouseWindow").call("break_pane", false)
+			_lvl.set("_melon_state", "cut")
+			g.call("restore", "cut", false)
+			var c := g.call("cutters_node") as Node3D
+			_ok("the cutters lie in the guillotine's basket", c != null)
 			if c == null:
 				return _done()
-			var foot := c.global_position + Vector3(0.9, 0.1, 0.0)
-			_stand(foot, c.global_position + Vector3(0, 1.5, 0))   # looking level, across the bed
-			_lvl.call("_tick_cutters")
-			_ok("looking LEVEL from the foot of the bed: not visible", not c.visible)
-			_stand(foot, c.global_position)                          # aimed at the floor
-			_lvl.call("_tick_cutters")
-			_ok("aimed at the floor from 0.9 m: visible", c.visible)
+			# From the front of the guillotine, on the deck, looking into the basket.
+			var front: Vector3 = (g as Node3D).global_transform.basis.z
+			_stand((g as Node3D).global_position + front * 1.2 + Vector3(0, 0.1, 0), c.global_position)
 			var tgt = _p.call("ai_interact_target")
-			_ok("…and the shipping ray finds them", tgt == c, str(tgt))
+			_ok("…and the shipping ray finds them (or the guillotine that hands them over)",
+				tgt == c or tgt == g, str(tgt))
 			_p.call("ai_interact")
 			_t = 0.0
 			_phase = 1
@@ -86,7 +96,8 @@ func _process(delta: float) -> bool:
 			if _t < 0.3:
 				return false
 			_ok("E takes them and the HUD carries them", bool(_lvl.get("_cutters_held"))
-				and String(root.get_node("GameState").get("carried_item")) == "BOLT CUTTERS")
+				and String(root.get_node("GameState").get("carried_item")) == "bolt cutters",
+				"carried '%s'" % root.get_node("GameState").get("carried_item"))
 			# Cut the chain.
 			_fridge.call("interact")
 			_ok("with the cutters, E cuts the chain", not bool(_fridge.call("is_chained")))

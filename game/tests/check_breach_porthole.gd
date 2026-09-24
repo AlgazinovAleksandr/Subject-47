@@ -14,8 +14,9 @@ extends SceneTree
 #   * a ray hits the collider of EVERY floor-standing prop class (P6), each ray fired from the side
 #     the player can stand on;
 #   * the bare spindle refuses without the wheel (pass 4: he holds the WHOLE wheel; the snapshot key
-#     `approach_handle_taken` keeps its old name); the technician refuses while the victim is heard;
-#   * taking the wheel: grip → eyes OPEN (the texture swap) → whisper → released → eyes CLOSED, in
+#     `approach_handle_taken` keeps its old name); the technician answers AT ONCE (pass 5), the victim
+#     scene ducking under his beat;
+#   * taking the wheel: grip → eyes OPEN (the texture swap) with the user's scream (pass 5) → whisper → released → eyes CLOSED, in
 #     that order, once; the carried line shows it; the pair has the same size and differs only a little;
 #   * the wheel turns under mouse circles, DRIFTS BACK when released, lets go on E and on a movement
 #     key, does not turn for a straight back-and-forth rub, unwinds the other way, and opens the door
@@ -223,22 +224,14 @@ func _run() -> void:
 	await _walk(Vector3(-44.5, 0.1, -26.8))
 	await _walk(Vector3(-35.0, 0.1, -26.8))
 	_ok("walked across the Plenum to him", await _walk(consts["TECH_STOP"]))
-	# the technician keeps silent while the victim is still being heard
+	# ⭐ PASS 5 (the user: "Take the wheel button is not active at first. Let's make it active straight
+	# away"): he answers AT ONCE, even while the victim scene behind the porthole door is still playing
+	var victim_live: bool = not _approach.call("_story_idle", 0.0)
 	_player.call("ai_look_at", tech_head)
 	await physics_frame
-	var early: Node = _player.call("ai_interact_target")
-	_ok("the technician offers nothing while the victim sequence is still playing", early == null)
-	var waited := 0.0
-	var tech_target: Node = null
-	while waited < 20.0:
-		_player.call("ai_look_at", tech_head)
-		await physics_frame
-		waited += 1.0 / Engine.physics_ticks_per_second
-		tech_target = _player.call("ai_interact_target")
-		if tech_target != null:
-			break
-	print("  the technician answered %.2f s after his wall was reached" % waited)
-	_ok("once the drag has gone, the technician is in reach of the real E ray",
+	await physics_frame
+	var tech_target: Node = _player.call("ai_interact_target")
+	_ok("the technician is in reach of the real E ray AT ONCE (the victim scene still playing: %s)" % victim_live,
 		tech_target != null and String(tech_target.name) == "TechnicianInteract")
 
 	# ---------------------------------------------------------------- 4. the wheel, from his arms
@@ -270,34 +263,48 @@ func _run() -> void:
 	var t0 := Time.get_ticks_msec()
 	_player.call("ai_interact")
 	var eyes_open_at := -1.0
-	var whisper_heard := false
+	var scream_at := -1.0
+	var whisper_at := -1.0
 	var released_at := -1.0
 	var closed_again_at := -1.0
+	var victim_duck := 0.0
 	var e := 0.0
-	while e < 6.0:
+	while e < 9.0:
 		await physics_frame
 		e += 1.0 / Engine.physics_ticks_per_second
 		if eyes_open_at < 0.0 and mat.albedo_texture == open_tex:
 			eyes_open_at = e
 		for c in _approach.get_children():
-			if c is AudioStreamPlayer3D and c.playing and c.stream and String(c.stream.resource_path).contains("approach_whisper_dont_go_in"):
-				whisper_heard = true
+			if c is AudioStreamPlayer3D and c.playing and c.stream:
+				var path := String(c.stream.resource_path)
+				if scream_at < 0.0 and path.contains("approach_technician_scream"):
+					scream_at = e
+				if whisper_at < 0.0 and path.contains("approach_whisper_dont_go_in"):
+					whisper_at = e
+		victim_duck = minf(victim_duck, float(_approach.get("_victim_duck_db")))
 		if released_at < 0.0 and _approach.get("handle_taken"):
 			released_at = e
 		if released_at > 0.0 and closed_again_at < 0.0 and mat.albedo_texture == closed_tex:
 			closed_again_at = e
-	print("  technician: eyes open %.2f s, released %.2f s, eyes closed %.2f s" % [eyes_open_at, released_at, closed_again_at])
+	print("  technician: eyes open %.2f s, scream %.2f s, whisper %.2f s, released %.2f s, eyes closed %.2f s; victim duck %.1f dB" % [
+		eyes_open_at, scream_at, whisper_at, released_at, closed_again_at, victim_duck])
 	_ok("the hand grips ~0.5 s, THEN the eyes open (%.2f s)" % eyes_open_at, eyes_open_at >= 0.4 and eyes_open_at <= 0.7)
-	_ok("the whisper plays, close, from his head", whisper_heard)
+	_ok("⭐ the user's SCREAM comes with the eyes opening (%.2f s)" % scream_at, scream_at >= 0.0 and absf(scream_at - eyes_open_at) < 0.1)
+	_ok("⭐ …and the whisper FOLLOWS it, after the scream's 2.3 s (%.2f s)" % whisper_at, whisper_at > scream_at + 2.0)
 	_ok("the grip lets go after the whisper (%.2f s) and the wheel is carried" % released_at,
-		released_at > eyes_open_at + 1.5 and String(root.get_node("GameState").get("carried_item")) == String(consts["CARRIED_WHEEL"]))
+		released_at > whisper_at + 1.0 and String(root.get_node("GameState").get("carried_item")) == String(consts["CARRIED_WHEEL"]))
 	_ok("then the eyes close for good (%.2f s)" % closed_again_at, closed_again_at > released_at)
+	if victim_live:
+		_ok("the victim scene DUCKED under his beat (%.1f dB), not cut" % victim_duck, victim_duck <= -10.0)
 	names = Array(_approach.call("beat_names"))
-	var order := ["technician", "technician_grip", "technician_eyes_open", "technician_released", "technician_eyes_closed"]
+	var order := ["technician", "technician_grip", "technician_eyes_open", "technician_scream", "technician_whisper",
+		"technician_released", "technician_eyes_closed"]
 	var idx := order.map(func(b): return names.find(b))
+	var in_order := idx.all(func(i): return i >= 0)
+	for k in range(1, idx.size()):
+		in_order = in_order and idx[k - 1] < idx[k]
 	_ok("the technician's steps are logged once each, in order %s" % str(idx),
-		idx.all(func(i): return i >= 0) and idx[0] < idx[1] and idx[1] < idx[2]
-		and idx[2] < idx[3] and idx[3] < idx[4] and order.all(func(b): return names.count(b) == 1))
+		in_order and order.all(func(b): return names.count(b) == 1))
 	_player.call("ai_look_at", tech_head)
 	await physics_frame
 	_ok("it happens ONCE: afterwards he offers nothing", _player.call("ai_interact_target") == null)

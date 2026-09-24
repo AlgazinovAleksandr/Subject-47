@@ -1,0 +1,31 @@
+House back-porch pass, 2026-09-24. Cloudflare flux-1-schnell, --steps 8, 1024x1024 JPEG.
+Processed by tools/make_house_porch_art.py (Pillow + numpy, image pack venv).
+USED = read by the tool. Everything else is a rejected alternative, kept for reference.
+G = "isolated on a perfectly flat pure bright green chroma key screen background #00FF00, no floor, no shadow, no text"
+
+USED witch_raw_b.jpg -> house_witch.png
+  "Photoreal full body portrait of a very old hunched grandmother witch standing front-facing, staring straight at the viewer, grey hair pulled into a tight bun, pale deeply wrinkled face, sunken eyes, long dark faded dress to the ankles with a dirty grey apron, bare dirty feet, thin arms hanging limp at her sides, unsettling, realistic, not cartoonish, cold dim moonlight, desaturated, whole figure visible head to feet, G"
+USED ghost_woman_raw_f.jpg -> forest_ghost_woman.png
+  "Photoreal horror film still, full body side view of a dead pale ghost woman sprinting to the right in a frantic mid-stride, grey corpse-like skin, bare dirty feet, torn ragged filthy white nightgown stained with mud, long wet black hair streaming behind her, mouth stretched wide open screaming, dark hollow eyes, cold desaturated, entire body visible head to feet, profile facing right, G"
+USED crawler_raw_e.jpg -> forest_ghost_crawler.png
+  "Photoreal horror movie creature, full body side view of an emaciated grey-white humanoid monster galloping on all fours toward the right like a starving dog, pale ashen skin stretched tight over bones, knobbly spine ridge along its arched back, unnaturally long thin arms and legs, bald human-like head, gaping mouth, entire body visible, profile facing right, landscape framing, G"
+  (flux draws every variant of this as a see-through skeleton; words like "naked" trip the NSFW filter)
+USED tall_raw_a.jpg -> forest_ghost_tall.png
+  "Photoreal horror movie creature, full body front view of an extremely tall emaciated humanoid monster standing and walking toward the camera, wet dark grey-black leathery skin stretched over ribs, bald elongated skull, small dark sunken eyes with no glow, gaping jaw, unnaturally long thin arms hanging past its knees ending in long clawed fingers, long thin legs, whole body visible head to feet, dim cold moonlight, desaturated, G"
+  (keying screamer_forest.png itself was tried first and rejected — see the tool's header.
+   This prompt hits the NSFW filter ~2 times in 3; it is stochastic, just retry.)
+USED pine_raw_b.jpg -> forest_pine.png
+  "A single tall dark pine conifer tree, whole tree visible from trunk base to tip, narrow and tall, near-black dark foliage, moonlit night silhouette, photoreal, centered, G"
+USED bark_raw_c.jpg -> forest_bark.png
+  "flat straight-on photo texture of Scots pine trunk bark at night, rough scaly dark grey-brown bark plates separated by deep black vertical fissures, desaturated, dim, evenly lit, no shadows, uniform pattern filling the entire frame, photoreal"
+USED floor_raw_b.jpg -> forest_floor.png
+  "top-down photo of damp forest ground covered in dry dead pine needles and dark rotting leaves and bits of moss, flat even lighting, no shadows, dark desaturated colours, uniform density across the whole frame, photoreal texture"
+USED sky_clouds_raw_c.jpg (moon half) + sky_clouds_raw_b.jpg (cloud half, crescent cropped out) -> night_sky.png
+  c: "photograph of a very dark cloudy night sky, dense overcast cloud cover with faint grey texture lit dimly by hidden moonlight, nearly black, no moon visible, no stars, no ground"  (drew a moon anyway — the one we wanted)
+  b: "dark stormy night sky full of thick layered clouds, faint grey edges, nearly black, uniform across the frame, no moon, no landscape, no ground, photoreal"
+USED flesh_raw_a.jpg -> watermelon_flesh.png
+  "top-down photo of a watermelon cut in half, the round cross-section face seen perfectly straight on, deep red flesh with scattered black seeds, a thin white-green rind ring at the edge and dark green skin rim, centered, filling the frame, plain dark background, even lighting, photoreal"
+USED hole_raw_a.jpg -> plaster_hole.png
+  "ragged hole knocked through an old white plaster wall, seen straight on, broken crumbling plaster edges, exposed old wooden lath strips around a pitch-black empty cavity in the centre, dusty, dim, desaturated, photoreal, the hole fills the middle of the frame"
+NOT USED rind_raw_a..d.jpg — every one is a photo of a sphere (curvature shading, converging
+  stripes); watermelon_rind.png is DRAWN by the tool from periodic noise instead.

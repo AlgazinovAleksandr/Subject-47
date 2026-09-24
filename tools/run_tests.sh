@@ -64,6 +64,8 @@ TESTS=(
   check_breach_porthole       # pass 3: collapse, solid props, handle + wheel by mouse, the dark room's capped panic, the chamber
   check_breach_pass4          # pass 4: the shutter face (empty first, looked-at, freed), the ceiling drop (lane clear), the fused technician
   check_breach_seal_race      # pass 4: SEAL_RACE on = deep seals, shallow jams, release rolls back; off = the old instant slam
+  check_breach_contained_xor_killed  # pass 5: a death during the seal aborts the purge; a seal first means no death
+  check_breach_search_motion  # pass 5: the Breach creature never stands still before a teleport; the Matron's search unchanged
   check_audio_buses           # the silence architecture: Body survives a dip, beds nest
   check_scare_loudness        # the stings are LOUD, and the fatal path cuts to black first
   check_creature_model        # the ASSET: six clips, no root motion, not metal, not self-lit
@@ -80,7 +82,8 @@ TESTS=(
   check_intro_sheet           # the covered body is a BODY and is smooth — rejected twice
   check_house_guest           # THE GUEST rearranges the House off-screen; the fridge is 10, once
   check_house_lock            # H4 (2026-09-13): the correct code drops the lock and the door asks
-  check_house_fridge_chain    # H2 (2026-09-13): chained fridge, cutters under the bed, the digit on the head
+  check_house_fridge_chain    # H2 (2026-09-13): chained fridge, the cutters (now from the guillotine), the digit on the head
+  check_house_porch           # 2026-09-24: window burst -> porch -> forest clock (measured) -> ghosts -> hole/fruit -> guillotine -> save/restore (~150 s)
   check_corridor_doors        # ajar doors never block the hall; a non-payoff telegraph is free
   check_corridor_events       # runner's apparent size; the false 217 door (key-gated); the bell key beat; note facing
   check_cupboard_fallback     # C3: the seal takes the torch + scrawl, and the 45 s fallback releases a player who keeps moving

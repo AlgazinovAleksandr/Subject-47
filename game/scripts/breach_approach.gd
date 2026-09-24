@@ -194,10 +194,12 @@ const GLASS_STEP := 0.55               # metres between crunches on the chamber'
 const SND_WHISPER := "approach_whisper_dont_go_in"   # -20.6 RMS; story beat, Master
 # ⭐ PASS 5 (2026-09-24): the USER's scream (`man_scream.wav`, prepared: 2.27 s, peak -1.6 dBFS, RMS
 # -6.5 dBFS, -5.5 LUFS — very hot). It comes with his eyes opening, BEFORE the whisper. Its gain is set
-# from the recorded mix (tests/probe_breach_music_mix.gd): the loudest thing in that moment, and still
-# under the kill sting (level_6_jumpscare at -8 dB, flat: RMS -10.7 dBFS at the listener).
+# from the recorded mix (tests/probe_breach_music_mix.gd, the player at TECH_STOP, the victim scene
+# still playing): -14.8 dB RMS at the listener (loudest 0.1 s window -12.7), 11.4 dB over everything
+# else in that moment (-26.2), and 4.0 dB UNDER the kill sting (level_6_jumpscare, flat at -8 dB:
+# -10.8). At -10 dB it measured -22.8, only 3.4 dB over the mix — not a jolt.
 const SND_TECH_SCREAM := "approach_technician_scream"
-const TECH_SCREAM_DB := -10.0
+const TECH_SCREAM_DB := -2.0
 const VICTIM_TECH_DUCK := -14.0     # the victim scene behind the door ducks under his beat — never cut
 const SND_GRIND := "approach_wheel_grind"            # loop, -14.2 RMS; machinery, Ambience
 const SND_CREAK := "approach_wheel_creak"            # every 30°, -12.7 RMS

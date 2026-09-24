@@ -29,6 +29,7 @@ const SUB_BEATS := {
 	"victim_silence": "victim", "victim_drag": "victim", "hand_gone": "hand",
 	"door_tell_grille_batter": "door_tell", "door_tell_grille_gone": "door_tell",
 	"technician_grip": "technician", "technician_eyes_open": "technician",
+	"technician_scream": "technician", "technician_whisper": "technician",
 	"technician_released": "technician", "technician_eyes_closed": "technician",
 	"porthole_swung": "porthole_open",
 }
@@ -263,7 +264,7 @@ func _take_the_handle() -> void:
 	_ok("the technician is reachable through the real E ray (after %.1f s at his wall)" % waited,
 		target != null and String(target.name) == "TechnicianInteract")
 	_player.call("ai_interact")
-	await _wait(4.2)
+	await _wait(6.8)      # the grip, the scream (2.3 s), the whisper (pass 5)
 	_ok("the handle is taken", _approach.get("handle_taken"))
 
 

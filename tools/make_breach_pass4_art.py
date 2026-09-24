@@ -184,8 +184,10 @@ def _paint_eye(img, centre, a, b_up, b_lo, ss=6):
     crease = lid(1, BU * 1.9, 0.7)
     d.polygon(crease + upper[::-1], fill=(0, 0, 0, 55))
     # the white: dim, pink-red, darker toward the corners (drawn as the opening, then corner shading)
-    white = (skin[0] * 0.95, skin[1] * 0.62, skin[2] * 0.6)
-    white = tuple(int(min(255, v * min(1.0, lumskin * 0.8 / max(1.0, sum(white) / 3.0)))) for v in white)
+    # (brighter than the first cut, which at the relief mesh's 1.5 m view vanished in the lamp's brow
+    # shadow: the whites now sit at the skin's own brightness, so the open eyes read as open)
+    white = (skin[0] * 1.02, skin[1] * 0.74, skin[2] * 0.7)
+    white = tuple(int(min(255, v * min(1.25, lumskin * 1.02 / max(1.0, sum(white) / 3.0)))) for v in white)
     d.polygon(opening, fill=white + (255,))
     mask = Image.new("L", big.size, 0)
     ImageDraw.Draw(mask).polygon(opening, fill=255)
@@ -221,7 +223,7 @@ def open_eyes(base_rgb):
     """D with OPEN, bloodshot, staring eyes painted over its closed ones (see `_paint_eye`)."""
     out = base_rgb.copy()
     for (c, a, b) in D_EYES:
-        _paint_eye(out, c, a, b * 1.35, b * 0.6)     # wider than the socket's rest: a stare
+        _paint_eye(out, c, a, b * 1.6, b * 0.65)     # wider than the socket's rest: a stare
     return out
 
 

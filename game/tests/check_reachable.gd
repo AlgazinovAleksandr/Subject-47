@@ -154,6 +154,15 @@ const CONFIG := {
 		"seeds": ["@player"],
 		"gates": {
 			"CellarGate": "opens with the cellar key, which is the level's own quest",
+			# ⭐ 2026-09-24 (the Porch pass). The porch and its guillotine are behind the window,
+			# which bursts after the forest scare; `move_aside_instantly()` is the level's own
+			# restore path (the window lies broken, silently). check_house_porch.gd walks the
+			# real route: the pane blocks, the scare fires, the pane is gone, the deck is walked.
+			"HouseWindow": "the pane bursts after the forest scare; move_aside_instantly() is the restore path",
+			# A gate in TIME, like the Void's LoopNote: the fruit is in the wall from frame 0,
+			# behind the falling painting, inert until it falls. Its move_aside_instantly() asks
+			# the level to put the painting down silently (the back-door restore path).
+			"HouseWatermelon": "revealed when the falling painting comes down (armed by the first porch visit)",
 		},
 		"ignore": {}, "min_cells": 7000, "min_targets": 8,
 	},

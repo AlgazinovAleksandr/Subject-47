@@ -186,7 +186,9 @@ before the keycard.
 → three safe notes → the combination lock (code **472**).
 ⚠️ Torch 11 m / 24°, ambient 0.0 until all three notes are read. **The maze minigame's difficulty
 constants are the user's call** — re-run `check_maze_chase.gd` before touching any of them, and do
-not re-tune `MONSTER_SPEED` without it.
+not re-tune `MONSTER_SPEED` without it. So are the **forest clock**'s three (`FOREST_RATE_EDGE` 3.5,
+`FOREST_RATE_DEEP` 5.5, `FOREST_DEEP` 20 — a user-approved panic term, 2026-09-24), which must stay
+**zero on the porch deck** where the guillotine is worked (Issue 18).
 → `spec/levels/02-house.md`
 
 **Level 3 — The Corridor** — a 455 m zigzag hotel hallway, ten segments, three side passages, two
