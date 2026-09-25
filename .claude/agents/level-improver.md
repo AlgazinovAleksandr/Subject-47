@@ -163,6 +163,13 @@ gitignored). Provisioned via its own `setup.sh`; use its venv, never a bare `pyt
 | Horror imagery — textures, creatures, wall art, screamers, posters **without** words | `level-3-image-generator` (Cloudflare `flux-1-schnell`) | `<pack>/.venv/bin/python3 <pack>/.claude/skills/level-3-image-generator/generate.py "<prompt>" -o <out>.jpg` |
 | Anything with **legible text** — notes, signs, plates, redacted documents, UI | `level-1-image-generator` (Pillow, code-based, deterministic) | see that skill's `SKILL.md` |
 
+⚠️ **Two free Cloudflare key pairs.** `.env` has `CF_ACCOUNT_ID`/`CF_API_TOKEN` **and**
+`CF_ACCOUNT_ID_2`/`CF_API_TOKEN_2`; `generate.py` falls through them in order on a quota error
+(stderr shows `[cf key #N] …`). A 429 on one key is not "flux unavailable" — keep generating on
+the next pair until **every** pair is exhausted or you are done. Only then fall back to composed
+art, and flag each fallback in `docs/TEXTURES.md`. Never spend the paid `FAL_KEY` without the
+parent asking the user.
+
 Flux is unreliable at rendering words — do not ask it to letter a sign. Write a vivid, specific
 prompt (subject, medium, composition, lighting, palette); one or two sentences.
 

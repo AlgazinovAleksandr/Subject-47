@@ -3,7 +3,7 @@ extends SceneTree
 # THE HALL GLIMPSE — someone is strapped to the bed you just left (the Intake Wing, 2026-09-24).
 #
 # The beat, and what each stage proves:
-#   1. through the straps (the real sequence, strap.interact() in order) the cell bed is EMPTY —
+#   1. through the wake-up (lie, sit, stand — no buckling since 2026-09-25) the cell bed is EMPTY —
 #      no `CellOccupant` node exists at all
 #   2. the player opens the hall door with the SHIPPING interact path (ai_look_at + ai_interact)
 #      and WALKS in (ai_move_dir, move_and_slide — no teleport across the threshold); standing in
@@ -22,7 +22,6 @@ extends SceneTree
 #
 #   Godot --headless --path game --script res://tests/check_intro_glimpse.gd
 
-const STRAP_WAIT := 9.0
 const WALK_SPEED_TIMEOUT := 6.0
 
 var _t := 0.0
@@ -82,22 +81,17 @@ func _process(delta: float) -> bool:
 		0:
 			_scene = current_scene
 			_player = _scene.get_node_or_null("Player") as CharacterBody3D if _scene else null
-			if _player and _t > STRAP_WAIT:
-				_ok("the cell bed is empty through the straps", _occ() == null)
-				_scene.get_node("Strap_0").call("interact")
-				_go(1)
-		1:
-			# Strap 1 and 2 come available 0.55 s after the previous one.
-			if el > 0.8 and _scene.get_node("Strap_1").call("can_interact"):
-				_scene.get_node("Strap_1").call("interact")
-			if el > 1.6 and _scene.get_node("Strap_2").call("can_interact"):
-				_scene.get_node("Strap_2").call("interact")
+			# ⭐ No buckling since 2026-09-25: the wake stands you up by itself in ~3 s.
+			if _player and _scene.get("_beats") != null and (_scene.get("_beats") as Dictionary).has("straps"):
+				_ok("the cell bed is empty through the wake-up", _occ() == null)
 				_go(2)
+			elif _t > 15.0:
+				_ok("the wake-up stood the player up", false)
+				return _finish()
 		2:
-			# Stand-up (1.3 s) — then put the player in the corridor facing the hall door.
-			if el < 3.0:
+			if el < 0.5:
 				return false
-			_ok("still nobody on the bed after the straps", _occ() == null)
+			_ok("still nobody on the bed once you are up", _occ() == null)
 			_player.global_position = Vector3(-3.0, 0.05, 15.0)
 			_player.velocity = Vector3.ZERO
 			_go(3)

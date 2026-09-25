@@ -11,7 +11,7 @@ extends SceneTree
 #
 # ⭐ 2026-09-24, THE INTAKE WING: one ledger (`intro_room.gd:_advance()` / `_refresh_doors()`) now
 # decides every door. This file checks its synchronous half — the ward door rides the same switch +
-# note gate as the exit, and the torch opens the ward entry. (The straps -> cell door half is timed,
+# note gate as the exit, and the torch opens the ward entry. (The wake-up -> cell door half is timed,
 # and check_intro_beats.gd walks it.)
 #
 # Everything below drives the real interact() path and then asks door.gd's own

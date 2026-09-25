@@ -183,6 +183,24 @@ $PACK/.venv/bin/python3 $PACK/.claude/skills/level-3-image-generator/generate.py
 Keys come from **this repo's `.env`** (`CF_ACCOUNT_ID`, `CF_API_TOKEN`) — the script walks up from
 the working directory and loads the project's `.env` before the pack's own.
 
+⚠️ **There are TWO free Cloudflare key pairs — use both before giving up on flux** (2026-09-24,
+the user). The free tier has a **daily quota per account**, and `.env` carries a second account as
+`CF_ACCOUNT_ID_2` / `CF_API_TOKEN_2`. `generate.py` now tries the pairs **in order** (`_2`, `_3`, …
+are picked up automatically) and moves to the next one **only on a quota / rate-limit answer**
+(HTTP 429 or Cloudflare error 4006); any other error stops at once. It prints `[cf key #N] ok` or
+`[cf key #N] quota exhausted — trying the next pair` on stderr. Keep going on the next pair until it
+also runs out or the image work is done; only when **every** pair is exhausted does the script exit
+with *"Every Cloudflare key pair is out of quota"* — and only then is a code-composed fallback
+acceptable, flagged in `docs/TEXTURES.md` for regeneration. A single 429 is **not** "flux is
+unavailable": the 2026-09-24 intro build composed 11 textures in code after trying only the first
+pair. `FAL_KEY` also works but is **paid** (~$0.08/image) — ask the user before spending it.
+⚠️ **`--steps` spends the quota.** The cost is per diffusion step: on 2026-09-24 a fresh second
+pair gave **7 images at `--steps 8`** before its daily quota ran out. Draft and iterate prompts at
+the default 4 steps, and re-run only the chosen prompt at 8. Flux-schnell also answers "texture"
+prompts with **scenes** (a whole corridor, a wall with blood-red drips, a floor with tile joints):
+phrasing that worked for a flat, usable surface was *"material texture swatch: …, flat orthographic
+photo, evenly lit, tileable"*.
+
 ### ⚠️ Always convert generated output to a real PNG before importing into Godot
 ```bash
 sips -s format png <file> --out game/assets/textures/<subfolder>/<name>.png

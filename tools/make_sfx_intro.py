@@ -24,6 +24,7 @@ by dropping a real recording in under the same base name, and no code changes.
   intro_projector_run.wav   the slide projector's fan and lamp hum (LOOP)
   intro_projector_slide.wav a carousel slide change: clack, slide drop, click
   intro_airlock_buzzer.wav  the airlock's two-tone release buzzer
+  intro_chair_sit.wav       sitting down in the calibration chair: a wooden creak + a strap slap
   intro_session46_tape.wav  ~40 s "SESSION 46" reel: motor, hiss, muffled wordless murmur,
                             breathing, a chair, a long silence and the tape running out
 
@@ -39,13 +40,23 @@ import math
 import os
 import random
 import struct
+import sys
 import wave
 
 SR = 44100
 AUDIO = os.path.join(os.path.dirname(__file__), "..", "game", "assets", "audio")
 
 
+# ⚠️ USER-SUPPLIED since 2026-09-24 (tools/import_intro_user_sfx.py renders the user's recordings into
+# these slots). A re-run of this generator must never overwrite them; `--force-standins` does.
+USER_SUPPLIED = {"intro_strap_buckle.wav", "intro_session46_tape.wav", "intro_power_cut.wav",
+                 "intro_door_creak.wav", "intro_cell_buzz.wav"}
+
+
 def write_wav(subdir, name, samples, peak_to=0.89):
+    if subdir == "intro" and name in USER_SUPPLIED and "--force-standins" not in sys.argv:
+        print("skip %s (user-supplied — see tools/import_intro_user_sfx.py)" % name)
+        return
     peak = max(1e-9, max(abs(s) for s in samples))
     norm = peak_to / peak
     out_dir = os.path.join(AUDIO, subdir)
@@ -597,6 +608,39 @@ def make_airlock_buzzer():
     return out
 
 
+def make_chair_sit():
+    """Sitting down hard in an old wooden chair: joints creak under the weight, a loose leather
+    wrist strap slaps the arm. ~1 s. (First hand playtest, 2026-09-24 — the chair on the mark.)"""
+    random.seed(7373)
+    dur = 1.0
+    n = int(SR * dur)
+    out = [0.0] * n
+    lp = OnePole(900.0)
+    # the weight landing: a dull wooden thump
+    for i in range(int(0.25 * SR)):
+        t = i / SR
+        out[i] += (math.sin(2 * math.pi * (110.0 - 40.0 * t) * t) * math.exp(-t * 18.0)
+                   + lp.tick(random.uniform(-1, 1)) * math.exp(-t * 35.0)) * 0.8
+    # the joints: stick-slip creak with two wood resonances
+    ph = 0.0
+    slip = 0.0
+    for i in range(int(0.08 * SR), int(0.75 * SR)):
+        t = i / SR - 0.08
+        f = 340.0 - 90.0 * t
+        ph += f / SR
+        slip += (22.0 - 10.0 * t) / SR
+        gate = max(0.0, math.sin(2 * math.pi * slip)) ** 4
+        env = min(1.0, t / 0.04) * max(0.0, 1.0 - t / 0.67)
+        out[i] += (math.sin(2 * math.pi * ph) + 0.6 * math.sin(2 * math.pi * ph * 2.7)) * gate * env * 0.35
+    # the strap slap at 0.62 s
+    lp2 = OnePole(1600.0)
+    off = int(0.62 * SR)
+    for i in range(int(0.1 * SR)):
+        t = i / SR
+        out[off + i] += lp2.tick(random.uniform(-1, 1)) * math.exp(-t * 60.0) * 0.9
+    return out
+
+
 def main():
     import sys
     if "--all" in sys.argv:
@@ -616,6 +660,7 @@ def main():
     write_wav("intro", "intro_projector_run.wav", make_projector_run(), 0.45)
     write_wav("intro", "intro_projector_slide.wav", make_projector_slide())
     write_wav("intro", "intro_airlock_buzzer.wav", make_airlock_buzzer())
+    write_wav("intro", "intro_chair_sit.wav", make_chair_sit())
 
 
 if __name__ == "__main__":

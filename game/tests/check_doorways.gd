@@ -75,7 +75,7 @@ const CONFIG := {
 	# that starts SHUT. All five are opened first: the ward's doors are opened by the level itself
 	# (the straps, the torch, the switch + note) and the others by E.
 	"SCENE_INTRO": {"min_doors": 5, "open": {
-		"CellDoor": "buzzes open after the third strap",
+		"CellDoor": "releases when VO1 ends, after the wake-up",
 		"HallDoor": "opens on E",
 		"WardEntryDoor": "unlocks when the torch is taken",
 		"WardDoor": "unlocks when the ward is lit and the note read",

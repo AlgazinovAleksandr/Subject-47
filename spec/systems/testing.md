@@ -2,8 +2,14 @@
 
 ## Testing
 
-**🔨 2026-09-24 — the Intro's Intake Wing (phases 1–3; closed with the wing).** New
-`check_intro_glimpse.gd` (17 checks): through the real strap sequence the cell bed is empty; the
+**⭐ 2026-09-24 — the Intro's Intake Wing.** ⚠️ **The intro's "unloseable" guard changed meaning.**
+It used to be "panic never moves" (`check_intro_beats.gd`), which a sprint could break without the
+test noticing, because the test never sprinted. It is now a CEILING: `check_intro_panic_ceiling.gd`
+drives 20 s of real sprint (`ai_sprint`) and asserts the peak is in [0.55, 0.60] — the lower bound
+is what stops it passing vacuously — plus `add_panic(PANIC_MAX)` → exactly 0.6 and a control at the
+default ceiling (0.9 reads 0.9). `check_cold_open_scream.gd`: with `cut_audio` the START scream has
+stopped 0.6 s after its hold; the control (no flag) still rings. New
+`check_intro_glimpse.gd` (17 checks): through the real wake-up the cell bed is empty; the
 player opens the hall door through `ai_look_at` + `ai_interact` and WALKS in on `ai_move_dir`; the
 occupant is absent for every sampled frame of the walk-in, including in the doorway; inside, it is
 on the cell bed, silent, the eye-line meets the solid glass pane first and — with the pane excluded
@@ -19,6 +25,30 @@ via a new `open` row key — an open leaf must clear its own opening, and the co
 doorway), `check_note_mounting` (the intro has a room table now), `check_reachable` (the five
 doors as gates; it caught the cell door's leaf walling off the sink — the door opens outward now),
 `check_wall_overlap` (the cell bed's pad art joins the waived flat props, count 3).
+**First hand playtest fixes (2026-09-24):** `check_intro_beats.gd` (98 checks) asserts the wrists
+come off LYING (eye 0.30 over the body, head rolled toward each hand, each strap under the lying
+eye's real ray), the ankles SITTING (eye 0.85, roll 0) over `CellLegsSheet`, the legs gone on
+standing, and calibration SEATED through the real ray (E on `SubjectChair`, the QTE pin, the eye
+2.39 m from the screen, panic 0.35 reached while seated). New `check_intro_soundtrack.gd` (the
+dream track plays once, the second track loops 13 dB under). ⚠️ All proved red with the fixes
+disabled (lying → 5 red in beats; self-loop → 4 red). ⚠️ **Superseded 2026-09-25 (third hand
+playtest, no buckling):** `check_intro_beats.gd` (89 checks) now asserts the three restraints hang
+open at load with nothing interactable under them, no `CellLegsSheet`, the lying eye at load, the
+standing eye 1.65 and free input after the 3.3 s wake, and the cell door opening after VO1 with no
+input (measured 4.6 s after standing) — each proved red with its fix disabled. ⚠️ `check_reachable.gd`'s intro row carries
+`eye` 1.65: it read the eye off the camera at load, and the intro opens lying (0.30) — it had been
+probing the intro from a sitting 0.85 all along.
+**Second pass (phases 4–5):** `check_intro_beats.gd` now walks calibration and the airlock too
+(81 checks) — the gaze through the real camera and the player's own gaze ray onto the projector's
+`ScaryObject` body (the walk to the line was cut 2026-09-25; the test now asserts its absence), the tray / ward door / airlock door
+through the real interact ray; panic exactly 0 up to the calibration door, peak exactly the 0.6
+ceiling after it, no screamer. ⚠️ The old wheelchair stages aim the CAMERA node with `look_at`,
+which leaves a yaw `ai_look_at` never clears — the new stages zero it first, or the gaze ray points
+at nothing. New `check_intro_ending.gd` (the ending's ward alone and sealed, by ray; the wing absent)
+and `check_intro_resume.gd` (back from the Lab: solved wing, airlock spawn; **14 checks red with the
+restore disabled**). New `autoplay_intro_route.gd`: the whole intro WALKED on the shipping paths,
+cell → the Lab's scene change, the wake-up needing no input since 2026-09-25; it prints a per-room time table (58 s driven) and a
+human estimate.
 
 **2026-09-21 audio regression:** `check_breach_voice.gd` now has 45 checks, including exact
 `crate_jumpscare.ogg` identity and decoded voice/music balance at 3.5, 18 and 30 m while facing

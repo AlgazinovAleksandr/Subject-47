@@ -7294,3 +7294,54 @@ standing on the key does not win. With the fix removed, two checks go red.
 **General lesson:** when a reset re-arms one half of a lock (the key), grep for every flag the
 other half reads (the door). A "reset" that restores some of a puzzle's state is a new state the
 puzzle was never designed for.
+
+---
+
+## Issue 281 — Two observer lines printed on top of each other: every `ScreenText.caption()` shares ONE screen slot (2026-09-24)
+
+**Symptom:** in the Intake Wing's calibration room, the screenshot tour showed
+"STAND ON THE MARK." printed straight over "Look at the screen, forty-seven." — two captions
+overlapping in the same place.
+
+**Cause:** `ScreenText.caption()` always puts its label in the same bottom-wide slot and has no
+notion of anything else being there. A caption is on screen for 0.5 s fade-in + `seconds` + 1.0 s
+fade-out. The level fired the next line when the VOICE ended (~3.5 s), which is inside the previous
+caption's ~5.5 s lifetime. Every level that chains captions faster than that can do the same. The
+Lab and KONTUR never chained two.
+
+**Fix (`intro_room.gd:_caption()`):** the level queues its own captions. Each line waits until the
+previous one has faded, and `_say()` captions through the same queue. `screen_text.gd` is untouched
+(shared).
+
+**Why tests missed it:** a caption is a Label on a CanvasLayer. No test looks at overlapping UI.
+It was found by looking at the tour.
+
+**General lesson:** a shared "print a line here" helper with a fixed slot needs its caller to
+serialise. Chain on the caption's lifetime, not on the audio's length.
+
+---
+
+## Issue 282 — Raising the intro ward's ambient did nothing: the shared environment's ambient COLOUR is near black (2026-09-24)
+
+**Symptom:** the coordinator asked for the lit ward's ambient to go 0.22 → 0.30 so the new dressing
+would read. Measured frame means were unchanged (13.1 → 13.0 of 255). At energy **1.0** it only
+moved to 13.3.
+
+**Cause:** `assets/elements/environment.tscn` has `ambient_light_color = (0.04, 0.03, 0.02)` and
+`ambient_light_sky_contribution = 0.08`. Energy multiplies a colour that is almost black, so
+`ambient_light_energy` is a dead lever in every scene that uses this environment and only sets the
+energy. The intro's `NORMAL_AMBIENT` had been "tuned" against it for months.
+
+**Fix (`intro_room.gd`):** at the switch, tween `ambient_light_color` to `LIT_AMBIENT_COLOR`
+(0.28, 0.29, 0.31) alongside the energy (0.30). Result: lit-ward frames 13.1 → 15.8, 13.2 → 15.9 and
+14.9 → 17.3. ⚠️ The first attempt applied `level_1.gd:_boost_ambient()`'s pattern (a flat colour,
+`AMBIENT_SOURCE_COLOR`) at load, and it made the PRE-switch frames darker: blackout 3.1 → 0.4. In
+this environment the sky's contribution is what gave the blind walk its faint shape, so it was
+reverted. Changing only the colour, and only at the switch, leaves the blackout (3.1), the cell (34.3)
+and the hall (14.1) exactly as they were. `environment.tscn` is untouched (shared).
+
+**Why tests missed it:** nothing measures what a lighting constant does to a rendered frame. The
+constant's value was asserted; its effect never was.
+
+**General lesson:** before tuning a lighting number, confirm the number actually moves pixels. With
+the shared environment, ambient ENERGY is nearly inert. Change the colour, and measure the frame.

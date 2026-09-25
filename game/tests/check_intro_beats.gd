@@ -39,7 +39,6 @@ extends SceneTree
 #   Godot --headless --path game --script res://tests/check_intro_beats.gd
 
 const WAKE_WAIT := 0.5        # the cell is built in _ready(); sample it before the tween ends
-const STRAP_WAIT := 9.0       # 1.8 s wake + 1.2 s pause + the ~4.8 s VO1 line, then the straps
 const GLIMPSE_SAMPLE := 0.22  # inside the stuck press's 0.06 up + 0.4 hold
 const REVEAL_WAIT := 1.4      # _flicker_on is 0.6 s; the breath fade is 0.5 s
 
@@ -97,6 +96,10 @@ func _advance(next: int) -> void:
 	_stage_at = _t
 
 
+func el_w() -> float:
+	return _t - _stage_at
+
+
 func _consts() -> Dictionary:
 	return _scene.get_script().get_script_constant_map()
 
@@ -127,55 +130,64 @@ func _wing(delta: float) -> bool:
 				_scene.get_node_or_null("CellOccupant") == null)
 			_ok("the breathing waits for the ward (it spawns on the blackout)",
 				_scene.get_node_or_null("FarBreath") == null)
-			_ok("the cell has three straps", _scene.get_node_or_null("Strap_2") != null
+			# ⭐ Third hand playtest (2026-09-25): NO BUCKLING. The restraints are scenery, already open.
+			_ok("the bed has its three restraints", _scene.get_node_or_null("Strap_2") != null
 				and _scene.get_node_or_null("Strap_3") == null)
+			var hung := 0
+			var interactive := 0
+			for i in 3:
+				var st: Node = _scene.get_node("Strap_%d" % i)
+				for n in [st] + st.find_children("*", "", true, false):
+					if n.has_method("interact") or n is CollisionObject3D:
+						interactive += 1
+				for pv in (_scene.get("_strap_visuals") as Array)[i]:
+					if absf((pv[0] as Node3D).rotation.z) > 3.0:
+						hung += 1
+			_ok("…already UNBUCKLED — all four loose ends hang off the bed", hung == 4, "%d hung" % hung)
+			_ok("…and NOT interactable (no interact(), no body for the ray)", interactive == 0,
+				"%d interactive nodes" % interactive)
+			_ok("no legs sheet — nothing looks down your own body", _scene.get_node_or_null("CellLegsSheet") == null)
+			var cam0 := _player.get_node("Camera3D") as Camera3D
+			_ok("you come to LYING on the pillow", cam0.position.y < 0.4 and cam0.global_position.y < 1.0,
+				"eye %.2f over the body, %.2f in the world" % [cam0.position.y, cam0.global_position.y])
 			var door: Node = _scene.get_node_or_null("CellDoor")
 			_ok("the cell door exists and is LOCKED", door != null and door.get("locked") == true)
 			_ok("the torch is locked in the cell", _player.get("_flashlight_locked") == true)
-			_ok("the player is frozen — strapped down", _player.is_input_frozen())
+			_ok("the player is frozen through the wake-up", _player.is_input_frozen())
 			_wstage = 1
 		1:
-			if _t < STRAP_WAIT:
+			# WAKEUP_TWEEN_TIME + SIT_UP_TIME + STAND_TIME = 3.3 s.
+			if _t < 3.7:
 				return false
-			_ok("the level has turned to the straps by now", _scene.get("_strap_phase") == true)
-			var s1: Node = _scene.get_node("Strap_1")
-			var s2: Node = _scene.get_node("Strap_2")
-			_ok("straps come off IN ORDER — the second refuses before the first", s1.call("can_interact") == false)
-			s2.call("interact")
-			_ok("…and pressing it anyway does nothing", int(s2.get("times_used")) == 0)
-			_scene.get_node("Strap_0").call("interact")
+			var c1 := _consts()
+			var cam := _player.get_node("Camera3D") as Camera3D
+			var stand: Vector3 = c1["CELL_STAND_POS"]
+			_ok("~3 s later you are STANDING beside the bed — the eye at 1.65, input free",
+				absf(cam.position.y - float(c1["STANDING_EYE"])) < 0.02 and not _player.is_input_frozen()
+					and Vector2(_player.global_position.x, _player.global_position.z).distance_to(Vector2(stand.x, stand.z)) < 0.2,
+				"eye %.2f, frozen %s, at %v" % [cam.position.y, _player.is_input_frozen(), _player.global_position])
+			_ok("VO1 spoke as you stood", _has_caption("Good morning, forty-six— forty-seven."))
+			_ok("…and the door has not released yet (it waits for the line)",
+				_scene.get_node("CellDoor").call("is_open") == false)
+			_ok("no E was pressed, and none is wanted: the restraints are not under the ray",
+				_player.ai_interact_target() == null or not String(_player.ai_interact_target().get_path()).contains("Strap_"))
 			_stage_at = _t
 			_wstage = 2
 		2:
-			if _t - _stage_at < 0.8:
+			if _scene.get_node("CellDoor").call("is_open") == true:
+				_ok("when VO1 ends the cell door releases and swings open — with no input", el_w() > 2.0,
+					"%.1f s after you stood" % el_w())
+				_ok("still ZERO panic", is_zero_approx(_peak_panic))
+				_ok("the ward door is locked until the torch is taken",
+					_scene.get_node("WardEntryDoor").get("locked") == true)
+				# The hall. (Its glimpse is check_intro_glimpse.gd's.)
+				_player.global_position = Vector3(-7.0, 0.05, 16.5)
+				_stage_at = _t
+				_wstage = 5
+			elif _t - _stage_at > 10.0:
+				_ok("when VO1 ends the cell door releases and swings open — with no input", false)
+				quit(1)
 				return false
-			_ok("the first strap is off", _scene.get_node("Strap_0").call("can_interact") == false
-				and int(_scene.get_node("Strap_0").get("times_used")) == 1)
-			_scene.get_node("Strap_1").call("interact")
-			_stage_at = _t
-			_wstage = 3
-		3:
-			if _t - _stage_at < 0.8:
-				return false
-			var door: Node = _scene.get_node("CellDoor")
-			_ok("two straps off and the cell door is STILL locked", door.get("locked") == true)
-			_scene.get_node("Strap_2").call("interact")
-			_stage_at = _t
-			_wstage = 4
-		4:
-			# 1.3 s stand-up, then the 1.15 s buzz, then the leaf swings.
-			if _t - _stage_at < 3.2:
-				return false
-			var door: Node = _scene.get_node("CellDoor")
-			_ok("the third strap buzzes the cell door open", door.call("is_open") == true)
-			_ok("and the player is on their feet and free", not _player.is_input_frozen()
-				and _player.global_position.y < 0.3, "y %.2f" % _player.global_position.y)
-			_ok("the ward door is locked until the torch is taken",
-				_scene.get_node("WardEntryDoor").get("locked") == true)
-			# The hall. (Its glimpse is check_intro_glimpse.gd's.)
-			_player.global_position = Vector3(-7.0, 0.05, 16.5)
-			_stage_at = _t
-			_wstage = 5
 		5:
 			if _t - _stage_at < 0.4:
 				return false
@@ -526,20 +538,48 @@ func _calibration(delta: float) -> bool:
 			if el < 4.6:
 				return false
 			var scary: Node = _scene.get_node("ProjectorScary")
-			_ok("the projector is running — the screen is a gaze source",
-				float(scary.get("scare_intensity")) > 0.0, "intensity %.2f" % float(scary.get("scare_intensity")))
-			_ok("…and the mark is called", _has_caption("STAND ON THE MARK."))
-			var mark: Vector3 = _scene.get_script().get_script_constant_map()["MARK_POS"]
-			_player.global_position = mark + Vector3(0, 0.05, 0)
+			_ok("the projector is running — but standing, the screen moves nothing",
+				_scene.get("_slide_i") == 0 and float(scary.get("scare_intensity")) == 0.0,
+				"slide %s intensity %.2f" % [_scene.get("_slide_i"), float(scary.get("scare_intensity"))])
+			_ok("…and the chair is called: SIT DOWN.", _has_caption("SIT DOWN."))
+			_ok("…and there is no floor mark any more", _scene.get_node_or_null("StandHereMark") == null)
+			var chair: Node3D = _scene.get_node("SubjectChair")
+			_player.global_position = chair.global_position + Vector3(0.9, -0.75, 1.0)
 			_player.velocity = Vector3.ZERO
+			_look(chair.global_position)
+			_cstage = 40
+			_stage_at = _t
+		40:
+			if el < 0.2:
+				return false
+			var chair: Node = _scene.get_node("SubjectChair")
+			var ct: Node = _player.ai_interact_target()
+			_ok("the chair answers the real interact ray (E — sit)", ct == chair,
+				"target %s %s at %v" % [str(ct.get_path()) if ct else "nothing", ct.get_script().resource_path if ct and ct.get_script() else "-", (ct as Node3D).global_position if ct else Vector3.ZERO])
+			_player.ai_interact()
+			_cstage = 41
+			_stage_at = _t
+		41:
+			if el < 1.3:
+				return false
+			var screen0: Vector3 = _scene.get_script().get_script_constant_map()["SCREEN_POS"]
+			var cam := _player.get_node("Camera3D") as Camera3D
+			var d := cam.global_position.distance_to(screen0)
+			_ok("seated: the body is pinned (the movement-only QTE pin)", _scene.get("_seated") == true
+				and _player.is_input_frozen() and _player.get("_input_frozen") == false)
+			_ok("seated: the eye is %.2f m from the screen — inside GAZE_RANGE 3.0 with margin" % d, d < 2.7,
+				"eye %v" % cam.global_position)
+			_ok("seated: the eye is at sitting height", cam.global_position.y > 1.0 and cam.global_position.y < 1.4,
+				"%.2f" % cam.global_position.y)
 			_cstage = 4
 			_stage_at = _t
 		4:
 			var screen: Vector3 = _scene.get_script().get_script_constant_map()["SCREEN_POS"]
 			_look(screen)
 			if _has_caption("LOOK AWAY."):
-				_ok("watching the slides fills the bar to LOOK AWAY.",
-					_player.get_panic_ratio() >= 0.34, "panic %.3f after %.1f s" % [_player.get_panic_ratio(), el])
+				_ok("watching the slides from the CHAIR fills the bar to LOOK AWAY.",
+					_player.get_panic_ratio() >= 0.34 and _scene.get("_seated") == true,
+					"panic %.3f after %.1f s, seated %s" % [_player.get_panic_ratio(), el, _scene.get("_seated")])
 				var cam := _player.get_node("Camera3D") as Camera3D
 				var q := PhysicsRayQueryParameters3D.create(cam.global_position,
 					cam.global_position - cam.global_basis.z * 3.0)
@@ -564,32 +604,24 @@ func _calibration(delta: float) -> bool:
 				return false
 			_ok("looking away for 1.5 s completes the lesson (GOOD.)", el >= 1.4, "after %.2f s" % el)
 			_ok("…and the projector stops", float(_scene.get_node("ProjectorScary").get("scare_intensity")) == 0.0)
+			_cstage = 50
+			_stage_at = _t
+		50:
+			if el < 1.2:
+				return false
+			_ok("GOOD. stands you up beside the chair, free", _scene.get("_seated") == false
+				and not _player.is_input_frozen() and (_player.get_node("Camera3D") as Camera3D).position.y > 1.6)
 			_cstage = 6
 			_stage_at = _t
 		6:
-			if not _has_caption("WALK TO THE LINE."):
-				if el > 5.0:
-					_ok("then: WALK TO THE LINE.", false)
-					return true
+			# ⚠️ No line any more (second hand playtest, 2026-09-25, capture #4): GOOD. is the end of
+			# the gaze lesson and the observer answers straight away.
+			if el < 3.0:
 				return false
-			_ok("then: WALK TO THE LINE.", true)
-			# Sprint to it — the tutorial's temptation — on the shipping movement path.
-			_player.rotation.y = PI            # face +z, toward the line by the ward door
-			_player.ai_active = true
-			_player.ai_sprint = true
-			_player.ai_move_dir = Vector2(0, -1)
-			_cstage = 7
+			_ok("there is no WALK TO THE LINE. step any more", not _has_caption("WALK TO THE LINE.")
+				and _scene.get_node_or_null("CalibrationLine") == null)
+			_cstage = 8
 			_stage_at = _t
-		7:
-			if _has_caption("HEART RATE 131. NOTED.") or _has_caption("NOTED."):
-				_player.ai_sprint = false
-				_player.ai_move_dir = Vector2.ZERO
-				_ok("sprinting to the line is NOTED as a heart rate", _has_caption("HEART RATE 131. NOTED."))
-				_cstage = 8
-				_stage_at = _t
-			elif el > 8.0:
-				_ok("the player reached the line", false, "z %.2f" % _player.global_position.z)
-				return true
 		8:
 			if el < 0.5:
 				return false

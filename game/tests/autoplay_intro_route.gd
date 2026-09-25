@@ -3,10 +3,9 @@ extends SceneTree
 # THE WHOLE INTRO, END TO END, ON THE SHIPPING PATHS — cell to the Lab's scene change.
 #
 # One driver, no teleports: the player WALKS every metre on ai_move_dir (move_and_slide, the real
-# collision), turns with ai_look_at, and every door, strap, pickup, switch, note and exit goes
-# through the real interact ray (ai_interact_target / ai_interact). The straps are released with
-# `Input.action_press("interact")`, which is what the level's own poll reads while the player is
-# frozen. The route is timed and logged; the report at the end gives the driven time per room and
+# collision), turns with ai_look_at, and every door, pickup, switch, note, chair and exit goes
+# through the real interact ray (ai_interact_target / ai_interact). The wake-up (lie, sit, stand) and
+# VO1 play with no input at all since the straps went (2026-09-25). The route is timed and logged; the report at the end gives the driven time per room and
 # the total, plus an ESTIMATE for a human (reading, listening and looking time added per stop —
 # the constants are named below so the estimate's assumptions are visible).
 #
@@ -34,7 +33,7 @@ var _last_mark := 0.0
 var _last_room := "cell"
 var _done := false
 var _fails: Array[String] = []
-var _press_frames := 0
+var _started := false
 
 
 func _initialize() -> void:
@@ -46,7 +45,7 @@ func _initialize() -> void:
 	gs.set("current_level", 0)
 	change_scene_to_file("res://scenes/intro_room.tscn")
 	_steps = [
-		["strap", 0], ["strap", 1], ["strap", 2],
+		# ⭐ No buckling (2026-09-25): the wake stands you up; VO1, then the door releases.
 		["wait_until", "_cell_open"],
 		["room", "corridor"],
 		["go", Vector3(-4.8, 0, 22.2)], ["go", Vector3(-2.6, 0, 22.2)], ["go", Vector3(-2.6, 0, 15.0)],
@@ -64,10 +63,10 @@ func _initialize() -> void:
 		["go", Vector3(-1.2, 0, 1.0)], ["go", Vector3(-1.2, 0, -6.4)], ["go", Vector3(0.0, 0, -7.9)],
 		["use", "WardDoor", Vector3(0, 1.3, 0)], ["wait", 1.4],
 		["room", "calibration"],
-		["go", Vector3(0.0, 0, -10.4)], ["go", Vector3(0.0, 0, -18.6)],
+		["go", Vector3(0.0, 0, -10.4)], ["go", Vector3(-0.8, 0, -17.4)],
+		["wait_caption", "SIT DOWN."],
+		["use", "SubjectChair", Vector3.ZERO], ["wait", 1.1],
 		["watch_screen"], ["look_away"],
-		["wait_caption", "WALK TO THE LINE."],
-		["go", Vector3(0.0, 0, -10.3)],
 		["wait_until", "_airlock_open"],
 		["go", Vector3(-3.0, 0, -18.5)],
 		["use", "AirlockDoor", Vector3(0, 1.3, 0)], ["wait", 1.4],
@@ -118,15 +117,14 @@ func _process(delta: float) -> bool:
 	if _done:
 		return true
 	_t += delta
-	if _scene == null:
+	if not _started:
+		_started = true
 		_scene = current_scene
 		_player = _scene.get_node_or_null("Player") as CharacterBody3D if _scene else null
 		_last_mark = _t
+		if _scene == null or _player == null:
+			_started = false
 		return false
-	if _press_frames > 0:
-		_press_frames -= 1
-		if _press_frames == 0:
-			Input.action_release("interact")
 	if _t > TIMEOUT:
 		return _fail("timed out at step %d %s" % [_i, str(_steps[_i]) if _i < _steps.size() else ""])
 	if _i >= _steps.size():
@@ -134,15 +132,6 @@ func _process(delta: float) -> bool:
 	var st: Array = _steps[_i]
 	_step_t += delta
 	match String(st[0]):
-		"strap":
-			var s: Node = _scene.get_node("Strap_%d" % int(st[1]))
-			if _player.ai_interact_target() == s and _press_frames == 0:
-				# The real key, through the level's own poll (player.gd ignores E while frozen).
-				Input.action_press("interact")
-				_press_frames = 2
-				_next("strap %d released through the level's E poll" % int(st[1]))
-			elif _step_t > 20.0:
-				return _fail("strap %d never came under the crosshair" % int(st[1]))
 		"wait_until":
 			if bool(call(String(st[1]))):
 				_next("%s" % st[1])
@@ -211,14 +200,18 @@ func _process(delta: float) -> bool:
 			if _step_t >= float(st[1]):
 				_next("")
 		"wait_scene_change":
-			if current_scene != _scene and current_scene != null:
+			# ⚠️ By file path, not `current_scene != _scene`: the old scene is freed by then, and a
+			# comparison against a freed instance does not reliably read as "different".
+			if current_scene != null and String(current_scene.scene_file_path) != "res://scenes/intro_room.tscn":
 				_room_t[_last_room] = _t - _last_mark
 				_note("SCENE CHANGE -> %s" % current_scene.scene_file_path)
 				if not String(current_scene.scene_file_path).ends_with("level_1.tscn"):
 					_fails.append("the exit led to %s, not the Lab" % current_scene.scene_file_path)
 				return _report()
 			elif _step_t > 10.0:
-				return _fail("the exit never changed the scene")
+				var gs := root.get_node("GameState")
+				return _fail("the exit never changed the scene (transition token %s kind '%s', current %s, level %s)"
+					% [gs.get("_transition_token"), gs.get("_transition_kind"), current_scene, gs.get("current_level")])
 	return false
 
 

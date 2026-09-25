@@ -31,15 +31,14 @@ func _initialize() -> void:
 		gs.set("is_ending", false)
 	change_scene_to_file("res://scenes/intro_room.tscn")
 	_steps = [
-		[0.35, func(): _shot("01_cell_waking")],
-		# WAKEUP_TWEEN_TIME 1.8 + VO1_DELAY 1.2 + the ~4.8 s line, then the head turns to strap 0.
-		[8.6, func(): _shot("02_cell_strap_focus")],
-		[0.1, func(): _strap(0)],
-		[1.4, func(): _shot("03_cell_strap_released")],
-		[0.1, func(): _strap(1)],
-		[1.4, func(): _strap(2)],
-		[0.4, func(): _shot("04_cell_straps_off")],
-		[3.6, func(): _shot("05_cell_door_open")],
+		# ⭐ No buckling (2026-09-25): lie → sit → stand in ~3.3 s, no input; VO1, then the door.
+		[0.35, func(): _shot("01_cell_lying")],
+		[1.6, func(): _shot("02_cell_sitting_up")],
+		[1.7, func(): _shot("03_cell_standing")],
+		[0.1, func(): _pose(Vector3(-5.2, 0, 21.4), 1.95, -0.55)],
+		[0.4, func(): _shot("04_restraints_hanging_open")],
+		[0.1, func(): _pose(Vector3(-5.45, 0, 22.9), -PI / 2.0, -0.05)],
+		[5.5, func(): _shot("05_cell_door_open")],
 		[0.1, func(): _pose(Vector3(-5.2, 0, 21.3), 1.9, -0.5)],
 		[0.5, func(): _shot("06_bed_and_straps")],
 		[0.1, func(): _pose(Vector3(-6.95, 0, 21.0), PI / 2.0, -0.35)],
@@ -87,24 +86,23 @@ func _initialize() -> void:
 		[0.1, func(): _read_note()],
 		[0.2, func(): _pose(Vector3(0.0, 0, -10.2), 0.0, 0.0)],
 		# VO3 (~3.5 s) then the projector.
-		[4.4, func(): _pose(Vector3(0.0, 0, -18.6), 0.0, 0.03)],
-		[0.5, func(): _shot("23_calibration_title_slide")],
-		[3.8, func(): _pose(Vector3(-2.6, 0, -11.2), 2.8 - PI, -0.05)],
-		[0.3, func(): _shot("24_calibration_overview_slide1")],
-		[4.2, func(): _pose(Vector3(0.0, 0, -18.6), 0.0, 0.03)],
-		[0.2, func(): _shot("25_slide2_ward_photo")],
-		[4.0, func(): _shot("26_slide3_portrait")],
-		[4.0, func(): _shot("27_slide4_red")],
-		[0.1, func(): _pose(Vector3(1.8, 0, -16.4), -0.84, -0.5)],
-		[0.4, func(): _shot("28_forbidden_tray")],
+		[4.4, func(): _pose(Vector3(-2.6, 0, -11.2), 2.8 - PI, -0.05)],
+		[0.4, func(): _shot("23_calibration_chair_on_the_mark")],
+		[0.1, func(): _pose(Vector3(-0.8, 0, -17.4), -0.6, -0.35)],
+		[0.3, func(): _use("SubjectChair")],
+		# Seated: pinned by the QTE, the look is free. Do NOT _pose() here — it would unseat you.
+		[1.3, func(): _shot("24_seated_facing_screen")],
+		[2.6, func(): _shot("25_seated_slide1")],
+		[4.0, func(): _shot("26_seated_slide2_ward_photo")],
+		[4.0, func(): _shot("27_seated_slide3_portrait")],
 		[0.1, func(): _room.call("_finish_gaze", "GOOD.")],
-		[2.8, func(): _pose(Vector3(0.0, 0, -16.0), PI, -0.25)],
-		[0.3, func(): _shot("29_walk_to_the_line")],
+		[1.2, func(): _pose(Vector3(1.8, 0, -16.4), -0.84, -0.5)],
+		[0.4, func(): _shot("28_forbidden_tray")],
 		[0.1, func(): _pose(Vector3(0.0, 0, -17.2), 0.0, -0.5)],
-		[0.3, func(): _shot("30_mark_and_dark_screen")],
+		[0.3, func(): _shot("30_chair_and_dark_screen")],
 		[0.1, func(): _room.call("_on_calibrated")],
 		[0.1, func(): _use("AirlockDoor")],
-		[1.5, func(): _pose(Vector3(-4.6, 0, -17.4), 0.35, -0.05)],
+		[1.5, func(): _pose(Vector3(-6.5, 0, -17.5), -0.4, -0.05)],
 		[0.4, func(): _shot("31_airlock")],
 	]
 
@@ -139,15 +137,6 @@ func _pose(feet: Vector3, yaw: float, pitch: float) -> void:
 	_player.camera.position.y = 1.65
 	_player.camera.rotation.x = pitch
 	_player.set("_pitch", pitch)
-
-
-func _strap(i: int) -> void:
-	var s := _room.get_node_or_null("Strap_%d" % i)
-	var target: Node = _player.ai_interact_target()
-	print("CHECK strap_%d under the crosshair: %s (target %s)" % [i,
-		"PASS" if target == s else "FAIL", target.name if target else "nothing"])
-	if s:
-		s.interact()
 
 
 func _use(n: String) -> void:

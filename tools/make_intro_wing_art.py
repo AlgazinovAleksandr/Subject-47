@@ -258,10 +258,12 @@ def make_tally():
             for p in range(3):          # three passes of a fingernail, not one clean line
                 off = r.normal(0, 1.4)
                 d.line([(x + off, top), (x + lean + off, bot)],
-                       fill=(30, 24, 20, int(190 + 60 * r.random())), width=int(r.integers(7, 12)))
+                       fill=(26, 20, 16, int(200 + 55 * r.random())), width=int(r.integers(11, 17)))
+            # the gouge's pale floor: exposed plaster inside the scratch
+            d.line([(x + 1, top + 6), (x + lean + 1, bot - 6)], fill=(170, 160, 140, 150), width=3)
         if in_group == 5:
             d.line([(gx - 14, gy + 96 + r.normal(0, 4)), (gx + 96, gy + 20 + r.normal(0, 4))],
-                   fill=(28, 22, 18, 235), width=10)
+                   fill=(24, 18, 14, 240), width=15)
         count += in_group
         gx += 150 + r.normal(0, 8)
         if gx > w - 170:
@@ -643,6 +645,162 @@ def make_slides():
     save(_slide_frame(_blot(2207, red=True)), "slide_4.png")
 
 
+# ================================================================ pass 3 — GENERATED art (2026-09-24, evening)
+# The user generated the surfaces and the two photo slides themselves from the prompts in
+# docs/TEXTURES.md, and one flux raw survived the day's quota (the wall plaster, the second CF
+# key pair). The raws live in assets_src/textures/intro/user/ and …/flux/; this pass turns each
+# into the SAME file name the level already loads, so no scene or script changes.
+# ⚠️ Every surface is matched to the MEAN LUMINANCE of the texture it replaces: the lighting of this
+# wing was measured against those (glass contrast 10.7x, the lit ward, the blackout), and a brighter
+# albedo would silently re-tune all of it.
+
+USER = os.path.join(ROOT, "assets_src", "textures", "intro", "user")
+FLUX = os.path.join(ROOT, "assets_src", "textures", "intro", "flux")
+
+
+def raw(path, size=None, box=None):
+    im = Image.open(path).convert("RGB")
+    if box:
+        w, h = im.size
+        im = im.crop((int(box[0] * w), int(box[1] * h), int(box[2] * w), int(box[3] * h)))
+    if size:
+        im = im.resize(size, Image.LANCZOS)
+    return np.asarray(im).astype(np.float32) / 255.0
+
+
+def match_mean(arr, name):
+    """Scale `arr` so its mean luminance equals the shipped texture it replaces."""
+    old = np.asarray(Image.open(os.path.join(TEX, name)).convert("RGB")).astype(np.float32) / 255.0
+    target = float(old.mean())
+    cur = float(arr[..., :3].mean())
+    return np.clip(arr * (target / max(cur, 1e-4)), 0, 1)
+
+
+def user_wall():
+    # The flux plaster replaces intro_wall.png as make_wall()'s source; the wainscot, dado line,
+    # floor grime and tide line are still composed so they sit at the same height in every room.
+    global load
+    plaster = raw(os.path.join(FLUX, "wall_plaster_d.jpg"), (1024, 1024))
+    lum = plaster.mean(axis=2, keepdims=True)
+    plaster = plaster * 0.6 + lum * np.array([0.93, 1.0, 0.97]) * 0.4       # desaturate a touch
+    plaster = plaster * (0.78 + 0.22 * blob_noise(1024, 1024, 90.0, seed=71))[..., None]  # grime
+    tmp = os.path.join(FLUX, "_plaster_tmp.png")
+    Image.fromarray(np.clip(plaster * 255, 0, 255).astype(np.uint8)).save(tmp)
+    real_load = load
+    load = lambda name, size: raw(tmp, size) if name == "intro_wall.png" else real_load(name, size)
+    try:
+        old = os.path.join(TEX, "asylum_wall.png")
+        before = Image.open(old).convert("RGB")
+        make_wall()
+        after = np.asarray(Image.open(old).convert("RGB")).astype(np.float32) / 255.0
+        before_mean = float(np.asarray(before).astype(np.float32).mean() / 255.0)
+        after = np.clip(after * (before_mean / max(float(after.mean()), 1e-4)), 0, 1)
+        save(after, "asylum_wall.png")
+    finally:
+        load = real_load
+        os.remove(tmp)
+
+
+def user_floor():
+    base = seamless(raw(os.path.join(USER, "floor.png"), (1024, 1024)))
+    base = match_mean(base, "asylum_floor.png")
+    save(base, "asylum_floor.png")
+    # Roughness from the image's own dark (damp) patches: wet 0.3, dry 0.85.
+    lum = base.mean(axis=2)
+    wet = np.clip((np.percentile(lum, 35) - lum) * 9.0, 0, 1)
+    rough = 0.85 - wet * 0.55
+    Image.fromarray(np.clip(rough * 255, 0, 255).astype(np.uint8), "L").resize((512, 512)).save(
+        os.path.join(TEX, "asylum_floor_rough.png"))
+    print("wrote asylum_floor_rough.png 512 x 512 L (from the generated floor)")
+
+
+def user_ceiling():
+    save(match_mean(seamless(raw(os.path.join(USER, "ceiling.png"), (1024, 1024))), "asylum_ceiling.png"),
+         "asylum_ceiling.png")
+
+
+def user_door():
+    # The raw is square with the leaf filling it; the leaf is 1.10 x 2.10 m (537 x 1024). A uniform
+    # stretch would turn the wired-glass light into a slot, so the stretch is PIECEWISE: the glass
+    # band (top 36 %) is stretched least, the panelled lower leaf takes the rest.
+    src = raw(os.path.join(USER, "door_intro.png"), None, (0.06, 0.0, 0.98, 1.0))
+    h = src.shape[0]
+    cut = int(h * 0.36)
+    top = Image.fromarray((src[:cut] * 255).astype(np.uint8)).resize((537, 300), Image.LANCZOS)
+    bot = Image.fromarray((src[cut:] * 255).astype(np.uint8)).resize((537, 1024 - 300), Image.LANCZOS)
+    out = Image.new("RGB", (537, 1024))
+    out.paste(top, (0, 0))
+    out.paste(bot, (0, 300))
+    arr = np.asarray(out).astype(np.float32) / 255.0
+    save(match_mean(arr, "asylum_door.png"), "asylum_door.png")
+
+
+def user_pad():
+    arr = raw(os.path.join(USER, "bed_pad.png"), (458, 1024))
+    save(match_mean(arr, "cell_pad.png"), "cell_pad.png")
+
+
+def user_materials():
+    save(match_mean(seamless(raw(os.path.join(USER, "porcelain.png"), (512, 512))), "porcelain_grime.png"),
+         "porcelain_grime.png")
+    # worn_steel.png was overwritten by the user's raw of the same name (kept in USER); its match
+    # target is the raw itself, i.e. unscaled — the steel was never a lighting reference.
+    save(seamless(raw(os.path.join(USER, "worn_steel.png"), (1024, 1024))), "worn_steel.png")
+    # The cloth's stripes are vertical: crop a 376:1024 column instead of squashing the pleats.
+    cw = 376 / 1024
+    arr = raw(os.path.join(USER, "screen_cloth.png"), (376, 1024), (0.5 - cw / 2, 0.0, 0.5 + cw / 2, 1.0))
+    save(match_mean(arr, "privacy_screen_cloth.png"), "privacy_screen_cloth.png")
+
+
+def user_slides():
+    # 2 — WARD 4: the generated archival photo, cropped to the slide's photo window.
+    pw, ph = SW - 80, SH - 140
+    asp = pw / ph
+    hh = 1.0 / asp
+    ward = raw(os.path.join(USER, "ward_photo.png"), (pw, ph), (0.0, 0.5 - hh / 2, 1.0, 0.5 + hh / 2))
+    lum = ward.mean(axis=2, keepdims=True)
+    ward = lum * np.array([0.95, 0.95, 0.95])
+    card = np.ones((SH, SW, 3), np.float32) * 0.92
+    card[40:40 + ph, 40:40 + pw] = ward
+    cimg = Image.fromarray((card * 255).astype(np.uint8), "RGB")
+    ImageDraw.Draw(cimg).text((44, SH - 88), "WARD 4  ·  FIG. 2", font=font("DMMono-Regular.ttf", 34), fill=(30, 30, 30))
+    save(_slide_frame(np.asarray(cimg).astype(np.float32) / 255.0), "slide_2.png")
+    # 3 — No. 46: the generated sepia intake portrait, a 420:500 column from the centre, and the
+    # bar drawn over the eyes HERE (a generator puts it in the wrong place) — see EYE_BAR.
+    bw = 420 / 500
+    x0, x1 = 0.5 - bw / 2, 0.5 + bw / 2
+    por = raw(os.path.join(USER, "portrait_46.png"), (420, 500), (x0, 0.0, x1, 1.0))
+    card = np.ones((SH, SW, 3), np.float32) * np.array([0.86, 0.82, 0.72])
+    card[40:540, 190:610] = por
+    pimg = Image.fromarray((card * 255).astype(np.uint8), "RGB")
+    pd = ImageDraw.Draw(pimg)
+    # ⚠️ Measured on the RENDERED slide, not guessed from a thumbnail of the raw — the first
+    # pass put the bar at 0.51 of the photo and it landed over the MOUTH (eyes are at y 215,
+    # x 335..470 in slide pixels).
+    pd.rectangle(EYE_BAR, fill=(6, 6, 6))
+    pd.text((196, 548), "No. 46", font=font("DMMono-Regular.ttf", 32), fill=(40, 34, 28))
+    save(_slide_frame(np.asarray(pimg).astype(np.float32) / 255.0), "slide_3.png")
+
+
+EYE_BAR = (318, 190, 488, 242)   # slide pixels: x0, y0, x1, y1
+
+
+if __name__ == "__main__" and "--user-slides" in __import__("sys").argv:
+    user_slides()
+
+
+if __name__ == "__main__" and "--user" in __import__("sys").argv:
+    # ⚠️ user_wall() is NOT run: rendered in the wing (2026-09-24), the flux plaster's large
+    # crackle plates read as crazy paving and repeat visibly down the ward; the composed wall from
+    # the room's own peeling plaster matches the cold-open video better. Kept for a better raw.
+    user_floor()
+    user_ceiling()
+    user_door()
+    user_pad()
+    user_materials()
+    user_slides()
+
+
 if __name__ == "__main__" and "--pass2" in __import__("sys").argv:
     make_cell_pad()
     make_porcelain()
@@ -654,7 +812,7 @@ if __name__ == "__main__" and "--pass2" in __import__("sys").argv:
     make_slides()
 
 
-if __name__ == "__main__" and "--pass2" not in __import__("sys").argv:
+if __name__ == "__main__" and "--pass2" not in __import__("sys").argv and not any(a.startswith("--user") for a in __import__("sys").argv):
     make_wall()
     make_floor()
     make_ceiling()

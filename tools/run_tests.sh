@@ -82,6 +82,7 @@ TESTS=(
   check_intro_glimpse         # the Intake Wing: your bed is occupied from the hall, and only once
   check_intro_ending          # the twist ending's ward is built ALONE and sealed; the wing is absent
   check_intro_resume          # back from the Lab: the wing is SOLVED, you stand in the airlock
+  check_intro_soundtrack      # the dream opening plays ONCE; the second track loops (playtest #2)
   check_cold_open_scream      # the START scream is cut after its flash, not 9 s into the wake
   check_intro_geometry        # Intro wall props are ON their wall (door gap, planks, switch)
   check_art_aspect            # ALL NINE levels: every texture is shown at its own aspect
@@ -195,6 +196,7 @@ TESTS=(
   check_void                  # THE VOID: seam keeps heading+velocity, the bridge stalker never steps (with control), 6 lethal stalkers, 9 notes, snapshot, the fall
   check_reachable             # ALL NINE levels: can the player STAND where each prop is
   autoplay_exit_reachable     # every level's exit can be WALKED to and E'd on
+  autoplay_intro_route        # the whole Intake Wing WALKED, cell -> the Lab's scene change (~70 s)
   autoplay_house_route        # …and no House prop can SEAL a route by being opened
   autoplay_lab_nook           # how FAR the nook figure is when it appears, on a real walk
   count_apparitions           # BACKLOG #6 — apparitions are rare, and still happen

@@ -1,5 +1,11 @@
 # INTRO.md — Opening Sequence Redesign
 
+⭐ **Superseded as the level's shape on 2026-09-24 by THE INTAKE WING** (`spec/levels/00-intro.md`):
+the intro is now six rooms on `RoomBuilder` — cell → corridor → observation hall → **this ward** →
+calibration → airlock — so §1's "single big open ward, not RoomBuilder" and §3.4's hand-placed
+geometry are history. Everything this document designed for the ward itself (the wake-up tween, the
+locked torch, the switch, the reveal, the candle) survives inside room 4.
+
 Technical spec for the new game-opening beat: a cold-open jumpscare on **START**, then a
 rebuilt Intro Room where Subject 47 wakes in the dark, in a large asylum ward, and must find
 a light switch before the room — and the opening note — are revealed. This document is the

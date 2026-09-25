@@ -70,11 +70,11 @@ const WINDOWS := [
 const CELL_GURNEY_POS := Vector3(-6.4, 0, 22.55)
 const CELL_WAKE_POS := Vector3(-6.4, 0.0, 23.1)     # body xz; y is GURNEY_TOP_Y
 const CELL_STAND_POS := Vector3(-5.45, 0.05, 22.9)  # beside the bed, once the straps are off
-# Strap offsets from CELL_GURNEY_POS (x, z) — two wrists and the ankles.
-const STRAPS := [Vector2(0.34, 0.12), Vector2(-0.34, 0.12), Vector2(0.0, -0.7)]
-const STRAP_PROMPT := "E — unbuckle"
+# The bed's restraints, as offsets from CELL_GURNEY_POS (x, z): two wrists beside the hips, the
+# ankles. ⭐ Already UNBUCKLED since the third hand playtest (2026-09-25) — scenery, not a beat.
+const STRAPS := [Vector2(-0.34, -0.25), Vector2(0.34, -0.25), Vector2(0.0, -0.78)]
 const WARD_ENTRY := Vector3(-3, 0, 9)
-const WAKEUP_TWEEN_TIME := 1.8
+const WAKEUP_TWEEN_TIME := 1.2           # lying, coming to; + SIT_UP_TIME 0.9 + STAND_TIME 1.2 = 3.3 s
 const NIGHTMARE_TEXT := "IT WAS ONLY A DREAM."
 const PATH_GLOW_ENERGY := 0.12
 const PATH_GLOW_RANGE := 1.4
@@ -143,7 +143,14 @@ const WALL_CHART_SIZE := Vector2(1.125, 0.90)
 const NOTE_UV_OFFSET := Vector2(0.085, 0.015)
 const NOTE_UV_SCALE := Vector2(0.835, 0.970)
 const NOTE_SIZE := Vector2(0.2557, 0.297)
-const NORMAL_AMBIENT := 0.22        # tuned in-editor; see the verification pass
+# ⭐ 0.30 since 2026-09-24 (was 0.22): the ward is DRESSED now and at 0.22 its furniture was a
+# silhouette. Post-switch only — the blind walk and the glimpse happen at ambient 0 (measured).
+const NORMAL_AMBIENT := 0.30
+# ⚠️ …AND A COLOUR, because the energy alone is a dead lever here: the shared environment's
+# ambient colour is (0.04, 0.03, 0.02), and measured, even energy 1.0 moved the lit ward's frame
+# 13.1 -> 13.3 of 255. The switch tweens the colour too, so only the LIT ward changes; before the
+# switch (the blind walk, the glimpse) the colour is the shared one and the energy is 0.
+const LIT_AMBIENT_COLOR := Color(0.28, 0.29, 0.31)
 # ⭐ The panic CEILING (2026-09-24, the Intake Wing). The bar may move here — calibration teaches
 # it — but player.set_panic_ceiling() pins it at 60 % of PANIC_MAX, so the screamer is unreachable
 # by construction. It also closes the old hole: sprint +6/s had no level-0 exemption and ~8.3 s of
@@ -205,7 +212,6 @@ const VO := {
 	"proceed": ["pa_intro_proceed", "You may proceed."],
 }
 const VO_DB := 4.0                   # the Lab's PASpeaker gain: same chain, same speaker
-const VO1_DELAY := 1.2               # after the wake tween, before the observer speaks
 # Wing lighting. ⚠️ Emission ≤ 0.55 on every bulb (check_fixtures; Issue 21 — above 1.0 clamps
 # to flat white, and at this light energy emission is most of a surface's colour).
 const WING_AMBIENT := 0.035          # enough that a shadowed wall is a shape, not a hole
@@ -242,10 +248,8 @@ var _wall_mat: StandardMaterial3D = null
 var _doors: Dictionary = {}                   # name -> WingDoor
 var _beats: Dictionary = {}                   # the ledger: beat name -> true (see _advance)
 var _bulbs: Array = []                        # [OmniLight3D, energy, bulb material, hum player]
-var _straps: Array[UseProp] = []
+var _straps: Array[Node3D] = []               # the restraints — visual only, never interactable
 var _strap_visuals: Array = []                # per strap: [[pivot, side], ...]
-var _strap_phase: bool = false                # the level is polling E for the current strap
-var _strap_index: int = 0
 var _cell_speaker: AudioStreamPlayer3D = null
 var _hall_state: int = 0                      # 0 never entered · 1 occupant present · 2 gone for good
 var _occupant: Node3D = null
@@ -334,16 +338,42 @@ func _clear_old_scene() -> void:
 		child.queue_free()
 
 
+# ⭐ THE SOUNDTRACK PLAYS ONCE (first hand playtest, 2026-09-24, capture #2: *"when the soundtrack
+# ends it starts again - and we hear that sound of like dreaming and waking up again"*).
+# `ambient_asylum` (162 s) opens on the dream-to-waking swell; self-looped, that swell came back every
+# 162 s. Now it plays once and the AmbientPlayer moves on to the user's `intro_second_music` (83 s),
+# which loops. Its gain is set from the files' MEASURED means (−11.1 dB against the first track's
+# −24.3), i.e. SECOND_MUSIC_OFFSET_DB below the first track's level. No second file -> silence;
+# the wing's room tone and the metronome carry on, and the dream never replays.
+const FIRST_MUSIC := "ambient_asylum"
+const SECOND_MUSIC := "intro_second_music"
+const SECOND_MUSIC_OFFSET_DB := -13.0
+var _music_base_db := 0.0
+
 func _start_ambience() -> void:
 	var ambient: AudioStreamPlayer = get_node_or_null("AmbientPlayer")
 	if ambient:
 		ambient.bus = AudioBuses.AMBIENCE   # duckable — see audio_buses.gd
-		var s := GameState.load_audio("ambient_asylum")
+		_music_base_db = ambient.volume_db
+		var s := GameState.load_audio(FIRST_MUSIC)
 		if s:
 			ambient.stream = s
 		if ambient.stream:
-			ambient.finished.connect(ambient.play)
+			ambient.finished.connect(_on_first_music_finished, CONNECT_ONE_SHOT)
 			ambient.play()
+
+
+func _on_first_music_finished() -> void:
+	var ambient: AudioStreamPlayer = get_node_or_null("AmbientPlayer")
+	if ambient == null:
+		return
+	var s := GameState.load_audio(SECOND_MUSIC)
+	if s == null:
+		return
+	ambient.stream = s
+	ambient.volume_db = _music_base_db + SECOND_MUSIC_OFFSET_DB
+	ambient.finished.connect(ambient.play)
+	ambient.play()
 
 
 # ---------------------------------------------------------------- geometry
@@ -429,7 +459,9 @@ func _rooms_with_skins() -> Array:
 	return out
 
 
-func _build_gurney(pos: Vector3, occupied: bool = false, pad_tex: String = "gurney_intro.png") -> Node3D:
+# ⚠️ pad_tex defaults to the plain worn-vinyl `cell_pad.png` (2026-09-24 polish): the tufted
+# sunburst `gurney_intro.png` must not appear anywhere in the wing (the coordinator's review).
+func _build_gurney(pos: Vector3, occupied: bool = false, pad_tex: String = "cell_pad.png") -> Node3D:
 	# ⚠️ Unique per bed, for the same Issue-17 reason as the ceiling tubes and the sheeted
 	# forms: three gurneys all called "GurneyFrame" means Godot silently renames two of
 	# them, and anything that looks one up by name finds only the first.
@@ -1441,20 +1473,27 @@ func _darken_scene(energy: float) -> void:
 		_candle_flame.visible = false
 
 
-# ⭐ THE WAKE IS IN THE CELL NOW (2026-09-24). You come to lying on the bed you are strapped to,
-# looking at the ceiling, and sit up as far as the straps allow — facing the glass, which from this
-# side is a blank dark pane. The body stands on the mattress at the bed's HEAD and the camera does
-# the lying and the sitting (0.3 -> 0.85 m above it); the straps then come off one by one
-# (_begin_straps) and only then does the player stand (_stand_up).
-const WAKE_CAM_LYING := 0.3
-const WAKE_CAM_SITTING := 0.85
-const WAKE_PITCH_LYING := 1.15      # up at the ceiling
-const WAKE_PITCH_SITTING := -0.35   # down the bed, at your own restraints
+# ⭐ THE WAKE-UP IS ONE MOVE (third hand playtest, 2026-09-25). The strap release was the most-
+# reported beat of all three playtests (#1 *"feels like you stood up and then tried to do it"*, #2
+# *"What is this big object at the place where my legs should be?"*, #3 *"Let's draw the legs to make
+# it look realistic"*), and the user's call was *"let's remove this buckling thing entirely … you do
+# not need to free yourself from the bed. You just stand up and continue"*. So: you come to LYING,
+# looking up at the caged bulb → "IT WAS ONLY A DREAM." → you SIT UP → you STAND beside the bed, facing
+# the door (~3 s, input frozen throughout) → control. The restraints are already open (someone let
+# you out); VO1 plays as you stand and the door releases when it ends. Nothing ever looks down your
+# own body, so there are no legs to draw.
+const WAKE_CAM_LYING := 0.3          # the eye over the body, lying on the pillow
+const WAKE_CAM_SITTING := 0.85       # …sitting up on the mattress
+const STANDING_EYE := 1.65
+const WAKE_PITCH_LYING := 1.3        # waking: straight up at the ceiling
+const WAKE_LOOK_AT := Vector3(-6.2, 2.4, 22.2)   # the caged bulb over the cell
+const SIT_UP_TIME := 0.9
+const STAND_TIME := 1.2
 
 func _play_wakeup_beat() -> void:
 	player.global_position = CELL_WAKE_POS + Vector3(0, GURNEY_TOP_Y, 0)
 	player.rotation.y = 0.0   # identity faces -Z: down the bed, at the glass
-	player.camera.position.y = WAKE_CAM_LYING
+	player.camera.position.y = WAKE_CAM_LYING - 0.06
 	player.camera.rotation.x = WAKE_PITCH_LYING
 
 	var creak := GameState.load_audio("gurney_creak")
@@ -1466,23 +1505,36 @@ func _play_wakeup_beat() -> void:
 		p.finished.connect(p.queue_free)
 		p.play()
 
+	# Coming to: the head settles on the pillow and the eyes find the bulb.
 	var t := create_tween()
 	t.set_parallel(true)
 	t.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	t.tween_property(player.camera, "position:y", WAKE_CAM_SITTING, WAKEUP_TWEEN_TIME)
-	t.tween_property(player.camera, "rotation:x", WAKE_PITCH_SITTING, WAKEUP_TWEEN_TIME)
+	t.tween_property(player.camera, "position:y", WAKE_CAM_LYING, WAKEUP_TWEEN_TIME)
+	var eye := CELL_WAKE_POS + Vector3(0, GURNEY_TOP_Y + WAKE_CAM_LYING, 0)
+	var to_bulb := WAKE_LOOK_AT - eye
+	var bulb_pitch := atan2(to_bulb.y, Vector2(to_bulb.x, to_bulb.z).length())
+	t.tween_property(player, "rotation:y", atan2(-to_bulb.x, -to_bulb.z), WAKEUP_TWEEN_TIME)
+	t.tween_property(player.camera, "rotation:x", bulb_pitch, WAKEUP_TWEEN_TIME)
 	t.finished.connect(_on_wakeup_finished)
 
 
 func _on_wakeup_finished() -> void:
-	# ⚠️ The player stays FROZEN — they are strapped down. Look is frozen too (player.gd refuses
-	# mouse input while frozen), so the level turns the head for them, strap by strap.
-	# player.gd reads its pitch from `_pitch`, not from the camera; the tween moved the camera.
+	# player.gd reads its pitch from `_pitch`, not from the camera; the tweens move the camera.
 	player.set("_pitch", player.camera.rotation.x)
 	ScreenText.scrawl(get_tree(), NIGHTMARE_TEXT, 4.0)
 	_start_local_ambient()
-	var t := get_tree().create_timer(VO1_DELAY)
-	t.timeout.connect(func(): _say("morning", _begin_straps))
+	_sit_up()
+
+
+# Up off the pillow: the eye rises to sitting height and levels out, looking down the bed.
+func _sit_up() -> void:
+	var t := create_tween().set_parallel(true)
+	t.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	t.tween_property(player.camera, "position:y", WAKE_CAM_SITTING, SIT_UP_TIME)
+	t.tween_property(player.camera, "rotation:x", -0.15, SIT_UP_TIME)
+	t.tween_property(player, "rotation:y", 0.0, SIT_UP_TIME)
+	_sfx_at("gurney_creak", CELL_GURNEY_POS, -2.0, 3.0)
+	t.finished.connect(_stand_up)
 
 
 # One observer line: the tannoy in the room the player is in, plus its caption (same words).
@@ -1840,7 +1892,9 @@ func _on_switch_flipped() -> void:
 
 	if _env:
 		var et := create_tween()
+		et.set_parallel(true)
 		et.tween_property(_env, "ambient_light_energy", NORMAL_AMBIENT, 1.2)
+		et.tween_property(_env, "ambient_light_color", LIT_AMBIENT_COLOR, 1.2)
 
 	_show_controls_hint()
 
@@ -2197,21 +2251,30 @@ func _build_cell() -> void:
 	_build_bedside()
 	_build_sink()
 	_build_cell_kit()
-	# 46 marks, gouged low on the wall beside the bed — somebody lying here could reach it.
-	_art("TallyMarks", Vector2(0.9, 0.45), Vector3(-8.2 + WALL_T / 2.0 + 0.025, 1.0, 23.15),
+	# 46 marks, gouged into the plaster beside the bed. ⚠️ ABOVE THE DADO LINE (1.0 m): dark marks
+	# on the dark wainscot were invisible (the review: "read small"); on the pale plaster, 1.3 m wide,
+	# they read from the bed.
+	_art("TallyMarks", Vector2(1.3, 0.65), Vector3(-8.2 + WALL_T / 2.0 + 0.025, 1.5, 23.05),
 		Vector3(0, PI / 2.0, 0), "tally_marks.png", 0.0, null, true)
 
 
 # ⭐ LEATHER STRAPS WITH A BUCKLE (2026-09-24, the review: "flat brown sticks"). Each loose end is a
-# thin band lying across the pad from a PIVOT on the frame's edge, ending in a steel ring buckle with
-# its tongue; the anchored end drops down the frame's side and stays. Released, the loose end swings
-# UP and over the edge on its pivot and hangs down the bed's side. The ankle strap is two halves
-# buckled in the middle, so each half is short enough to hang clear of the floor.
+# thin band from a PIVOT on the frame's edge, ending in a steel ring buckle with its tongue; the
+# anchored end drops down the frame's side. The ankle strap is two halves, so each hangs clear of the
+# floor. ⭐ ALREADY UNBUCKLED (third hand playtest, 2026-09-25): every loose end is built swung over
+# its pivot and hanging down the bed's side. They are SCENERY — plain Node3D, no interact(), no
+# prompt: someone let you out, and the figure strapped to the same bed through the glass is the
+# contrast.
 const STRAP_BAND_T := 0.008
 const STRAP_BAND_W := 0.06
 const STRAP_PIVOT_X := 0.462           # just outside the deck's 0.45 half-width
 const STRAP_WRIST_LEN := 0.36
-const STRAP_ANKLE_LEN := 0.44
+const STRAP_ANKLE_LEN := 0.46
+# ⭐ The straps lie OVER the sheet: pivots 2.4 cm above the pad (the sheet rides at ~1.4 cm plus its
+# wrinkle). Since the sheet is PLAIN (2026-09-25) there are no shins to clear, so the ankle halves
+# meet just above the cloth instead of 0.14 m up over a leg crest.
+const STRAP_PIVOT_Y := 0.024
+const ANKLE_APEX := 0.035
 
 func _build_straps() -> void:
 	var leather := _mat(Color(0.19, 0.12, 0.07), 0.62)
@@ -2220,10 +2283,8 @@ func _build_straps() -> void:
 		var off: Vector2 = STRAPS[i]
 		var ankles := i == 2
 		var base := CELL_GURNEY_POS + Vector3(off.x, GURNEY_TOP_Y, off.y)
-		var prop := UseProp.new()
+		var prop := Node3D.new()
 		prop.name = "Strap_%d" % i
-		prop.prompt = STRAP_PROMPT
-		prop.enabled = false
 		prop.position = base
 		add_child(prop)
 		var pivots: Array = []
@@ -2236,7 +2297,9 @@ func _build_straps() -> void:
 				Vector3(px, -0.07, 0), leather, prop)
 			var pivot := Node3D.new()
 			pivot.name = "StrapPivot"
-			pivot.position = Vector3(px, 0.007, 0)
+			pivot.position = Vector3(px, STRAP_PIVOT_Y, 0)
+			if ankles:
+				pivot.rotation.z = -side * atan2(ANKLE_APEX - STRAP_PIVOT_Y, STRAP_PIVOT_X)
 			prop.add_child(pivot)
 			# The loose end lies inward across the pad, a hair proud of it.
 			_mbox("StrapBand", Vector3(length, STRAP_BAND_T, STRAP_BAND_W),
@@ -2252,26 +2315,17 @@ func _build_straps() -> void:
 					_mbox("BuckleRing", spec[0], spec[1], steel, pivot)
 				_mbox("BuckleTongue", Vector3(0.04, 0.005, 0.005), Vector3(bx - side * 0.004, 0.009, 0), steel, pivot)
 			pivots.append([pivot, side])
-		var span: float = 0.98 if ankles else STRAP_WRIST_LEN + 0.1
-		var cx: float = 0.0 if ankles else signf(off.x) * STRAP_PIVOT_X - off.x - signf(off.x) * STRAP_WRIST_LEN * 0.5
-		prop.add_box_shape(Vector3(span, 0.16, 0.2), Vector3(cx, 0.03, 0))
-		prop.used.connect(_on_strap_used.bind(i))
 		_straps.append(prop)
 		_strap_visuals.append(pivots)
+		_release_strap(i)
 
 
-# Released: every loose end of this strap swings up and over its pivot and hangs down the side.
-func _release_strap(i: int, instant: bool) -> void:
+# Open: every loose end of this strap is swung up and over its pivot and hangs down the side.
+func _release_strap(i: int) -> void:
 	for pv in _strap_visuals[i]:
 		var pivot: Node3D = pv[0]
 		var side: float = pv[1]
-		var target := -side * 1.5 * PI
-		if instant:
-			pivot.rotation.z = target
-			continue
-		var t := create_tween()
-		t.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-		t.tween_property(pivot, "rotation:z", target, 0.75)
+		pivot.rotation.z = -side * 1.5 * PI
 
 
 func _build_bedside() -> void:
@@ -2462,58 +2516,22 @@ func _build_cell_kit() -> void:
 	add_child(_cell_speaker)
 
 
-# ---------------------------------------------------------------- the straps
-
-func _begin_straps() -> void:
-	if _strap_phase or _strap_index >= _straps.size():
-		return
-	_strap_phase = true
-	_focus_strap(_strap_index)
-
-
-func _focus_strap(i: int) -> void:
-	_straps[i].enabled = true
-	player.turn_to_face(_straps[i].global_position + Vector3(0, 0.02, 0), 0.7)
-
-
-# Polled, because the player is FROZEN (player.gd drops E while frozen) — beartrap.gd:279's
-# pattern. ⚠️ Released only when the real interact ray is ON this strap: `ai_interact_target()`
-# runs the shipping prompt path, so a press while the head is still turning does nothing.
-func _tick_straps() -> void:
-	if not _strap_phase or _strap_index >= _straps.size():
-		return
-	if Input.is_action_just_pressed("interact") and player.ai_interact_target() == _straps[_strap_index]:
-		_straps[_strap_index].interact()
-
-
-func _on_strap_used(_times: int, i: int) -> void:
-	if i != _strap_index:
-		return
-	_straps[i].enabled = false
-	_sfx_at("intro_strap_buckle", _straps[i].global_position, 0.0, 2.0)
-	_release_strap(i, false)
-	_strap_index += 1
-	if _strap_index < _straps.size():
-		get_tree().create_timer(0.55).timeout.connect(func(): _focus_strap(_strap_index))
-	else:
-		_strap_phase = false
-		_stand_up()
-
-
-# Off the bed and on your feet, facing the cell door — which then buzzes and swings open.
+# Off the bed and on your feet, facing the cell door. VO1 speaks as you rise; the door releases
+# when the line ends (_say's timer on the stream's length, so a silent audio driver cannot strand you).
 func _stand_up() -> void:
+	_say("morning", _release_cell_door)
 	var from := player.global_position
 	var to := CELL_STAND_POS
 	var t := create_tween().set_parallel(true)
 	t.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	t.tween_method(_set_player_pos, from, to, 1.3)
-	t.tween_property(player.camera, "position:y", 1.65, 1.3)
+	t.tween_method(_set_player_pos, from, to, STAND_TIME)
+	t.tween_property(player.camera, "position:y", STANDING_EYE, STAND_TIME)
 	var door: WingDoor = _doors.get("CellDoor")
 	if door:
 		# turn_to_face measures from where the body IS (the bed); aim from where it WILL be (the
 		# floor), and give it a level head: its pitch uses the current eye height (0.85).
 		var d := door.global_position + (from - to)
-		player.turn_to_face(Vector3(d.x, from.y + WAKE_CAM_SITTING, d.z), 1.3)
+		player.turn_to_face(Vector3(d.x, from.y + WAKE_CAM_SITTING, d.z), STAND_TIME)
 	t.finished.connect(_on_stood_up)
 
 
@@ -2522,9 +2540,14 @@ func _set_player_pos(v: Vector3) -> void:
 	player.velocity = Vector3.ZERO
 
 
+# ⚠️ The beat is still called "straps" — it means "out of the bed" (the hall glimpse and the
+# back-door restore key off it); there is nothing left to unbuckle.
 func _on_stood_up() -> void:
 	player.unfreeze_input()
 	_advance("straps")
+
+
+func _release_cell_door() -> void:
 	var door: WingDoor = _doors.get("CellDoor")
 	if door == null:
 		return
@@ -3248,16 +3271,15 @@ func _build_speakers() -> void:
 
 # ⭐ The one room in the intro that teaches the panic bar. Panic moves here and ONLY here (the
 # cell, hall and ward stay at exactly 0) and the level's ceiling pins it at 0.6, so nothing in this
-# room can kill. Three lessons, each a thing the rest of the game punishes:
-#   1. GAZE   — the projector's slides are a ScaryObject; standing on the mark and watching them
-#               fills the bar. At LOOK_AWAY_AT the monitor says LOOK AWAY., and the lesson completes
-#               after AWAY_TIME of not looking (the level's own camera-dot test, not player internals).
-#   2. SPRINT — WALK TO THE LINE. Sprinting there costs panic (+6/s, the real rule) and is NOTED.
-#   3. TOUCH  — a red-tagged tray, DO NOT TOUCH, live throughout; E spikes the bar to the ceiling.
+# room can kill. Two lessons, each a thing the rest of the game punishes:
+#   1. GAZE   — the projector's slides are a ScaryObject; SITTING in the subject's chair and watching
+#               them fills the bar. At LOOK_AWAY_AT the monitor says LOOK AWAY., and the lesson
+#               completes after AWAY_TIME of not looking (the level's own camera-dot test).
+#   2. TOUCH  — a red-tagged tray, DO NOT TOUCH, live throughout; E spikes the bar to the ceiling.
+# (A third, WALK TO THE LINE — the sprint cost — was cut on the second hand playtest, 2026-09-25.)
 const SCREEN_POS := Vector3(0, 1.75, -21.0 + WALL_T / 2.0 + 0.04)
 const SCREEN_SIZE := Vector2(2.4, 1.8)                 # 4:3, the slides' own aspect
-const MARK_POS := Vector3(0, 0, -18.6)                  # 2.26 m from the screen: inside GAZE_RANGE 3
-const LINE_Z := -10.6
+const MARK_POS := Vector3(0, 0, -18.6)                  # the CHAIR's spot: the seated eye is 2.4 m from the screen
 const TRAY_STAND_POS := Vector3(2.7, 0, -17.3)
 const SLIDES := ["slide_0_title.png", "slide_1.png", "slide_2.png", "slide_3.png", "slide_4.png"]
 # Gaze intensity per slide (× player.PANIC_BASE_RATE 20/s): 0.8, 1.4, 2.0, 2.8, 3.6 panic/s —
@@ -3268,21 +3290,29 @@ const LOOK_AWAY_AT := 0.35
 const AWAY_TIME := 1.5
 const AWAY_DOT := 0.5                                   # looking > 60° off the screen is "away"
 const WATCH_DOT := 0.85
-const CALIB_TIMEOUT := 60.0                             # a player who will not watch is let through
+# ⭐ Two clocks (first hand playtest): CALIB_TIMEOUT counts only SEATED time, so it can no longer
+# wave through a player who never sat down to watch; a player who will not sit at all is let
+# through after UNSEATED_TIMEOUT. Both end in "NOTED." — the lesson untaught, never a dead end.
+const CALIB_TIMEOUT := 60.0
+const UNSEATED_TIMEOUT := 90.0
+const SEATED_EYE := 1.2                                 # seated eye height over the floor
+const SEAT_TIME := 0.9
 const SCREEN_EMISSION := 0.45
 
-var _calib_state: int = 0      # 0 not entered · 1 watching · 2 look away · 3 walk · 4 noted · 5 done
+var _calib_state: int = 0      # 0 not entered · 1 watching · 2 look away · 3 answered (GOOD./NOTED.) · 5 done
+var _seated: bool = false
+var _unseated_t: float = 0.0
+var _chair_prop: UseProp = null
+var _chair_body: StaticBody3D = null
 var _calib_t: float = 0.0
 var _slide_i: int = 0
 var _slide_t: float = 0.0
 var _away_t: float = 0.0
-var _calib_sprinted: bool = false
 var _screen_scary: ScaryObject = null
 var _screen_mat: StandardMaterial3D = null
 var _projector_light: SpotLight3D = null
 var _projector_audio: AudioStreamPlayer3D = null
 var _lens_mat: StandardMaterial3D = null
-var _line_light: SpotLight3D = null
 var _airlock_state: int = 0
 var _captions: Array[String] = []                      # every observer caption, in order (tests)
 
@@ -3291,7 +3321,11 @@ var _captions: Array[String] = []                      # every observer caption,
 # previous one has faded (0.5 in + hold + 1.0 out), so two observer lines never share the screen.
 var _caption_free_at: float = 0.0
 
-func _caption(text: String, seconds: float = 3.0, color: Color = Color(0.86, 0.84, 0.72)) -> void:
+# `stale_when` (optional): checked when a QUEUED line's turn comes — if it returns true the line is
+# dropped. "SIT DOWN." queues behind VO3's caption, and a player who sat during VO3 saw the order
+# arrive after obeying it (2026-09-25).
+func _caption(text: String, seconds: float = 3.0, color: Color = Color(0.86, 0.84, 0.72),
+		stale_when: Callable = Callable()) -> void:
 	_captions.append(text)
 	var now := Time.get_ticks_msec() / 1000.0
 	var wait := maxf(0.0, _caption_free_at - now)
@@ -3299,7 +3333,10 @@ func _caption(text: String, seconds: float = 3.0, color: Color = Color(0.86, 0.8
 	if wait <= 0.01:
 		ScreenText.caption(get_tree(), text, seconds, color)
 	else:
-		get_tree().create_timer(wait).timeout.connect(ScreenText.caption.bind(get_tree(), text, seconds, color))
+		get_tree().create_timer(wait).timeout.connect(func() -> void:
+			if stale_when.is_valid() and bool(stale_when.call()):
+				return
+			ScreenText.caption(get_tree(), text, seconds, color))
 
 
 func _build_calibration() -> void:
@@ -3377,31 +3414,121 @@ func _build_calibration() -> void:
 	_projector_audio.unit_size = 3.0
 	_projector_audio.volume_db = -4.0
 	add_child(_projector_audio)
-	# The mark you stand on to watch, and a lamp over it.
-	_art("StandHereMark", Vector2(0.8, 0.8), MARK_POS + Vector3(0, 0.021, 0), Vector3(-PI / 2.0, 0, 0),
-		"stand_here_mark.png", 0.0, null, true)
-	var ml := SpotLight3D.new()
-	ml.name = "MarkLamp"
-	ml.position = MARK_POS + Vector3(0, 3.2, 0.4)
-	ml.rotation = Vector3(-PI / 2.0 + 0.12, 0, 0)
-	ml.light_energy = 0.9
-	ml.light_color = Color(1.0, 0.92, 0.78)
-	ml.spot_range = 4.0
-	ml.spot_angle = 18.0
-	add_child(ml)
-	# The line, across the room by the ward door: painted, and lit only when you are sent to it.
-	# ⚠️ 3 mm proud (a box from 0.003 to 0.007): never coplanar with the floor's top face.
-	_mbox("CalibrationLine", Vector3(7.0, 0.004, 0.1), Vector3(0, 0.005, LINE_Z), _mat(Color(0.75, 0.62, 0.12), 0.7))
-	_line_light = SpotLight3D.new()
-	_line_light.name = "LineLamp"
-	_line_light.position = Vector3(0, 3.2, LINE_Z - 0.6)
-	_line_light.rotation = Vector3(-PI / 2.0 + 0.2, 0, 0)
-	_line_light.light_energy = 0.0
-	_line_light.light_color = Color(1.0, 0.9, 0.7)
-	_line_light.spot_range = 4.2
-	_line_light.spot_angle = 50.0
-	add_child(_line_light)
+	# ⭐ No floor mark any more (first hand playtest, 2026-09-24): the subject's chair stands where
+	# the mark was, and SIT DOWN. replaces STAND HERE — see _sit_in_chair().
+	# ⚠️ NO LINE (second hand playtest, 2026-09-25, capture #4: *"What for to cross that line? I think
+	# looking away while sitting in the chair and then standing up is sufficient"*). The walk to a
+	# painted line — and its sprint caption, HEART RATE 131 — is gone: GOOD. stands you up and the
+	# observer answers straight away. The intro no longer teaches the sprint cost; the Lab's first
+	# note still says DO NOT RUN.
 	_build_forbidden_tray()
+	_build_subject_chair()
+	_build_eeg_cart()
+
+
+# ⭐ Calibration dressing (polish, 2026-09-24 — "the room is bare"): the subject's chair, EMPTY,
+# facing the screen beside the mark — wooden, with leather wrist straps on its arms (the cell's
+# straps, again) — and an electrode cart beside it with its leads trailing to the chair. Zero panic,
+# no light of their own (the projector and the room's one bulb light them), clear of the mark, the
+# walk to the line and the route to the airlock door.
+# ⭐ ON THE MARK since the first hand playtest (capture #3) — the chair IS where you watch from.
+const SUBJECT_CHAIR_POS := MARK_POS
+const EEG_CART_POS := Vector3(-1.25, 0, -19.45)
+
+func _build_subject_chair() -> void:
+	var wood := _mat(Color(0.26, 0.17, 0.1), 0.65)
+	var leather := _mat(Color(0.19, 0.12, 0.07), 0.62)
+	var steel := _mat(Color(0.62, 0.62, 0.6), 0.3, 0.85)
+	var c := Node3D.new()
+	c.name = "SubjectChairFrame"   # ⚠️ not "SubjectChair" — that is the E volume's name (Issue 17)
+	c.position = SUBJECT_CHAIR_POS
+	c.rotation.y = 0.0                       # square to the screen (it faces -z)
+	add_child(c)
+	for lx in [-0.23, 0.23]:
+		for lz in [-0.22, 0.22]:
+			_mbox("ChairLeg", Vector3(0.05, 0.46, 0.05), Vector3(lx, 0.23, lz), wood, c)
+		_mbox("ArmPost", Vector3(0.045, 0.24, 0.045), Vector3(lx, 0.58, -0.2), wood, c)
+		_mbox("ArmRest", Vector3(0.07, 0.035, 0.5), Vector3(lx, 0.715, -0.01), wood, c)
+		# A wrist strap across each arm, buckle up.
+		_mbox("WristStrap", Vector3(0.09, 0.012, 0.055), Vector3(lx, 0.739, -0.1), leather, c)
+		_mbox("WristBuckle", Vector3(0.03, 0.008, 0.04), Vector3(lx + signf(lx) * 0.03, 0.748, -0.1), steel, c)
+		_mbox("BackPost", Vector3(0.05, 0.62, 0.05), Vector3(lx, 0.77, 0.22), wood, c, Vector3(0.1, 0, 0))
+	_mbox("ChairSeat", Vector3(0.52, 0.05, 0.5), Vector3(0, 0.485, 0), wood, c)
+	for k in 3:
+		_mbox("BackSlat", Vector3(0.44, 0.07, 0.025), Vector3(0, 0.68 + k * 0.17, 0.24 + k * 0.017), wood, c,
+			Vector3(0.1, 0, 0))
+	_mbox("ChestStrap", Vector3(0.46, 0.05, 0.012), Vector3(0, 0.86, 0.215), leather, c, Vector3(0.1, 0, 0))
+	for lx in [-0.23, 0.23]:
+		_mbox("AnkleStrap", Vector3(0.07, 0.04, 0.07), Vector3(lx, 0.12, -0.22), leather, c)
+	# ⚠️ The solid body stops at the SEAT: above it is the chair's E volume (layer 2, the UseProp),
+	# which a solid body reaching up to the backrest would swallow. The body is switched OFF while
+	# you sit in it, or move_and_slide would push a seated capsule out of the chair.
+	# ⚠️ NO SHADOWS (the second hand-play review, 2026-09-25). The projector stands BEHIND the chair,
+	# so the backrest threw its shadow across the lower half of the screen — and the player has no
+	# body, so a seated player saw an EMPTY chair's silhouette standing in front of the slides
+	# (measured: hiding the frame removed it; the camera itself sits 0.18 m in front of the backrest).
+	for part in c.get_children():
+		if part is GeometryInstance3D:
+			(part as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_chair_body = _solid("SubjectChairBody", Vector3(0.6, 0.46, 0.58), SUBJECT_CHAIR_POS + Vector3(0, 0.23, 0))
+	_chair_prop = UseProp.new()
+	_chair_prop.name = "SubjectChair"
+	_chair_prop.prompt = "E — sit"
+	_chair_prop.enabled = false
+	_chair_prop.position = SUBJECT_CHAIR_POS + Vector3(0, 0.8, 0)
+	add_child(_chair_prop)
+	_chair_prop.add_box_shape(Vector3(0.6, 0.62, 0.58))
+	_chair_prop.used.connect(_sit_in_chair)
+
+
+func _build_eeg_cart() -> void:
+	var steel := _steel_mat()
+	var dark := _mat(Color(0.12, 0.12, 0.11), 0.5, 0.4)
+	var cream := _mat(Color(0.62, 0.6, 0.52), 0.6)
+	var at := EEG_CART_POS
+	for lx in [-0.22, 0.22]:
+		for lz in [-0.17, 0.17]:
+			_mcyl("EegCartLeg", 0.012, 0.7, at + Vector3(lx, 0.36, lz), steel)
+			_mcyl("EegCaster", 0.03, 0.02, at + Vector3(lx, 0.03, lz), dark, null, Vector3(0, 0, PI / 2.0))
+	_mbox("EegCartTop", Vector3(0.5, 0.02, 0.4), at + Vector3(0, 0.72, 0), steel)
+	_mbox("EegCartShelf", Vector3(0.46, 0.015, 0.36), at + Vector3(0, 0.22, 0), steel)
+	# The machine: a cream-enamel case with a paper-chart roll, dials and a row of lead sockets.
+	var box := Node3D.new()
+	box.name = "EegMachine"
+	box.position = at + Vector3(0, 0.73, 0)
+	box.rotation.y = -0.5                     # turned toward the chair
+	add_child(box)
+	_mbox("EegCase", Vector3(0.44, 0.2, 0.3), Vector3(0, 0.1, 0), cream, box)
+	_mbox("EegPanel", Vector3(0.4, 0.14, 0.01), Vector3(0, 0.1, 0.152), dark, box)
+	for k in 4:
+		_mcyl("EegDial", 0.018, 0.012, Vector3(-0.14 + k * 0.07, 0.13, 0.16), _mat(Color(0.7, 0.68, 0.6), 0.4, 0.5), box,
+			Vector3(PI / 2.0, 0, 0))
+	_mcyl("EegChartRoll", 0.03, 0.36, Vector3(0, 0.23, -0.05), _mat(Color(0.86, 0.84, 0.78), 0.9), box,
+		Vector3(0, 0, PI / 2.0))
+	_mbox("EegChartPaper", Vector3(0.34, 0.003, 0.14), Vector3(0, 0.205, 0.06), _mat(Color(0.86, 0.84, 0.78), 0.9), box,
+		Vector3(-0.35, 0, 0))
+	# Loose leads: sagging from the sockets to the floor between the cart and the chair, then
+	# coiling up the chair's leg — thin dark cables, each a few straight runs (no colliders).
+	var lead := _mat(Color(0.05, 0.05, 0.05), 0.6)
+	var sock := box.global_transform * Vector3(0, 0.06, 0.16)
+	var chair_foot := SUBJECT_CHAIR_POS + Vector3(-0.2, 0.03, 0.1)
+	for k in 3:
+		var a: Vector3 = sock + Vector3(-0.05 + k * 0.05, 0, 0)
+		var floor_pt := a.lerp(chair_foot, 0.45) + Vector3(0.05 * k, 0, 0)
+		floor_pt.y = 0.012
+		var up_pt := chair_foot + Vector3(0.03 * k, 0.45 + 0.08 * k, 0)
+		for seg in [[a, floor_pt], [floor_pt, chair_foot + Vector3(0.03 * k, 0.012, 0)],
+				[chair_foot + Vector3(0.03 * k, 0.012, 0), up_pt]]:
+			var p0: Vector3 = seg[0]
+			var p1: Vector3 = seg[1]
+			var mid := (p0 + p1) * 0.5
+			var length := p0.distance_to(p1)
+			if length < 0.02:
+				continue
+			var mi := _mcyl("EegLead", 0.004, length, mid, lead)
+			mi.look_at_from_position(mid, p1, Vector3.UP if absf((p1 - p0).normalized().dot(Vector3.UP)) < 0.95 else Vector3.RIGHT)
+			mi.rotate_object_local(Vector3.RIGHT, PI / 2.0)
+	_solid("EegCartBody", Vector3(0.52, 0.95, 0.42), at + Vector3(0, 0.47, 0))
 
 
 func _build_forbidden_tray() -> void:
@@ -3415,19 +3542,74 @@ func _build_forbidden_tray() -> void:
 		_mbox("TrayLip", Vector3(0.5, 0.03, 0.008), at + Vector3(0, 0.885, sz * 0.176), steel)
 	for sx in [-1.0, 1.0]:
 		_mbox("TrayLip", Vector3(0.008, 0.03, 0.36), at + Vector3(sx * 0.246, 0.885, 0), steel)
-	_solid("TrayStandBody", Vector3(0.5, 0.9, 0.36), at + Vector3(0, 0.45, 0))
-	# Its instruments: a syringe, a scalpel, a pair of forceps.
-	var glass := _mat(Color(0.7, 0.74, 0.72, 0.6), 0.1)
+	_solid("TrayStandBody", Vector3(0.5, 0.84, 0.36), at + Vector3(0, 0.42, 0))
+	# ⭐ WHAT IS NOT TO BE TOUCHED (polish, 2026-09-24 — "DO NOT TOUCH" needs an object): a loaded
+	# syringe beside a small dark vial, and a scalpel on a folded cloth. Real silhouettes, lit by
+	# their own clamp lamp. ⚠️ NOTHING on the tray is emissive — SCARY.md §8.8 forbids a self-lit
+	# scary prop; the lamp's bulb is the only emitter, and it is on the lamp.
+	var top := 0.872
+	var glass := _mat(Color(0.75, 0.8, 0.78, 0.45), 0.08)
 	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_mcyl("Syringe", 0.012, 0.13, at + Vector3(-0.1, 0.886, -0.04), glass, null, Vector3(0, 0.3, PI / 2.0))
-	_mcyl("SyringeNeedle", 0.0015, 0.06, at + Vector3(-0.19, 0.886, -0.07), steel, null, Vector3(0, 0.3, PI / 2.0))
-	_mbox("Scalpel", Vector3(0.15, 0.004, 0.012), at + Vector3(0.06, 0.876, 0.05), steel, null, Vector3(0, -0.4, 0))
-	for k in 2:
-		_mbox("Forceps", Vector3(0.14, 0.004, 0.008), at + Vector3(0.1, 0.876, -0.07 + k * 0.012), steel, null,
-			Vector3(0, 0.12 - k * 0.1, 0))
-	# The tag, hung off the front lip on a string.
-	_mbox("TagString", Vector3(0.002, 0.06, 0.002), at + Vector3(0.1, 0.85, 0.192), _mat(Color(0.8, 0.78, 0.7), 0.9))
-	_art("TrayTag", Vector2(0.16, 0.08), at + Vector3(0.1, 0.79, 0.196), Vector3.ZERO, "tag_do_not_touch.png", 0.2)
+	var liquid := _mat(Color(0.28, 0.05, 0.04), 0.2)
+	var s_at := at + Vector3(-0.06, top + 0.014, 0.03)
+	var s_rot := Vector3(0, 0.35, PI / 2.0)
+	var syringe := Node3D.new()
+	syringe.name = "Syringe"
+	syringe.position = s_at
+	syringe.rotation = s_rot
+	add_child(syringe)
+	_mcyl("SyringeBarrel", 0.012, 0.11, Vector3.ZERO, glass, syringe)
+	_mcyl("SyringeDose", 0.009, 0.05, Vector3(0, -0.025, 0), liquid, syringe)
+	_mcyl("SyringePlunger", 0.004, 0.07, Vector3(0, 0.085, 0), steel, syringe)
+	_mcyl("SyringeThumb", 0.014, 0.004, Vector3(0, 0.12, 0), steel, syringe)
+	_mcyl("SyringeFlange", 0.02, 0.004, Vector3(0, 0.055, 0), glass, syringe)
+	_mcyl("SyringeNeedle", 0.0012, 0.06, Vector3(0, -0.085, 0), steel, syringe)
+	_mcyl("VialGlass", 0.014, 0.05, at + Vector3(-0.17, top + 0.025, -0.06), glass)
+	_mcyl("VialLiquid", 0.011, 0.03, at + Vector3(-0.17, top + 0.016, -0.06), liquid)
+	_mcyl("VialCap", 0.0145, 0.012, at + Vector3(-0.17, top + 0.056, -0.06), _mat(Color(0.5, 0.48, 0.4), 0.3, 0.8))
+	_mbox("TrayCloth", Vector3(0.2, 0.006, 0.12), at + Vector3(0.04, top + 0.003, 0.1), _mat(Color(0.82, 0.8, 0.74), 0.95), null,
+		Vector3(0, 0.12, 0))
+	_mbox("Scalpel", Vector3(0.15, 0.004, 0.012), at + Vector3(0.04, top + 0.009, 0.1), steel, null, Vector3(0, -0.3, 0))
+	_mbox("ScalpelBlade", Vector3(0.04, 0.003, 0.016), at + Vector3(0.105, top + 0.009, 0.08), _mat(Color(0.8, 0.8, 0.82), 0.15, 0.95),
+		null, Vector3(0, -0.3, 0))
+	# The tag: a card propped on the tray, turned to the room and tilted back so it reads from
+	# the middle of the room (0.32 m wide: ~19 px capitals at 2 m on a 1080p frame).
+	var to_room := Vector2(0.0 - at.x, -15.0 - at.z).normalized()
+	var card := Node3D.new()
+	card.name = "TrayTagCard"
+	# At the tray's FAR corner from the room, so the syringe, vial and scalpel are in front of it.
+	card.position = at + Vector3(0.14, top + 0.078, -0.1)
+	card.rotation = Vector3(-0.35, atan2(to_room.x, to_room.y), 0)
+	add_child(card)
+	_mbox("TagBacking", Vector3(0.33, 0.165, 0.004), Vector3(0, 0, -0.004), _mat(Color(0.3, 0.05, 0.04), 0.8), card)
+	_art("TrayTag", Vector2(0.32, 0.16), Vector3(0, 0, 0.001), Vector3.ZERO, "tag_do_not_touch.png", 0.0, card)
+	# The clamp lamp, on the back of the stand: a gooseneck, a shade, and a small clinical pool.
+	var dark := _mat(Color(0.08, 0.08, 0.08), 0.5, 0.4)
+	_mcyl("TrayLampPost", 0.009, 0.62, at + Vector3(0.22, 1.18, -0.15), dark)
+	_mcyl("TrayLampNeck", 0.007, 0.3, at + Vector3(0.12, 1.5, -0.1), dark, null, Vector3(0.3, 0, PI / 2.0 - 0.5))
+	_mcyl("TrayLampShade", 0.055, 0.07, at + Vector3(0.0, 1.46, -0.04), dark, null, Vector3.ZERO, 0.02)
+	var tl := SpotLight3D.new()
+	tl.name = "ForbiddenTrayLamp"
+	add_child(tl)
+	tl.look_at_from_position(at + Vector3(0.0, 1.43, -0.04), at + Vector3(0, top, 0.02), Vector3.UP)
+	tl.light_color = Color(0.95, 0.97, 1.0)
+	tl.light_energy = 1.7
+	tl.spot_range = 1.6
+	tl.spot_angle = 30.0
+	tl.shadow_enabled = true
+	var tbm := _mat(Color(0.12, 0.12, 0.12), 0.5)
+	tbm.emission_enabled = true
+	tbm.emission = Color(0.95, 0.97, 1.0)
+	tbm.emission_energy_multiplier = 0.35
+	var tb := MeshInstance3D.new()
+	tb.name = "TrayLampBulb"
+	var tsm := SphereMesh.new()
+	tsm.radius = 0.016
+	tsm.height = 0.032
+	tb.mesh = tsm
+	tb.set_surface_override_material(0, tbm)
+	tb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	tl.add_child(tb)
 	var tray := UseProp.new()
 	tray.name = "ForbiddenTray"
 	tray.position = at + Vector3(0, 0.9, 0)
@@ -3454,7 +3636,7 @@ func _set_slide(i: int) -> void:
 		_screen_mat.emission_texture = tex
 	_screen_mat.albedo_color = Color(1, 1, 1)
 	_screen_mat.emission_energy_multiplier = SCREEN_EMISSION
-	_screen_scary.scare_intensity = float(SLIDE_INTENSITY[i])
+	_screen_scary.scare_intensity = float(SLIDE_INTENSITY[i]) if _seated else 0.0
 	_sfx_at("intro_projector_slide", _projector_audio.position, -4.0, 3.0)
 
 
@@ -3510,6 +3692,13 @@ func _tick_calibration(delta: float) -> void:
 				_advance("calibration")
 				_say("screen", _on_screen_line_done, _calib_speaker)
 		1:
+			# The slides run — and the screen is a gaze source — only while you are seated.
+			_screen_gate()
+			if not _seated:
+				_unseated_t += delta
+				if _unseated_t > UNSEATED_TIMEOUT:
+					_finish_gaze("NOTED.")
+				return
 			_calib_t += delta
 			_tick_slides(delta)
 			var watching := _screen_dot() >= WATCH_DOT and _screen_dist() <= 3.3
@@ -3527,15 +3716,6 @@ func _tick_calibration(delta: float) -> void:
 					_finish_gaze("GOOD.")
 			else:
 				_away_t = 0.0
-		3:
-			if player.is_sprinting():
-				_calib_sprinted = true
-			if p.z > LINE_Z - 0.35 and _in_calibration(p) or p.z > LINE_Z - 0.35 and absf(p.x) < 4.0 and p.z < -9.0:
-				_calib_state = 4
-				_line_light.light_energy = 0.0
-				_advance("line")
-				_caption("HEART RATE 131. NOTED." if _calib_sprinted else "NOTED.", 3.0)
-				get_tree().create_timer(2.2).timeout.connect(_on_line_noted)
 
 
 func _tick_slides(delta: float) -> void:
@@ -3552,24 +3732,78 @@ func _on_screen_line_done() -> void:
 	if _calib_state != 1:
 		return
 	_projector_on(true)
-	_caption("STAND ON THE MARK.", 3.5)
+	_chair_prop.enabled = true
+	_caption("SIT DOWN.", 3.5, Color(0.86, 0.84, 0.72), func() -> bool: return _seated)
+
+
+# The screen is a gaze source only while you sit: standing, the projector runs its title card and
+# nothing on it can move the bar.
+func _screen_gate() -> void:
+	if _slide_i < 0 or _screen_scary == null:
+		return
+	_screen_scary.scare_intensity = float(SLIDE_INTENSITY[_slide_i]) if _seated else 0.0
+
+
+# ⭐ THE CHAIR (first hand playtest, 2026-09-24, capture #3: *"It was said do not look away until
+# instructed - but when I will be instructed? They are repeated in circles."*). Measured on the
+# player's own spot: 3.44 m from the screen, outside GAZE_RANGE 3.0 — the gaze ray never reached it,
+# panic never moved, and the 60 s fallback let them through untaught. Seated, the eye is ~2.4 m away.
+# The body is pinned with player.begin_qte() — the MOVEMENT-ONLY pin (look stays free, so the lesson
+# "look away" is still yours to perform); it also refuses E and sprint, which is right in a chair.
+func _sit_in_chair(_times: int) -> void:
+	if _seated or _calib_state != 1:
+		return
+	_seated = true
+	_chair_prop.enabled = false
+	for c in _chair_body.get_children():
+		if c is CollisionShape3D:
+			(c as CollisionShape3D).disabled = true
+	player.begin_qte()
+	player.velocity = Vector3.ZERO
+	_sfx_at("intro_chair_sit", SUBJECT_CHAIR_POS + Vector3(0, 0.5, 0), 0.0, 3.0)
+	var from := player.global_position
+	var to := SUBJECT_CHAIR_POS + Vector3(0, 0.02, 0.06)
+	var t := create_tween().set_parallel(true)
+	t.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	t.tween_method(_set_player_pos, from, to, SEAT_TIME)
+	t.tween_property(player.camera, "position:y", SEATED_EYE - 0.02, SEAT_TIME)
+	var cam: Camera3D = player.camera
+	# turn_to_face measures pitch from the CURRENT eye; aim for the screen as seen from the seat.
+	var aim := SCREEN_POS + (from - to) + Vector3(0, cam.position.y - (SEATED_EYE - 0.02), 0)
+	player.turn_to_face(aim, SEAT_TIME)
+
+
+func _stand_from_chair() -> void:
+	if not _seated:
+		return
+	_seated = false
+	var from := player.global_position
+	# To the WEST of the chair: the projector cart stands north-east, in the line of the walk.
+	var to := SUBJECT_CHAIR_POS + Vector3(-0.85, 0.05, 0.3)
+	var t := create_tween().set_parallel(true)
+	t.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	t.tween_method(_set_player_pos, from, to, SEAT_TIME)
+	t.tween_property(player.camera, "position:y", 1.65, SEAT_TIME)
+	t.finished.connect(_on_stood_from_chair)
+
+
+func _on_stood_from_chair() -> void:
+	player.end_qte()
+	for c in _chair_body.get_children():
+		if c is CollisionShape3D:
+			(c as CollisionShape3D).disabled = false
 
 
 func _finish_gaze(caption: String) -> void:
 	_calib_state = 3
+	_stand_from_chair()
 	_projector_on(false)
 	_advance("gaze")
 	_caption(caption, 2.0)
-	get_tree().create_timer(2.4).timeout.connect(_send_to_line)
+	get_tree().create_timer(2.4).timeout.connect(_on_gaze_noted)
 
 
-func _send_to_line() -> void:
-	_calib_sprinted = false
-	_line_light.light_energy = 1.4
-	_caption("WALK TO THE LINE.", 3.5)
-
-
-func _on_line_noted() -> void:
+func _on_gaze_noted() -> void:
 	_say("better", _on_calibrated, _calib_speaker)
 
 
@@ -3613,18 +3847,12 @@ func _restore_progress() -> void:
 	if not GameState.entered_from_ahead:
 		return
 	var data := GameState.get_level_progress(0)
-	for b in ["straps", "torch", "blackout", "calibration", "gaze", "line", "calibrated", "proceed"]:
+	for b in ["straps", "torch", "blackout", "calibration", "gaze", "calibrated", "proceed"]:
 		_beats[b] = true
 	for b in data.get("beats", []):
 		_beats[String(b)] = true
 	GameState.intro_note_read = true
-	# The cell: straps off and hanging, nobody on the bed, the door open.
-	for i in _straps.size():
-		_release_strap(i, true)
-		_straps[i].enabled = false
-		_straps[i].times_used = 1
-	_strap_index = _straps.size()
-	_strap_phase = false
+	# The cell: nobody on the bed, the door open (the straps were built open).
 	_hall_state = 2
 	for d in _doors.values():
 		(d as WingDoor).move_aside_instantly()
@@ -3652,6 +3880,7 @@ func _restore_progress() -> void:
 		wc.rotation.y += deg_to_rad(WHEELCHAIR_TURN_DEG)
 	if _env:
 		_env.ambient_light_energy = NORMAL_AMBIENT
+		_env.ambient_light_color = LIT_AMBIENT_COLOR
 	_calib_state = 5
 	_airlock_state = 1
 	player.unlock_flashlight()
@@ -3858,7 +4087,6 @@ func _process(delta: float) -> void:
 			+ sin(_flicker_time * 0.6) * 0.1
 		return
 	_tick_wheelchair()
-	_tick_straps()
 	_tick_hall()
 	_tick_props(delta)
 	_tick_ward_fittings()
