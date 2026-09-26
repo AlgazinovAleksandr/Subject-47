@@ -7345,3 +7345,51 @@ constant's value was asserted; its effect never was.
 
 **General lesson:** before tuning a lighting number, confirm the number actually moves pixels. With
 the shared environment, ambient ENERGY is nearly inert. Change the colour, and measure the frame.
+
+---
+
+## Issue 283 — A second speaker's shout arrived AFTER the event: the intro's caption queue held the patient's words behind the observer's fading line (2026-09-25)
+
+**Symptom:** the first windowed tour of the patient at the airlock hatch (fourth hand playtest)
+showed the observer's *"Much better than last time."* on screen through the slam, the words and the
+scream; the patient's *"THEY'LL KILL US. THEY'LL KILL ALL OF US!"* appeared only in the frame AFTER
+the shutter had banged down — a subtitle for a voice that had stopped.
+
+**Cause:** Issue 281's fix. Every observer caption goes through `intro_room.gd:_caption()`, which
+queues a line until the previous one has faded (0.5 in + hold + 1.0 out), because
+`ScreenText.caption()` prints every line in ONE slot. The patient's line went through the same queue,
+and VO4's caption (the line just before the airlock door unlocks) was still fading when a quick player
+opened that door. `check_intro_beats.gd`'s first version passed: it asserted the text was in
+`_captions`, which is appended at QUEUE time, not at SHOW time.
+
+**Fix (`intro_room.gd`):** `_patient_line()` — the patient gets his own `CanvasLayer` line above the
+observer's slot, in his own colour (`PATIENT_CAPTION_COLOR`), shown the moment his audio starts and
+never queued. The test now asserts the `PatientLine` label is on screen, with the words, while the
+words are playing (proved red with the line routed back through `_caption()`).
+
+**Why tests missed it:** the check read the ledger of REQUESTED captions, not what was on screen.
+
+**General lesson:** a queue that serialises one speaker is wrong for a second one. A line tied to a
+sound has to show with that sound — give a different speaker a different slot, and assert the label
+that is visible, not the list of lines asked for.
+
+---
+
+## Issue 284 — The calibration chair went inert after its first sit: `UseProp.max_uses` defaults to ONE (2026-09-25)
+
+**Symptom:** building SERIES D (standing up mid-round and sitting again), `check_intro_beats.gd`
+went red at "the chair answers the ray again (E — sit)": after one sit the chair never answered E
+again, so a player who stood up would have been stuck standing until the 45 s NOTED. fallback.
+
+**Cause:** `use_prop.gd`'s `max_uses` defaults to 1 (right for a one-shot tray or strap), and
+`can_interact()` returns false once `times_used` reaches it. Round one only ever sat you down once,
+so the default was invisible.
+
+**Fix:** `_chair_prop.max_uses = 0` (unlimited) where the chair is built. `spec/systems/scripts.md`'s
+`use_prop.gd` row now names the default.
+
+**Why tests missed it:** no test sat twice until a flow existed that needs it — the new check caught
+it on its first run.
+
+**General lesson:** a "used once" default is a latent limit on every prop that is later given a
+second use. When a flow re-arms a prop, check its use counter, not just its `enabled` flag.

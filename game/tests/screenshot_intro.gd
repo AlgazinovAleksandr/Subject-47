@@ -3,7 +3,8 @@ extends SceneTree
 # Dev tool: a photographed tour of the Intake Wing (2026-09-24) — cell wake, straps, sink and
 # mirror, cell door, the dream corridor, the observation hall (the glass from both sides, WITH the
 # occupant and after it has gone), the torch tray, the ward after the blackout, the lit ward and
-# the airlock exit. It drives the level's own beats (strap.interact(), the torch KeyItem, the ward
+# the airlock exit, SERIES D from the chair and the patient at the airlock hatch (2026-09-25). It
+# drives the level's own beats (the torch KeyItem, the ward
 # entry door, the stuck switch pressed `presses_needed` times) rather than faking their state, and
 # prints a few physics-proof CHECK lines alongside the PNGs.
 #
@@ -95,15 +96,32 @@ func _initialize() -> void:
 		[2.6, func(): _shot("25_seated_slide1")],
 		[4.0, func(): _shot("26_seated_slide2_ward_photo")],
 		[4.0, func(): _shot("27_seated_slide3_portrait")],
+		# ⭐ SERIES D (fourth hand playtest, 2026-09-25): GOOD. keeps you seated; the projector comes
+		# back 3.0 s later — title 2.5 s, then five figures at 1.6 s, each closer. Still seated.
 		[0.1, func(): _room.call("_finish_gaze", "GOOD.")],
-		[1.2, func(): _pose(Vector3(1.8, 0, -16.4), -0.84, -0.5)],
-		[0.4, func(): _shot("28_forbidden_tray")],
+		[3.6, func(): _shot("28_series_d_title")],
+		[2.6, func(): _shot("29_series_d_fig1_ward_end")],
+		[1.6, func(): _shot("30_series_d_fig2_curtain")],
+		[1.6, func(): _shot("31_series_d_fig3_bed")],
+		[1.6, func(): _shot("32_series_d_fig4_glass")],
+		[1.6, func(): _shot("33_series_d_fig5_lens")],
+		[2.2, func(): _pose(Vector3(1.8, 0, -16.4), -0.84, -0.5)],
+		[0.4, func(): _shot("34_forbidden_tray")],
 		[0.1, func(): _pose(Vector3(0.0, 0, -17.2), 0.0, -0.5)],
-		[0.3, func(): _shot("30_chair_and_dark_screen")],
+		[0.3, func(): _shot("35_chair_and_dark_screen")],
 		[0.1, func(): _room.call("_on_calibrated")],
-		[0.1, func(): _use("AirlockDoor")],
-		[1.5, func(): _pose(Vector3(-6.5, 0, -17.5), -0.4, -0.05)],
-		[0.4, func(): _shot("31_airlock")],
+		# ⭐ The patient at the hatch: from where you open the door, then closer, then the shutter.
+		[0.1, func(): _pose(Vector3(-3.0, 0, -18.5), PI / 2.0, -0.02)],
+		[0.3, func(): _use("AirlockDoor")],
+		# slam + SCREAM at 0.35 s (one frame), the WORDS from ~2.8 s, dragged back ~5.2 s, shutter ~6.3 s
+		[0.6, func(): _shot("36_hatch_from_the_doorway_scream")],
+		[0.1, func(): _pose(Vector3(-5.0, 0, -18.5), PI / 2.0, -0.08)],
+		[0.8, func(): _shot("37_hatch_close_scream")],
+		[2.2, func(): _shot("38_hatch_close_words")],
+		[1.75, func(): _shot("39_hatch_dragged_back")],
+		[1.3, func(): _shot("40_hatch_shutter_down")],
+		[0.1, func(): _pose(Vector3(-6.5, 0, -17.5), -0.4, -0.05)],
+		[0.4, func(): _shot("41_airlock")],
 	]
 
 

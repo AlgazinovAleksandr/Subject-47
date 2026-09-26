@@ -785,6 +785,41 @@ def user_slides():
 EYE_BAR = (318, 190, 488, 242)   # slide pixels: x0, y0, x1, y1
 
 
+# ================================================================ round one, three more stimuli
+# (sixth hand playtest, 2026-09-26: "we need to show slightly more objects before we say move away
+# for the first time"). Flux raws in assets_src/textures/intro/flux/ (prompts.txt), CF key #1, 4 steps.
+# Same archival card as slide_2 / slide_3: a print on a pale card with a typed caption.
+
+def _card(raw_path, box, size, caption, sepia, card_rgb):
+    pw, ph = size
+    photo = raw(raw_path, None, box)
+    im = Image.fromarray((photo * 255).astype(np.uint8)).resize((pw, ph), Image.LANCZOS)
+    a = np.asarray(im).astype(np.float32) / 255.0
+    lum = a.mean(axis=2, keepdims=True)
+    tint = np.array([1.0, 0.9, 0.72]) if sepia else np.array([0.95, 0.95, 0.95])
+    a = np.clip((lum - 0.03) * 1.25, 0, 1) * tint
+    card = np.ones((SH, SW, 3), np.float32) * np.array(card_rgb)
+    x0 = (SW - pw) // 2
+    card[40:40 + ph, x0:x0 + pw] = a
+    cimg = Image.fromarray((card * 255).astype(np.uint8), "RGB")
+    ImageDraw.Draw(cimg).text((x0 + 4, 40 + ph + 12), caption, font=font("DMMono-Regular.ttf", 32), fill=(34, 32, 28))
+    return np.asarray(cimg).astype(np.float32) / 255.0
+
+
+def round_one_extra():
+    save(_slide_frame(_card(os.path.join(FLUX, "stim_doll_a.jpg"), (0.0, 0.0, 1.0, 1.0), (500, 500),
+                            "FIG. 5", False, (0.92, 0.92, 0.9))), "slide_5.png")
+    save(_slide_frame(_card(os.path.join(FLUX, "stim_chair_a.jpg"), (0.0, 0.0, 1.0, 1.0), (500, 500),
+                            "FIG. 6", False, (0.92, 0.92, 0.9))), "slide_6.png")
+    # ⚠️ Cropped to the skull: flux lettered a garbled title and a margin of fake text round it.
+    save(_slide_frame(_card(os.path.join(FLUX, "stim_skull_a.jpg"), (0.14, 0.12, 0.98, 0.86), (500, 440),
+                            "FIG. 7", True, (0.86, 0.82, 0.72))), "slide_7.png")
+
+
+if __name__ == "__main__" and "--round-one" in __import__("sys").argv:
+    round_one_extra()
+
+
 if __name__ == "__main__" and "--user-slides" in __import__("sys").argv:
     user_slides()
 
@@ -812,7 +847,96 @@ if __name__ == "__main__" and "--pass2" in __import__("sys").argv:
     make_slides()
 
 
-if __name__ == "__main__" and "--pass2" not in __import__("sys").argv and not any(a.startswith("--user") for a in __import__("sys").argv):
+# ================================================================ pass 4 — SERIES D (fourth hand playtest, 2026-09-25)
+# The calibration's second round: five flux photographs of ONE new thing (a pale, emaciated figure
+# with its head wrapped in bandages — never one of the game's own creatures), each frame CLOSER than
+# the last, so across ~8 s it approaches the camera. Raws + prompts in assets_src/textures/intro/flux/.
+# The mount darkens as it comes: FIG 1-3 are archive prints on a black card, FIG 4 a bigger print,
+# FIG 5 is the whole slide — the thing has outgrown the frame. Words are drawn here (flux cannot).
+# ⚠️ The raws are 4-step drafts on purpose: generate.py takes no seed, so an 8-step "re-run" of a
+# chosen draft is a DIFFERENT picture, not a sharper one; at 800x600 behind a projector the drafts
+# hold up (read on the rendered slides).
+SERIES_D = [
+    # file, crop box (x0, y0, x1, y1) of the 1024^2 raw, photo window (w, h) on the card
+    ("series_d_1b.jpg", (0.0, 0.18, 1.0, 0.82), (720, 460)),   # the far end of a ward
+    ("series_d_2a.jpg", (0.0, 0.16, 1.0, 0.80), (720, 460)),   # behind the curtain
+    ("series_d_3a.jpg", (0.0, 0.06, 1.0, 0.70), (720, 460)),   # on the bed
+    ("series_d_4b.jpg", (0.0, 0.02, 1.0, 0.72), (760, 504)),   # at the glass
+    ("series_d_5b.jpg", (0.0, 0.18, 1.0, 0.93), (SW, SH)),     # at the lens
+]
+
+
+def _archival(arr):
+    """Cold black-and-white archive print: contrast, crushed blacks, grain."""
+    lum = arr.mean(axis=2)
+    lum = np.clip((lum - 0.05) * 1.45, 0, 1) ** 1.1
+    lum = lum * 0.9 + 0.1 * rng.random(lum.shape).astype(np.float32)
+    return lum[..., None] * np.array([0.93, 0.94, 0.95])
+
+
+def make_series_d():
+    # 0 — the title card, the calibration title's layout (make_slides), a new series.
+    img = Image.new("RGB", (SW, SH), (10, 10, 10))
+    d = ImageDraw.Draw(img)
+    d.text((70, 150), "SERIES D", font=font("BigShoulders-Bold.ttf", 120), fill=(215, 210, 195))
+    d.text((74, 300), "SUBJECT 47  ·  FIVE EXPOSURES", font=font("DMMono-Regular.ttf", 38), fill=(170, 165, 150))
+    d.text((74, 380), "REMAIN SEATED", font=font("DMMono-Regular.ttf", 30), fill=(170, 60, 50))
+    save(_slide_frame(np.asarray(img).astype(np.float32) / 255.0), "slide_d0_title.png")
+    for k, (name, box, (pw, ph)) in enumerate(SERIES_D):
+        n = k + 1
+        photo = _archival(raw(os.path.join(FLUX, name), (pw, ph), box))
+        card = np.ones((SH, SW, 3), np.float32) * 0.035
+        x0 = (SW - pw) // 2
+        y0 = 0 if ph >= SH else (30 if ph <= 460 else 14)
+        card[y0:y0 + ph, x0:x0 + pw] = photo
+        cimg = Image.fromarray((card * 255).astype(np.uint8), "RGB")
+        cd = ImageDraw.Draw(cimg)
+        label = "SERIES D  ·  FIG. %d" % n
+        f = font("DMMono-Regular.ttf", 30 if ph < SH else 24)
+        if ph < SH:
+            cd.text((x0 + 4, y0 + ph + 16), label, font=f, fill=(170, 166, 156))
+        else:
+            # Full bleed: the label burned into the print's corner, like an archive stamp.
+            cd.rectangle([22, SH - 58, 22 + 330, SH - 20], fill=(8, 8, 8))
+            cd.text((32, SH - 54), label, font=f, fill=(190, 186, 176))
+        save(_slide_frame(np.asarray(cimg).astype(np.float32) / 255.0), "slide_d%d.png" % n)
+
+
+def make_patient_cutout():
+    """The patient at the airlock hatch: a real RGBA cutout — his face out of the black. Alpha is the
+    photo's own luminance (the background is black) under an oval feather, so no rectangle can
+    show behind the bars even when the hatch light catches the quad's edge."""
+    a = raw(os.path.join(FLUX, "patient_b.jpg"), (512, 512))
+    lum = a.mean(axis=2)
+    y, x = np.mgrid[0:512, 0:512].astype(np.float32)
+    oval = np.clip(1.0 - (((x - 256) / 250) ** 2 + ((y - 250) / 262) ** 2), 0, 1)
+    oval = np.clip(oval * 3.0, 0, 1)
+    # ⚠️ The BACKGROUND is the dark reachable from the border — not every dark pixel: a luminance
+    # key alone punched the open mouth and the eye sockets out of the face (first render).
+    dark = lum < 0.07
+    bg = np.zeros_like(dark)
+    bg[0, :] = dark[0, :]; bg[-1, :] = dark[-1, :]; bg[:, 0] = dark[:, 0]; bg[:, -1] = dark[:, -1]
+    while True:
+        grown = bg.copy()
+        grown[1:, :] |= bg[:-1, :]; grown[:-1, :] |= bg[1:, :]
+        grown[:, 1:] |= bg[:, :-1]; grown[:, :-1] |= bg[:, 1:]
+        grown &= dark
+        if (grown == bg).all():
+            break
+        bg = grown
+    soft = np.asarray(Image.fromarray((~bg * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(3))) / 255.0
+    alpha = soft.astype(np.float32) * oval
+    gray = _archival(a) * np.array([1.04, 1.0, 0.94])      # a touch warm: bulb-lit skin
+    save(np.concatenate([np.clip(gray, 0, 1), alpha[..., None]], axis=2), "patient_hatch.png")
+
+
+if __name__ == "__main__" and "--series-d" in __import__("sys").argv:
+    make_series_d()
+    make_patient_cutout()
+
+
+if __name__ == "__main__" and "--pass2" not in __import__("sys").argv and "--series-d" not in __import__("sys").argv \
+        and not any(a.startswith("--user") for a in __import__("sys").argv) and "--round-one" not in __import__("sys").argv:
     make_wall()
     make_floor()
     make_ceiling()

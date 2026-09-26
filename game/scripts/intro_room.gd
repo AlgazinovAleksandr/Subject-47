@@ -34,6 +34,11 @@ const ROOMS := [
 	{"name": "Hall", "pos": Vector2(-7.2, 17), "size": Vector2(6, 6), "h": WING_H},
 	{"name": "Calibration", "pos": Vector2(0, -15), "size": Vector2(8, 12), "h": 3.4},
 	{"name": "Airlock", "pos": Vector2(-5.5, -18.5), "size": Vector2(3, 3), "h": WING_H},
+	# ⭐ Fourth hand playtest (2026-09-25): the cell behind the airlock's barred hatch. Nobody goes in —
+	# it exists so the hatch looks into real depth that the patient is dragged back into. Its skin is
+	# near-black (see _rooms_with_skins): after the switch the ambient is 0.30, which would otherwise
+	# light the "dark" behind the bars grey.
+	{"name": "PatientCell", "pos": Vector2(-7.8, -18.5), "size": Vector2(1.6, 1.8), "h": WING_H},
 ]
 # Every doorway carries a WingDoor of the same name. `h` is the taller of the two rooms, which is
 # how high RoomBuilder cuts the opening — the door's infill fills it to there.
@@ -63,6 +68,13 @@ const DOORS := [
 const WINDOWS := [
 	{"name": "ObservationGlass", "pos": Vector2(-6.2, 20), "width": 2.2, "dir": "z",
 		"sill": 0.85, "top": 2.1},
+]
+# The airlock's barred hatch (fourth hand playtest): cut like a window, closed around a 0.6 m square
+# with bars instead of glass (_build_patient_hatch()). In the airlock's WEST wall — dead ahead as you
+# step through the AirlockDoor, and neither the ExitDoor's wall (south) nor a doorway's.
+const HATCHES := [
+	{"name": "PatientHatch", "pos": Vector2(-7.0, -18.5), "width": 0.6, "dir": "x",
+		"sill": 1.15, "top": 1.75},
 ]
 # The cell. The bed runs north-south with its head at the north wall; the player wakes sitting up
 # at the head end, facing south — straight at the one-way glass, which from this side is a dark,
@@ -205,7 +217,7 @@ const _NOTE_SCRIPT := preload("res://scripts/note.gd")
 # the caption is the SAME WORDS — tools/make_pa_voice.py's LINES table is the other copy. Only VO1
 # plays in this build; VO2-5 land with the ward retrofit and calibration (phases 4-5).
 const VO := {
-	"morning": ["pa_intro_morning", "Good morning, forty-six— forty-seven."],
+	"morning": ["pa_intro_morning", "Good morning, forty-six. I mean — forty-seven."],
 	"fault": ["pa_intro_fault", "—we have a fault in—"],
 	"screen": ["pa_intro_screen", "Look at the screen, forty-seven."],
 	"better": ["pa_intro_better", "Much better than last time."],
@@ -420,7 +432,7 @@ func _build_room() -> void:
 		_builder.build([WARD], [])
 	else:
 		# Windows are cut like doorways and then closed around the glass (_build_windows()).
-		_builder.build(_rooms_with_skins(), DOORS + WINDOWS)
+		_builder.build(_rooms_with_skins(), DOORS + WINDOWS + HATCHES)
 
 	# Ceiling fluorescents — off until the switch is flipped, then flickered up
 	# in _on_switch_flipped(). No fixture mesh: this room reads as plain damp
@@ -449,7 +461,9 @@ func _build_room() -> void:
 func _rooms_with_skins() -> Array:
 	var hall_floor := RoomBuilder.make_material(TEX + "floor_intro.png",
 		Vector3(0.35, 0.35, 0.35), Color(0.22, 0.22, 0.21))
-	var skins := {"Hall": {"floor_mat": hall_floor}}
+	var black := _mat(Color(0.012, 0.012, 0.012), 1.0)
+	var skins := {"Hall": {"floor_mat": hall_floor},
+		"PatientCell": {"wall_mat": black, "floor_mat": black, "ceil_mat": black}}
 	var out: Array = []
 	for r in ROOMS:
 		var room: Dictionary = r.duplicate()
@@ -3273,7 +3287,7 @@ func _build_speakers() -> void:
 # cell, hall and ward stay at exactly 0) and the level's ceiling pins it at 0.6, so nothing in this
 # room can kill. Two lessons, each a thing the rest of the game punishes:
 #   1. GAZE   — the projector's slides are a ScaryObject; SITTING in the subject's chair and watching
-#               them fills the bar. At LOOK_AWAY_AT the monitor says LOOK AWAY., and the lesson
+#               them fills the bar. After the SEVENTH stimulus the monitor says LOOK AWAY., and the lesson
 #               completes after AWAY_TIME of not looking (the level's own camera-dot test).
 #   2. TOUCH  — a red-tagged tray, DO NOT TOUCH, live throughout; E spikes the bar to the ceiling.
 # (A third, WALK TO THE LINE — the sprint cost — was cut on the second hand playtest, 2026-09-25.)
@@ -3281,12 +3295,18 @@ const SCREEN_POS := Vector3(0, 1.75, -21.0 + WALL_T / 2.0 + 0.04)
 const SCREEN_SIZE := Vector2(2.4, 1.8)                 # 4:3, the slides' own aspect
 const MARK_POS := Vector3(0, 0, -18.6)                  # the CHAIR's spot: the seated eye is 2.4 m from the screen
 const TRAY_STAND_POS := Vector3(2.7, 0, -17.3)
-const SLIDES := ["slide_0_title.png", "slide_1.png", "slide_2.png", "slide_3.png", "slide_4.png"]
-# Gaze intensity per slide (× player.PANIC_BASE_RATE 20/s): 0.8, 1.4, 2.0, 2.8, 3.6 panic/s —
-# the ladder up. Measured: ~11 s of watching from the title reaches LOOK_AWAY_AT on slide 3.
-const SLIDE_INTENSITY := [0.04, 0.07, 0.1, 0.14, 0.18]
-const SLIDE_TIME := 4.0
-const LOOK_AWAY_AT := 0.35
+# ⭐ SEVEN stimuli, and LOOK AWAY. after the LAST (sixth hand playtest, 2026-09-26: "we need to show
+# slightly more objects before we say move away for the first time"). It used to fire on panic ≥ 0.35 —
+# and the DO NOT TOUCH tray puts panic at 0.60, so a player who touched it first got LOOK AWAY. almost
+# as they sat (GOOD. 14 s after the tray, ≤ 1 slide seen). Panic still climbs across the round, but a
+# COUNT ends it. The three new ones (5 doll · 6 restraint chair · 7 skull plate) are flux.
+const SLIDES := ["slide_0_title.png", "slide_1.png", "slide_2.png", "slide_6.png", "slide_7.png",
+	"slide_5.png", "slide_3.png", "slide_4.png"]
+# Gaze intensity per slide (× player.PANIC_BASE_RATE 20/s): a ladder from 0.4 to 2.8 panic/s. Watched
+# straight through (2.5 s each) the stimuli add ~28 points ≈ 0.57 — up against the 0.6 ceiling by
+# the red card, which is where the round ends.
+const SLIDE_INTENSITY := [0.02, 0.03, 0.04, 0.06, 0.08, 0.10, 0.12, 0.14]
+const SLIDE_TIME := 2.5
 const AWAY_TIME := 1.5
 const AWAY_DOT := 0.5                                   # looking > 60° off the screen is "away"
 const WATCH_DOT := 0.85
@@ -3298,8 +3318,35 @@ const UNSEATED_TIMEOUT := 90.0
 const SEATED_EYE := 1.2                                 # seated eye height over the floor
 const SEAT_TIME := 0.9
 const SCREEN_EMISSION := 0.45
+# ⭐ SERIES D — the second round (fourth hand playtest, 2026-09-25, capture #1: *"with the screen
+# experiment it is a good idea to make another iteration where some monsters will be shown. So the
+# player learns no need to hide from monsters"*; the user chose "hold still" and NEW monsters). Round
+# one's GOOD. does not stand you up: the projector comes back with five photographs of one new thing,
+# each closer, and the lesson is to STAY IN THE CHAIR — the rule the Lab's first apparition kills you
+# for. ⚠️ Never the game's own creatures: that would spoil every later first appearance.
+const SERIES_D := ["slide_d0_title.png", "slide_d1.png", "slide_d2.png", "slide_d3.png", "slide_d4.png",
+	"slide_d5.png"]
+# × PANIC_BASE_RATE 20/s: the title card almost nothing, then 2.4 → 10 panic/s as it comes. Watched
+# straight through, the bar reaches the 0.6 ceiling on FIG. 4 and is pinned there — it cannot kill.
+const SERIES_D_INTENSITY := [0.02, 0.12, 0.2, 0.3, 0.4, 0.5]
+const SERIES_D_DELAY := 3.0          # GOOD. fades, then the projector clacks back on
+const SERIES_D_TITLE_TIME := 2.5
+const SERIES_D_SLIDE_TIME := 1.6     # 5 x 1.6 = 8.0 s of the thing coming — "~8 s seated"
+const SERIES_D_E_GRACE := 0.6        # the E that sat you down must not also stand you up
+# Standing up mid-round repeats SIT DOWN.; a player who will not sit again is let through with
+# NOTED. after this long standing (round one's 90 s is for FINDING the chair — here you know it).
+const SERIES_D_UNSEATED_TIMEOUT := 45.0
+const SERIES_D_LOOK_BACK_AFTER := 1.5   # looking away this long in round two → LOOK AT THE SCREEN.
+const SERIES_D_NAG_EVERY := 4.0         # …and not more often than this
+var _series_d_away_t: float = 0.0
+var _series_d_nag_t: float = SERIES_D_NAG_EVERY
 
 var _calib_state: int = 0      # 0 not entered · 1 watching · 2 look away · 3 answered (GOOD./NOTED.) · 5 done
+                               # · 6 SERIES D, seated · 7 SERIES D, stood up (SIT DOWN.)
+var _series: int = 0           # which carousel is loaded: 0 round one (SLIDES), 1 SERIES D
+var _series_d_running: bool = false   # false through the gap between GOOD. and the projector
+var _series_d_t: float = 0.0          # seconds since this run of round two started
+var _stand_hint: CanvasLayer = null
 var _seated: bool = false
 var _unseated_t: float = 0.0
 var _chair_prop: UseProp = null
@@ -3424,6 +3471,7 @@ func _build_calibration() -> void:
 	_build_forbidden_tray()
 	_build_subject_chair()
 	_build_eeg_cart()
+	_build_patient_hatch()
 
 
 # ⭐ Calibration dressing (polish, 2026-09-24 — "the room is bare"): the subject's chair, EMPTY,
@@ -3475,6 +3523,9 @@ func _build_subject_chair() -> void:
 	_chair_prop.name = "SubjectChair"
 	_chair_prop.prompt = "E — sit"
 	_chair_prop.enabled = false
+	# ⚠️ Unlimited: UseProp's max_uses defaults to ONE, and round two (SERIES D) lets you stand up
+	# and sit again — the chair went inert after the first sit (check_intro_beats caught it).
+	_chair_prop.max_uses = 0
 	_chair_prop.position = SUBJECT_CHAIR_POS + Vector3(0, 0.8, 0)
 	add_child(_chair_prop)
 	_chair_prop.add_box_shape(Vector3(0.6, 0.62, 0.58))
@@ -3629,15 +3680,23 @@ func _set_slide(i: int) -> void:
 		if _screen_scary:
 			_screen_scary.scare_intensity = 0.0
 		return
-	var path: String = TEX + String(SLIDES[i])
+	var path: String = TEX + _slide_file(i)
 	if ResourceLoader.exists(path):
 		var tex: Texture2D = load(path)
 		_screen_mat.albedo_texture = tex
 		_screen_mat.emission_texture = tex
 	_screen_mat.albedo_color = Color(1, 1, 1)
 	_screen_mat.emission_energy_multiplier = SCREEN_EMISSION
-	_screen_scary.scare_intensity = float(SLIDE_INTENSITY[i]) if _seated else 0.0
+	_screen_scary.scare_intensity = _slide_intensity(i) if _seated else 0.0
 	_sfx_at("intro_projector_slide", _projector_audio.position, -4.0, 3.0)
+
+
+func _slide_file(i: int) -> String:
+	return String(SERIES_D[i]) if _series == 1 else String(SLIDES[i])
+
+
+func _slide_intensity(i: int) -> float:
+	return float(SERIES_D_INTENSITY[i]) if _series == 1 else float(SLIDE_INTENSITY[i])
 
 
 func _projector_on(on: bool) -> void:
@@ -3700,32 +3759,51 @@ func _tick_calibration(delta: float) -> void:
 					_finish_gaze("NOTED.")
 				return
 			_calib_t += delta
-			_tick_slides(delta)
-			var watching := _screen_dot() >= WATCH_DOT and _screen_dist() <= 3.3
-			if player.get_panic_ratio() >= LOOK_AWAY_AT and watching:
+			if _tick_slides(delta):
 				_calib_state = 2
 				_away_t = 0.0
 				_caption("LOOK AWAY.", 3.0)
 			elif _calib_t > CALIB_TIMEOUT:
 				_finish_gaze("NOTED.")
 		2:
-			_tick_slides(delta)
 			if _screen_dot() < AWAY_DOT:
 				_away_t += delta
 				if _away_t >= AWAY_TIME:
 					_finish_gaze("GOOD.")
 			else:
 				_away_t = 0.0
+		6:
+			_screen_gate()
+			if _series_d_running:
+				_tick_series_d(delta)
+		7:
+			_unseated_t += delta
+			if _unseated_t > SERIES_D_UNSEATED_TIMEOUT:
+				_finish_series_d("NOTED.")
 
 
-func _tick_slides(delta: float) -> void:
+# Round one's carousel: title, then each stimulus ONCE, advancing only while you face the screen
+# (the same gaze gate as SERIES D — a slide shown to the back of your head was not seen). Returns
+# true once the LAST stimulus has had its full time: that, not a panic number, is when to look away.
+func _tick_slides(delta: float) -> bool:
 	if _slide_i < 0:
-		return
+		return false
+	if _screen_dot() < AWAY_DOT:
+		_series_d_away_t += delta
+		_series_d_nag_t += delta
+		if _series_d_away_t >= SERIES_D_LOOK_BACK_AFTER and _series_d_nag_t >= SERIES_D_NAG_EVERY:
+			_series_d_nag_t = 0.0
+			_caption("LOOK AT THE SCREEN.", 2.5)
+		return false
+	_series_d_away_t = 0.0
 	_slide_t += delta
-	if _slide_t >= SLIDE_TIME:
-		_slide_t = 0.0
-		# Title once, then round the four stimuli.
-		_set_slide(1 + (_slide_i % (SLIDES.size() - 1)))
+	if _slide_t < SLIDE_TIME:
+		return false
+	if _slide_i >= SLIDES.size() - 1:
+		return true
+	_slide_t = 0.0
+	_set_slide(_slide_i + 1)
+	return false
 
 
 func _on_screen_line_done() -> void:
@@ -3741,7 +3819,7 @@ func _on_screen_line_done() -> void:
 func _screen_gate() -> void:
 	if _slide_i < 0 or _screen_scary == null:
 		return
-	_screen_scary.scare_intensity = float(SLIDE_INTENSITY[_slide_i]) if _seated else 0.0
+	_screen_scary.scare_intensity = _slide_intensity(_slide_i) if _seated else 0.0
 
 
 # ⭐ THE CHAIR (first hand playtest, 2026-09-24, capture #3: *"It was said do not look away until
@@ -3751,7 +3829,7 @@ func _screen_gate() -> void:
 # The body is pinned with player.begin_qte() — the MOVEMENT-ONLY pin (look stays free, so the lesson
 # "look away" is still yours to perform); it also refuses E and sprint, which is right in a chair.
 func _sit_in_chair(_times: int) -> void:
-	if _seated or _calib_state != 1:
+	if _seated or (_calib_state != 1 and _calib_state != 7):
 		return
 	_seated = true
 	_chair_prop.enabled = false
@@ -3771,6 +3849,10 @@ func _sit_in_chair(_times: int) -> void:
 	# turn_to_face measures pitch from the CURRENT eye; aim for the screen as seen from the seat.
 	var aim := SCREEN_POS + (from - to) + Vector3(0, cam.position.y - (SEATED_EYE - 0.02), 0)
 	player.turn_to_face(aim, SEAT_TIME)
+	if _calib_state == 7:
+		# Back in the chair: round two runs again from its title card.
+		_calib_state = 6
+		t.chain().tween_callback(_run_series_d.bind(false))
 
 
 func _stand_from_chair() -> void:
@@ -3795,12 +3877,119 @@ func _on_stood_from_chair() -> void:
 
 
 func _finish_gaze(caption: String) -> void:
-	_calib_state = 3
-	_stand_from_chair()
 	_projector_on(false)
 	_advance("gaze")
+	if caption == "GOOD." and _seated:
+		# ⭐ Round one taught; round two follows in the same chair. NOTED. (a timeout — the lesson
+		# untaught) goes straight on, as before: a player who never watched is not held for more.
+		_calib_state = 6
+		_series_d_running = false
+		_caption(caption, 1.5)
+		get_tree().create_timer(SERIES_D_DELAY).timeout.connect(_run_series_d.bind(true))
+		return
+	_calib_state = 3
+	_stand_from_chair()
 	_caption(caption, 2.0)
 	get_tree().create_timer(2.4).timeout.connect(_on_gaze_noted)
+
+
+# ---------------------------------------------------------------- SERIES D
+
+# The projector clacks back on with the new carousel. `first` = straight after round one (both
+# captions); a re-sit after standing gets only the rule.
+func _run_series_d(first: bool) -> void:
+	if _calib_state != 6 or not _seated:
+		return
+	_series = 1
+	_series_d_running = true
+	_series_d_t = 0.0
+	_projector_on(true)
+	_series_d_away_t = 0.0
+	_series_d_nag_t = SERIES_D_NAG_EVERY
+	# ⭐ LOOK BACK (fifth hand playtest, 2026-09-26: "When you look away you do not even understand
+	# that at some moment you need to look back - should be said"). Round one ENDS on "look away", so
+	# the player is facing the wall when this starts. The observer repeats VO3 — the same recording,
+	# so the voice budget is still five lines.
+	if first:
+		_caption("SERIES D.", 1.2)
+		_say("screen", Callable(), _calib_speaker)
+	else:
+		_caption("LOOK AT THE SCREEN.", 2.5)
+	_caption("STAY SEATED. THEY CANNOT REACH YOU.", 3.5)
+	_show_stand_hint(true)
+
+
+func _tick_series_d(delta: float) -> void:
+	_series_d_t += delta
+	# ⚠️ E is polled HERE: the chair pins you with player.begin_qte(), and a QTE refuses the player's
+	# own interact — the same reason beartrap.gd polls it. Any E counts; you are in the chair.
+	if _series_d_t > SERIES_D_E_GRACE and Input.is_action_just_pressed("interact"):
+		_stand_mid_series_d()
+		return
+	# The slides only move while you face the screen — a round played to the back of your head
+	# taught nothing (the fifth playtest's log: SERIES D completed with nobody watching).
+	if _screen_dot() < AWAY_DOT:
+		_series_d_away_t += delta
+		_series_d_nag_t += delta
+		if _series_d_away_t >= SERIES_D_LOOK_BACK_AFTER and _series_d_nag_t >= SERIES_D_NAG_EVERY:
+			_series_d_nag_t = 0.0
+			_caption("LOOK AT THE SCREEN.", 2.5)
+		return
+	_series_d_away_t = 0.0
+	_slide_t += delta
+	var hold := SERIES_D_TITLE_TIME if _slide_i == 0 else SERIES_D_SLIDE_TIME
+	if _slide_t < hold:
+		return
+	_slide_t = 0.0
+	if _slide_i >= SERIES_D.size() - 1:
+		_finish_series_d("GOOD.")
+	else:
+		_set_slide(_slide_i + 1)
+
+
+# Getting up mid-round: the slides stop, the chair answers E again, and the order repeats.
+func _stand_mid_series_d() -> void:
+	_calib_state = 7
+	_series_d_running = false
+	_unseated_t = 0.0
+	_show_stand_hint(false)
+	_projector_on(false)
+	_stand_from_chair()
+	_chair_prop.enabled = true
+	_advance("series_d_stood")
+	_caption("SIT DOWN.", 3.0, Color(0.86, 0.84, 0.72), func() -> bool: return _seated)
+
+
+func _finish_series_d(caption: String) -> void:
+	_calib_state = 3
+	_series_d_running = false
+	_show_stand_hint(false)
+	_projector_on(false)
+	_chair_prop.enabled = false
+	_stand_from_chair()
+	_advance("series_d")
+	_caption(caption, 2.0)
+	get_tree().create_timer(2.4).timeout.connect(_on_gaze_noted)
+
+
+# "E — stand up": the pin has no prompt of its own (the QTE hides the player's), so the level shows
+# one while round two runs — the way out has to be visible for staying in to be a choice.
+func _show_stand_hint(on: bool) -> void:
+	if on and _stand_hint == null:
+		_stand_hint = CanvasLayer.new()
+		_stand_hint.name = "StandHint"
+		_stand_hint.layer = 40
+		add_child(_stand_hint)
+		var lbl := Label.new()
+		lbl.text = "E — stand up"
+		lbl.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+		lbl.position.y -= 60.0
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.add_theme_color_override("font_color", Color(0.7, 0.66, 0.58, 0.9))
+		lbl.add_theme_font_size_override("font_size", 18)
+		_stand_hint.add_child(lbl)
+	if _stand_hint:
+		_stand_hint.visible = on
 
 
 func _on_gaze_noted() -> void:
@@ -3819,20 +4008,334 @@ func _on_tray_touched(_times: int) -> void:
 	# ⚠️ The only add_panic in the intro, and it cannot kill: the level's ceiling pins it at 0.6.
 	player.add_panic(player.PANIC_MAX)
 	_advance("tray")
-	_caption("WE SAID NOT TO TOUCH IT. NOTED.", 3.5)
+	# ⚠️ IMMEDIATE, never queued (sixth hand playtest, 2026-09-26: "you should get the trigger
+	# immediately and the note we said not touch"). Through the queue it landed behind VO3's caption
+	# and SIT DOWN., seconds after the spike it explains.
+	_immediate_line("WE SAID NOT TO TOUCH IT. NOTED.", 3.5, Color(0.9, 0.42, 0.36), "RebukeLine")
 
 
 func _tick_airlock() -> void:
 	if _airlock_state != 0 or not _beats.has("calibrated") or _beats.has("proceed"):
 		return
+	# ⭐ The patient first (fourth hand playtest): the buzzer and "You may proceed." wait until the
+	# shutter is down and HATCH_AFTER of silence has passed — never over the scream.
+	if _hatch_state == 1 or _hatch_state == 2:
+		return
 	if _in_airlock(player.global_position):
 		_airlock_state = 1
 		_sfx_at("intro_airlock_buzzer", Vector3(-5.5, 2.4, -18.5), 0.0, 5.0)
-		get_tree().create_timer(2.3).timeout.connect(func(): _say("proceed", _on_proceed, _airlock_speaker))
+		get_tree().create_timer(2.3).timeout.connect(_on_proceed)
 
 
+# ⚠️ The door unlocks as the line STARTS (fourth hand playtest, 2026-09-25: "The door cannot be
+# opened straight after you say you may proceed"). It used to wait for the stream to END, so for
+# ~2.4 s the caption said "You may proceed." and the door said "Not yet." — the player pressed E in
+# that window and read the door as broken.
 func _on_proceed() -> void:
 	_advance("proceed")
+	_say("proceed", Callable(), _airlock_speaker)
+
+
+# ---------------------------------------------------------------- the patient at the hatch
+
+# ⭐ THE PATIENT AT THE AIRLOCK HATCH (fourth hand playtest, 2026-09-25, capture #2: *"after you open
+# this door it is a good idea to have a screamer of another asylum patient saying they will kill all
+# of us"*; the user chose IN-WORLD). As the AirlockDoor opens, a patient slams into the barred hatch
+# dead ahead and SCREAMS on the same frame (the user's wordless `patient_scream` — ⭐ the user's
+# order, 2026-09-25: *"first a scream and a very sudden one. And secondly, they will kill all us"*:
+# no lead-in, no pre-duck, nothing rising before it), then, still at the bars under his light, SHOUTS
+# (`intro_patient_words`), and only then is dragged back into the dark, the light dies and a steel
+# shutter bangs down. Only then the buzzer.
+# ⚠️ NOT fullscreen and NOT the Screamer: the fullscreen face keeps meaning "you died" everywhere in
+# the game, and the intro has none. ZERO panic — nothing here is a ScaryObject or calls add_panic.
+# One shot: never on a back-door return (move_aside_instantly() emits no `opened`).
+const HATCH_X := -7.0                         # the airlock's west wall plane (HATCHES)
+const HATCH_Z := -18.5
+const HATCH_W := 0.6
+const HATCH_SILL := 1.15
+const HATCH_TOP := 1.75
+const HATCH_MID := (HATCH_SILL + HATCH_TOP) / 2.0
+const HATCH_FRAME_W := 0.07
+const HATCH_FRAME_D := WALL_T + 0.06          # 3 cm proud of each face (the glass frame's rule)
+const HATCH_BARS_X := HATCH_X + 0.05          # inside the wall's thickness, airlock side
+const FACE_SIZE := 0.46                       # 2 cm clear of the frame's lap all round
+const FACE_AT_BARS_X := HATCH_X - 0.08
+const FACE_SLAM_X := HATCH_X - 0.035          # the overshoot: into the bars, then recoil
+const FACE_HIDDEN_X := HATCH_X - 0.7
+const FACE_GONE_X := HATCH_X - 1.25           # dragged back (the cell's back face is at -8.5)
+# s after `opened`: the leaf (1.2 s, sine ease-out) is ~40 % open — the hatch is already in view and
+# the slam lands AS the door swings, not after a pause (0.55 s read as a beat of waiting).
+const HATCH_SLAM_AT := 0.35
+const HATCH_WORDS_GAP := 0.08                 # after the scream's own length: the words, still at the bars
+const HATCH_LIGHT_ENERGY := 1.8
+const HATCH_DRAG_TIME := 0.4                  # after the WORDS end: dragged back from the bars
+const HATCH_LIGHT_DIES_AFTER := 0.45          # after the words end
+const HATCH_SHUTTER_AFTER := 0.95             # after the words end
+const HATCH_SHUTTER_DROP := 0.14
+const HATCH_AFTER := 1.0                      # silence after the shutter before the buzzer
+# Gains from the files' MEASURED levels (volumedetect): patient_scream −1.2 dB mean / 0.0 peak —
+# already at the ceiling, so it plays near unity; intro_patient_words −14.7 / −3.1, so it is lifted
+# by the 13.5 dB gap and set 4 dB under the scream (one voice); the stand-in slam/shutter −20.5 mean.
+# The master's hard limiter (−0.5 dB) catches the peaks.
+# ⭐ LOUDER (fifth hand playtest, 2026-09-26: "should be louder"). The file is already at full scale, so
+# the levers are contrast + distance + drive: a −24 dB ambience hole on the slam frame, no fall-off
+# across the airlock (unit 6 m), and +6 dB more into the master limiter.
+const SCREAM_DB := 4.0
+const WORDS_DB := SCREAM_DB + 13.5 - 4.0
+const HATCH_SFX_DB := 6.0
+const HATCH_MAX_DB := 12.0
+const HATCH_UNIT := 6.0                       # no drop-off anywhere in the airlock (was 3.0)
+const SHUTTER_MUFFLE_DB := -14.0              # any voice tail still sounding, behind the steel
+const HATCH_BUS_DIP_DB := -24.0               # the wing's beds and music all but vanish (was −8)
+const PATIENT_CAPTION_COLOR := Color(0.93, 0.83, 0.47)   # his, not the observer's
+const PATIENT_WORDS := "THEY'LL KILL US. THEY'LL KILL ALL OF US!"
+
+var _hatch_state: int = 0      # 0 armed · 1 running · 2 shutter down · 3 settled
+var _hatch_log: Array[String] = []            # the hatch's sounds, in the order they started (tests)
+var _hatch_face: MeshInstance3D = null
+var _hatch_face_mat: StandardMaterial3D = null
+var _hatch_light: OmniLight3D = null
+var _hatch_bars: Node3D = null
+var _hatch_shutter: MeshInstance3D = null
+var _hatch_voice: AudioStreamPlayer3D = null   # the last of his sounds (muffled by the shutter)
+var _hatch_trembling: bool = false
+var _hatch_bus_db: float = 0.0
+
+
+func _build_patient_hatch() -> void:
+	var h: Dictionary = HATCHES[0]
+	# Close the full-height cut around the hatch (the windows' method: CSG, the wall's material,
+	# exactly T deep, faces continuing the wall's).
+	var sb := _make_box("PatientHatch_Sill", Vector3(WALL_T, HATCH_SILL, HATCH_W), Vector3(HATCH_X, HATCH_SILL / 2.0, HATCH_Z))
+	sb.material = _wall_mat
+	var hh := WING_H - HATCH_TOP
+	var hb := _make_box("PatientHatch_Head", Vector3(WALL_T, hh, HATCH_W), Vector3(HATCH_X, HATCH_TOP + hh / 2.0, HATCH_Z))
+	hb.material = _wall_mat
+	var steel := _mat(Color(0.16, 0.16, 0.15), 0.55, 0.6)
+	var fw := HATCH_FRAME_W
+	var fd := HATCH_FRAME_D
+	for side in [-1.0, 1.0]:
+		_mbox("HatchFrameV", Vector3(fd, HATCH_TOP - HATCH_SILL + fw * 2.0 - 0.04, fw),
+			Vector3(HATCH_X, HATCH_MID, HATCH_Z + side * (HATCH_W / 2.0 + fw / 2.0 - 0.02)), steel)
+	_mbox("HatchFrameSill", Vector3(fd, fw, HATCH_W + fw * 2.0), Vector3(HATCH_X, HATCH_SILL + fw / 2.0 - 0.02, HATCH_Z), steel)
+	_mbox("HatchFrameHead", Vector3(fd, fw, HATCH_W + fw * 2.0), Vector3(HATCH_X, HATCH_TOP - fw / 2.0 + 0.02, HATCH_Z), steel)
+	# The bars: five uprights and a flat cross-bar, on their own node so the slam can shake them.
+	_hatch_bars = Node3D.new()
+	_hatch_bars.name = "HatchBars"
+	_hatch_bars.position = Vector3(HATCH_BARS_X, HATCH_MID, HATCH_Z)
+	add_child(_hatch_bars)
+	var bar := _mat(Color(0.09, 0.09, 0.09), 0.45, 0.7)
+	for k in 5:
+		_mcyl("HatchBar", 0.012, HATCH_TOP - HATCH_SILL - 0.06, Vector3(0, 0, -0.2 + k * 0.1), bar, _hatch_bars)
+	_mbox("HatchCrossBar", Vector3(0.012, 0.03, HATCH_W - 0.08), Vector3(0, 0.02, 0), bar, _hatch_bars)
+	# ⚠️ Solid: quads and bars have no collision, and the cell behind is nowhere anyone may go.
+	_solid("PatientHatchBars", Vector3(0.05, HATCH_TOP - HATCH_SILL, HATCH_W), Vector3(HATCH_BARS_X, HATCH_MID, HATCH_Z))
+	# The shutter, raised in its rails above the hatch — seen before it is used. Rails bite 1 cm into
+	# the wall (never coplanar with its face); the plate hangs 6 mm clear of the frame's front.
+	var face_x := HATCH_X + WALL_T / 2.0                # the airlock-side wall face
+	var rail_d := 0.07
+	for side in [-1.0, 1.0]:
+		_mbox("HatchRail", Vector3(rail_d, 1.6, 0.025),
+			Vector3(face_x - 0.01 + rail_d / 2.0, 1.85, HATCH_Z + side * 0.37), steel)
+	_hatch_shutter = _mbox("HatchShutter", Vector3(0.02, 0.66, 0.7),
+		Vector3(HATCH_X + fd / 2.0 + 0.016, _shutter_y(false), HATCH_Z), _mat(Color(0.2, 0.19, 0.17), 0.6, 0.55))
+	_mbox("HatchShutterGrip", Vector3(0.03, 0.03, 0.22), Vector3(0.02, -0.26, 0), steel, _hatch_shutter)
+	# The patient: a real RGBA cutout (tools/make_intro_wing_art.py --series-d), facing the airlock.
+	_hatch_face = MeshInstance3D.new()
+	_hatch_face.name = "PatientFace"
+	var qm := QuadMesh.new()
+	qm.size = Vector2(FACE_SIZE, FACE_SIZE)
+	_hatch_face.mesh = qm
+	_hatch_face.rotation.y = PI / 2.0                   # the quad's +z -> +x, into the airlock
+	_hatch_face.position = Vector3(FACE_HIDDEN_X, HATCH_MID, HATCH_Z)
+	_hatch_face_mat = StandardMaterial3D.new()
+	_hatch_face_mat.roughness = 0.7
+	_hatch_face_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	if ResourceLoader.exists(TEX + "patient_hatch.png"):
+		var tex: Texture2D = load(TEX + "patient_hatch.png")
+		_hatch_face_mat.albedo_texture = tex
+		_hatch_face_mat.emission_enabled = true
+		_hatch_face_mat.emission_texture = tex
+		_hatch_face_mat.emission_energy_multiplier = 0.0
+	_hatch_face.material_override = _hatch_face_mat
+	_hatch_face.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_hatch_face.visible = false
+	add_child(_hatch_face)
+	# The light that snaps on: low, between the bars and his face — lit from below, and spilling
+	# out through the bars into the airlock. Shadowed, or it would light the airlock through the wall.
+	_hatch_light = OmniLight3D.new()
+	_hatch_light.name = "HatchLight"
+	_hatch_light.position = Vector3(HATCH_X + 0.02, HATCH_SILL + 0.08, HATCH_Z)
+	_hatch_light.light_color = Color(1.0, 0.86, 0.66)
+	_hatch_light.light_energy = 0.0
+	_hatch_light.omni_range = 1.8
+	_hatch_light.omni_attenuation = 1.0
+	_hatch_light.shadow_enabled = true
+	add_child(_hatch_light)
+	var d: WingDoor = _doors.get("AirlockDoor")
+	if d:
+		d.opened.connect(_on_airlock_opened)
+
+
+func _shutter_y(down: bool) -> float:
+	return HATCH_MID if down else HATCH_TOP + 0.42
+
+
+func _hatch_sfx(base: String, db: float) -> AudioStreamPlayer3D:
+	_hatch_log.append(base)
+	var p := _sfx_at(base, Vector3(HATCH_X - 0.3, HATCH_MID, HATCH_Z), db, HATCH_UNIT)
+	if p:
+		p.name = "Hatch_" + base
+		p.max_db = HATCH_MAX_DB
+	return p
+
+
+func _on_airlock_opened() -> void:
+	if _hatch_state != 0 or GameState.is_ending:
+		return
+	_hatch_state = 1
+	get_tree().create_timer(HATCH_SLAM_AT).timeout.connect(_hatch_slam)
+
+
+func _hatch_slam() -> void:
+	# ⚠️ ONE FRAME: the face, the light, the slam, the scream AND the ambience dip all start here —
+	# the dip is contrast under the scream, never a warning ahead of it.
+	var bus := AudioServer.get_bus_index(AudioBuses.AMBIENCE)
+	if bus >= 0:
+		_hatch_bus_db = AudioServer.get_bus_volume_db(bus)
+		AudioServer.set_bus_volume_db(bus, _hatch_bus_db + HATCH_BUS_DIP_DB)
+	_hatch_face.visible = true
+	_hatch_face.position = Vector3(FACE_HIDDEN_X + 0.25, HATCH_MID - 0.04, HATCH_Z)
+	_hatch_light.light_energy = HATCH_LIGHT_ENERGY
+	_hatch_face_mat.emission_energy_multiplier = 0.3
+	_hatch_sfx("intro_hatch_slam", HATCH_SFX_DB)
+	_hatch_voice = _hatch_sfx("patient_scream", SCREAM_DB)
+	var t := create_tween()
+	t.tween_property(_hatch_face, "position:x", FACE_SLAM_X, 0.08).set_ease(Tween.EASE_IN)
+	t.parallel().tween_property(_hatch_face, "position:y", HATCH_MID, 0.08)
+	t.tween_property(_hatch_face, "position:x", FACE_AT_BARS_X, 0.12).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	var shake := create_tween()
+	for k in 6:
+		shake.tween_property(_hatch_bars, "position:z", HATCH_Z + (0.012 if k % 2 == 0 else -0.012) * (1.0 - k / 6.0), 0.035)
+	shake.tween_property(_hatch_bars, "position:z", HATCH_Z, 0.04)
+	_hatch_trembling = true
+	var length := 2.37
+	if _hatch_voice and _hatch_voice.stream:
+		length = _hatch_voice.stream.get_length()
+	get_tree().create_timer(length + HATCH_WORDS_GAP).timeout.connect(_hatch_words)
+
+
+# Then, still pressed to the bars under his light: the words.
+func _hatch_words() -> void:
+	_hatch_voice = _hatch_sfx("intro_patient_words", WORDS_DB)
+	_patient_line(PATIENT_WORDS, 2.4)
+	var length := 2.33
+	if _hatch_voice and _hatch_voice.stream:
+		length = _hatch_voice.stream.get_length()
+	get_tree().create_timer(length + 0.05).timeout.connect(_hatch_dragged_back)
+
+
+# ⚠️ His words get their OWN line, above the observer's caption slot, and never queue. The first
+# tour put them through _caption(): the queue held them behind VO4's still-fading caption, so the
+# words were read only after the shutter had come down. He is not the observer — a different
+# speaker, a different line, a different colour — and a shout has to land with the voice.
+func _patient_line(text: String, seconds: float) -> void:
+	_immediate_line(text, seconds, PATIENT_CAPTION_COLOR, "PatientLine")
+
+
+# A line that must land WITH its event, never queued behind the observer's captions — the patient's
+# shout, and (sixth hand playtest, 2026-09-26) the tray's rebuke. It sits above the caption slot.
+func _immediate_line(text: String, seconds: float, color: Color, node_name: String) -> void:
+	_captions.append(text)
+	var old := get_node_or_null(node_name)
+	if old:
+		old.queue_free()
+		old.name = node_name + "Old"
+	var canvas := CanvasLayer.new()
+	canvas.name = node_name
+	canvas.layer = 50
+	add_child(canvas)
+	var lbl := Label.new()
+	lbl.name = "Text"
+	lbl.text = text
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 22)
+	lbl.add_theme_color_override("font_color", color)
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+	lbl.add_theme_constant_override("outline_size", 6)
+	lbl.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	lbl.offset_top = -200.0
+	lbl.offset_bottom = -145.0
+	canvas.add_child(lbl)
+	var t := canvas.create_tween()
+	t.tween_property(lbl, "modulate:a", 1.0, 0.12).from(0.0)
+	t.tween_interval(seconds)
+	t.tween_property(lbl, "modulate:a", 0.0, 0.8)
+	t.finished.connect(canvas.queue_free)
+
+
+# Only after the words: he is dragged back from the bars and down, into the dark.
+func _hatch_dragged_back() -> void:
+	_hatch_trembling = false
+	var t := create_tween()
+	t.set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN)
+	t.tween_property(_hatch_face, "position:x", FACE_GONE_X, HATCH_DRAG_TIME)
+	t.parallel().tween_property(_hatch_face, "position:y", HATCH_MID - 0.22, HATCH_DRAG_TIME)
+	t.parallel().tween_property(_hatch_face, "rotation:x", 0.35, HATCH_DRAG_TIME)
+	get_tree().create_timer(HATCH_LIGHT_DIES_AFTER).timeout.connect(_hatch_light_dies)
+	get_tree().create_timer(HATCH_SHUTTER_AFTER).timeout.connect(_hatch_shutter_drop)
+
+
+func _hatch_light_dies() -> void:
+	var t := create_tween()
+	for e in [0.3, HATCH_LIGHT_ENERGY * 0.7, 0.0, HATCH_LIGHT_ENERGY * 0.4, 0.0]:
+		t.tween_property(_hatch_light, "light_energy", e, 0.045)
+	t.tween_callback(func() -> void:
+		_hatch_face.visible = false
+		_hatch_face_mat.emission_energy_multiplier = 0.0)
+
+
+func _hatch_shutter_drop() -> void:
+	_hatch_sfx("intro_hatch_shutter", HATCH_SFX_DB)
+	var t := create_tween()
+	t.tween_property(_hatch_shutter, "position:y", _shutter_y(true), HATCH_SHUTTER_DROP) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	t.tween_callback(_hatch_shut)
+	t.tween_property(_hatch_shutter, "position:y", _shutter_y(true) + 0.02, 0.05)
+	t.tween_property(_hatch_shutter, "position:y", _shutter_y(true), 0.06)
+
+
+func _hatch_shut() -> void:
+	_hatch_state = 2
+	_advance("hatch")
+	if is_instance_valid(_hatch_voice) and _hatch_voice.playing:
+		create_tween().tween_property(_hatch_voice, "volume_db", _hatch_voice.volume_db + SHUTTER_MUFFLE_DB, 0.05)
+	var bus := AudioServer.get_bus_index(AudioBuses.AMBIENCE)
+	if bus >= 0:
+		var from := AudioServer.get_bus_volume_db(bus)
+		create_tween().tween_method(func(v: float) -> void: AudioServer.set_bus_volume_db(bus, v),
+			from, _hatch_bus_db, 2.5)
+	get_tree().create_timer(HATCH_AFTER).timeout.connect(func() -> void: _hatch_state = 3)
+
+
+func _tick_hatch() -> void:
+	if not _hatch_trembling or _hatch_face == null:
+		return
+	var tt := Time.get_ticks_msec() / 1000.0
+	_hatch_face.position.y = HATCH_MID + sin(tt * 41.0) * 0.004 + sin(tt * 17.0) * 0.003
+	_hatch_face.position.z = HATCH_Z + sin(tt * 29.0) * 0.004
+	_hatch_light.light_energy = HATCH_LIGHT_ENERGY * (0.92 + 0.08 * sin(tt * 53.0))
+
+
+# Back from the Lab: the shutter is already down, the hatch dark, nobody behind it.
+func _hatch_restore() -> void:
+	_hatch_state = 3
+	if _hatch_shutter:
+		_hatch_shutter.position.y = _shutter_y(true)
+	if _hatch_face:
+		_hatch_face.visible = false
+	if _hatch_light:
+		_hatch_light.light_energy = 0.0
 
 
 # ---------------------------------------------------------------- the back door (the Lab -> here)
@@ -3847,7 +4350,7 @@ func _restore_progress() -> void:
 	if not GameState.entered_from_ahead:
 		return
 	var data := GameState.get_level_progress(0)
-	for b in ["straps", "torch", "blackout", "calibration", "gaze", "calibrated", "proceed"]:
+	for b in ["straps", "torch", "blackout", "calibration", "gaze", "series_d", "calibrated", "hatch", "proceed"]:
 		_beats[b] = true
 	for b in data.get("beats", []):
 		_beats[String(b)] = true
@@ -3883,6 +4386,7 @@ func _restore_progress() -> void:
 		_env.ambient_light_color = LIT_AMBIENT_COLOR
 	_calib_state = 5
 	_airlock_state = 1
+	_hatch_restore()
 	player.unlock_flashlight()
 	player.unfreeze_input()
 	# In the airlock, facing back into the wing (east, toward calibration).
@@ -4091,6 +4595,7 @@ func _process(delta: float) -> void:
 	_tick_props(delta)
 	_tick_ward_fittings()
 	_tick_calibration(delta)
+	_tick_hatch()
 	if not candle_light or not _candle_lit:
 		return
 	candle_light.light_energy = BASE_ENERGY \

@@ -176,7 +176,8 @@ the user's rule; everything else is captions and paper.
 ⚠️ **UNLOSEABLE, and it must stay that way — by a panic CEILING, not by an absence.**
 `player.set_panic_ceiling(0.6)` pins panic below `PANIC_MAX`, so the screamer is unreachable (the old
 "nothing calls `add_panic()`" room was loseable by ~8 s of sprint). Panic is exactly 0 until
-calibration. Deliberately **no jumpscare**. `check_intro_panic_ceiling.gd` + `check_intro_beats.gd`.
+calibration. Deliberately **no FULLSCREEN jumpscare** — the patient at the airlock hatch (2026-09-25)
+is in-world and zero-panic. `check_intro_panic_ceiling.gd` + `check_intro_beats.gd`.
 The Twist Ending reloads **only the ward**.
 → `spec/levels/00-intro.md`
 

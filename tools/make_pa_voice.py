@@ -67,7 +67,9 @@ LINES = {
     "intro": [
         # VO1 — the cell, as the wake-up settles.
         (INTRO_DIR / "pa_intro_morning.wav",
-         "Good morning, forty six. [[slnc 480]] Forty seven."),
+         # ⚠️ A CORRECTION, not a stutter (fourth hand playtest, 2026-09-25: "It should be like good
+         # morning 46, I mean, 47").
+         "Good morning, forty six. [[slnc 300]] I mean, [[slnc 200]] forty seven."),
         # VO2 — the ward door: the relay drops mid-sentence (the chain's own dead cut).
         (INTRO_DIR / "pa_intro_fault.wav", "We have a fault in"),
         # VO3 — calibration opens.

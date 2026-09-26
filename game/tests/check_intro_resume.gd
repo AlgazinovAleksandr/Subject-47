@@ -12,6 +12,9 @@ extends SceneTree
 #   * nothing replays: no straps on the bed (they hang), no occupant, no breathing, no path glow,
 #     no observer line spoken, the projector dark
 #   * the level still sets the panic ceiling
+#   * ⭐ (fourth hand playtest, 2026-09-25) the airlock hatch is SHUT and dark, nobody behind it, and
+#     the patient does not replay — not even if the AirlockDoor's `opened` arrived again; calibration's
+#     round two (SERIES D) is not replayed either
 # Plus the other half: `save_progress()` returns the beats the level really passed.
 #
 #   Godot --headless --path game --script res://tests/check_intro_resume.gd
@@ -41,11 +44,21 @@ func _ok(label: String, cond: bool, detail: String = "") -> void:
 		_fails.append(label)
 
 
+var _phase := 0
+
+
 func _process(delta: float) -> bool:
 	_t += delta
 	if _done or _t < SETTLE:
 		return _done
-	_done = true
+	if _phase == 1:
+		if _t < SETTLE + 1.6:
+			return false
+		var s2 := current_scene
+		_ok("…and even a second `opened` does not replay the patient (no slam, no words, no scream)",
+			(s2.get("_hatch_log") as Array).is_empty(), str(s2.get("_hatch_log")))
+		return _finish()
+	_phase = 1
 	var s := current_scene
 	var p := s.get_node("Player") as CharacterBody3D
 	var pos := p.global_position
@@ -82,6 +95,22 @@ func _process(delta: float) -> bool:
 	_ok("the panic ceiling is still set", is_equal_approx(float(p.call("get_panic_ceiling")), 0.6))
 	var saved: Dictionary = s.call("save_progress")
 	_ok("save_progress() reports the beats", (saved.get("beats", []) as Array).has("proceed"), str(saved))
+	var c: Dictionary = s.get_script().get_script_constant_map()
+	_ok("the airlock hatch is SHUT — the shutter down over the bars",
+		absf((s.get_node("HatchShutter") as Node3D).position.y - float(c["HATCH_MID"])) < 0.01,
+		"shutter y %.2f" % (s.get_node("HatchShutter") as Node3D).position.y)
+	_ok("…dark, and nobody behind it", (s.get_node("HatchLight") as OmniLight3D).light_energy == 0.0
+		and not (s.get_node("PatientFace") as Node3D).visible)
+	_ok("…settled: it will not fire", int(s.get("_hatch_state")) == 3 and (s.get("_hatch_log") as Array).is_empty())
+	_ok("calibration's round two is not replayed (SERIES D)", int(s.get("_calib_state")) == 5
+		and not bool(s.get("_series_d_running")) and int(s.get("_slide_i")) < 0
+		and s.get_node_or_null("StandHint") == null)
+	s.call("_on_airlock_opened")
+	return false
+
+
+func _finish() -> bool:
+	_done = true
 	_gs.set("entered_from_ahead", false)
 	_gs.set("level_progress", {})
 	print("")

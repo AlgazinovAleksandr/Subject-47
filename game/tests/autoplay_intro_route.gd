@@ -5,7 +5,8 @@ extends SceneTree
 # One driver, no teleports: the player WALKS every metre on ai_move_dir (move_and_slide, the real
 # collision), turns with ai_look_at, and every door, pickup, switch, note, chair and exit goes
 # through the real interact ray (ai_interact_target / ai_interact). The wake-up (lie, sit, stand) and
-# VO1 play with no input at all since the straps went (2026-09-25). The route is timed and logged; the report at the end gives the driven time per room and
+# VO1 play with no input at all since the straps went (2026-09-25). Calibration is TWO rounds since
+# the fourth hand playtest: look away (round one), then stay seated through SERIES D. The route is timed and logged; the report at the end gives the driven time per room and
 # the total, plus an ESTIMATE for a human (reading, listening and looking time added per stop —
 # the constants are named below so the estimate's assumptions are visible).
 #
@@ -67,6 +68,8 @@ func _initialize() -> void:
 		["wait_caption", "SIT DOWN."],
 		["use", "SubjectChair", Vector3.ZERO], ["wait", 1.1],
 		["watch_screen"], ["look_away"],
+		# ⭐ SERIES D (fourth hand playtest, 2026-09-25): still in the chair, watch the thing come.
+		["watch_series_d"],
 		["wait_until", "_airlock_open"],
 		["go", Vector3(-3.0, 0, -18.5)],
 		["use", "AirlockDoor", Vector3(0, 1.3, 0)], ["wait", 1.4],
@@ -185,6 +188,13 @@ func _process(delta: float) -> bool:
 				_next("LOOK AWAY. at panic %.2f after watching %.1f s" % [_player.get_panic_ratio(), _step_t])
 			elif _step_t > 60.0:
 				return _fail("never told to look away")
+		"watch_series_d":
+			var sp2: Vector3 = _scene.get_script().get_script_constant_map()["SCREEN_POS"]
+			_look(sp2)
+			if (_scene.get("_beats") as Dictionary).has("series_d"):
+				_next("SERIES D sat through (%.1f s from GOOD.), panic %.2f" % [_step_t, _player.get_panic_ratio()])
+			elif _step_t > 25.0:
+				return _fail("SERIES D never completed (state %s)" % _scene.get("_calib_state"))
 		"look_away":
 			_look(_player.global_position + Vector3(0, 1.5, 6.0))
 			if (_scene.get("_captions") as Array).has("GOOD."):

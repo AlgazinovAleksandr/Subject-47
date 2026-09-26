@@ -25,6 +25,8 @@ by dropping a real recording in under the same base name, and no code changes.
   intro_projector_slide.wav a carousel slide change: clack, slide drop, click
   intro_airlock_buzzer.wav  the airlock's two-tone release buzzer
   intro_chair_sit.wav       sitting down in the calibration chair: a wooden creak + a strap slap
+  intro_hatch_slam.wav      a body hitting the airlock hatch's steel bars: thud, bar ring, rattle
+  intro_hatch_shutter.wav   the hatch's steel shutter dropped: rail scrape, heavy bang, latch
   intro_session46_tape.wav  ~40 s "SESSION 46" reel: motor, hiss, muffled wordless murmur,
                             breathing, a chair, a long silence and the tape running out
 
@@ -641,6 +643,66 @@ def make_chair_sit():
     return out
 
 
+def make_hatch_slam():
+    """A body hitting the airlock hatch's steel bars (fourth hand playtest, 2026-09-25): a dull,
+    heavy thud, the bars ringing at their own pitches, and a rattle as they shake in the frame."""
+    random.seed(4711)
+    dur = 1.3
+    n = int(SR * dur)
+    out = [0.0] * n
+    lp = OnePole(380.0)
+    for i in range(int(0.4 * SR)):
+        t = i / SR
+        out[i] += (math.sin(2 * math.pi * (70.0 - 25.0 * t) * t) * math.exp(-t * 11.0)
+                   + lp.tick(random.uniform(-1, 1)) * math.exp(-t * 30.0) * 2.2) * 0.9
+    # five bars, slightly detuned, each ringing and decaying at its own rate
+    for k, f in enumerate([612.0, 689.0, 741.0, 822.0, 947.0]):
+        ph = random.uniform(0, 6.28)
+        for i in range(n):
+            t = i / SR
+            out[i] += (math.sin(2 * math.pi * f * t + ph) + 0.35 * math.sin(2 * math.pi * f * 2.76 * t)) \
+                * math.exp(-t * (4.5 + k * 0.7)) * 0.11
+    # the rattle: bars knocking in their sockets, thinning out
+    lp2 = OnePole(2600.0)
+    for start in [0.05, 0.12, 0.17, 0.26, 0.31, 0.43, 0.58]:
+        off = int(start * SR)
+        amp = 0.7 * math.exp(-start * 2.5)
+        for i in range(int(0.05 * SR)):
+            t = i / SR
+            out[off + i] += lp2.tick(random.uniform(-1, 1)) * math.exp(-t * 90.0) * amp
+    return out
+
+
+def make_hatch_shutter():
+    """The hatch's steel shutter dropped: a short scrape down its rails, then a flat, heavy BANG
+    with a sheet-metal ring, and the latch dropping into place."""
+    random.seed(4712)
+    dur = 1.6
+    n = int(SR * dur)
+    out = [0.0] * n
+    lp = OnePole(1800.0)
+    for i in range(int(0.16 * SR)):
+        t = i / SR
+        out[i] += lp.tick(random.uniform(-1, 1)) * (0.25 + t * 3.0) * 0.5 \
+            * (0.6 + 0.4 * math.sin(2 * math.pi * 55.0 * t))
+    off = int(0.16 * SR)
+    lp2 = OnePole(700.0)
+    for i in range(n - off):
+        t = i / SR
+        bang = math.sin(2 * math.pi * (88.0 - 30.0 * t) * t) * math.exp(-t * 9.0) * 1.1
+        crack = lp2.tick(random.uniform(-1, 1)) * math.exp(-t * 40.0) * 2.4
+        ring = (math.sin(2 * math.pi * 431.0 * t) + 0.6 * math.sin(2 * math.pi * 1187.0 * t)
+                + 0.3 * math.sin(2 * math.pi * 2210.0 * t)) * math.exp(-t * 5.5) * 0.16
+        out[off + i] += bang + crack + ring
+    off2 = int(0.55 * SR)
+    lp3 = OnePole(3000.0)
+    for i in range(int(0.08 * SR)):
+        t = i / SR
+        out[off2 + i] += (lp3.tick(random.uniform(-1, 1)) * math.exp(-t * 80.0)
+                          + math.sin(2 * math.pi * 1650.0 * t) * math.exp(-t * 60.0) * 0.3) * 0.45
+    return out
+
+
 def main():
     import sys
     if "--all" in sys.argv:
@@ -661,6 +723,8 @@ def main():
     write_wav("intro", "intro_projector_slide.wav", make_projector_slide())
     write_wav("intro", "intro_airlock_buzzer.wav", make_airlock_buzzer())
     write_wav("intro", "intro_chair_sit.wav", make_chair_sit())
+    write_wav("intro", "intro_hatch_slam.wav", make_hatch_slam())
+    write_wav("intro", "intro_hatch_shutter.wav", make_hatch_shutter())
 
 
 if __name__ == "__main__":
