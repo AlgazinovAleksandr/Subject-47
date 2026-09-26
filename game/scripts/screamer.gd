@@ -225,6 +225,7 @@ func _black_then_scream(with_image: bool = true) -> void:
 	if not GameState.transition_is_current(token) or token != _fatal_token:
 		return
 	_screamer_image.visible = with_image
+	_cancel_flash_audio_fade()
 	if _audio.stream and not _suppress_sting:
 		_audio.play()
 
@@ -373,7 +374,11 @@ func trigger_to_menu(image_override: String = "") -> void:
 # Survivable scare: flash an image fullscreen + play a sound for `hold` seconds,
 # then clear. Does NOT pause or restart — the caller is responsible for any
 # panic spike. Used by the forest (house) and manager (corridor) scares.
-func flash_scare(image_path: String, audio_base: String, hold: float = 0.8) -> void:
+# ⚠️ `cut_audio` (2026-09-24): fade the sting out after `hold` and stop it. Only the cold open
+# passes it — `nightmare_scream.ogg` is 10.28 s and nothing ever stopped it, so it played on
+# ~9 s into the intro's wake-up (probed: still playing at 2.8 s of a 0.8 s flash). Every other
+# caller keeps the old behaviour, where the sting's own tail is part of the scare.
+func flash_scare(image_path: String, audio_base: String, hold: float = 0.8, cut_audio: bool = false) -> void:
 	if _is_triggering or _is_flashing:
 		return
 	_is_flashing = true
@@ -396,6 +401,7 @@ func flash_scare(image_path: String, audio_base: String, hold: float = 0.8) -> v
 		_screamer_image.texture = load(image_path)
 	var stream := GameState.load_audio(audio_base)
 	if stream:
+		_cancel_flash_audio_fade()
 		_audio.stream = stream
 		_audio.play()
 	# ⚠️ Defensive: the fatal path hides `_screamer_image` for its BLACK_HOLD beat and restores
@@ -408,4 +414,33 @@ func flash_scare(image_path: String, audio_base: String, hold: float = 0.8) -> v
 	# A fatal trigger may have taken over mid-flash — don't yank its panel.
 	if not _is_triggering:
 		_black_panel.visible = false
+		if cut_audio and _audio.playing:
+			_fade_out_flash_audio()
 	_is_flashing = false
+
+
+const FLASH_AUDIO_CUT_TIME := 0.25
+
+
+var _flash_fade: Tween = null
+var _flash_fade_base_db := 0.0
+
+
+func _fade_out_flash_audio() -> void:
+	_cancel_flash_audio_fade()
+	_flash_fade_base_db = _audio.volume_db
+	_flash_fade = create_tween()
+	_flash_fade.tween_property(_audio, "volume_db", -60.0, FLASH_AUDIO_CUT_TIME)
+	_flash_fade.tween_callback(func() -> void:
+		_audio.stop()
+		_audio.volume_db = _flash_fade_base_db
+		_flash_fade = null)
+
+
+# A fatal sting that starts during the fade owns `_audio` now: stop the fade and give it back
+# its level, or the death would play at −60 dB and then be stopped by the callback.
+func _cancel_flash_audio_fade() -> void:
+	if _flash_fade and _flash_fade.is_valid():
+		_flash_fade.kill()
+		_audio.volume_db = _flash_fade_base_db
+	_flash_fade = null

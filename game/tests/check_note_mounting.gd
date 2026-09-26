@@ -67,12 +67,17 @@ const Scenes := preload("res://tests/lib/scenes.gd")
 #   seeds          RNG seeds for a scene that builds itself from dice
 const CONFIG := {
 	"SCENE_INTRO": {
-		"no_room_table": "intro_room.gd builds one hand-placed ward, not a room graph",
+		# ⭐ 2026-09-24: a RoomBuilder graph now (the Intake Wing) — ROOMS / DOORS are read and the
+		# doorway and same-room separation passes run.
 		# ⚠️ min_resting 0 even though the Intro's note is on a table: it lies FLAT, so its
 		# thin axis is vertical and `_backing()` already measures DOWNWARD into the table and
 		# passes on the wall rule. Only a page standing UPRIGHT on furniture (the Void's
 		# eight) reaches the resting branch at all.
-		"min_props": 1, "min_notes": 1, "min_pairs": 0, "min_resting": 0,
+		# ⭐ Measured 2026-09-24: 4 notes (the table note, the wristband and the file lying flat,
+		# the observation log hung in the hall), 1 same-room pair (the hall's). 1 resting — the
+		# wristband; the file's body is pitched face-up, so its backing ray goes straight down into
+		# the desk and it measures as mounted, like the table note.
+		"min_props": 4, "min_notes": 4, "min_pairs": 1, "min_resting": 1,
 	},
 	"SCENE_LEVEL_1": {"min_props": 8, "min_notes": 4, "min_pairs": 1},
 	"SCENE_LEVEL_2": {

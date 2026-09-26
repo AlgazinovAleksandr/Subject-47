@@ -78,6 +78,12 @@ TESTS=(
   check_apparition_framing    # the apparition ends up ON SCREEN — 8/23 before the fix
   check_lab_apparition_timing # the Lab's taught apparition is on a clock, not 1.7 s of walking
   check_intro_beats           # the Intro's dread beats, and that it stays UNLOSEABLE
+  check_intro_panic_ceiling   # the Intro's panic CEILING holds against 20 s of real sprint
+  check_intro_glimpse         # the Intake Wing: your bed is occupied from the hall, and only once
+  check_intro_ending          # the twist ending's ward is built ALONE and sealed; the wing is absent
+  check_intro_resume          # back from the Lab: the wing is SOLVED, you stand in the airlock
+  check_intro_soundtrack      # the dream opening plays ONCE; the second track loops (playtest #2)
+  check_cold_open_scream      # the START scream is cut after its flash, not 9 s into the wake
   check_intro_geometry        # Intro wall props are ON their wall (door gap, planks, switch)
   check_art_aspect            # ALL NINE levels: every texture is shown at its own aspect
   check_intro_sheet           # the covered body is a BODY and is smooth — rejected twice
@@ -85,6 +91,7 @@ TESTS=(
   check_house_lock            # H4 (2026-09-13): the correct code drops the lock and the door asks
   check_house_fridge_chain    # H2 (2026-09-13): chained fridge, the cutters (now from the guillotine), the digit on the head
   check_house_porch           # 2026-09-24: window burst -> porch -> forest clock (measured) -> ghosts -> hole/fruit -> guillotine -> save/restore (~150 s)
+  check_house_witch           # 2026-09-24 d: the witch SEEN in the house — A on closing the first note, B at 8 min; pinned, turned, zero panic, released
   check_corridor_doors        # ajar doors never block the hall; a non-payoff telegraph is free
   check_corridor_events       # runner's apparent size; the false 217 door (key-gated); the bell key beat; note facing
   check_cupboard_fallback     # C3: the seal takes the torch + scrawl, and the 45 s fallback releases a player who keeps moving
@@ -111,12 +118,14 @@ TESTS=(
   check_wall_overlap          # ALL NINE levels: coincident surfaces, the "merging textures" family
   check_doorways              # ALL NINE levels: nothing seals a doorway (tables read, not typed)
   test_room_builder           # the procedural room graph itself
-  check_maze_gen              # House maze generation, 200 seeds
+  check_maze_gen              # House maze generation, 200 seeds + fairness (a)-(c) on the 12 curated
   check_dungeon_gen           # THE NIGHTMARE's dungeon layout, 200 seeds
-  check_maze_chase            # House maze monster: catches you, still beatable
+  check_maze_chase            # House maze monster: catches you; each curated layout in the win band
   check_maze_speed            # House maze icon: one speed, whatever the panic (2026-09-10)
   check_maze_traps            # House maze snares + fragments drawn true-size; the mark is
                               # inert until every fragment is collected; ESC is not a re-roll
+  check_maze_no_death         # House map (2026-09-24 e): panic clamped below the bar while open;
+                              #   only the 3rd catch in a row kills; ESC not an attempt; a win resets
   check_music_box             # the wind ducks the bed AND puts it back (Issue 50's shape)
   check_intro_gate            # BACKLOG #12 — no Level 1 without reading the note
   check_kontur_bottles        # BACKLOG #22 — the vinegar softlock
@@ -138,7 +147,7 @@ TESTS=(
   check_interact_reach        # L6/L7 props answer E from a real distance, aiming at the ART
   check_lab_locker            # Lab locker gate + NO_LAMP_ROOMS stay dark
   check_lab_breaker_gate      # a partly-shoved locker must not SHOW or hand over the breaker
-  check_nook_dark             # the nook breaker panel is no brighter than its wall
+  check_nook_dark             # the nook breaker panel is no brighter than its wall; glows only inside the nook
   check_lab_cabinet           # the Records bank is a search: 8 drawers, 1 page, no penalty
   check_lab_hint              # the Lab's hint props are actually visible
   check_note_mounting         # ALL NINE levels: every note/panel is on a wall, not in a doorway
@@ -187,6 +196,7 @@ TESTS=(
   check_void                  # THE VOID: seam keeps heading+velocity, the bridge stalker never steps (with control), 6 lethal stalkers, 9 notes, snapshot, the fall
   check_reachable             # ALL NINE levels: can the player STAND where each prop is
   autoplay_exit_reachable     # every level's exit can be WALKED to and E'd on
+  autoplay_intro_route        # the whole Intake Wing WALKED, cell -> the Lab's scene change (~70 s)
   autoplay_house_route        # …and no House prop can SEAL a route by being opened
   autoplay_lab_nook           # how FAR the nook figure is when it appears, on a real walk
   count_apparitions           # BACKLOG #6 — apparitions are rare, and still happen
@@ -230,6 +240,10 @@ TESTS=(
 #                                 ... --script res://tests/probe_maze_variance.gd -- 200
 #                               Args: `-- <seeds> <N> <bot px/s> <min detour>`; **N=0 is
 #                               the control** (the one-stage build through the same code).
+#   probe_maze_curate           a MEASUREMENT: how MazeChaseUI.CURATED_SEEDS was chosen
+#                               (2026-09-24 e) — filters (a)-(d) + the 50-85 % bot band over
+#                               generator seeds 1000-1999, ranked; ~4.5 min:
+#                                 ... --script res://tests/probe_maze_curate.gd -- 1000 1000 20
 
 echo "== importing (required after any new class_name or asset) =="
 "$GODOT" --headless --path game --import >/dev/null 2>&1

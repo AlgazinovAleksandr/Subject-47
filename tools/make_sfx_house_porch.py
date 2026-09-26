@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """House back-porch STAND-INS (2026-09-24): the forest bed, the window bursting, the guillotine,
-the watermelon, the three forest ghosts and the witch.
+the watermelon, the three forest ghosts and the witch — and (2026-09-24 c) the blade pulled out
+of its stump.
 
     python3 tools/make_sfx_house_porch.py
     /Applications/Godot.app/Contents/MacOS/Godot --headless --path game --import
@@ -524,11 +525,56 @@ def witch_hum():
     write("witch_hum.wav", out, -10.0)
 
 
+def blade_pull():
+    """⭐ 2026-09-24 (c): the guillotine's blade wrenched out of the wet stump in the forest
+    (`house_blade_stump.gd`). Wood groaning under a lever, a steel scrape as it gives, a wet
+    sucking release, and the freed blade ringing."""
+    rng = random.Random(24102)
+    out = buf(1.7)
+    # 1. the groan: stick-slip pulses through two wood resonances, tension rising for 0.75 s
+    n = int(SR * 0.78)
+    pulses = [0.0] * n
+    ph = 0.0
+    for i in range(n):
+        t = i / SR
+        rate = 22 + 55 * (t / 0.78) ** 1.5 + rng.uniform(-4, 4)
+        ph += rate / SR
+        if ph >= 1.0:
+            ph -= 1.0
+            pulses[i] = rng.uniform(0.5, 1.0)
+    groan = [a + 0.7 * b for a, b in zip(sweep_bp(pulses, lambda t: 300 + 180 * t, 7.0),
+                                         sweep_bp(pulses, lambda t: 820 + 420 * t, 9.0))]
+    for i in range(n):
+        groan[i] *= min(1.0, i / (0.12 * SR)) * (0.55 + 0.45 * i / n)
+    add(out, 0.0, lambda t: 1.8 * groan[min(n - 1, int(t * SR))], 0.78)
+    # 2. the steel scraping along the split as it starts to come: a rising narrow noise band
+    m = int(SR * 0.36)
+    scr = sweep_bp([rng.uniform(-1, 1) for _ in range(m)], lambda t: 2200 + 2600 * t / 0.36, 10.0)
+    for i in range(m):
+        t = i / SR
+        scr[i] *= math.sin(math.pi * t / 0.36) ** 0.8
+    add(out, 0.44, lambda t: 1.3 * scr[min(m - 1, int(t * SR))], 0.36)
+    # 3. the release: a wet suck (low, lowpassed noise) and a dull wooden knock
+    tr = 0.80
+    wet = lowpass(lowpass([rng.uniform(-1, 1) * env_ad(i / SR, 0.004, 0.07) for i in range(int(SR * 0.3))], 700), 700)
+    add(out, tr, lambda t: 5.0 * wet[min(len(wet) - 1, int(t * SR))], 0.3)
+    add(out, tr, lambda t: 0.8 * env_ad(t, 0.002, 0.06) * math.sin(TAU * (120 + 80 * math.exp(-t * 40)) * t), 0.3)
+    # 4. the freed blade ringing, a big flat plate: inharmonic partials, the high ones dying first
+    add(out, tr + 0.01, lambda t: 0.30 * (env_ad(t, 0.001, 0.55) * math.sin(TAU * 612 * t)
+                                        + 0.7 * env_ad(t, 0.001, 0.35) * math.sin(TAU * 1487 * t)
+                                        + 0.45 * env_ad(t, 0.001, 0.2) * math.sin(TAU * 2716 * t)
+                                        + 0.25 * env_ad(t, 0.001, 0.12) * math.sin(TAU * 4130 * t)), 0.85)
+    out = saturate(out, 1.3)
+    fade(out, 0.01, 0.12)
+    write("blade_pull.wav", out, -3.0)
+
+
 # ⭐ 2026-09-24 (b): only the three stand-ins the game still plays. The others were replaced by
 # the user's recordings (dark_forest_soundtrack, window_glass_break, guillotine, watermelon_crack,
 # ghost_sound) or never wired (witch_hum); their functions stay below as reference, and their old
 # outputs are gitignored so a stray run cannot put them back in the repo.
-SOUNDS = [porch_wind_gust, guillotine_rope, forest_run_leaves]
+# ⭐ 2026-09-24 (c): + `blade_pull`, the blade out of the stump (a stand-in; on the user's list).
+SOUNDS = [porch_wind_gust, guillotine_rope, forest_run_leaves, blade_pull]
 
 
 def main():

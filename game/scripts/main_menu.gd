@@ -157,5 +157,5 @@ func _on_start() -> void:
 	var cutscene := CutscenePlayer.play(self, INTRO_VIDEO)
 	if cutscene != null:
 		await cutscene.finished
-	await Screamer.flash_scare(NIGHTMARE_IMAGE, "nightmare_scream", 0.8)
+	await Screamer.flash_scare(NIGHTMARE_IMAGE, "nightmare_scream", 0.8, true)
 	get_tree().change_scene_to_file(GameState.SCENE_INTRO)

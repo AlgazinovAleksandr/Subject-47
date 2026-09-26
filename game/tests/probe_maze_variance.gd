@@ -42,11 +42,12 @@ extends SceneTree
 # ⚠️ Nothing here opens a scene. It instantiates the script and steps its real functions, the
 # same way check_maze_gen.gd and check_maze_chase.gd do.
 
+const Curation := preload("res://tests/lib/maze_curation.gd")
 const DT := 1.0 / 60.0
 const SIM_TIMEOUT := 100.0
-const AVOID_RADIUS := 70.0
 
 var _ui: Node
+var _bot = null
 var _runs := 200
 var _frag_n := -1     # -1 = leave the shipped `fragment_count` alone
 # ⚠️ SWEEPABLE (2026-08-16), and the reason matters. check_maze_chase.gd's bot has always run
@@ -65,10 +66,6 @@ var _patrol_of: Array = []
 var _won_of: Array = []
 var _time_of: Array = []
 
-# The bot's waypoint, recomputed only when the fragment count changes — see
-# check_maze_chase.gd's `_bot_goal()`, of which this is the twin.
-var _goal := Vector2.ZERO
-var _goal_for := -1
 
 
 func _initialize() -> void:
@@ -86,6 +83,7 @@ func _initialize() -> void:
 		_detour = int(args[3])
 	var script: GDScript = load("res://scripts/maze_chase_ui.gd")
 	_ui = script.new()
+	_bot = Curation.new(_ui, _escape_speed)
 	# ⚠️ `>= 0`, not `> 0`: **N=0 is the control run** — it reproduces the shipped one-stage
 	# build exactly (no fragments, the mark open from the first frame) through the same
 	# instrumented code path, which is the only honest baseline to compare a redesign against.
@@ -164,11 +162,14 @@ func _process(_delta: float) -> bool:
 	_time_of.clear()
 
 	for i in _runs:
+		# The patroller's circuit is on its own RNG since 2026-09-24 (e); the game seeds it with
+		# the layout's seed, so this does too.
+		_ui.set("patrol_seed", 9000 + i)
 		seed(9000 + i)
 		_ui.call("_generate_maze")
 		_ui.call("_reset_positions")
 		_ui.set("_monster_start_timer", 0.0)
-		_goal_for = -1
+		_bot.reset()
 
 		var dist: Dictionary = _ui.call("_bfs_distances", _ui.get("_start_cell"))
 		var route_len: int = int(dist.get(_ui.get("_target_cell"), -1))
@@ -309,69 +310,12 @@ func _crosstab(label: String, keys: Array, won: Array, times: Array, edges: Arra
 				100.0 * float(w) / float(n), (tsum / w) if w > 0 else 0.0])
 
 
-# Where the bot is heading: the nearest live fragment by corridor distance, then the mark.
-# Twin of check_maze_chase.gd's `_bot_goal()`, deliberately kept verbatim so the probe and
-# the assertion measure the same player.
+# ⭐ The bot is `tests/lib/maze_curation.gd` since 2026-09-24 (e) — ONE copy, shared with
+# check_maze_chase.gd and probe_maze_curate.gd. It used to be pasted here "verbatim so the probe
+# and the assertion measure the same player", which is exactly how two copies drift.
 func _bot_goal() -> Vector2:
-	var frags: Array = _ui.get("_fragments")
-	if frags.is_empty():
-		return _ui.get("_target_pos")
-	if _goal_for != frags.size():
-		_goal_for = frags.size()
-		var pcell: Vector2i = _ui.call("_cell_at", _ui.get("_player_pos"))
-		var field: Dictionary = _ui.call("_bfs_distances", pcell)
-		var best: Vector2 = frags[0]
-		var best_d: int = 1 << 30
-		for f: Vector2 in frags:
-			var d: int = int(field.get(_ui.call("_cell_at", f), 1 << 30))
-			if d < best_d:
-				best_d = d
-				best = f
-		_goal = best
-	return _goal
+	return _bot.goal()
 
 
-# Verbatim from check_maze_chase.gd — a competent player who walks the corridor route and
-# steps around a monster standing in it, rather than one teleporting through walls.
 func _step_player_toward_target(dt: float) -> void:
-	var pp: Vector2 = _ui.get("_player_pos")
-	var tp: Vector2 = _bot_goal()
-	var pcell: Vector2i = _ui.call("_cell_at", pp)
-	var tcell: Vector2i = _ui.call("_cell_at", tp)
-	var aim := tp
-	if pcell != tcell:
-		var field: Dictionary = _ui.call("_bfs_distances", tcell)
-		var danger: Array[Vector2] = [_ui.get("_monster_pos"), _ui.get("_patrol_pos")]
-		var best := pcell
-		var best_d: int = field.get(pcell, 1 << 30)
-		var fallback := pcell
-		var fallback_d: int = best_d
-		for n in _ui.call("_open_neighbours", pcell):
-			if not field.has(n) or int(field[n]) >= best_d:
-				if field.has(n) and int(field[n]) < fallback_d:
-					fallback_d = int(field[n])
-					fallback = n
-				continue
-			var centre: Vector2 = _ui.call("_cell_center", n)
-			var blocked := false
-			for d in danger:
-				if centre.distance_to(d) < AVOID_RADIUS:
-					blocked = true
-					break
-			if blocked:
-				if int(field[n]) < fallback_d:
-					fallback_d = int(field[n])
-					fallback = n
-				continue
-			best_d = int(field[n])
-			best = n
-		if best == pcell:
-			best = fallback
-		if best != pcell:
-			aim = _ui.call("_cell_center", best)
-	var dir := (aim - pp)
-	if dir.length() < 0.01:
-		return
-	var step: Vector2 = pp + dir.normalized() * _escape_speed * dt
-	_ui.set("_player_pos", _ui.call("_resolve_wall_slide", pp, step,
-		_ui.get_script().get("ICON_HALF_EXTENT")))
+	_bot.step_toward(dt, _bot.goal())

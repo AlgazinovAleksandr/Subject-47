@@ -14,12 +14,79 @@ const BASE_ENERGY := 1.8
 # that tail (assets_src/README.md records how it is padded on in transcode).
 const ENDING_VIDEO := "res://assets/video/ending_scene.ogv"
 
-# Room + beat geometry (see INTRO.md for the full design). The room is a big,
-# hand-placed asylum ward — same CSGBox3D style as the original small room, just
-# scaled up — built at runtime, not baked into the .tscn (see PRESERVE below).
-const ROOM_SIZE := Vector2(12.0, 18.0)     # x, z
+# Room + beat geometry. ⭐ THE INTAKE WING (2026-09-24): the ward is one room of six, built by
+# `RoomBuilder` from ROOMS / DOORS below (INTRO.md §1's "one room, not RoomBuilder" is superseded —
+# six rooms is a graph). The WARD keeps its centre, size, height and every prop; the walls are
+# RoomBuilder.T 0.2 thick now (were 0.3), and every constant derived from WALL_T re-derives.
+const ROOM_SIZE := Vector2(12.0, 18.0)     # the WARD, x, z
 const ROOM_HEIGHT := 3.6
-const WAKEUP_TWEEN_TIME := 1.8
+const WING_H := 3.0                        # cell, corridor, hall, airlock
+
+# ⚠️ Rooms ABUT, never overlap (Issues 19/20/23). The ward is x -6..6, z -9..9; the corridor
+# runs north off its front wall; the cell and the hall hang off the corridor's west wall and share
+# ONE wall with each other (z = 20) — that wall carries the one-way glass. Calibration is south
+# of the ward's back wall, the airlock off calibration's west wall.
+const WARD := {"name": "Ward", "pos": Vector2(0, 0), "size": Vector2(12, 18), "h": 3.6}
+const ROOMS := [
+	WARD,
+	{"name": "Corridor", "pos": Vector2(-3, 17), "size": Vector2(2.4, 16), "h": WING_H},
+	{"name": "Cell", "pos": Vector2(-6.2, 22), "size": Vector2(4, 4), "h": WING_H},
+	{"name": "Hall", "pos": Vector2(-7.2, 17), "size": Vector2(6, 6), "h": WING_H},
+	{"name": "Calibration", "pos": Vector2(0, -15), "size": Vector2(8, 12), "h": 3.4},
+	{"name": "Airlock", "pos": Vector2(-5.5, -18.5), "size": Vector2(3, 3), "h": WING_H},
+	# ⭐ Fourth hand playtest (2026-09-25): the cell behind the airlock's barred hatch. Nobody goes in —
+	# it exists so the hatch looks into real depth that the patient is dragged back into. Its skin is
+	# near-black (see _rooms_with_skins): after the switch the ambient is 0.30, which would otherwise
+	# light the "dark" behind the bars grey.
+	{"name": "PatientCell", "pos": Vector2(-7.8, -18.5), "size": Vector2(1.6, 1.8), "h": WING_H},
+]
+# Every doorway carries a WingDoor of the same name. `h` is the taller of the two rooms, which is
+# how high RoomBuilder cuts the opening — the door's infill fills it to there.
+# ⚠️ The HALL door is at the SOUTH end of the hall's east wall on purpose: stepping in facing
+# west, the glass (x -7.3..-5.1, z 20) is 61-85 degrees off the view axis — outside a 16:9
+# frame's half-width of ~54 — so the occupant appearing behind it is not witnessed.
+const DOORS := [
+	# yaw turns WingDoor's local +z; swing picks which side the leaf opens into. Each open leaf lies
+	# along a wall, clear of the route.
+	# ⚠️ The CELL door opens OUT, into the corridor. Swung into the cell, its leaf and the foot of
+	# the bed walled off the cell's whole south strip — the sink and the tap were unreachable
+	# (check_reachable, 2026-09-24: "Tap … nearest cell 1.50 m").
+	{"name": "CellDoor", "pos": Vector2(-4.2, 22), "width": 1.2, "dir": "x", "h": WING_H,
+		"yaw": -PI / 2.0, "swing": -1.0},
+	{"name": "HallDoor", "pos": Vector2(-4.2, 15), "width": 1.2, "dir": "x", "h": WING_H,
+		"yaw": -PI / 2.0, "swing": 1.0},
+	{"name": "WardEntryDoor", "pos": Vector2(-3, 9), "width": 1.2, "dir": "z", "h": 3.6,
+		"yaw": PI, "swing": 1.0},
+	{"name": "WardDoor", "pos": Vector2(0, -9), "width": 1.2, "dir": "z", "h": 3.6,
+		"yaw": PI, "swing": 1.0},
+	{"name": "AirlockDoor", "pos": Vector2(-4, -18.5), "width": 1.2, "dir": "x", "h": 3.4,
+		"yaw": PI / 2.0, "swing": -1.0},
+]
+# Openings that are NOT passages: cut by RoomBuilder like a doorway, then closed below `sill` and
+# above `top` with wall, and glazed. Kept out of DOORS so check_doorways / check_note_mounting do
+# not treat the glass as a way through.
+const WINDOWS := [
+	{"name": "ObservationGlass", "pos": Vector2(-6.2, 20), "width": 2.2, "dir": "z",
+		"sill": 0.85, "top": 2.1},
+]
+# The airlock's barred hatch (fourth hand playtest): cut like a window, closed around a 0.6 m square
+# with bars instead of glass (_build_patient_hatch()). In the airlock's WEST wall — dead ahead as you
+# step through the AirlockDoor, and neither the ExitDoor's wall (south) nor a doorway's.
+const HATCHES := [
+	{"name": "PatientHatch", "pos": Vector2(-7.0, -18.5), "width": 0.6, "dir": "x",
+		"sill": 1.15, "top": 1.75},
+]
+# The cell. The bed runs north-south with its head at the north wall; the player wakes sitting up
+# at the head end, facing south — straight at the one-way glass, which from this side is a dark,
+# blank pane.
+const CELL_GURNEY_POS := Vector3(-6.4, 0, 22.55)
+const CELL_WAKE_POS := Vector3(-6.4, 0.0, 23.1)     # body xz; y is GURNEY_TOP_Y
+const CELL_STAND_POS := Vector3(-5.45, 0.05, 22.9)  # beside the bed, once the straps are off
+# The bed's restraints, as offsets from CELL_GURNEY_POS (x, z): two wrists beside the hips, the
+# ankles. ⭐ Already UNBUCKLED since the third hand playtest (2026-09-25) — scenery, not a beat.
+const STRAPS := [Vector2(-0.34, -0.25), Vector2(0.34, -0.25), Vector2(0.0, -0.78)]
+const WARD_ENTRY := Vector3(-3, 0, 9)
+const WAKEUP_TWEEN_TIME := 1.2           # lying, coming to; + SIT_UP_TIME 0.9 + STAND_TIME 1.2 = 3.3 s
 const NIGHTMARE_TEXT := "IT WAS ONLY A DREAM."
 const PATH_GLOW_ENERGY := 0.12
 const PATH_GLOW_RANGE := 1.4
@@ -36,10 +103,10 @@ const FAR_GURNEY_POS := Vector3(4.5, 0, 6.0)
 # the life of the project (playtest 2026-08-16 capture #3: "the door is not connected to
 # the wall"). RoomBuilder.wall_point() exists for exactly this reason in the graph levels;
 # this room is hand-built, so it derives them here instead.
-const WALL_T := 0.3
-const WALL_BACK_FACE_Z := -ROOM_SIZE.y / 2.0 + WALL_T / 2.0    # -8.85
-const WALL_LEFT_FACE_X := -ROOM_SIZE.x / 2.0 + WALL_T / 2.0    # -5.85
-const WALL_RIGHT_FACE_X := ROOM_SIZE.x / 2.0 - WALL_T / 2.0    #  5.85
+const WALL_T := RoomBuilder.T                                  # 0.2 (was a hand-built 0.3)
+const WALL_BACK_FACE_Z := -ROOM_SIZE.y / 2.0 + WALL_T / 2.0    # -8.9
+const WALL_LEFT_FACE_X := -ROOM_SIZE.x / 2.0 + WALL_T / 2.0    # -5.9
+const WALL_RIGHT_FACE_X := ROOM_SIZE.x / 2.0 - WALL_T / 2.0    #  5.9
 # How far a wall-mounted prop's BACK face sits inside the wall. Never 0 — coplanar faces
 # z-fight (Issues 19/20/23); a small negative clearance buries the back face instead.
 const WALL_BITE := 0.02
@@ -64,6 +131,10 @@ const DOOR_SIZE := Vector3(1.136, 2.2, 0.15)
 # _corrupt_room()'s planks are derived from this constant (correctly) and inherited the
 # error: they hung 0.485 m in front of blank concrete.
 const EXIT_DOOR_POS := Vector3(0, 1.1, WALL_BACK_FACE_Z - WALL_BITE + DOOR_SIZE.z / 2.0)
+# ⭐ The Intake Wing: the advancing `ExitDoor` is in the AIRLOCK now, seated into its south wall
+# (z = -20) by the same derivation. EXIT_DOOR_POS above is where it stands in the TWIST ENDING,
+# which builds the ward alone and boards that door over exactly as before.
+const AIRLOCK_EXIT_POS := Vector3(-5.5, 1.1, -20.0 + WALL_T / 2.0 - WALL_BITE + DOOR_SIZE.z / 2.0)
 # The casing — two jambs and a lintel standing proud of the wall, lapping CASING_LAP over
 # the leaf's edges so the leaf reads as RECESSED INSIDE a frame rather than stuck on a flat
 # wall. The lap is what removes every coplanar face between casing and leaf.
@@ -71,7 +142,9 @@ const CASING_W := 0.14              # jamb width / lintel height
 const CASING_D := 0.24              # WALL_BITE inside the wall … 0.09 proud of the leaf face
 const CASING_LAP := 0.018
 const WHEELCHAIR_POS := Vector3(2.4, 0.0, -3.0)    # floor anchor — open floor between the table and the door
-const WALL_CHART_POS := Vector3(3.5, 1.8, -8.77)   # on WallBack, clear of the door + its casing
+# ⚠️ z DERIVED (was a literal -8.77, which the 0.3 -> 0.2 wall change would have left 13 cm off
+# the wall): 3 cm proud of the back wall's face, clear of the ward door's frame at x ±0.8.
+const WALL_CHART_POS := Vector3(3.5, 1.8, WALL_BACK_FACE_Z + 0.03)
 # ⚠️ Sized from `wall_chart_intro.png` (1402x1122 = 1.2496), not chosen. At the old
 # 0.6 x 0.9 the chart was squashed 1.87x onto a PORTRAIT quad and its text — a legible
 # patient observation chart, the only readable environment storytelling in the room — was
@@ -82,7 +155,19 @@ const WALL_CHART_SIZE := Vector2(1.125, 0.90)
 const NOTE_UV_OFFSET := Vector2(0.085, 0.015)
 const NOTE_UV_SCALE := Vector2(0.835, 0.970)
 const NOTE_SIZE := Vector2(0.2557, 0.297)
-const NORMAL_AMBIENT := 0.22        # tuned in-editor; see the verification pass
+# ⭐ 0.30 since 2026-09-24 (was 0.22): the ward is DRESSED now and at 0.22 its furniture was a
+# silhouette. Post-switch only — the blind walk and the glimpse happen at ambient 0 (measured).
+const NORMAL_AMBIENT := 0.30
+# ⚠️ …AND A COLOUR, because the energy alone is a dead lever here: the shared environment's
+# ambient colour is (0.04, 0.03, 0.02), and measured, even energy 1.0 moved the lit ward's frame
+# 13.1 -> 13.3 of 255. The switch tweens the colour too, so only the LIT ward changes; before the
+# switch (the blind walk, the glimpse) the colour is the shared one and the energy is 0.
+const LIT_AMBIENT_COLOR := Color(0.28, 0.29, 0.31)
+# ⭐ The panic CEILING (2026-09-24, the Intake Wing). The bar may move here — calibration teaches
+# it — but player.set_panic_ceiling() pins it at 60 % of PANIC_MAX, so the screamer is unreachable
+# by construction. It also closes the old hole: sprint +6/s had no level-0 exemption and ~8.3 s of
+# Shift killed you in the one room with no fail state. check_intro_panic_ceiling.gd.
+const PANIC_CEILING := 0.6
 
 # --- "the ward is occupied" (2026-07-28) ---------------------------------------------
 # This room had ZERO scares: no panic source, no RandomAmbient, no ApparitionDirector, no
@@ -127,6 +212,27 @@ const PRESERVE := ["Environment", "AmbientPlayer", "Player"]
 const _DOOR_SCRIPT := preload("res://scripts/door.gd")
 const _NOTE_SCRIPT := preload("res://scripts/note.gd")
 
+# --- the Intake Wing's voice, light and pacing (2026-09-24) --------------------------------------
+# ⚠️ FIVE lines, no more (spec: "the voice is rationed"). Each is also a ScreenText.caption, and
+# the caption is the SAME WORDS — tools/make_pa_voice.py's LINES table is the other copy. Only VO1
+# plays in this build; VO2-5 land with the ward retrofit and calibration (phases 4-5).
+const VO := {
+	"morning": ["pa_intro_morning", "Good morning, forty-six. I mean — forty-seven."],
+	"fault": ["pa_intro_fault", "—we have a fault in—"],
+	"screen": ["pa_intro_screen", "Look at the screen, forty-seven."],
+	"better": ["pa_intro_better", "Much better than last time."],
+	"proceed": ["pa_intro_proceed", "You may proceed."],
+}
+const VO_DB := 4.0                   # the Lab's PASpeaker gain: same chain, same speaker
+# Wing lighting. ⚠️ Emission ≤ 0.55 on every bulb (check_fixtures; Issue 21 — above 1.0 clamps
+# to flat white, and at this light energy emission is most of a surface's colour).
+const WING_AMBIENT := 0.035          # enough that a shadowed wall is a shape, not a hole
+const BULB_EMISSION := 0.5
+const BULB_COLOR := Color(1.0, 0.9, 0.74)
+const CELL_BULB_ENERGY := 1.1        # the cell is the brightest room: the glass has to read
+const HALL_BULB_ENERGY := 0.8        # …and the hall the darker, or the glass is a mirror (≥ 5×, measured)
+const CORRIDOR_BULB_ENERGY := 0.75
+
 @onready var player: CharacterBody3D = $Player
 
 var candle_light: OmniLight3D
@@ -148,13 +254,37 @@ var _glimpse_form: Node3D = null              # the sheeted form that is gone af
 var _candle_flame: MeshInstance3D = null      # hidden while the room is dark — it is emissive
 var _cobweb_index: int = 0                    # unique node names — Issue 17
 
+# --- the Intake Wing -------------------------------------------------------------------------
+var _builder: RoomBuilder = null
+var _wall_mat: StandardMaterial3D = null
+var _doors: Dictionary = {}                   # name -> WingDoor
+var _beats: Dictionary = {}                   # the ledger: beat name -> true (see _advance)
+var _bulbs: Array = []                        # [OmniLight3D, energy, bulb material, hum player]
+var _straps: Array[Node3D] = []               # the restraints — visual only, never interactable
+var _strap_visuals: Array = []                # per strap: [[pivot, side], ...]
+var _cell_speaker: AudioStreamPlayer3D = null
+var _hall_state: int = 0                      # 0 never entered · 1 occupant present · 2 gone for good
+var _occupant: Node3D = null
+var _tap_stream: MeshInstance3D = null
+var _tap_mat: StandardMaterial3D = null
+var _tap_audio: AudioStreamPlayer3D = null
+var _tap_on: bool = false
+var _reel_audio: AudioStreamPlayer3D = null
+var _reels: Array[Node3D] = []
+var _smoke: Array = []                        # [MeshInstance3D, StandardMaterial3D, phase]
+var _monitor_lamp: StandardMaterial3D = null
+var _monitor_light: OmniLight3D = null
+
 
 func _ready() -> void:
 	GameState.current_level = 0
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 	_clear_old_scene()
+	player.set_panic_ceiling(PANIC_CEILING)
 
 	_build_room()
+	if not GameState.is_ending:
+		_build_wing()
 	_build_gurney(GURNEY_POS)                    # the player's own — never occupied
 	# ⚠️ Occupied. The two spare beds were bare, which made the ward read as storage; a
 	# covered body on each makes it read as a ward with other subjects in it.
@@ -176,7 +306,11 @@ func _ready() -> void:
 	_build_table_note_candle()
 	_build_exit_door()
 	_build_cabinets()
-	_apply_textures()
+	_build_ward_dressing()
+	if not GameState.is_ending:
+		_build_ward_finds()
+		_build_speakers()
+		_build_calibration()
 	_spawn_cobwebs()
 	_start_ambience()
 
@@ -187,9 +321,16 @@ func _ready() -> void:
 		return
 
 	note.note_text = OPENING_NOTE
-	_darken_scene(0.0)
+	# The ward is shut and pitch black; the wing is lit by its own bulbs (see _build_wing()).
+	_darken_scene(WING_AMBIENT)
 	player.lock_flashlight()
 	player.freeze_input()
+	_spawn_light_switch()
+	_refresh_doors()
+	# The back door: coming back from the Lab, the wing is already solved (spec/levels/README.md).
+	if GameState.entered_from_ahead:
+		_restore_progress()
+		return
 	_play_wakeup_beat()
 
 
@@ -209,16 +350,42 @@ func _clear_old_scene() -> void:
 		child.queue_free()
 
 
+# ⭐ THE SOUNDTRACK PLAYS ONCE (first hand playtest, 2026-09-24, capture #2: *"when the soundtrack
+# ends it starts again - and we hear that sound of like dreaming and waking up again"*).
+# `ambient_asylum` (162 s) opens on the dream-to-waking swell; self-looped, that swell came back every
+# 162 s. Now it plays once and the AmbientPlayer moves on to the user's `intro_second_music` (83 s),
+# which loops. Its gain is set from the files' MEASURED means (−11.1 dB against the first track's
+# −24.3), i.e. SECOND_MUSIC_OFFSET_DB below the first track's level. No second file -> silence;
+# the wing's room tone and the metronome carry on, and the dream never replays.
+const FIRST_MUSIC := "ambient_asylum"
+const SECOND_MUSIC := "intro_second_music"
+const SECOND_MUSIC_OFFSET_DB := -13.0
+var _music_base_db := 0.0
+
 func _start_ambience() -> void:
 	var ambient: AudioStreamPlayer = get_node_or_null("AmbientPlayer")
 	if ambient:
 		ambient.bus = AudioBuses.AMBIENCE   # duckable — see audio_buses.gd
-		var s := GameState.load_audio("ambient_asylum")
+		_music_base_db = ambient.volume_db
+		var s := GameState.load_audio(FIRST_MUSIC)
 		if s:
 			ambient.stream = s
 		if ambient.stream:
-			ambient.finished.connect(ambient.play)
+			ambient.finished.connect(_on_first_music_finished, CONNECT_ONE_SHOT)
 			ambient.play()
+
+
+func _on_first_music_finished() -> void:
+	var ambient: AudioStreamPlayer = get_node_or_null("AmbientPlayer")
+	if ambient == null:
+		return
+	var s := GameState.load_audio(SECOND_MUSIC)
+	if s == null:
+		return
+	ambient.stream = s
+	ambient.volume_db = _music_base_db + SECOND_MUSIC_OFFSET_DB
+	ambient.finished.connect(ambient.play)
+	ambient.play()
 
 
 # ---------------------------------------------------------------- geometry
@@ -234,12 +401,38 @@ func _make_box(box_name: String, size: Vector3, pos: Vector3) -> CSGBox3D:
 
 
 func _build_room() -> void:
-	_make_box("Floor", Vector3(ROOM_SIZE.x, 0.3, ROOM_SIZE.y), Vector3(0, -0.15, 0))
-	_make_box("Ceiling", Vector3(ROOM_SIZE.x, 0.3, ROOM_SIZE.y), Vector3(0, ROOM_HEIGHT + 0.15, 0))
-	_make_box("WallBack", Vector3(ROOM_SIZE.x, ROOM_HEIGHT, 0.3), Vector3(0, ROOM_HEIGHT / 2.0, -ROOM_SIZE.y / 2.0))
-	_make_box("WallFront", Vector3(ROOM_SIZE.x, ROOM_HEIGHT, 0.3), Vector3(0, ROOM_HEIGHT / 2.0, ROOM_SIZE.y / 2.0))
-	_make_box("WallLeft", Vector3(0.3, ROOM_HEIGHT, ROOM_SIZE.y), Vector3(-ROOM_SIZE.x / 2.0, ROOM_HEIGHT / 2.0, 0))
-	_make_box("WallRight", Vector3(0.3, ROOM_HEIGHT, ROOM_SIZE.y), Vector3(ROOM_SIZE.x / 2.0, ROOM_HEIGHT / 2.0, 0))
+	# ⭐ RoomBuilder since 2026-09-24. The ending builds the WARD ALONE with no doorways, so its
+	# four walls are unbroken — the same sealed room the twist has always boarded up.
+	_builder = RoomBuilder.new()
+	_builder.name = "WingBuilder"
+	_wall_mat = RoomBuilder.make_material(TEX + "asylum_wall.png",
+		Vector3(1.0 / 3.6, 1.0 / 3.6, 1.0 / 3.6), Color(0.42, 0.46, 0.43))
+	# ⚠️ One tile = 3.6 m = the ward's height, and the texture's BOTTOM EDGE is the floor: the
+	# dark wainscot band is painted into the bottom 1.0 m of the tile (tools/make_intro_wing_art.py),
+	# so a scale that is not exactly 1/3.6 floats it off the floor or up the wall.
+	# ⚠️ AND WORLD-SPACE triplanar. make_material()'s triplanar is OBJECT-local by default, i.e.
+	# measured from each wall box's CENTRE (h/2): the ward's 3.6 m walls put the band mid-wall and
+	# the window's sill and head boxes each started the pattern afresh (first render). World space
+	# puts y = 0 on the floor for every box, which is what a painted band needs.
+	_wall_mat.uv1_world_triplanar = true
+	# ⚠️ …which also flips V: make_material() negates V for OBJECT-space triplanar, and in world
+	# space that negation put the band at the CEILING (second render). Positive V here.
+	_wall_mat.uv1_scale.y = absf(_wall_mat.uv1_scale.y)
+	_builder.wall_mat = _wall_mat
+	var floor_mat := RoomBuilder.make_material(TEX + "asylum_floor.png",
+		Vector3(0.3, 0.3, 0.3), Color(0.2, 0.21, 0.2))
+	if ResourceLoader.exists(TEX + "asylum_floor_rough.png"):
+		floor_mat.roughness_texture = load(TEX + "asylum_floor_rough.png")
+		floor_mat.roughness = 1.0
+	_builder.floor_mat = floor_mat
+	_builder.ceil_mat = RoomBuilder.make_material(TEX + "asylum_ceiling.png",
+		Vector3(0.3, 0.3, 0.3), Color(0.25, 0.26, 0.25))
+	add_child(_builder)
+	if GameState.is_ending:
+		_builder.build([WARD], [])
+	else:
+		# Windows are cut like doorways and then closed around the glass (_build_windows()).
+		_builder.build(_rooms_with_skins(), DOORS + WINDOWS + HATCHES)
 
 	# Ceiling fluorescents — off until the switch is flipped, then flickered up
 	# in _on_switch_flipped(). No fixture mesh: this room reads as plain damp
@@ -259,24 +452,49 @@ func _build_room() -> void:
 		light.shadow_enabled = true
 		add_child(light)
 		_ceiling_lights.append(light)
+		_add_ward_fixture(light)
 
 
-func _build_gurney(pos: Vector3, occupied: bool = false) -> Node3D:
+# Per-room skins (level_1.gd:_rooms_with_skins' pattern). The observers' HALL keeps the ward's old
+# plain, dry floor — the one room in the wing somebody mops — which is the cheapest legible
+# difference between their side of the glass and yours.
+func _rooms_with_skins() -> Array:
+	var hall_floor := RoomBuilder.make_material(TEX + "floor_intro.png",
+		Vector3(0.35, 0.35, 0.35), Color(0.22, 0.22, 0.21))
+	var black := _mat(Color(0.012, 0.012, 0.012), 1.0)
+	var skins := {"Hall": {"floor_mat": hall_floor},
+		"PatientCell": {"wall_mat": black, "floor_mat": black, "ceil_mat": black}}
+	var out: Array = []
+	for r in ROOMS:
+		var room: Dictionary = r.duplicate()
+		if skins.has(room["name"]):
+			room.merge(skins[room["name"]])
+		out.append(room)
+	return out
+
+
+# ⚠️ pad_tex defaults to the plain worn-vinyl `cell_pad.png` (2026-09-24 polish): the tufted
+# sunburst `gurney_intro.png` must not appear anywhere in the wing (the coordinator's review).
+func _build_gurney(pos: Vector3, occupied: bool = false, pad_tex: String = "cell_pad.png") -> Node3D:
 	# ⚠️ Unique per bed, for the same Issue-17 reason as the ceiling tubes and the sheeted
 	# forms: three gurneys all called "GurneyFrame" means Godot silently renames two of
 	# them, and anything that looks one up by name finds only the first.
 	var tag := "%.0f_%.0f" % [pos.x * 10.0, pos.z * 10.0]
+	# ⭐ A FRAME FROM PARTS (2026-09-24, the review: "gurney frames with rails/legs so they don't
+	# read as boxes"). `GurneyFrame_*` is now the DECK — same 0.9 x 2.0 footprint, same top face
+	# at y = 0.5 (check_intro_sheet measures the hem against exactly that) — on four tubular legs
+	# with casters, a low side rail each side, an undercarriage shelf, and (empty beds only) a
+	# tubular head rail. The sheet's drape hangs past the deck ends, so an occupied bed gets no
+	# head rail: a post there would pierce the cloth.
 	var frame := CSGBox3D.new()
 	frame.name = "GurneyFrame_" + tag
-	frame.size = Vector3(0.9, 0.5, 2.0)
-	frame.position = pos + Vector3(0, 0.25, 0)
+	frame.size = Vector3(0.9, 0.08, 2.0)
+	frame.position = pos + Vector3(0, 0.46, 0)
 	frame.use_collision = true
-	var fm := StandardMaterial3D.new()
-	fm.albedo_color = Color(0.12, 0.12, 0.13)
-	fm.metallic = 0.6
-	fm.roughness = 0.5
+	var fm := _steel_mat()
 	frame.material = fm
 	add_child(frame)
+	_gurney_parts(pos, tag, not occupied)
 
 	var mattress := CSGBox3D.new()
 	mattress.name = "GurneyMattress_" + tag
@@ -299,7 +517,7 @@ func _build_gurney(pos: Vector3, occupied: bool = false) -> Node3D:
 	# sat at y=0.605 and the old sheet boxes spanned 0.600-0.800, so the art plane physically
 	# cut through the bottom 5 mm of the body.
 	if not occupied:
-		var mtex_path := TEX + "gurney_intro.png"
+		var mtex_path := TEX + pad_tex
 		if ResourceLoader.exists(mtex_path):
 			var decal := MeshInstance3D.new()
 			decal.name = "GurneyMattressArt_" + tag
@@ -441,11 +659,14 @@ const SHEET_BLOBS := [
 ]
 
 
-func _build_sheeted_form(pos: Vector3) -> Node3D:
+# `form_name` (2026-09-24): the hall glimpse's occupant is built by this same function but must NOT
+# be named SheetedForm_* — check_intro_beats / check_intro_sheet count those as the WARD's two
+# covered beds, and the occupant is neither in the ward nor always there.
+func _build_sheeted_form(pos: Vector3, form_name: String = "") -> Node3D:
 	# Unique per bed, for the same Issue-17 reason as the ceiling tubes.
 	var tag := "%.0f_%.0f" % [pos.x * 10.0, pos.z * 10.0]
 	var form := Node3D.new()
-	form.name = "SheetedForm_" + tag
+	form.name = form_name if form_name != "" else "SheetedForm_" + tag
 	# Origin AT the mattress top (frame top 0.5, mattress top 0.6), so every height below is
 	# stated as a height above the bed rather than as a world y.
 	form.position = pos + Vector3(0, GURNEY_TOP_Y, 0)
@@ -768,15 +989,29 @@ func _build_wall_chart() -> void:
 
 
 func _build_table_note_candle() -> void:
+	# ⭐ A TABLE, not a black cube (2026-09-24, the review). `Table` is now the TOP — a 5 cm slab
+	# whose upper face is still TABLE_TOP_Y 0.8, so the note, the candle and every test that
+	# measures them are where they were — on four turned legs with an apron and a stretcher.
 	var table := CSGBox3D.new()
 	table.name = "Table"
-	table.size = Vector3(1.2, 0.8, 0.6)
-	table.position = TABLE_POS
+	table.size = Vector3(1.2, 0.05, 0.6)
+	table.position = Vector3(TABLE_POS.x, TABLE_TOP_Y - 0.025, TABLE_POS.z)
 	table.use_collision = true
 	const TABLE_MAT_PATH := "res://assets/materials/objects/table.tres"
 	if ResourceLoader.exists(TABLE_MAT_PATH):
 		table.material = load(TABLE_MAT_PATH)
 	add_child(table)
+	var wood := _mat(Color(0.16, 0.11, 0.07), 0.75)
+	for lx in [-0.53, 0.53]:
+		for lz in [-0.23, 0.23]:
+			_mcyl("TableLeg", 0.028, 0.75, Vector3(TABLE_POS.x + lx, 0.375, TABLE_POS.z + lz), wood, null,
+				Vector3.ZERO, 0.022)
+	for sz in [-1.0, 1.0]:
+		_mbox("TableApron", Vector3(1.1, 0.09, 0.025), Vector3(TABLE_POS.x, 0.72, TABLE_POS.z + sz * 0.24), wood)
+	for sx in [-1.0, 1.0]:
+		_mbox("TableApron", Vector3(0.025, 0.09, 0.5), Vector3(TABLE_POS.x + sx * 0.54, 0.72, TABLE_POS.z), wood)
+	_mbox("TableStretcher", Vector3(1.06, 0.03, 0.03), Vector3(TABLE_POS.x, 0.18, TABLE_POS.z), wood)
+	_solid("TableBody", Vector3(1.2, 0.75, 0.6), Vector3(TABLE_POS.x, 0.375, TABLE_POS.z))
 
 	_build_candle()
 
@@ -1040,22 +1275,53 @@ func _tick_wheelchair() -> void:
 		WHEELCHAIR_TURN_TIME)
 
 
-# The exit opens only once the room is lit AND the briefing has been read. Kept in one
-# place so neither half can silently stop mattering, the way KONTUR's exit did before
-# Issue 16 gave it a ledger.
-func _refresh_exit_lock() -> void:
-	var exit_door := get_node_or_null("ExitDoor")
-	if not exit_door:
-		return
+# ⭐ THE DOOR LEDGER (2026-09-24). One place decides every door in the wing, the way Issue 16 gave
+# KONTUR's exit one — so no half of a gate can silently stop mattering. `_advance(beat)` records a
+# beat and re-derives every lock from the whole ledger; nothing else writes a lock.
+#   straps  -> the cell door buzzes open
+#   torch   -> the ward entry unlocks
+#   lit + the note read -> the ward's far door (and, until calibration exists, the airlock exit)
+func _advance(beat: String) -> void:
+	_beats[beat] = true
+	var dbg := get_node_or_null("/root/DebugLog")
+	if dbg and dbg.has_method("note"):
+		dbg.note("INTRO beat: " + beat)
+	_refresh_doors()
+
+
+func _refresh_doors() -> void:
+	var entry: WingDoor = _doors.get("WardEntryDoor")
+	if entry:
+		entry.locked = not _beats.has("torch")
+		entry.locked_message = "Locked. Collect your issue first."
+	var ward_msg := ""
 	if not _switch_flipped:
-		exit_door.locked_message = "Find the light switch first."
-		exit_door.extra_lock = true
-		return
-	if not GameState.intro_note_read:
-		exit_door.locked_message = "Read the note on the table first."
-		exit_door.extra_lock = true
-		return
-	exit_door.extra_lock = false
+		ward_msg = "Find the light switch first."
+	elif not GameState.intro_note_read:
+		ward_msg = "Read the note on the table first."
+	var ward: WingDoor = _doors.get("WardDoor")
+	if ward:
+		ward.locked = ward_msg != ""
+		ward.locked_message = ward_msg
+	# Calibration -> the airlock: open once the observers are satisfied (VO4).
+	var airlock: WingDoor = _doors.get("AirlockDoor")
+	if airlock:
+		airlock.locked = not _beats.has("calibrated")
+		airlock.locked_message = "Locked."
+	# The advancing exit: the ward's gate first (the note cannot be skipped — BACKLOG #12), then
+	# the airlock's "You may proceed."
+	var exit_door := get_node_or_null("ExitDoor")
+	if exit_door and not GameState.is_ending:
+		var exit_msg := ward_msg
+		if exit_msg == "" and not _beats.has("proceed"):
+			exit_msg = "Not yet."
+		exit_door.extra_lock = exit_msg != ""
+		exit_door.locked_message = exit_msg if exit_msg != "" else "LOCKED"
+
+
+# Kept under its old name: tests and older call sites know it. It IS the ledger.
+func _refresh_exit_lock() -> void:
+	_refresh_doors()
 
 
 func _build_exit_door() -> void:
@@ -1078,7 +1344,8 @@ func _build_exit_door() -> void:
 	# levels read as arbitrary cruelty.
 	body.extra_lock = not GameState.is_ending
 	body.locked_message = "Find the light switch first."
-	body.position = EXIT_DOOR_POS
+	# In the airlock normally; on the ward's back wall in the twist ending (boarded over there).
+	body.position = EXIT_DOOR_POS if GameState.is_ending else AIRLOCK_EXIT_POS
 	add_child(body)
 
 	# ⚠️ Was `""` for the life of the project — the ONLY door in a textured level with no
@@ -1094,7 +1361,7 @@ func _build_exit_door() -> void:
 	col.shape = shape
 	body.add_child(col)
 
-	_build_door_casing()
+	_build_door_casing(body.position.x, body.position.z - DOOR_SIZE.z / 2.0 + WALL_BITE)
 
 
 # The jambs and lintel that make the leaf read as a door SET INTO the wall.
@@ -1110,13 +1377,13 @@ func _build_exit_door() -> void:
 # ⚠️ NO COLLIDERS. A collider on the only doorway wall is this project's documented way of
 # silently sealing a room (the Lab's Records warning sign did exactly that). The leaf has
 # its own collider and the wall behind is solid, so these are visual only.
-func _build_door_casing() -> void:
+func _build_door_casing(cx: float, face_z: float) -> void:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = Color(0.13, 0.12, 0.12)
 	mat.metallic = 0.35
 	mat.roughness = 0.8
 
-	var z := WALL_BACK_FACE_Z - WALL_BITE + CASING_D / 2.0
+	var z := face_z - WALL_BITE + CASING_D / 2.0
 	var half_in := DOOR_SIZE.x / 2.0 - CASING_LAP     # jamb inner face, lapping over the leaf
 	var lintel_y := DOOR_SIZE.y - CASING_LAP + CASING_W / 2.0
 
@@ -1127,11 +1394,11 @@ func _build_door_casing() -> void:
 	# Two coplanar visible faces is this project's single most common bug class.
 	for spec in [
 		["DoorJambL", Vector3(CASING_W, lintel_y + WALL_BITE, CASING_D),
-			Vector3(-(half_in + CASING_W / 2.0), lintel_y / 2.0 - WALL_BITE / 2.0, z)],
+			Vector3(cx - (half_in + CASING_W / 2.0), lintel_y / 2.0 - WALL_BITE / 2.0, z)],
 		["DoorJambR", Vector3(CASING_W, lintel_y + WALL_BITE, CASING_D),
-			Vector3(half_in + CASING_W / 2.0, lintel_y / 2.0 - WALL_BITE / 2.0, z)],
+			Vector3(cx + half_in + CASING_W / 2.0, lintel_y / 2.0 - WALL_BITE / 2.0, z)],
 		["DoorLintel", Vector3(2.0 * (half_in + CASING_W + CASING_LAP), CASING_W, CASING_D),
-			Vector3(0, lintel_y, z)],
+			Vector3(cx, lintel_y, z)],
 	]:
 		var mi := MeshInstance3D.new()
 		mi.name = spec[0]
@@ -1205,27 +1472,6 @@ func _build_cabinets() -> void:
 		add_child(art)
 
 
-func _apply_textures() -> void:
-	var wall_tex: Texture2D = load(TEX + "intro_wall.png") if ResourceLoader.exists(TEX + "intro_wall.png") else null
-	var floor_tex: Texture2D = load(TEX + "floor_intro.png") if ResourceLoader.exists(TEX + "floor_intro.png") else null
-	var ceiling_tex: Texture2D = load(TEX + "ceiling_intro.png") if ResourceLoader.exists(TEX + "ceiling_intro.png") else null
-	for child in get_children():
-		if child is CSGBox3D:
-			var n: String = child.name.to_lower()
-			var tex: Texture2D = null
-			if n.contains("ceiling"):
-				tex = ceiling_tex
-			elif n.contains("floor"):
-				tex = floor_tex
-			elif n.contains("wall"):
-				tex = wall_tex
-			if tex:
-				var mat := StandardMaterial3D.new()
-				mat.uv1_scale = Vector3(4.0, 4.0, 4.0)
-				mat.albedo_texture = tex
-				child.material = mat
-
-
 # ---------------------------------------------------------------- darkness / reveal beat
 
 func _darken_scene(energy: float) -> void:
@@ -1241,35 +1487,88 @@ func _darken_scene(energy: float) -> void:
 		_candle_flame.visible = false
 
 
+# ⭐ THE WAKE-UP IS ONE MOVE (third hand playtest, 2026-09-25). The strap release was the most-
+# reported beat of all three playtests (#1 *"feels like you stood up and then tried to do it"*, #2
+# *"What is this big object at the place where my legs should be?"*, #3 *"Let's draw the legs to make
+# it look realistic"*), and the user's call was *"let's remove this buckling thing entirely … you do
+# not need to free yourself from the bed. You just stand up and continue"*. So: you come to LYING,
+# looking up at the caged bulb → "IT WAS ONLY A DREAM." → you SIT UP → you STAND beside the bed, facing
+# the door (~3 s, input frozen throughout) → control. The restraints are already open (someone let
+# you out); VO1 plays as you stand and the door releases when it ends. Nothing ever looks down your
+# own body, so there are no legs to draw.
+const WAKE_CAM_LYING := 0.3          # the eye over the body, lying on the pillow
+const WAKE_CAM_SITTING := 0.85       # …sitting up on the mattress
+const STANDING_EYE := 1.65
+const WAKE_PITCH_LYING := 1.3        # waking: straight up at the ceiling
+const WAKE_LOOK_AT := Vector3(-6.2, 2.4, 22.2)   # the caged bulb over the cell
+const SIT_UP_TIME := 0.9
+const STAND_TIME := 1.2
+
 func _play_wakeup_beat() -> void:
-	player.global_position = GURNEY_POS + Vector3(0, GURNEY_TOP_Y, 0)
-	player.rotation.y = 0.0  # identity already faces -Z, same side the table/door are on
-	player.camera.position.y = 1.0
-	player.camera.rotation.x = -0.25
+	player.global_position = CELL_WAKE_POS + Vector3(0, GURNEY_TOP_Y, 0)
+	player.rotation.y = 0.0   # identity faces -Z: down the bed, at the glass
+	player.camera.position.y = WAKE_CAM_LYING - 0.06
+	player.camera.rotation.x = WAKE_PITCH_LYING
 
 	var creak := GameState.load_audio("gurney_creak")
 	if creak:
 		var p := AudioStreamPlayer3D.new()
 		p.stream = creak
-		p.position = GURNEY_POS
+		p.position = CELL_GURNEY_POS
 		add_child(p)
 		p.finished.connect(p.queue_free)
 		p.play()
 
+	# Coming to: the head settles on the pillow and the eyes find the bulb.
 	var t := create_tween()
 	t.set_parallel(true)
-	t.tween_property(player.camera, "position:y", 1.65, WAKEUP_TWEEN_TIME)
-	t.tween_property(player.camera, "rotation:x", 0.0, WAKEUP_TWEEN_TIME)
+	t.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	t.tween_property(player.camera, "position:y", WAKE_CAM_LYING, WAKEUP_TWEEN_TIME)
+	var eye := CELL_WAKE_POS + Vector3(0, GURNEY_TOP_Y + WAKE_CAM_LYING, 0)
+	var to_bulb := WAKE_LOOK_AT - eye
+	var bulb_pitch := atan2(to_bulb.y, Vector2(to_bulb.x, to_bulb.z).length())
+	t.tween_property(player, "rotation:y", atan2(-to_bulb.x, -to_bulb.z), WAKEUP_TWEEN_TIME)
+	t.tween_property(player.camera, "rotation:x", bulb_pitch, WAKEUP_TWEEN_TIME)
 	t.finished.connect(_on_wakeup_finished)
 
 
 func _on_wakeup_finished() -> void:
-	player.unfreeze_input()
+	# player.gd reads its pitch from `_pitch`, not from the camera; the tweens move the camera.
+	player.set("_pitch", player.camera.rotation.x)
 	ScreenText.scrawl(get_tree(), NIGHTMARE_TEXT, 4.0)
-	_spawn_path_glow()
-	_spawn_light_switch()
-	_spawn_far_breath()
 	_start_local_ambient()
+	_sit_up()
+
+
+# Up off the pillow: the eye rises to sitting height and levels out, looking down the bed.
+func _sit_up() -> void:
+	var t := create_tween().set_parallel(true)
+	t.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	t.tween_property(player.camera, "position:y", WAKE_CAM_SITTING, SIT_UP_TIME)
+	t.tween_property(player.camera, "rotation:x", -0.15, SIT_UP_TIME)
+	t.tween_property(player, "rotation:y", 0.0, SIT_UP_TIME)
+	_sfx_at("gurney_creak", CELL_GURNEY_POS, -2.0, 3.0)
+	t.finished.connect(_stand_up)
+
+
+# One observer line: the tannoy in the room the player is in, plus its caption (same words).
+# `then` runs when the line finishes — or at once if the file is missing (headless / stripped).
+func _say(key: String, then: Callable = Callable(), speaker: AudioStreamPlayer3D = null) -> void:
+	var line: Array = VO[key]
+	_caption(String(line[1]), 4.0, Color(0.82, 0.84, 0.78))
+	var sp: AudioStreamPlayer3D = speaker if speaker else _cell_speaker
+	var s := GameState.load_audio(String(line[0]))
+	if s == null or sp == null:
+		if then.is_valid():
+			then.call()
+		return
+	sp.stream = s
+	sp.play()
+	# ⚠️ A timer on the stream's LENGTH, not `finished`: a player that never finishes (a
+	# stripped or silent audio driver) would otherwise leave you strapped to the bed forever.
+	if then.is_valid():
+		get_tree().create_timer(s.get_length() + 0.25).timeout.connect(then)
+
 
 # ⚠️ NO MID-FUMBLE JUMPSCARE HERE, and do not re-add one.
 #
@@ -1288,7 +1587,13 @@ func _on_wakeup_finished() -> void:
 # metronome, and the stuck switch at the end of it.
 
 
-# Something breathing at the wall you WAKE AGAINST.
+# Something breathing in the dark ward.
+#
+# ⭐ SUPERSEDED IN PART (2026-09-24, the Intake Wing): you no longer wake in the ward. The emitter is
+# spawned at the BLACKOUT (the ward door opening, _on_ward_entry_opened()), at the same (0, 1.4, 8.4)
+# — 3 m from the ward entry, i.e. close and to one side as you step into the dark. The reasoning
+# below (close, not far; deleted by the lights; never inspectable) still holds; the "1.61 m from where
+# the player wakes" measurement is history.
 #
 # ⚠️ It is CLOSE, not far, and that is the beat (measured and confirmed 2026-08-16). This
 # was documented for months as "at the far wall" — it is not. The emitter sits at z=+8.4
@@ -1357,7 +1662,8 @@ func _on_local_ambient() -> void:
 
 
 func _spawn_path_glow() -> void:
-	var g0 := Vector2(GURNEY_POS.x, GURNEY_POS.z)
+	# ⭐ From the WARD ENTRY now (2026-09-24): the blind walk starts at the door you came in by.
+	var g0 := Vector2(WARD_ENTRY.x, WARD_ENTRY.z - 0.8)
 	var g1 := Vector2(SWITCH_POS.x, SWITCH_POS.z)
 	for progress in [0.2, 0.45, 0.7, 0.9]:
 		var xz := g0.lerp(g1, progress)
@@ -1539,6 +1845,9 @@ func _on_switch_flipped() -> void:
 
 	_switch_flipped = true
 	_refresh_exit_lock()
+	# The switch is the wing's power, not just the ward's: every bulb that died with the blackout
+	# comes back with it (the torch already has, two lines up).
+	_restore_wing_power()
 
 	for light in _path_glow_lights:
 		var t := create_tween()
@@ -1597,17 +1906,2496 @@ func _on_switch_flipped() -> void:
 
 	if _env:
 		var et := create_tween()
+		et.set_parallel(true)
 		et.tween_property(_env, "ambient_light_energy", NORMAL_AMBIENT, 1.2)
+		et.tween_property(_env, "ambient_light_color", LIT_AMBIENT_COLOR, 1.2)
 
 	_show_controls_hint()
 
 
-func _flicker_on(light: OmniLight3D, target: float) -> void:
+func _flicker_on(light: Light3D, target: float) -> void:
 	var t := create_tween()
 	for i in range(3):
 		t.tween_property(light, "light_energy", target * randf_range(0.15, 0.6), 0.05)
 		t.tween_property(light, "light_energy", 0.0, 0.05)
 	t.tween_property(light, "light_energy", target, 0.3)
+
+
+# ================================================================ THE INTAKE WING (2026-09-24)
+#
+# Five rooms around the ward, in the derelict-asylum look of the cold-open video (intro_scene.ogv:
+# peeling grey-green plaster over a dark wainscot, bare caged bulbs, wet stained floors). The
+# experiment's own kit — the tannoy, the camera and its red lamp, the one-way glass, the tray — is
+# newer than the building, and that contrast is the "someone is running this" tell.
+#   Cell      wake strapped; three straps; sink, smashed mirror, 46 tally marks, your wristband
+#   Corridor  the dream's corridor, awake. Nothing happens
+#   Hall      the observers' side of the glass; the torch is ISSUED here; your bed is occupied
+#   Ward      the old intro, entered through a door that kills every light in the wing
+#   Calibration / Airlock   phase 5; for now a lit room and the advancing ExitDoor
+#
+# ⚠️ ZERO PANIC ANYWHERE IN THIS SECTION. The bar must read exactly 0 through cell, hall and ward
+# (check_intro_beats); only calibration moves it. Nothing here calls add_panic, registers with
+# RandomAmbient, or builds a ScaryObject.
+
+func _build_wing() -> void:
+	_build_doors()
+	_build_windows()
+	_build_bulbs()
+	_build_cell()
+	_build_hall()
+	_build_corridor()
+
+
+# ---------------------------------------------------------------- small builders
+
+func _mat(color: Color, rough: float = 0.8, metal: float = 0.0) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_color = color
+	m.roughness = rough
+	m.metallic = metal
+	return m
+
+
+func _mbox(n: String, size: Vector3, pos: Vector3, m: Material, parent: Node = null,
+		rot: Vector3 = Vector3.ZERO) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.name = n
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	mi.position = pos
+	mi.rotation = rot
+	mi.set_surface_override_material(0, m)
+	(parent if parent else self).add_child(mi)
+	return mi
+
+
+func _mcyl(n: String, r: float, h: float, pos: Vector3, m: Material, parent: Node = null,
+		rot: Vector3 = Vector3.ZERO, r_top: float = -1.0) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.name = n
+	var cm := CylinderMesh.new()
+	cm.top_radius = r if r_top < 0.0 else r_top
+	cm.bottom_radius = r
+	cm.height = h
+	cm.radial_segments = 20
+	mi.mesh = cm
+	mi.position = pos
+	mi.rotation = rot
+	mi.set_surface_override_material(0, m)
+	(parent if parent else self).add_child(mi)
+	return mi
+
+
+func _art(n: String, size: Vector2, pos: Vector3, rot: Vector3, tex_file: String,
+		emission: float = 0.0, parent: Node = null, alpha: bool = false) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.name = n
+	var qm := QuadMesh.new()
+	qm.size = size
+	mi.mesh = qm
+	mi.position = pos
+	mi.rotation = rot
+	var m := StandardMaterial3D.new()
+	m.roughness = 0.9
+	if ResourceLoader.exists(TEX + tex_file):
+		var tex: Texture2D = load(TEX + tex_file)
+		m.albedo_texture = tex
+		if emission > 0.0:
+			m.emission_enabled = true
+			m.emission_texture = tex
+			m.emission_energy_multiplier = emission
+	else:
+		m.albedo_color = Color(0.6, 0.58, 0.5)
+	if alpha:
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mi.material_override = m
+	(parent if parent else self).add_child(mi)
+	return mi
+
+
+# A solid, invisible box collider — furniture stops the player; its meshes are separate.
+func _solid(n: String, size: Vector3, pos: Vector3, rot_y: float = 0.0) -> StaticBody3D:
+	var b := StaticBody3D.new()
+	b.name = n
+	b.position = pos
+	b.rotation.y = rot_y
+	var c := CollisionShape3D.new()
+	var sh := BoxShape3D.new()
+	sh.size = size
+	c.shape = sh
+	b.add_child(c)
+	add_child(b)
+	return b
+
+
+func _sfx_at(base_name: String, pos: Vector3, db: float = 0.0, unit: float = 4.0) -> AudioStreamPlayer3D:
+	var s := GameState.load_audio(base_name)
+	if s == null:
+		return null
+	var p := AudioStreamPlayer3D.new()
+	p.stream = s
+	p.volume_db = db
+	p.unit_size = unit
+	p.position = pos
+	add_child(p)
+	p.finished.connect(p.queue_free)
+	p.play()
+	return p
+
+
+# A looping emitter (every .wav.import here is loop_mode=0, so loops restart themselves).
+func _loop_at(n: String, base_name: String, pos: Vector3, db: float, unit: float) -> AudioStreamPlayer3D:
+	var s := GameState.load_audio(base_name)
+	if s == null:
+		return null
+	var p := AudioStreamPlayer3D.new()
+	p.name = n
+	p.stream = s
+	p.volume_db = db
+	p.unit_size = unit
+	p.bus = AudioBuses.AMBIENCE
+	p.position = pos
+	add_child(p)
+	p.finished.connect(p.play)
+	p.play()
+	return p
+
+
+# ---------------------------------------------------------------- doors, glass, bulbs
+
+func _build_doors() -> void:
+	for d in DOORS:
+		var wd := WingDoor.new()
+		wd.name = String(d["name"])
+		wd.door_width = float(d["width"])
+		wd.door_height = float(d["h"])
+		wd.swing_sign = float(d.get("swing", 1.0))
+		wd.texture_path = TEX + "asylum_door.png"
+		wd.infill_material = _wall_mat
+		var p: Vector2 = d["pos"]
+		wd.position = Vector3(p.x, 0, p.y)
+		wd.rotation.y = float(d.get("yaw", 0.0))
+		add_child(wd)
+		_doors[wd.name] = wd
+	# The cell door is opened BY THE LEVEL, after the third strap; E on it before then rattles.
+	(_doors["CellDoor"] as WingDoor).locked = true
+	(_doors["CellDoor"] as WingDoor).locked_message = "Locked."
+	(_doors["WardEntryDoor"] as WingDoor).opened.connect(_on_ward_entry_opened)
+
+
+# The one-way glass in the cell/hall wall. RoomBuilder cut it full height like a doorway; this
+# closes it with wall below the sill and above the head (CSG, the wall's own material, exactly T
+# deep — faces continue the wall's, adjacent not overlapping), frames it, and glazes it.
+#
+# ⚠️ TWO SINGLE-SIDED QUADS, back to back — no SubViewport, no mirror tech (the plan's call). The
+# CELL side is an opaque dark gloss pane: from your bed it is a blank black window that throws
+# the bulb back at you. The HALL side is near-clear, and because each quad culls its back face, from
+# the hall you look straight through the (culled) cell-side quad into the lit cell. It reads because
+# the hall is DARKER than the cell (HALL_BULB_ENERGY vs CELL_BULB_ENERGY) — the same physics that
+# makes a real one work. Neither quad casts a shadow, so the cell's light does spill into the hall.
+func _build_windows() -> void:
+	var frame_mat := _mat(Color(0.14, 0.15, 0.15), 0.7, 0.3)
+	for w in WINDOWS:
+		var p: Vector2 = w["pos"]
+		var wid: float = w["width"]
+		var sill: float = w["sill"]
+		var top: float = w["top"]
+		var sb := _make_box(String(w["name"]) + "_Sill", Vector3(wid, sill, WALL_T), Vector3(p.x, sill / 2.0, p.y))
+		sb.material = _wall_mat
+		var hh := WING_H - top
+		var hb := _make_box(String(w["name"]) + "_Head", Vector3(wid, hh, WALL_T), Vector3(p.x, top + hh / 2.0, p.y))
+		hb.material = _wall_mat
+		# Frame: lapping 2 cm into the opening (WingDoor's jamb rule) and 3 cm proud of each face.
+		var fd := 0.26
+		var fw := 0.07
+		var mid := (sill + top) / 2.0
+		for side in [-1.0, 1.0]:
+			_mbox("GlassFrameV", Vector3(fw, top - sill + fw * 2.0 - 0.04, fd),
+				Vector3(p.x + side * (wid / 2.0 + fw / 2.0 - 0.02), mid, p.y), frame_mat)
+		_mbox("GlassFrameSill", Vector3(wid + fw * 2.0, fw, fd), Vector3(p.x, sill + fw / 2.0 - 0.02, p.y), frame_mat)
+		_mbox("GlassFrameHead", Vector3(wid + fw * 2.0, fw, fd), Vector3(p.x, top - fw / 2.0 + 0.02, p.y), frame_mat)
+		var gsize := Vector2(wid - 0.04, top - sill - 0.04)
+		# Cell side: faces +z (the cell is north of the glass).
+		var cell_q := MeshInstance3D.new()
+		cell_q.name = "GlassCellSide"
+		var q1 := QuadMesh.new()
+		q1.size = gsize
+		cell_q.mesh = q1
+		cell_q.position = Vector3(p.x, mid, p.y + 0.004)
+		# Not pure black: at 0.025 albedo it rendered as a hole in the wall; a little albedo and a
+		# rougher gloss make it read as a pane that catches the bulb.
+		cell_q.material_override = _mat(Color(0.05, 0.06, 0.065), 0.22, 0.6)
+		cell_q.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(cell_q)
+		# Hall side: faces -z, a faint tint over a clear view.
+		var hall_q := MeshInstance3D.new()
+		hall_q.name = "GlassHallSide"
+		var q2 := QuadMesh.new()
+		q2.size = gsize
+		hall_q.mesh = q2
+		hall_q.position = Vector3(p.x, mid, p.y - 0.004)
+		hall_q.rotation.y = PI
+		var gm := _mat(Color(0.30, 0.36, 0.36, 0.14), 0.05, 0.0)
+		gm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		hall_q.material_override = gm
+		hall_q.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(hall_q)
+		# ⚠️ The pane is SOLID. Quads have no collision, so without this the opening was air: the
+		# interact ray reached the cell's straps and wristband from the hall, through the glass.
+		var pane := _solid(String(w["name"]) + "_Pane", Vector3(wid, top - sill, 0.04), Vector3(p.x, mid, p.y))
+		pane.set_meta("glass", true)
+
+
+# Bare bulbs in wire cages, on a cord from the ceiling — the cold open's lighting, exactly.
+# ⚠️ Shadowed: the wing's rooms share 0.2 m walls, and an unshadowed OmniLight lights straight
+# through them (the cell's bulb would light the hall's floor and desk through the glass wall).
+const WING_BULBS := [
+	["Cell", Vector3(-6.2, WING_H - 0.6, 22.2), CELL_BULB_ENERGY, 6.0],
+	["Hall", Vector3(-8.3, WING_H - 0.6, 16.6), HALL_BULB_ENERGY, 5.0],
+	["Corridor0", Vector3(-3.0, WING_H - 0.55, 12.0), CORRIDOR_BULB_ENERGY, 5.5],
+	["Corridor1", Vector3(-3.0, WING_H - 0.55, 17.5), CORRIDOR_BULB_ENERGY, 5.5],
+	["Corridor2", Vector3(-3.0, WING_H - 0.55, 22.8), CORRIDOR_BULB_ENERGY, 5.5],
+	["Calibration", Vector3(0.0, 3.4 - 0.6, -15.0), 0.8, 8.0],
+	["Airlock", Vector3(-5.5, WING_H - 0.6, -18.5), 0.7, 4.0],
+]
+
+func _build_bulbs() -> void:
+	for b in WING_BULBS:
+		_add_bulb(String(b[0]), b[1], float(b[2]), float(b[3]))
+
+
+func _add_bulb(n: String, pos: Vector3, energy: float, rng: float) -> void:
+	var light := OmniLight3D.new()
+	light.name = "Bulb_" + n
+	light.position = pos
+	light.light_energy = energy
+	light.light_color = BULB_COLOR
+	light.omni_range = rng
+	light.omni_attenuation = 1.3
+	light.shadow_enabled = true
+	add_child(light)
+	var dark_metal := _mat(Color(0.08, 0.08, 0.08), 0.6, 0.5)
+	# The cord runs from the socket to the ceiling (0.55-0.6 m above the bulb).
+	# ⚠️ Shadowless, all of it: the socket sits between the bulb and the ceiling, and as a caster it
+	# threw a black disc a metre across onto the ceiling right over every bulb (first render).
+	for part in [_mcyl("BulbCord", 0.005, 0.56, Vector3(0, 0.34, 0), dark_metal, light),
+			_mcyl("BulbSocket", 0.022, 0.07, Vector3(0, 0.075, 0), dark_metal, light)]:
+		part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var bm := _mat(Color(0.16, 0.14, 0.11), 0.4)   # DARK albedo: the glow is emission (Issue 21)
+	bm.emission_enabled = true
+	bm.emission = BULB_COLOR
+	bm.emission_energy_multiplier = BULB_EMISSION
+	var bulb := MeshInstance3D.new()
+	bulb.name = "BulbGlass"
+	var sm := SphereMesh.new()
+	sm.radius = 0.042
+	sm.height = 0.1
+	bulb.mesh = sm
+	bulb.set_surface_override_material(0, bm)
+	bulb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	light.add_child(bulb)
+	# The cage: four wires and two rings. Shadowless too — a cage that shadows its own bulb blacks
+	# out the room in four stripes.
+	var wire := _mat(Color(0.1, 0.1, 0.1), 0.5, 0.6)
+	for k in 4:
+		var a := k * PI / 2.0 + PI / 4.0
+		var w := _mbox("CageWire", Vector3(0.005, 0.15, 0.005),
+			Vector3(cos(a) * 0.062, -0.01, sin(a) * 0.062), wire, light)
+		w.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	for y in [0.055, -0.08]:
+		var ring := MeshInstance3D.new()
+		ring.name = "CageRing"
+		var tm := TorusMesh.new()
+		tm.inner_radius = 0.058
+		tm.outer_radius = 0.066
+		ring.mesh = tm
+		ring.position = Vector3(0, y, 0)
+		ring.set_surface_override_material(0, wire)
+		ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		light.add_child(ring)
+	var hum := _loop_at("BulbHum_" + n, "intro_bulb_hum", pos, -24.0, 1.2)
+	_bulbs.append([light, energy, bm, hum])
+
+
+# ---------------------------------------------------------------- the blackout / the power
+
+# ⭐ The ward door's `opened` fires BEFORE the leaf moves, so the ward is never seen lit: every
+# bulb in the wing dies, the torch is taken (locked — the switch gives it back), the ambient goes to
+# zero, and the dark walk begins — path glow from this door to the switch, breathing in the ward.
+func _on_ward_entry_opened() -> void:
+	if _beats.has("blackout"):
+		return
+	_advance("blackout")
+	# VO2: the observer, mid-sentence, cut off by the same relay that takes the lights.
+	_say("fault", Callable(), _ward_speaker)
+	_sfx_at("intro_power_cut", WARD_ENTRY + Vector3(0, 2.2, 0.5), 2.0, 8.0)
+	HoldBreath.dip(get_tree(), 0.4)
+	for b in _bulbs:
+		(b[0] as Light3D).light_energy = 0.0
+		(b[2] as StandardMaterial3D).emission_energy_multiplier = 0.0
+		if b[3]:
+			(b[3] as AudioStreamPlayer3D).stop()
+	if _monitor_light:
+		_monitor_light.visible = false
+	if _env:
+		_env.ambient_light_energy = 0.0
+	player.lock_flashlight()
+	_spawn_path_glow()
+	_spawn_far_breath()
+
+
+func _restore_wing_power() -> void:
+	for b in _bulbs:
+		_flicker_on(b[0] as Light3D, float(b[1]))
+		var m := b[2] as StandardMaterial3D
+		var t := create_tween()
+		t.tween_property(m, "emission_energy_multiplier", BULB_EMISSION, 0.6)
+		if b[3]:
+			(b[3] as AudioStreamPlayer3D).play()
+	if _monitor_light:
+		_monitor_light.visible = true
+
+
+# ---------------------------------------------------------------- the cell
+
+func _build_cell() -> void:
+	_build_gurney(CELL_GURNEY_POS, false, "cell_pad.png")
+	_build_straps()
+	_build_bedside()
+	_build_sink()
+	_build_cell_kit()
+	# 46 marks, gouged into the plaster beside the bed. ⚠️ ABOVE THE DADO LINE (1.0 m): dark marks
+	# on the dark wainscot were invisible (the review: "read small"); on the pale plaster, 1.3 m wide,
+	# they read from the bed.
+	_art("TallyMarks", Vector2(1.3, 0.65), Vector3(-8.2 + WALL_T / 2.0 + 0.025, 1.5, 23.05),
+		Vector3(0, PI / 2.0, 0), "tally_marks.png", 0.0, null, true)
+
+
+# ⭐ LEATHER STRAPS WITH A BUCKLE (2026-09-24, the review: "flat brown sticks"). Each loose end is a
+# thin band from a PIVOT on the frame's edge, ending in a steel ring buckle with its tongue; the
+# anchored end drops down the frame's side. The ankle strap is two halves, so each hangs clear of the
+# floor. ⭐ ALREADY UNBUCKLED (third hand playtest, 2026-09-25): every loose end is built swung over
+# its pivot and hanging down the bed's side. They are SCENERY — plain Node3D, no interact(), no
+# prompt: someone let you out, and the figure strapped to the same bed through the glass is the
+# contrast.
+const STRAP_BAND_T := 0.008
+const STRAP_BAND_W := 0.06
+const STRAP_PIVOT_X := 0.462           # just outside the deck's 0.45 half-width
+const STRAP_WRIST_LEN := 0.36
+const STRAP_ANKLE_LEN := 0.46
+# ⭐ The straps lie OVER the sheet: pivots 2.4 cm above the pad (the sheet rides at ~1.4 cm plus its
+# wrinkle). Since the sheet is PLAIN (2026-09-25) there are no shins to clear, so the ankle halves
+# meet just above the cloth instead of 0.14 m up over a leg crest.
+const STRAP_PIVOT_Y := 0.024
+const ANKLE_APEX := 0.035
+
+func _build_straps() -> void:
+	var leather := _mat(Color(0.19, 0.12, 0.07), 0.62)
+	var steel := _mat(Color(0.62, 0.62, 0.6), 0.3, 0.85)
+	for i in STRAPS.size():
+		var off: Vector2 = STRAPS[i]
+		var ankles := i == 2
+		var base := CELL_GURNEY_POS + Vector3(off.x, GURNEY_TOP_Y, off.y)
+		var prop := Node3D.new()
+		prop.name = "Strap_%d" % i
+		prop.position = base
+		add_child(prop)
+		var pivots: Array = []
+		var sides: Array = [-1.0, 1.0] if ankles else [signf(off.x)]
+		for side in sides:
+			var length: float = STRAP_ANKLE_LEN if ankles else STRAP_WRIST_LEN
+			var px: float = side * STRAP_PIVOT_X - off.x
+			# The anchored end, down the frame's side (it never moves).
+			_mbox("StrapAnchor", Vector3(STRAP_BAND_T, 0.15, STRAP_BAND_W),
+				Vector3(px, -0.07, 0), leather, prop)
+			var pivot := Node3D.new()
+			pivot.name = "StrapPivot"
+			pivot.position = Vector3(px, STRAP_PIVOT_Y, 0)
+			if ankles:
+				pivot.rotation.z = -side * atan2(ANKLE_APEX - STRAP_PIVOT_Y, STRAP_PIVOT_X)
+			prop.add_child(pivot)
+			# The loose end lies inward across the pad, a hair proud of it.
+			_mbox("StrapBand", Vector3(length, STRAP_BAND_T, STRAP_BAND_W),
+				Vector3(-side * length * 0.5, 0.0, 0), leather, pivot)
+			# The buckle ring (four bars) and its tongue, at the loose end. On the ankle strap
+			# only the +x half carries it — the -x half is the tongue end it buckles to.
+			if not ankles or side > 0.0:
+				var bx: float = -side * (length - 0.02)
+				for spec in [[Vector3(0.006, 0.007, 0.07), Vector3(bx - 0.024, 0.004, 0)],
+						[Vector3(0.006, 0.007, 0.07), Vector3(bx + 0.024, 0.004, 0)],
+						[Vector3(0.054, 0.007, 0.006), Vector3(bx, 0.004, 0.032)],
+						[Vector3(0.054, 0.007, 0.006), Vector3(bx, 0.004, -0.032)]]:
+					_mbox("BuckleRing", spec[0], spec[1], steel, pivot)
+				_mbox("BuckleTongue", Vector3(0.04, 0.005, 0.005), Vector3(bx - side * 0.004, 0.009, 0), steel, pivot)
+			pivots.append([pivot, side])
+		_straps.append(prop)
+		_strap_visuals.append(pivots)
+		_release_strap(i)
+
+
+# Open: every loose end of this strap is swung up and over its pivot and hangs down the side.
+func _release_strap(i: int) -> void:
+	for pv in _strap_visuals[i]:
+		var pivot: Node3D = pv[0]
+		var side: float = pv[1]
+		pivot.rotation.z = -side * 1.5 * PI
+
+
+func _build_bedside() -> void:
+	var steel := _mat(Color(0.30, 0.32, 0.30), 0.6, 0.4)
+	var at := Vector3(-7.47, 0, 23.35)
+	_mbox("BedsideCab", Vector3(0.4, 0.55, 0.38), at + Vector3(0, 0.275, 0), steel)
+	_mbox("BedsideTop", Vector3(0.44, 0.03, 0.42), at + Vector3(0, 0.565, 0), _mat(Color(0.36, 0.37, 0.35), 0.5, 0.4))
+	_mbox("BedsideDrawer", Vector3(0.34, 0.14, 0.012), at + Vector3(0, 0.42, -0.196), _mat(Color(0.26, 0.28, 0.26), 0.6, 0.4))
+	_solid("BedsideBody", Vector3(0.44, 0.58, 0.42), at + Vector3(0, 0.29, 0))
+	# The wristband: a note. It lies flat, so its thin axis is vertical and check_note_mounting
+	# measures its backing straight down into the cabinet top.
+	var band := StaticBody3D.new()
+	band.name = "WristbandNote"
+	band.set_script(_NOTE_SCRIPT)
+	band.note_text = "A hospital wristband, cut through. Printed on it:\n\nSUBJ 47 · INTAKE 3 · ADM 04:12\n\nThe cut is clean, and recent. Somebody took it off you while you slept — and left it where you would find it."
+	band.position = at + Vector3(0.02, 0.585, -0.02)
+	band.rotation.y = 0.35
+	add_child(band)
+	var ring := MeshInstance3D.new()
+	ring.name = "Band"
+	var tm := TorusMesh.new()
+	tm.inner_radius = 0.03
+	tm.outer_radius = 0.036
+	ring.mesh = tm
+	ring.scale = Vector3(1.0, 0.45, 1.25)
+	ring.position = Vector3(-0.03, 0.004, 0)
+	ring.set_surface_override_material(0, _mat(Color(0.78, 0.78, 0.74), 0.5))
+	band.add_child(ring)
+	var tag := MeshInstance3D.new()
+	tag.name = "WristbandTag"
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(0.08, 0.02)
+	tag.mesh = pm
+	tag.position = Vector3(0.06, 0.004, 0)
+	var tmat := StandardMaterial3D.new()
+	if ResourceLoader.exists(TEX + "wristband_47.png"):
+		tmat.albedo_texture = load(TEX + "wristband_47.png")
+		tmat.emission_enabled = true
+		tmat.emission_texture = tmat.albedo_texture
+		tmat.emission_energy_multiplier = 0.2
+	tag.set_surface_override_material(0, tmat)
+	band.add_child(tag)
+	var col := CollisionShape3D.new()
+	var sh := BoxShape3D.new()
+	sh.size = Vector3(0.2, 0.02, 0.12)
+	col.shape = sh
+	band.add_child(col)
+
+
+# The sink, its tap, and the mirror that is not there any more.
+const SINK_Z := 21.0
+
+func _build_sink() -> void:
+	var wx := -8.2 + WALL_T / 2.0            # the west wall's inner face
+	# ⭐ A BASIN, not a white box (2026-09-24, the review). An open tapered bowl (a CylinderMesh
+	# with no top cap, both faces drawn so you see into it), a rolled rim, a splash-back against
+	# the wall, a tapered pedestal, a drain — all in grimy porcelain with rust runs.
+	var porcelain := _mat(Color(0.86, 0.85, 0.8), 0.32)
+	if ResourceLoader.exists(TEX + "porcelain_grime.png"):
+		porcelain.albedo_texture = load(TEX + "porcelain_grime.png")
+	var bowl_m := porcelain.duplicate() as StandardMaterial3D
+	bowl_m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	var root := Node3D.new()
+	root.name = "Sink"
+	root.position = Vector3(wx + 0.25, 0, SINK_Z)
+	add_child(root)
+	var bowl := MeshInstance3D.new()
+	bowl.name = "SinkBowl"
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.2
+	cm.bottom_radius = 0.13
+	cm.height = 0.17
+	cm.cap_top = false
+	cm.radial_segments = 28
+	bowl.mesh = cm
+	bowl.scale = Vector3(1.0, 1.0, 1.25)
+	bowl.position = Vector3(0, 0.78, 0)
+	bowl.set_surface_override_material(0, bowl_m)
+	root.add_child(bowl)
+	var rim := MeshInstance3D.new()
+	rim.name = "SinkRim"
+	var tm := TorusMesh.new()
+	tm.inner_radius = 0.19
+	tm.outer_radius = 0.235
+	tm.rings = 28
+	rim.mesh = tm
+	rim.scale = Vector3(1.0, 0.7, 1.22)
+	rim.position = Vector3(0, 0.865, 0)
+	rim.set_surface_override_material(0, porcelain)
+	root.add_child(rim)
+	_mbox("SinkSplash", Vector3(0.05, 0.2, 0.6), Vector3(-0.235, 0.95, 0), porcelain, root)
+	_mcyl("SinkPedestal", 0.07, 0.7, Vector3(0, 0.35, 0), porcelain, root, Vector3.ZERO, 0.055)
+	_mcyl("SinkDrain", 0.024, 0.006, Vector3(0, 0.698, 0), _mat(Color(0.08, 0.07, 0.06), 0.4, 0.6), root)
+	_mcyl("SinkDrainRing", 0.032, 0.004, Vector3(0, 0.696, 0), _mat(Color(0.45, 0.4, 0.32), 0.35, 0.8), root)
+	_solid("SinkBody", Vector3(0.45, 0.87, 0.5), root.position + Vector3(0, 0.435, 0))
+	# Tap: a spout off the splash-back, a drop, a cross handle.
+	var chrome := _mat(Color(0.45, 0.43, 0.40), 0.35, 0.8)
+	_mcyl("TapSpout", 0.012, 0.15, Vector3(-0.14, 1.0, 0), chrome, root, Vector3(0, 0, PI / 2.0))
+	_mcyl("TapNose", 0.011, 0.05, Vector3(-0.07, 0.98, 0), chrome, root)
+	_mbox("TapHandleA", Vector3(0.03, 0.012, 0.09), Vector3(-0.17, 1.1, 0), chrome, root)
+	_mbox("TapHandleB", Vector3(0.03, 0.09, 0.012), Vector3(-0.17, 1.1, 0), chrome, root)
+	# The water. Hidden until the tap is used; its colour is driven (_on_tap_used).
+	_tap_mat = _mat(Color(0.42, 0.2, 0.07, 0.85), 0.1)
+	_tap_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_tap_stream = _mcyl("TapWater", 0.0055, 0.27, Vector3(-0.07, 0.84, 0), _tap_mat, root)
+	_tap_stream.visible = false
+	var tap := UseProp.new()
+	tap.name = "Tap"
+	tap.prompt = "E — turn the tap"
+	tap.max_uses = 0
+	# Generous and a little proud of the wall: the spout is 12 mm thick, and a ray to it from a low
+	# eye clips the basin rim unless the volume reaches up to the handle.
+	tap.position = root.position + Vector3(-0.12, 1.07, 0)
+	add_child(tap)
+	tap.add_box_shape(Vector3(0.26, 0.26, 0.28))
+	tap.used.connect(_on_tap_used)
+	_tap_audio = AudioStreamPlayer3D.new()
+	_tap_audio.name = "TapAudio"
+	_tap_audio.position = root.position + Vector3(0, 0.85, 0)
+	_tap_audio.unit_size = 2.5
+	add_child(_tap_audio)
+	# The mirror: frame and backing board only, the glass gone — a few shards left in the corners.
+	# ⚠️ NO reflection of any kind (the plan's call); the shards are dark gloss that only ever
+	# catch the bulb.
+	var frame_m := _mat(Color(0.20, 0.18, 0.15), 0.6, 0.3)
+	var mz := SINK_Z
+	var my := 1.62
+	var fx := wx + 0.012
+	# Both bite a few mm into the wall — never coplanar with its face (Issues 19/20/23).
+	_mbox("MirrorBack", Vector3(0.012, 0.6, 0.44), Vector3(wx + 0.004, my, mz),
+		_mat(Color(0.10, 0.09, 0.08), 0.9))
+	for sy in [-1.0, 1.0]:
+		_mbox("MirrorFrameH", Vector3(0.035, 0.05, 0.52), Vector3(fx, my + sy * 0.315, mz), frame_m)
+	for sz in [-1.0, 1.0]:
+		_mbox("MirrorFrameV", Vector3(0.035, 0.68, 0.05), Vector3(fx, my, mz + sz * 0.245), frame_m)
+	var shard_m := _mat(Color(0.06, 0.07, 0.08), 0.05, 0.9)
+	for sh in [[Vector3(fx + 0.004, my + 0.24, mz - 0.17), 0.7, Vector2(0.09, 0.05)],
+			[Vector3(fx + 0.004, my - 0.22, mz + 0.16), -0.5, Vector2(0.12, 0.06)],
+			[Vector3(fx + 0.004, my + 0.2, mz + 0.18), 2.3, Vector2(0.07, 0.04)]]:
+		_mbox("MirrorShard", Vector3(0.004, (sh[2] as Vector2).y, (sh[2] as Vector2).x), sh[0], shard_m, null,
+			Vector3(float(sh[1]), 0, 0))
+
+
+# The observers' kit, newer than the building: a camera with its red lamp, a tannoy.
+func _build_cell_kit() -> void:
+	var nz := 24.0 - WALL_T / 2.0            # the north wall's inner face
+	var kit := _mat(Color(0.12, 0.12, 0.13), 0.5, 0.5)
+	var cam := Node3D.new()
+	cam.name = "CellCamera"
+	cam.position = Vector3(-4.75, 2.62, nz - 0.2)
+	add_child(cam)
+	_mbox("CamBracket", Vector3(0.05, 0.05, 0.2), Vector3(0, 0.06, 0.1 - 0.005), kit, cam)
+	var body := Node3D.new()
+	cam.add_child(body)
+	body.look_at_from_position(cam.position, CELL_GURNEY_POS + Vector3(0, 0.8, 0.3), Vector3.UP)
+	body.position = Vector3.ZERO
+	_mbox("CamBody", Vector3(0.11, 0.09, 0.22), Vector3(0, 0, -0.02), _mat(Color(0.62, 0.62, 0.58), 0.5, 0.2), body)
+	_mcyl("CamLens", 0.03, 0.05, Vector3(0, 0, -0.15), kit, body, Vector3(PI / 2.0, 0, 0))
+	_monitor_lamp = _mat(Color(0.2, 0.02, 0.02), 0.4)
+	_monitor_lamp.emission_enabled = true
+	_monitor_lamp.emission = Color(1.0, 0.08, 0.05)
+	_monitor_lamp.emission_energy_multiplier = 0.5
+	var lamp := MeshInstance3D.new()
+	lamp.name = "MonitorLamp"
+	var sm := SphereMesh.new()
+	sm.radius = 0.014
+	sm.height = 0.028
+	lamp.mesh = sm
+	lamp.position = Vector3(0.03, 0.055, -0.08)
+	lamp.set_surface_override_material(0, _monitor_lamp)
+	body.add_child(lamp)
+	_monitor_light = OmniLight3D.new()
+	_monitor_light.name = "MonitorLampLight"
+	_monitor_light.light_color = Color(1.0, 0.1, 0.06)
+	_monitor_light.light_energy = 0.12
+	_monitor_light.omni_range = 1.0
+	_monitor_light.position = cam.position + Vector3(0, 0.06, -0.08)
+	add_child(_monitor_light)
+	# The tannoy, high on the north wall over the bed's west side.
+	var spk_pos := Vector3(-7.55, 2.55, nz - 0.08)
+	_mbox("TannoyBox", Vector3(0.32, 0.22, 0.14), spk_pos + Vector3(0, 0, 0.01), kit)
+	_mbox("TannoyGrille", Vector3(0.26, 0.16, 0.01), spk_pos + Vector3(0, 0, -0.065), _mat(Color(0.05, 0.05, 0.05), 0.9))
+	_cell_speaker = AudioStreamPlayer3D.new()
+	_cell_speaker.name = "CellSpeaker"
+	_cell_speaker.position = spk_pos
+	_cell_speaker.unit_size = 14.0
+	_cell_speaker.volume_db = VO_DB
+	add_child(_cell_speaker)
+
+
+# Off the bed and on your feet, facing the cell door. VO1 speaks as you rise; the door releases
+# when the line ends (_say's timer on the stream's length, so a silent audio driver cannot strand you).
+func _stand_up() -> void:
+	_say("morning", _release_cell_door)
+	var from := player.global_position
+	var to := CELL_STAND_POS
+	var t := create_tween().set_parallel(true)
+	t.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	t.tween_method(_set_player_pos, from, to, STAND_TIME)
+	t.tween_property(player.camera, "position:y", STANDING_EYE, STAND_TIME)
+	var door: WingDoor = _doors.get("CellDoor")
+	if door:
+		# turn_to_face measures from where the body IS (the bed); aim from where it WILL be (the
+		# floor), and give it a level head: its pitch uses the current eye height (0.85).
+		var d := door.global_position + (from - to)
+		player.turn_to_face(Vector3(d.x, from.y + WAKE_CAM_SITTING, d.z), STAND_TIME)
+	t.finished.connect(_on_stood_up)
+
+
+func _set_player_pos(v: Vector3) -> void:
+	player.global_position = v
+	player.velocity = Vector3.ZERO
+
+
+# ⚠️ The beat is still called "straps" — it means "out of the bed" (the hall glimpse and the
+# back-door restore key off it); there is nothing left to unbuckle.
+func _on_stood_up() -> void:
+	player.unfreeze_input()
+	_advance("straps")
+
+
+func _release_cell_door() -> void:
+	var door: WingDoor = _doors.get("CellDoor")
+	if door == null:
+		return
+	_sfx_at("intro_cell_buzz", door.global_position + Vector3(0, 2.2, 0), 2.0, 5.0)
+	get_tree().create_timer(1.15).timeout.connect(_open_cell_door)
+
+
+func _open_cell_door() -> void:
+	var door: WingDoor = _doors.get("CellDoor")
+	if door:
+		door.unlock()
+		door.open()
+
+
+# ---------------------------------------------------------------- the tap
+
+func _on_tap_used(times: int) -> void:
+	_tap_on = not _tap_on
+	_tap_stream.visible = _tap_on
+	if not _tap_on:
+		_tap_audio.stop()
+		return
+	if times == 1:
+		# The first turn: the pipe coughs rust for three seconds, then runs clear.
+		_tap_mat.albedo_color = Color(0.42, 0.2, 0.07, 0.85)
+		_play_tap("intro_tap_rust")
+		var t := create_tween()
+		t.tween_interval(2.6)
+		t.tween_property(_tap_mat, "albedo_color", Color(0.72, 0.8, 0.84, 0.38), 0.9)
+		get_tree().create_timer(3.2).timeout.connect(_on_tap_rust_done)
+	else:
+		_play_tap("intro_tap_water")
+
+
+func _on_tap_rust_done() -> void:
+	if _tap_on:
+		_play_tap("intro_tap_water")
+
+
+func _play_tap(base: String) -> void:
+	var s := GameState.load_audio(base)
+	if s == null:
+		return
+	if _tap_audio.finished.is_connected(_tap_audio.play):
+		_tap_audio.finished.disconnect(_tap_audio.play)
+	_tap_audio.stream = s
+	_tap_audio.volume_db = -6.0
+	_tap_audio.play()
+	if base == "intro_tap_water":
+		_tap_audio.finished.connect(_tap_audio.play)
+
+
+# ---------------------------------------------------------------- the hall
+
+const DESK_POS := Vector3(-6.2, 0, 19.42)
+const DESK_TOP := 0.76
+
+func _build_hall() -> void:
+	_build_desk()
+	_build_reel()
+	_build_torch_tray()
+	var dt := DESK_POS + Vector3(0, DESK_TOP, 0)
+	# Your file, open on the desk in front of the observer's chair — Subject 46's page stapled in.
+	var file := StaticBody3D.new()
+	file.name = "SubjectFile"
+	file.set_script(_NOTE_SCRIPT)
+	file.note_text = FILE_TEXT
+	file.position = dt + Vector3(-0.7, 0.004, -0.12)
+	# ⚠️ Lying flat with its OWN +z pointing UP (a QuadMesh on a body pitched -90°), not a
+	# PlaneMesh on an upright body: check_prop_mounting reads a prop's facing off its +z, and an
+	# upright body lying on a desk measured as a wall panel 0.21 m in front of the chair behind it.
+	file.rotation = Vector3(-PI / 2.0, 0.08, 0)
+	add_child(file)
+	var fq := MeshInstance3D.new()
+	fq.name = "FileFace"
+	var fpm := QuadMesh.new()
+	fpm.size = Vector2(0.42, 0.28)
+	fq.mesh = fpm
+	var fm := StandardMaterial3D.new()
+	if ResourceLoader.exists(TEX + "file_subject47.png"):
+		fm.albedo_texture = load(TEX + "file_subject47.png")
+		fm.emission_enabled = true
+		fm.emission_texture = fm.albedo_texture
+		fm.emission_energy_multiplier = 0.25
+	fq.set_surface_override_material(0, fm)
+	file.add_child(fq)
+	var fc := CollisionShape3D.new()
+	var fsh := BoxShape3D.new()
+	fsh.size = Vector3(0.42, 0.28, 0.02)
+	fc.shape = fsh
+	file.add_child(fc)
+	# The observation log, on a clipboard hung on the south wall.
+	var lp := _builder.wall_point("Hall", Vector2(0, -1), 1.45, 0.13)
+	lp.x = -8.6
+	var logn := StaticBody3D.new()
+	logn.name = "ObserverLog"
+	logn.set_script(_NOTE_SCRIPT)
+	logn.note_text = LOG_TEXT
+	logn.position = lp
+	add_child(logn)
+	_mbox("Clipboard", Vector3(0.27, 0.37, 0.012), Vector3(0, 0, -0.012), _mat(Color(0.26, 0.19, 0.12), 0.8), logn)
+	_art("LogPage", Vector2(0.24, 0.32), Vector3(0, -0.015, 0.0), Vector3.ZERO, "observer_log.png", 0.25, logn)
+	var lc := CollisionShape3D.new()
+	var lsh := BoxShape3D.new()
+	lsh.size = Vector3(0.3, 0.4, 0.06)
+	lc.shape = lsh
+	logn.add_child(lc)
+	# The cabinet: three cut wristbands in one of its drawers.
+	var cab := LabCabinet.new()
+	cab.name = "HallCabinet"
+	cab.position = Vector3(-10.2 + WALL_T / 2.0 + LabCabinet.SIZE.z / 2.0 + 0.01, 0, 16.9)
+	cab.rotation.y = PI / 2.0
+	add_child(cab)
+	cab.assign_note(BANDS_TEXT, 2)
+	# The observers' dressing: two chairs (one shoved back), an ashtray still smoking, a coffee
+	# still steaming, a microphone. Nobody is here. Nobody has been gone long.
+	_build_chair(Vector3(-6.95, 0, 18.72), 0.1)
+	_build_chair(Vector3(-5.45, 0, 18.25), -0.55)
+	_build_ashtray(dt + Vector3(-1.15, 0, -0.05))
+	_build_cup(dt + Vector3(-0.1, 0, -0.18))
+	_build_mic(dt + Vector3(-0.35, 0, 0.18))
+	_build_desk_lamp(dt + Vector3(0.45, 0, 0.2))
+
+
+func _build_desk() -> void:
+	var wood := _mat(Color(0.22, 0.16, 0.11), 0.7)
+	var steel := _mat(Color(0.18, 0.19, 0.19), 0.5, 0.6)
+	var p := DESK_POS
+	_mbox("DeskTop", Vector3(2.6, 0.04, 0.72), p + Vector3(0, DESK_TOP - 0.02, 0), wood)
+	for lx in [-1.25, 1.25]:
+		for lz in [-0.31, 0.31]:
+			_mbox("DeskLeg", Vector3(0.045, DESK_TOP - 0.04, 0.045), p + Vector3(lx, (DESK_TOP - 0.04) / 2.0, lz), steel)
+	_mbox("DeskModesty", Vector3(2.46, 0.36, 0.02), p + Vector3(0, 0.52, 0.3), steel)
+	_solid("DeskBody", Vector3(2.6, DESK_TOP, 0.72), p + Vector3(0, DESK_TOP / 2.0, 0))
+
+
+func _build_chair(at: Vector3, yaw: float) -> void:
+	var seat_m := _mat(Color(0.16, 0.2, 0.18), 0.8)
+	var steel := _mat(Color(0.2, 0.2, 0.2), 0.5, 0.6)
+	var c := Node3D.new()
+	c.name = "ObserverChair"
+	c.position = at
+	c.rotation.y = yaw
+	add_child(c)
+	_mbox("Seat", Vector3(0.44, 0.05, 0.42), Vector3(0, 0.46, 0), seat_m, c)
+	_mbox("Back", Vector3(0.42, 0.34, 0.04), Vector3(0, 0.75, -0.22), seat_m, c, Vector3(-0.12, 0, 0))
+	for lx in [-0.19, 0.19]:
+		for lz in [-0.18, 0.18]:
+			_mbox("ChairLeg", Vector3(0.025, 0.44, 0.025), Vector3(lx, 0.22, lz), steel, c)
+		_mbox("BackPost", Vector3(0.025, 0.36, 0.025), Vector3(lx, 0.62, -0.2), steel, c)
+	_solid("ChairBody", Vector3(0.46, 0.9, 0.46), at + Vector3(0, 0.45, 0), yaw)
+
+
+# A thin rising wisp: a few soft, faint, billboarded strips whose alpha breathes (_tick_props).
+# ⚠️ NOT emissive and faint (albedo alpha ≤ 0.16): the ask was a wisp, and a bright smoke column
+# is a light source in a dim room.
+func _build_wisp(base: Vector3, height: float, strips: int, tint: float) -> void:
+	var img := Image.create_empty(16, 64, false, Image.FORMAT_RGBA8)
+	for y in 64:
+		for x in 16:
+			var a := (1.0 - absf(x - 7.5) / 8.0) * sin(PI * float(y) / 63.0)
+			img.set_pixel(x, y, Color(1, 1, 1, clampf(a, 0.0, 1.0)))
+	var tex := ImageTexture.create_from_image(img)
+	for k in strips:
+		var mi := MeshInstance3D.new()
+		mi.name = "Wisp"
+		var qm := QuadMesh.new()
+		# Sized from the 16x64 soft-column texture (0.25), like every textured quad (check_art_aspect).
+		var strip_h := height / float(strips) * 1.6
+		qm.size = Vector2(strip_h * 0.25, strip_h)
+		mi.mesh = qm
+		mi.position = base + Vector3(0, height * (float(k) + 0.5) / float(strips), 0)
+		var m := StandardMaterial3D.new()
+		m.albedo_texture = tex
+		m.albedo_color = Color(tint, tint, tint, 0.0)
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED
+		mi.material_override = m
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(mi)
+		_smoke.append([mi, m, float(k) * 1.3, base])
+
+
+func _build_ashtray(at: Vector3) -> void:
+	_mcyl("Ashtray", 0.065, 0.025, at + Vector3(0, 0.0125, 0), _mat(Color(0.12, 0.13, 0.12), 0.2, 0.3), null,
+		Vector3.ZERO, 0.075)
+	_mcyl("Cigarette", 0.0045, 0.075, at + Vector3(0.04, 0.03, 0.0), _mat(Color(0.8, 0.78, 0.72), 0.9), null,
+		Vector3(0, 0, PI / 2.0 - 0.15))
+	var ember := _mat(Color(0.2, 0.05, 0.0), 0.8)
+	ember.emission_enabled = true
+	ember.emission = Color(1.0, 0.35, 0.08)
+	ember.emission_energy_multiplier = 0.45
+	var e := MeshInstance3D.new()
+	e.name = "Ember"
+	var sm := SphereMesh.new()
+	sm.radius = 0.005
+	sm.height = 0.01
+	e.mesh = sm
+	e.position = at + Vector3(0.078, 0.035, 0.0)
+	e.set_surface_override_material(0, ember)
+	add_child(e)
+	_build_wisp(at + Vector3(0.078, 0.04, 0.0), 0.5, 4, 0.62)
+
+
+func _build_cup(at: Vector3) -> void:
+	var cer := _mat(Color(0.7, 0.68, 0.62), 0.3)
+	_mcyl("Cup", 0.038, 0.09, at + Vector3(0, 0.045, 0), cer, null, Vector3.ZERO, 0.042)
+	_mcyl("Coffee", 0.036, 0.004, at + Vector3(0, 0.08, 0), _mat(Color(0.08, 0.04, 0.02), 0.15))
+	var h := MeshInstance3D.new()
+	h.name = "CupHandle"
+	var tm := TorusMesh.new()
+	tm.inner_radius = 0.018
+	tm.outer_radius = 0.026
+	h.mesh = tm
+	h.position = at + Vector3(0.045, 0.045, 0)
+	h.rotation = Vector3(PI / 2.0, 0, 0)
+	h.set_surface_override_material(0, cer)
+	add_child(h)
+	_build_wisp(at + Vector3(0, 0.09, 0), 0.22, 2, 0.75)
+
+
+func _build_mic(at: Vector3) -> void:
+	var m := _mat(Color(0.14, 0.14, 0.14), 0.4, 0.6)
+	_mcyl("MicBase", 0.06, 0.02, at + Vector3(0, 0.01, 0), m)
+	_mcyl("MicStem", 0.007, 0.26, at + Vector3(0, 0.15, 0), m)
+	_mcyl("MicHead", 0.022, 0.07, at + Vector3(0, 0.29, -0.02), _mat(Color(0.3, 0.3, 0.3), 0.5, 0.7), null,
+		Vector3(PI / 2.0 - 0.4, 0, 0))
+
+
+func _build_desk_lamp(at: Vector3) -> void:
+	var m := _mat(Color(0.12, 0.22, 0.14), 0.4, 0.4)
+	_mcyl("LampBase", 0.07, 0.025, at + Vector3(0, 0.0125, 0), m)
+	_mcyl("LampStem", 0.008, 0.3, at + Vector3(0, 0.16, 0), m)
+	_mcyl("LampShade", 0.09, 0.1, at + Vector3(0, 0.33, -0.02), m, null, Vector3(0.25, 0, 0), 0.035)
+	var sl := SpotLight3D.new()
+	sl.name = "DeskLamp"
+	sl.position = at + Vector3(0, 0.3, -0.03)
+	sl.rotation = Vector3(-PI / 2.0 + 0.25, 0, 0)
+	sl.light_color = Color(1.0, 0.82, 0.55)
+	sl.light_energy = 1.2
+	sl.spot_range = 1.8
+	sl.spot_angle = 50.0
+	sl.shadow_enabled = true
+	add_child(sl)
+	var bm := _mat(Color(0.15, 0.12, 0.08), 0.5)
+	bm.emission_enabled = true
+	bm.emission = Color(1.0, 0.85, 0.6)
+	bm.emission_energy_multiplier = BULB_EMISSION
+	var bulb := MeshInstance3D.new()
+	bulb.name = "DeskLampBulb"
+	var sm := SphereMesh.new()
+	sm.radius = 0.02
+	sm.height = 0.04
+	bulb.mesh = sm
+	bulb.position = Vector3(0, -0.02, 0)
+	bulb.set_surface_override_material(0, bm)
+	sl.add_child(bulb)
+	_bulbs.append([sl, 1.2, bm, null])
+
+
+# The reel-to-reel: E plays the SESSION 46 reel — sound only, and wordless (the voice is rationed).
+func _build_reel() -> void:
+	var at := DESK_POS + Vector3(0.82, DESK_TOP, -0.02)
+	var prop := UseProp.new()
+	prop.name = "ReelToReel"
+	prop.prompt = "E — play the reel"
+	prop.max_uses = 0
+	prop.position = at
+	add_child(prop)
+	var body_m := _mat(Color(0.09, 0.09, 0.1), 0.5, 0.3)
+	_mbox("DeckBody", Vector3(0.44, 0.13, 0.34), Vector3(0, 0.065, 0), body_m, prop)
+	_mbox("DeckPlate", Vector3(0.42, 0.01, 0.32), Vector3(0, 0.135, 0), _mat(Color(0.42, 0.42, 0.4), 0.35, 0.8), prop)
+	_art("DeckPanel", Vector2(0.36, 0.12), Vector3(0, 0.065, -0.174), Vector3(0, PI, 0), "reel_panel.png", 0.12, prop)
+	var reel_m := _mat(Color(0.12, 0.12, 0.13), 0.4, 0.5)
+	var tape_m := _mat(Color(0.2, 0.12, 0.07), 0.6)
+	for sx in [-0.105, 0.105]:
+		var reel := Node3D.new()
+		reel.name = "Reel"
+		reel.position = Vector3(sx, 0.15, 0.03)
+		prop.add_child(reel)
+		_mcyl("ReelFlange", 0.085, 0.008, Vector3.ZERO, reel_m, reel)
+		_mcyl("TapePack", 0.06 if sx < 0 else 0.035, 0.012, Vector3(0, 0.002, 0), tape_m, reel)
+		_mcyl("ReelHub", 0.014, 0.02, Vector3(0, 0.01, 0), _mat(Color(0.6, 0.6, 0.58), 0.3, 0.8), reel)
+		for k in 3:
+			_mbox("ReelSpoke", Vector3(0.07, 0.004, 0.01), Vector3(0, 0.009, 0), reel_m, reel, Vector3(0, k * PI / 3.0, 0))
+		_reels.append(reel)
+	_mbox("TapeRun", Vector3(0.2, 0.01, 0.003), Vector3(0, 0.15, -0.09), tape_m, prop)
+	prop.add_box_shape(Vector3(0.46, 0.2, 0.36), Vector3(0, 0.09, 0))
+	prop.used.connect(_on_reel_used)
+	_reel_audio = AudioStreamPlayer3D.new()
+	_reel_audio.name = "ReelAudio"
+	_reel_audio.position = at + Vector3(0, 0.15, 0)
+	_reel_audio.unit_size = 3.0
+	_reel_audio.volume_db = 2.0
+	add_child(_reel_audio)
+
+
+func _on_reel_used(_times: int) -> void:
+	if _reel_audio.playing:
+		_reel_audio.stop()
+		return
+	var s := GameState.load_audio("intro_session46_tape")
+	if s:
+		_reel_audio.stream = s
+		_reel_audio.play()
+
+
+# The torch, ISSUED: an old steel instrument trolley against the hall's south wall.
+# ⭐ REBUILT FROM PARTS (2026-09-24, the review: "a flat untextured blue-grey box"): four tubular
+# legs on casters, two trays with raised lips, a push handle, worn steel — and a small clamp lamp
+# over the top tray, so the one thing on it reads in a dark room. The lamp's bulb is a fitting at
+# emission 0.4 (Issue 21 / check_fixtures); the light on the torch is a SpotLight, not a glow.
+func _build_torch_tray() -> void:
+	var at := Vector3(-6.0, 0, 14.0 + WALL_T / 2.0 + 0.26)
+	var steel := _steel_mat()
+	var dark := _mat(Color(0.08, 0.08, 0.08), 0.5, 0.4)
+	var hw := 0.3
+	var hd := 0.2
+	for lx in [-hw, hw]:
+		for lz in [-hd, hd]:
+			_mcyl("TrolleyLeg", 0.012, 0.8, at + Vector3(lx, 0.47, lz), steel)
+			_mcyl("TrolleyCaster", 0.035, 0.022, at + Vector3(lx, 0.035, lz), dark, null, Vector3(0, 0, PI / 2.0))
+			_mbox("TrolleyFork", Vector3(0.03, 0.05, 0.018), at + Vector3(lx, 0.07, lz), steel)
+	for ty in [0.86, 0.32]:
+		_mbox("TrolleyTray", Vector3(hw * 2.0 + 0.04, 0.012, hd * 2.0 + 0.04), at + Vector3(0, ty, 0), steel)
+		for sz in [-1.0, 1.0]:
+			_mbox("TrayLip", Vector3(hw * 2.0 + 0.04, 0.035, 0.008), at + Vector3(0, ty + 0.02, sz * (hd + 0.016)), steel)
+		for sx in [-1.0, 1.0]:
+			_mbox("TrayLip", Vector3(0.008, 0.035, hd * 2.0 + 0.04), at + Vector3(sx * (hw + 0.016), ty + 0.02, 0), steel)
+	# The push handle at the +x end.
+	for lz in [-hd, hd]:
+		_mcyl("HandlePost", 0.01, 0.18, at + Vector3(hw + 0.02, 0.96, lz), steel)
+	_mcyl("HandleBar", 0.013, hd * 2.0 + 0.02, at + Vector3(hw + 0.02, 1.05, 0), steel, null, Vector3(PI / 2.0, 0, 0))
+	# ⚠️ Stops BELOW the top tray: the torch lies in it, and a body reaching up past the tray's
+	# floor answered every interact ray aimed at the torch (check_reachable, 2026-09-24).
+	_solid("TrolleyBody", Vector3(0.66, 0.8, 0.46), at + Vector3(0, 0.4, 0))
+	# The clamp lamp over the top tray.
+	_mcyl("ClampPost", 0.008, 0.42, at + Vector3(-hw + 0.02, 1.07, -hd + 0.02), dark)
+	_mcyl("ClampArm", 0.007, 0.26, at + Vector3(-hw + 0.13, 1.27, -hd + 0.02), dark, null, Vector3(0, 0, PI / 2.0))
+	_mcyl("ClampShade", 0.05, 0.07, at + Vector3(-hw + 0.25, 1.24, -hd + 0.02), dark, null, Vector3.ZERO, 0.02)
+	var lamp := SpotLight3D.new()
+	lamp.name = "TrayLamp"
+	lamp.position = at + Vector3(-hw + 0.25, 1.21, -hd + 0.02)
+	lamp.rotation = Vector3(-PI / 2.0, 0, 0)
+	lamp.light_color = Color(1.0, 0.86, 0.66)
+	lamp.light_energy = 0.9
+	lamp.spot_range = 1.3
+	lamp.spot_angle = 38.0
+	lamp.shadow_enabled = true
+	add_child(lamp)
+	var bm := _mat(Color(0.15, 0.12, 0.08), 0.5)
+	bm.emission_enabled = true
+	bm.emission = Color(1.0, 0.85, 0.6)
+	bm.emission_energy_multiplier = 0.4
+	var bulb := MeshInstance3D.new()
+	bulb.name = "TrayLampBulb"
+	var sm := SphereMesh.new()
+	sm.radius = 0.018
+	sm.height = 0.036
+	bulb.mesh = sm
+	bulb.position = Vector3(0, 0.0, 0.0)
+	bulb.set_surface_override_material(0, bm)
+	bulb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	lamp.add_child(bulb)
+	_bulbs.append([lamp, 0.9, bm, null])
+	# The label on a placard hung from the top tray's front lip, facing the room (+z).
+	_mbox("LabelPlate", Vector3(0.27, 0.07, 0.02), at + Vector3(0, 0.815, hd + 0.05), _mat(Color(0.1, 0.1, 0.1), 0.6))
+	_art("TrayLabel", Vector2(0.25, 0.05), at + Vector3(0, 0.815, hd + 0.064), Vector3.ZERO,
+		"tray_label_issued.png", 0.35)
+	var torch := KeyItem.new()
+	torch.name = "IssuedTorch"
+	# ⚠️ The key to the torch IS in the pickup line (the coordinator's call, 2026-09-24): the
+	# shared KeyItem's toast is the only feedback — no second, red hint on top of it.
+	torch.label_text = "Torch issued — F"
+	torch.position = at + Vector3(0.05, 0.895, 0.02)
+	torch.rotation.y = 0.2
+	add_child(torch)
+	var black := _mat(Color(0.08, 0.08, 0.08), 0.45, 0.5)
+	_mcyl("TorchBody", 0.02, 0.19, Vector3(-0.03, 0, 0), black, torch, Vector3(0, 0, PI / 2.0))
+	_mcyl("TorchHead", 0.03, 0.06, Vector3(0.09, 0, 0), black, torch, Vector3(0, 0, PI / 2.0), 0.022)
+	_mcyl("TorchLens", 0.026, 0.004, Vector3(0.121, 0, 0), _mat(Color(0.7, 0.72, 0.7), 0.1, 0.3), torch,
+		Vector3(0, 0, PI / 2.0))
+	var col := CollisionShape3D.new()
+	var sh := BoxShape3D.new()
+	sh.size = Vector3(0.3, 0.1, 0.12)
+	col.shape = sh
+	torch.add_child(col)
+	torch.picked_up.connect(_on_torch_taken)
+
+
+func _on_torch_taken() -> void:
+	player.unlock_flashlight()
+	_advance("torch")
+
+
+# ---------------------------------------------------------------- the glimpse through the glass
+
+# ⭐ Someone is strapped to the bed you just left. Spawned the first time the player is properly
+# INSIDE the hall (0.6 m past the threshold — see the HallDoor's placement in DOORS for why that
+# is unwitnessed) and gone the first time they step back out into the corridor. Never again.
+# Zero panic, no sound, no sting: SCARY P6's register, like the ward's empty bed.
+const HALL_IN_MARGIN := 0.6
+const HALL_OUT_MARGIN := -0.1
+
+func _in_hall(p: Vector3, margin: float) -> bool:
+	return p.x > -10.2 + margin and p.x < -4.2 - margin and p.z > 14.0 + margin and p.z < 20.0 - margin
+
+
+func _tick_hall() -> void:
+	if _hall_state == 2 or not _beats.has("straps"):
+		return
+	var p := player.global_position
+	if _hall_state == 0 and _in_hall(p, HALL_IN_MARGIN):
+		_hall_state = 1
+		_spawn_occupant()
+	elif _hall_state == 1 and not _in_hall(p, HALL_OUT_MARGIN):
+		_hall_state = 2
+		# queue_free, never visible = false: a hidden node keeps its collider (see the ward's
+		# empty bed, _on_switch_flipped()).
+		if is_instance_valid(_occupant):
+			_occupant.queue_free()
+		_occupant = null
+
+
+func _spawn_occupant() -> void:
+	_occupant = _build_sheeted_form(CELL_GURNEY_POS, "CellOccupant")
+	# Head to the NORTH, the way you lay: the form is authored head-to -z.
+	_occupant.rotation.y += PI
+	var leather := _mat(Color(0.13, 0.08, 0.05), 0.75)
+	# Three straps across the sheet, in the form's own frame (head at -z there): chest, wrists
+	# over the thighs, ankles. Each rides the sheet at its height and drops over both edges.
+	for band in [[-0.28, 0.25], [0.3, 0.2], [0.78, 0.12]]:
+		var z: float = band[0]
+		var h: float = band[1]
+		_mbox("OccupantStrap", Vector3(0.5, 0.012, 0.07), Vector3(0, h + 0.012, z), leather, _occupant)
+		for side in [-1.0, 1.0]:
+			_mbox("OccupantStrapDrop", Vector3(0.24, 0.012, 0.07), Vector3(side * 0.36, h * 0.45, z), leather,
+				_occupant, Vector3(0, 0, side * -0.9))
+
+
+# ---------------------------------------------------------------- the corridor
+
+# The dream's corridor, awake: doors down both sides and one at the far end, none of them yours.
+const CORRIDOR_FAKE_DOORS := [
+	[Vector3(-1.8 - WALL_T / 2.0, 0, 11.5), -PI / 2.0],
+	[Vector3(-1.8 - WALL_T / 2.0, 0, 16.0), -PI / 2.0],
+	[Vector3(-1.8 - WALL_T / 2.0, 0, 20.5), -PI / 2.0],
+	[Vector3(-4.2 + WALL_T / 2.0, 0, 11.5), PI / 2.0],
+	[Vector3(-3.0, 0, 25.0 - WALL_T / 2.0), PI],
+]
+
+func _build_corridor() -> void:
+	for i in CORRIDOR_FAKE_DOORS.size():
+		var d := WingDoor.new()
+		d.name = "CorridorDoor_%d" % i
+		d.flush = true
+		d.texture_path = TEX + "asylum_door.png"
+		d.locked = true
+		d.position = CORRIDOR_FAKE_DOORS[i][0]
+		d.rotation.y = CORRIDOR_FAKE_DOORS[i][1]
+		add_child(d)
+	# A drip somewhere past the far door. Nothing else happens here.
+	_loop_at("CorridorDrip", "water_drip", Vector3(-3.0, 0.4, 24.4), -12.0, 3.0)
+
+
+# ---------------------------------------------------------------- per-frame
+
+func _tick_props(delta: float) -> void:
+	for s in _smoke:
+		var mi: MeshInstance3D = s[0]
+		var m: StandardMaterial3D = s[1]
+		var ph: float = s[2]
+		var base: Vector3 = s[3]
+		m.albedo_color.a = 0.10 + 0.06 * sin(_flicker_time * 1.3 + ph)
+		mi.position.x = base.x + 0.02 * sin(_flicker_time * 0.9 + ph * 2.0)
+		mi.position.z = base.z + 0.015 * sin(_flicker_time * 0.7 + ph)
+	if _reel_audio and _reel_audio.playing:
+		for r in _reels:
+			r.rotation.y -= delta * 3.2
+	# The camera's red lamp blinks while the wing has power (it dies in the blackout).
+	var powered := _switch_flipped or not _beats.has("blackout")
+	if _monitor_lamp:
+		var on := powered and fmod(_flicker_time, 2.0) < 1.2
+		_monitor_lamp.emission_energy_multiplier = 0.5 if on else (0.08 if powered else 0.0)
+		if _monitor_light:
+			_monitor_light.light_energy = 0.12 if on else 0.0
+
+
+const FILE_TEXT := "INTAKE — SUBJECT 47\n\nAdmitted 04:12. Sedated 04:40. Restraint: three-point.\nPrior sessions: none (?)\n\nReaction to dark: ________\nReaction to voice: ________\n\nConsent: on file.\n\n—\n\nStapled behind it, a second page.\n\nSUBJECT 46 — SESSION 46\nDuration: eleven days. Response: severe.\n\nFinal note: subject would not stop counting. Marks on the wall, cell 3. Subject asked for the lights to stay off.\n\nStamped across it in red: TERMINATED."
+const LOG_TEXT := "OBSERVATION LOG — SUBJECT 47\n\n04:12  admitted\n04:40  sedated\n05:55  straps checked\n06:10  tray set out\n06:31  lights: cell only\n06:58  stirring\n\nAnd at the bottom, in pencil, underlined twice:\n\ndo NOT let it see the file."
+const BANDS_TEXT := "Three hospital wristbands, snipped through, held together with a rubber band.\n\nSUBJ 44 · SUBJ 45 · SUBJ 46\n\nOn the back of 46, in biro: he counted the days on the wall."
+
+
+# ================================================================ PHASES 4–5 (2026-09-24, second pass)
+#
+# The ward dressed to the wing's standard, the ward's finds, VO2 at the blackout, CALIBRATION (the
+# only room in the level that moves the panic bar — pinned at the 0.6 ceiling), the AIRLOCK, and the
+# back-door restore.
+
+# ---------------------------------------------------------------- shared small builders
+
+func _steel_mat() -> StandardMaterial3D:
+	var m := _mat(Color(0.62, 0.63, 0.62), 0.42, 0.75)
+	if ResourceLoader.exists(TEX + "worn_steel.png"):
+		m.albedo_texture = load(TEX + "worn_steel.png")
+		m.uv1_triplanar = true
+		m.uv1_world_triplanar = true
+		m.uv1_scale = Vector3(1.5, 1.5, 1.5)
+	return m
+
+
+# The gurney's frame, from parts: legs on casters, low side rails, an undercarriage shelf, and a
+# tubular head rail on empty beds (see _build_gurney's ⭐ for why occupied beds get none).
+func _gurney_parts(pos: Vector3, tag: String, head_rail: bool) -> void:
+	var steel := _steel_mat()
+	var dark := _mat(Color(0.07, 0.07, 0.07), 0.6, 0.3)
+	for lx in [-0.4, 0.4]:
+		for lz in [-0.92, 0.92]:
+			_mcyl("GurneyLeg_" + tag, 0.018, 0.36, pos + Vector3(lx, 0.24, lz), steel)
+			_mcyl("GurneyCaster_" + tag, 0.045, 0.028, pos + Vector3(lx, 0.045, lz), dark, null, Vector3(0, 0, PI / 2.0))
+			_mbox("GurneyFork_" + tag, Vector3(0.04, 0.06, 0.02), pos + Vector3(lx, 0.085, lz), steel)
+	for sx in [-1.0, 1.0]:
+		_mcyl("GurneyRail_" + tag, 0.014, 1.96, pos + Vector3(sx * 0.462, 0.43, 0), steel, null, Vector3(PI / 2.0, 0, 0))
+	_mbox("GurneyShelf_" + tag, Vector3(0.78, 0.015, 1.7), pos + Vector3(0, 0.16, 0), steel)
+	if head_rail:
+		for sx in [-0.4, 0.4]:
+			_mcyl("GurneyHeadPost_" + tag, 0.014, 0.42, pos + Vector3(sx, 0.69, 1.0), steel)
+		_mcyl("GurneyHeadBar_" + tag, 0.016, 0.84, pos + Vector3(0, 0.9, 1.0), steel, null, Vector3(0, 0, PI / 2.0))
+		_mcyl("GurneyHeadBar_" + tag, 0.012, 0.8, pos + Vector3(0, 0.76, 1.0), steel, null, Vector3(0, 0, PI / 2.0))
+
+
+# ---------------------------------------------------------------- THE WARD, dressed
+
+# The three ceiling tubes get the fitting the Lab's lamps wear (level_1.gd:_add_fixture) — a dark
+# housing and a dark-albedo diffuser whose EMISSION follows its light (_tick_ward_fittings), so a
+# dead tube is a dead fitting and the glimpse's 0.4 s stutter shows in the fitting too.
+# ⚠️ Emission ≤ 0.55 (FIXTURE_EMISSION in the Lab; Issue 21).
+const WARD_FIXTURE_EMISSION := 0.5
+var _ward_fixtures: Array = []                # [OmniLight3D, StandardMaterial3D]
+
+func _add_ward_fixture(light: OmniLight3D) -> void:
+	var housing := MeshInstance3D.new()
+	housing.name = "TubeHousing"
+	var hm := BoxMesh.new()
+	hm.size = Vector3(0.24, 0.08, 1.3)
+	housing.mesh = hm
+	housing.position = Vector3(0, 0.25, 0)
+	housing.set_surface_override_material(0, _mat(Color(0.11, 0.115, 0.11), 0.7, 0.3))
+	housing.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	light.add_child(housing)
+	var dmat := _mat(Color(0.1, 0.1, 0.095), 0.6)
+	dmat.emission_enabled = true
+	dmat.emission = Color(0.85, 0.9, 1.0)
+	dmat.emission_energy_multiplier = 0.0
+	var diffuser := MeshInstance3D.new()
+	diffuser.name = "TubeDiffuser"
+	var dm := BoxMesh.new()
+	dm.size = Vector3(0.16, 0.04, 1.2)
+	diffuser.mesh = dm
+	diffuser.position = Vector3(0, 0.2, 0)
+	diffuser.set_surface_override_material(0, dmat)
+	diffuser.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	light.add_child(diffuser)
+	_ward_fixtures.append([light, dmat])
+
+
+func _tick_ward_fittings() -> void:
+	for f in _ward_fixtures:
+		var e: float = (f[0] as OmniLight3D).light_energy
+		(f[1] as StandardMaterial3D).emission_energy_multiplier = WARD_FIXTURE_EMISSION * clampf(e / 0.9, 0.0, 1.0)
+
+
+# The ward was "a bare dark box" in the review. Asylum furniture along its empty walls, all
+# zero-panic, none of it in the path glow's line (ward entry -> switch) or the wheelchair's.
+func _build_ward_dressing() -> void:
+	_build_stripped_bed(Vector3(-5.0, 0, -5.4))
+	_build_chair_stack(Vector3(-5.05, 0, 7.95))
+	_build_privacy_screen(Vector3(3.3, 0, 8.25))
+	# A floor drain, near the beds (a disc, 6 mm proud — never coplanar with the floor).
+	_mcyl("FloorDrain", 0.13, 0.008, Vector3(1.8, 0.002, 3.6), _mat(Color(0.05, 0.05, 0.05), 0.4, 0.6))
+	for k in 5:
+		_mbox("DrainSlot", Vector3(0.2, 0.004, 0.012), Vector3(1.8, 0.008, 3.6 - 0.08 + k * 0.04),
+			_mat(Color(0.25, 0.23, 0.2), 0.4, 0.7))
+	# The stopped clock, high on the west wall — 4:12, the time on your file.
+	var cz := 2.0
+	var cx := WALL_LEFT_FACE_X
+	_mcyl("ClockRim", 0.2, 0.05, Vector3(cx + 0.025, 2.55, cz), _mat(Color(0.12, 0.1, 0.08), 0.5, 0.4), null,
+		Vector3(0, 0, PI / 2.0))
+	_art("ClockFace", Vector2(0.36, 0.36), Vector3(cx + 0.055, 2.55, cz), Vector3(0, PI / 2.0, 0),
+		"clock_stopped.png", 0.0)
+
+
+func _build_stripped_bed(at: Vector3) -> void:
+	# An iron bedstead with no mattress: head and foot boards of bars, side rails, a sagging wire
+	# lattice. Rust-dark iron. Solid (one collider for the whole frame).
+	var iron := _mat(Color(0.2, 0.15, 0.11), 0.7, 0.55)
+	for ez in [-1.0, 1.0]:
+		var z: float = at.z + ez * 0.98
+		var top: float = 1.0 if ez > 0.0 else 0.8
+		for sx in [-0.44, 0.44]:
+			_mcyl("BedPost", 0.02, top, Vector3(at.x + sx, top * 0.5, z), iron)
+		_mcyl("BedBoardTop", 0.016, 0.9, Vector3(at.x, top - 0.04, z), iron, null, Vector3(0, 0, PI / 2.0))
+		_mcyl("BedBoardMid", 0.012, 0.9, Vector3(at.x, 0.42, z), iron, null, Vector3(0, 0, PI / 2.0))
+		for k in 5:
+			_mcyl("BedBoardBar", 0.008, top - 0.46, Vector3(at.x - 0.3 + k * 0.15, 0.42 + (top - 0.46) * 0.5, z), iron)
+	for sx in [-0.44, 0.44]:
+		_mcyl("BedSideRail", 0.015, 1.94, Vector3(at.x + sx, 0.42, at.z), iron, null, Vector3(PI / 2.0, 0, 0))
+	for k in 9:
+		_mcyl("BedWire", 0.004, 1.9, Vector3(at.x - 0.36 + k * 0.09, 0.38, at.z), iron, null, Vector3(PI / 2.0, 0, 0))
+	for k in 11:
+		_mcyl("BedWire", 0.004, 0.86, Vector3(at.x, 0.38, at.z - 0.85 + k * 0.17), iron, null, Vector3(0, 0, PI / 2.0))
+	_solid("StrippedBedBody", Vector3(0.94, 0.9, 2.0), at + Vector3(0, 0.45, 0))
+
+
+func _build_chair_stack(at: Vector3) -> void:
+	# Three steel-framed chairs stacked in the corner, each a little askew.
+	for k in 3:
+		var c := Node3D.new()
+		c.name = "StackedChair"
+		c.position = at + Vector3(0.02 * k, 0.1 * k, -0.03 * k)
+		c.rotation.y = 0.35 + 0.08 * k
+		add_child(c)
+		var seat_m := _mat(Color(0.2, 0.22, 0.19), 0.8)
+		var steel := _mat(Color(0.25, 0.25, 0.24), 0.5, 0.6)
+		_mbox("Seat", Vector3(0.42, 0.04, 0.4), Vector3(0, 0.46, 0), seat_m, c)
+		_mbox("Back", Vector3(0.4, 0.3, 0.035), Vector3(0, 0.76, -0.2), seat_m, c, Vector3(-0.1, 0, 0))
+		for lx in [-0.18, 0.18]:
+			for lz in [-0.17, 0.17]:
+				_mcyl("ChairLeg", 0.011, 0.44, Vector3(lx, 0.22, lz), steel, c)
+			_mcyl("BackPost", 0.011, 0.34, Vector3(lx, 0.63, -0.19), steel, c)
+	_solid("ChairStackBody", Vector3(0.6, 1.2, 0.6), at + Vector3(0, 0.6, 0))
+
+
+func _build_privacy_screen(at: Vector3) -> void:
+	# A three-leaf folding screen: tubular frames with stained cloth, zig-zagged.
+	var steel := _mat(Color(0.35, 0.36, 0.35), 0.45, 0.7)
+	var leaf_w := 0.55
+	var leaf_h := 1.55
+	var yaws := [0.5, -0.5, 0.5]
+	var x := at.x
+	var z := at.z
+	for k in 3:
+		var leaf := Node3D.new()
+		leaf.name = "ScreenLeaf"
+		leaf.position = Vector3(x, 0, z)
+		leaf.rotation.y = yaws[k]
+		add_child(leaf)
+		for sx in [-leaf_w * 0.5, leaf_w * 0.5]:
+			_mcyl("ScreenPost", 0.012, leaf_h + 0.2, Vector3(sx, (leaf_h + 0.2) * 0.5, 0), steel, leaf)
+		for y in [0.2, leaf_h + 0.15]:
+			_mcyl("ScreenBar", 0.01, leaf_w, Vector3(0, y, 0), steel, leaf, Vector3(0, 0, PI / 2.0))
+		var cloth := MeshInstance3D.new()
+		cloth.name = "ScreenCloth"
+		var qm := QuadMesh.new()
+		qm.size = Vector2(leaf_w - 0.04, leaf_h - 0.1)   # ⚠️ 0.51 x 1.45 ≈ the cloth art's 0.367
+		cloth.mesh = qm
+		cloth.position = Vector3(0, 0.2 + (leaf_h - 0.05) * 0.5, 0)
+		var cm := _mat(Color(0.8, 0.8, 0.76), 0.95)
+		if ResourceLoader.exists(TEX + "privacy_screen_cloth.png"):
+			cm.albedo_texture = load(TEX + "privacy_screen_cloth.png")
+		cm.cull_mode = BaseMaterial3D.CULL_DISABLED
+		cloth.material_override = cm
+		leaf.add_child(cloth)
+		# The next leaf starts where this one ends.
+		x += cos(yaws[k]) * leaf_w
+		z -= sin(yaws[k]) * leaf_w
+	_solid("PrivacyScreenBody", Vector3(1.6, 1.7, 0.5), Vector3((at.x + x) * 0.5, 0.85, (at.z + z) * 0.5))
+
+
+# The ward's FINDS (phase 4): a bank of three filing cabinets against the back wall, one page each.
+# Journal-archived like every safe note (lab_cabinet_drawer.gd archives with current_level).
+const WARD_FINDS := [
+	["CONSENT FORM — SERIES C\n\nI, the undersigned, consent to observation under conditions of darkness, isolation and controlled distress, and to the use of restraint where the observers judge it necessary.\n\nI understand I may withdraw at any time by informing the observers.\n\nSigned: ______________\n\nThe signature line is empty. Someone has written 47 in the margin, and crossed out 46 above it.", 1],
+	["A paper pill envelope, torn open. Two white tablets left inside.\n\nSUBJ 47 — CHLORPROMAZINE 100 mg — AT INTAKE\nSUBJ 47 — ——— — IF DISTRESSED\n\nThe second drug's name has been scratched off the label.", 3],
+	["Night staff journal, a loose page:\n\n\"46 is asking again who is behind the glass. Told him nobody. Told him the lights stay on for his own good. He said he can hear someone breathing in the ward when the power goes.\n\nThe power has not gone. Not once.\"", 0],
+]
+
+func _build_ward_finds() -> void:
+	for k in WARD_FINDS.size():
+		var cab := LabCabinet.new()
+		cab.name = "WardCabinet%d" % k
+		cab.position = Vector3(-4.7 + k * 0.76, 0, WALL_BACK_FACE_Z + LabCabinet.SIZE.z / 2.0 + 0.01)
+		add_child(cab)
+		cab.assign_note(String(WARD_FINDS[k][0]), int(WARD_FINDS[k][1]))
+
+
+# ---------------------------------------------------------------- the voice's other speakers
+
+var _ward_speaker: AudioStreamPlayer3D = null
+var _calib_speaker: AudioStreamPlayer3D = null
+var _airlock_speaker: AudioStreamPlayer3D = null
+
+func _make_speaker(n: String, pos: Vector3, face_yaw: float) -> AudioStreamPlayer3D:
+	var kit := _mat(Color(0.12, 0.12, 0.13), 0.5, 0.5)
+	var box := Node3D.new()
+	box.name = n + "Box"
+	box.position = pos
+	box.rotation.y = face_yaw
+	add_child(box)
+	_mbox("TannoyBox", Vector3(0.32, 0.22, 0.14), Vector3(0, 0, -0.01), kit, box)
+	_mbox("TannoyGrille", Vector3(0.26, 0.16, 0.01), Vector3(0, 0, 0.065), _mat(Color(0.05, 0.05, 0.05), 0.9), box)
+	var sp := AudioStreamPlayer3D.new()
+	sp.name = n
+	sp.position = pos
+	sp.unit_size = 14.0
+	sp.volume_db = VO_DB
+	add_child(sp)
+	return sp
+
+
+func _build_speakers() -> void:
+	# ⚠️ On walls with no doorway at the spot, the faces derived from the room table.
+	# 10 cm off the face: the box is 14 cm deep about -1 cm, so its back hangs 2 cm clear.
+	_ward_speaker = _make_speaker("WardSpeaker", Vector3(-4.6, 2.9, ROOM_SIZE.y / 2.0 - WALL_T / 2.0 - 0.1), PI)
+	_calib_speaker = _make_speaker("CalibrationSpeaker", Vector3(4.0 - WALL_T / 2.0 - 0.1, 2.8, -13.0), -PI / 2.0)
+	_airlock_speaker = _make_speaker("AirlockSpeaker", Vector3(-6.3, 2.45, -17.0 - WALL_T / 2.0 - 0.1), PI)
+
+
+# ---------------------------------------------------------------- CALIBRATION
+
+# ⭐ The one room in the intro that teaches the panic bar. Panic moves here and ONLY here (the
+# cell, hall and ward stay at exactly 0) and the level's ceiling pins it at 0.6, so nothing in this
+# room can kill. Two lessons, each a thing the rest of the game punishes:
+#   1. GAZE   — the projector's slides are a ScaryObject; SITTING in the subject's chair and watching
+#               them fills the bar. After the SEVENTH stimulus the monitor says LOOK AWAY., and the lesson
+#               completes after AWAY_TIME of not looking (the level's own camera-dot test).
+#   2. TOUCH  — a red-tagged tray, DO NOT TOUCH, live throughout; E spikes the bar to the ceiling.
+# (A third, WALK TO THE LINE — the sprint cost — was cut on the second hand playtest, 2026-09-25.)
+const SCREEN_POS := Vector3(0, 1.75, -21.0 + WALL_T / 2.0 + 0.04)
+const SCREEN_SIZE := Vector2(2.4, 1.8)                 # 4:3, the slides' own aspect
+const MARK_POS := Vector3(0, 0, -18.6)                  # the CHAIR's spot: the seated eye is 2.4 m from the screen
+const TRAY_STAND_POS := Vector3(2.7, 0, -17.3)
+# ⭐ SEVEN stimuli, and LOOK AWAY. after the LAST (sixth hand playtest, 2026-09-26: "we need to show
+# slightly more objects before we say move away for the first time"). It used to fire on panic ≥ 0.35 —
+# and the DO NOT TOUCH tray puts panic at 0.60, so a player who touched it first got LOOK AWAY. almost
+# as they sat (GOOD. 14 s after the tray, ≤ 1 slide seen). Panic still climbs across the round, but a
+# COUNT ends it. The three new ones (5 doll · 6 restraint chair · 7 skull plate) are flux.
+const SLIDES := ["slide_0_title.png", "slide_1.png", "slide_2.png", "slide_6.png", "slide_7.png",
+	"slide_5.png", "slide_3.png", "slide_4.png"]
+# Gaze intensity per slide (× player.PANIC_BASE_RATE 20/s): a ladder from 0.4 to 2.8 panic/s. Watched
+# straight through (2.5 s each) the stimuli add ~28 points ≈ 0.57 — up against the 0.6 ceiling by
+# the red card, which is where the round ends.
+const SLIDE_INTENSITY := [0.02, 0.03, 0.04, 0.06, 0.08, 0.10, 0.12, 0.14]
+const SLIDE_TIME := 2.5
+const AWAY_TIME := 1.5
+const AWAY_DOT := 0.5                                   # looking > 60° off the screen is "away"
+const WATCH_DOT := 0.85
+# ⭐ Two clocks (first hand playtest): CALIB_TIMEOUT counts only SEATED time, so it can no longer
+# wave through a player who never sat down to watch; a player who will not sit at all is let
+# through after UNSEATED_TIMEOUT. Both end in "NOTED." — the lesson untaught, never a dead end.
+const CALIB_TIMEOUT := 60.0
+const UNSEATED_TIMEOUT := 90.0
+const SEATED_EYE := 1.2                                 # seated eye height over the floor
+const SEAT_TIME := 0.9
+const SCREEN_EMISSION := 0.45
+# ⭐ SERIES D — the second round (fourth hand playtest, 2026-09-25, capture #1: *"with the screen
+# experiment it is a good idea to make another iteration where some monsters will be shown. So the
+# player learns no need to hide from monsters"*; the user chose "hold still" and NEW monsters). Round
+# one's GOOD. does not stand you up: the projector comes back with five photographs of one new thing,
+# each closer, and the lesson is to STAY IN THE CHAIR — the rule the Lab's first apparition kills you
+# for. ⚠️ Never the game's own creatures: that would spoil every later first appearance.
+const SERIES_D := ["slide_d0_title.png", "slide_d1.png", "slide_d2.png", "slide_d3.png", "slide_d4.png",
+	"slide_d5.png"]
+# × PANIC_BASE_RATE 20/s: the title card almost nothing, then 2.4 → 10 panic/s as it comes. Watched
+# straight through, the bar reaches the 0.6 ceiling on FIG. 4 and is pinned there — it cannot kill.
+const SERIES_D_INTENSITY := [0.02, 0.12, 0.2, 0.3, 0.4, 0.5]
+const SERIES_D_DELAY := 3.0          # GOOD. fades, then the projector clacks back on
+const SERIES_D_TITLE_TIME := 2.5
+const SERIES_D_SLIDE_TIME := 1.6     # 5 x 1.6 = 8.0 s of the thing coming — "~8 s seated"
+const SERIES_D_E_GRACE := 0.6        # the E that sat you down must not also stand you up
+# Standing up mid-round repeats SIT DOWN.; a player who will not sit again is let through with
+# NOTED. after this long standing (round one's 90 s is for FINDING the chair — here you know it).
+const SERIES_D_UNSEATED_TIMEOUT := 45.0
+const SERIES_D_LOOK_BACK_AFTER := 1.5   # looking away this long in round two → LOOK AT THE SCREEN.
+const SERIES_D_NAG_EVERY := 4.0         # …and not more often than this
+var _series_d_away_t: float = 0.0
+var _series_d_nag_t: float = SERIES_D_NAG_EVERY
+
+var _calib_state: int = 0      # 0 not entered · 1 watching · 2 look away · 3 answered (GOOD./NOTED.) · 5 done
+                               # · 6 SERIES D, seated · 7 SERIES D, stood up (SIT DOWN.)
+var _series: int = 0           # which carousel is loaded: 0 round one (SLIDES), 1 SERIES D
+var _series_d_running: bool = false   # false through the gap between GOOD. and the projector
+var _series_d_t: float = 0.0          # seconds since this run of round two started
+var _stand_hint: CanvasLayer = null
+var _seated: bool = false
+var _unseated_t: float = 0.0
+var _chair_prop: UseProp = null
+var _chair_body: StaticBody3D = null
+var _calib_t: float = 0.0
+var _slide_i: int = 0
+var _slide_t: float = 0.0
+var _away_t: float = 0.0
+var _screen_scary: ScaryObject = null
+var _screen_mat: StandardMaterial3D = null
+var _projector_light: SpotLight3D = null
+var _projector_audio: AudioStreamPlayer3D = null
+var _lens_mat: StandardMaterial3D = null
+var _airlock_state: int = 0
+var _captions: Array[String] = []                      # every observer caption, in order (tests)
+
+# ⚠️ Captions QUEUE. ScreenText.caption() prints every line in the same slot, and the first tour
+# printed "STAND ON THE MARK." straight over the still-fading VO3 caption. Each line waits until the
+# previous one has faded (0.5 in + hold + 1.0 out), so two observer lines never share the screen.
+var _caption_free_at: float = 0.0
+
+# `stale_when` (optional): checked when a QUEUED line's turn comes — if it returns true the line is
+# dropped. "SIT DOWN." queues behind VO3's caption, and a player who sat during VO3 saw the order
+# arrive after obeying it (2026-09-25).
+func _caption(text: String, seconds: float = 3.0, color: Color = Color(0.86, 0.84, 0.72),
+		stale_when: Callable = Callable()) -> void:
+	_captions.append(text)
+	var now := Time.get_ticks_msec() / 1000.0
+	var wait := maxf(0.0, _caption_free_at - now)
+	_caption_free_at = now + wait + 0.5 + seconds + 1.0
+	if wait <= 0.01:
+		ScreenText.caption(get_tree(), text, seconds, color)
+	else:
+		get_tree().create_timer(wait).timeout.connect(func() -> void:
+			if stale_when.is_valid() and bool(stale_when.call()):
+				return
+			ScreenText.caption(get_tree(), text, seconds, color))
+
+
+func _build_calibration() -> void:
+	# The screen: a pull-down projection screen on the south wall — roller case, weighted bar —
+	# and the ScaryObject ancestor pattern (level_1.gd:1183): ScaryObject (a plain Node) -> a
+	# StaticBody3D carrying its OWN world transform -> the collider the gaze ray hits + the slide.
+	_mcyl("ScreenRoller", 0.05, 2.6, SCREEN_POS + Vector3(0, SCREEN_SIZE.y * 0.5 + 0.08, 0.02),
+		_mat(Color(0.1, 0.1, 0.1), 0.5, 0.4), null, Vector3(0, 0, PI / 2.0))
+	_mbox("ScreenWeight", Vector3(2.46, 0.03, 0.03), SCREEN_POS + Vector3(0, -SCREEN_SIZE.y * 0.5 - 0.02, 0.02),
+		_mat(Color(0.1, 0.1, 0.1), 0.5, 0.4))
+	_screen_scary = ScaryObject.new()
+	_screen_scary.name = "ProjectorScary"
+	_screen_scary.scare_intensity = 0.0
+	add_child(_screen_scary)
+	var body := StaticBody3D.new()
+	body.name = "ProjectorScreen"
+	body.position = SCREEN_POS
+	_screen_scary.add_child(body)
+	var col := CollisionShape3D.new()
+	var sh := BoxShape3D.new()
+	sh.size = Vector3(SCREEN_SIZE.x, SCREEN_SIZE.y, 0.03)
+	col.shape = sh
+	body.add_child(col)
+	var q := MeshInstance3D.new()
+	q.name = "ScreenSlide"
+	var qm := QuadMesh.new()
+	qm.size = SCREEN_SIZE
+	q.mesh = qm
+	_screen_mat = _mat(Color(0.5, 0.5, 0.48), 0.9)
+	_screen_mat.emission_enabled = true
+	_screen_mat.emission_energy_multiplier = 0.0
+	q.material_override = _screen_mat
+	body.add_child(q)
+	_set_slide(-1)
+	# The projector on its cart, behind where you stand.
+	var cart := Vector3(0.9, 0, -13.9)
+	var steel := _steel_mat()
+	for lx in [-0.25, 0.25]:
+		for lz in [-0.2, 0.2]:
+			_mcyl("ProjCartLeg", 0.012, 0.8, cart + Vector3(lx, 0.4, lz), steel)
+	_mbox("ProjCartTop", Vector3(0.58, 0.02, 0.46), cart + Vector3(0, 0.8, 0), steel)
+	_mbox("ProjCartShelf", Vector3(0.54, 0.015, 0.42), cart + Vector3(0, 0.25, 0), steel)
+	var dark := _mat(Color(0.14, 0.13, 0.12), 0.45, 0.5)
+	_mbox("ProjectorBody", Vector3(0.3, 0.15, 0.34), cart + Vector3(0, 0.885, 0), dark)
+	_mcyl("ProjectorCarousel", 0.14, 0.05, cart + Vector3(0, 0.99, 0.02), _mat(Color(0.3, 0.28, 0.24), 0.5, 0.2))
+	_mcyl("ProjectorLens", 0.042, 0.14, cart + Vector3(0, 0.89, -0.23), dark, null, Vector3(PI / 2.0, 0, 0))
+	_lens_mat = _mat(Color(0.12, 0.12, 0.12), 0.1)
+	_lens_mat.emission_enabled = true
+	_lens_mat.emission = Color(1.0, 0.95, 0.85)
+	_lens_mat.emission_energy_multiplier = 0.0
+	var lens := MeshInstance3D.new()
+	lens.name = "ProjectorLensGlass"
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.034
+	cm.bottom_radius = 0.034
+	cm.height = 0.006
+	lens.mesh = cm
+	lens.rotation.x = PI / 2.0
+	lens.position = cart + Vector3(0, 0.89, -0.302)
+	lens.set_surface_override_material(0, _lens_mat)
+	add_child(lens)
+	_solid("ProjectorCartBody", Vector3(0.6, 1.05, 0.5), cart + Vector3(0, 0.52, 0))
+	_projector_light = SpotLight3D.new()
+	_projector_light.name = "ProjectorBeam"
+	add_child(_projector_light)
+	_projector_light.look_at_from_position(cart + Vector3(0, 0.89, -0.31), SCREEN_POS, Vector3.UP)
+	_projector_light.light_color = Color(1.0, 0.96, 0.86)
+	_projector_light.light_energy = 0.0
+	_projector_light.spot_range = 9.0
+	_projector_light.spot_angle = 16.0
+	_projector_light.shadow_enabled = true
+	_projector_audio = AudioStreamPlayer3D.new()
+	_projector_audio.name = "ProjectorAudio"
+	_projector_audio.position = cart + Vector3(0, 0.9, 0)
+	_projector_audio.unit_size = 3.0
+	_projector_audio.volume_db = -4.0
+	add_child(_projector_audio)
+	# ⭐ No floor mark any more (first hand playtest, 2026-09-24): the subject's chair stands where
+	# the mark was, and SIT DOWN. replaces STAND HERE — see _sit_in_chair().
+	# ⚠️ NO LINE (second hand playtest, 2026-09-25, capture #4: *"What for to cross that line? I think
+	# looking away while sitting in the chair and then standing up is sufficient"*). The walk to a
+	# painted line — and its sprint caption, HEART RATE 131 — is gone: GOOD. stands you up and the
+	# observer answers straight away. The intro no longer teaches the sprint cost; the Lab's first
+	# note still says DO NOT RUN.
+	_build_forbidden_tray()
+	_build_subject_chair()
+	_build_eeg_cart()
+	_build_patient_hatch()
+
+
+# ⭐ Calibration dressing (polish, 2026-09-24 — "the room is bare"): the subject's chair, EMPTY,
+# facing the screen beside the mark — wooden, with leather wrist straps on its arms (the cell's
+# straps, again) — and an electrode cart beside it with its leads trailing to the chair. Zero panic,
+# no light of their own (the projector and the room's one bulb light them), clear of the mark, the
+# walk to the line and the route to the airlock door.
+# ⭐ ON THE MARK since the first hand playtest (capture #3) — the chair IS where you watch from.
+const SUBJECT_CHAIR_POS := MARK_POS
+const EEG_CART_POS := Vector3(-1.25, 0, -19.45)
+
+func _build_subject_chair() -> void:
+	var wood := _mat(Color(0.26, 0.17, 0.1), 0.65)
+	var leather := _mat(Color(0.19, 0.12, 0.07), 0.62)
+	var steel := _mat(Color(0.62, 0.62, 0.6), 0.3, 0.85)
+	var c := Node3D.new()
+	c.name = "SubjectChairFrame"   # ⚠️ not "SubjectChair" — that is the E volume's name (Issue 17)
+	c.position = SUBJECT_CHAIR_POS
+	c.rotation.y = 0.0                       # square to the screen (it faces -z)
+	add_child(c)
+	for lx in [-0.23, 0.23]:
+		for lz in [-0.22, 0.22]:
+			_mbox("ChairLeg", Vector3(0.05, 0.46, 0.05), Vector3(lx, 0.23, lz), wood, c)
+		_mbox("ArmPost", Vector3(0.045, 0.24, 0.045), Vector3(lx, 0.58, -0.2), wood, c)
+		_mbox("ArmRest", Vector3(0.07, 0.035, 0.5), Vector3(lx, 0.715, -0.01), wood, c)
+		# A wrist strap across each arm, buckle up.
+		_mbox("WristStrap", Vector3(0.09, 0.012, 0.055), Vector3(lx, 0.739, -0.1), leather, c)
+		_mbox("WristBuckle", Vector3(0.03, 0.008, 0.04), Vector3(lx + signf(lx) * 0.03, 0.748, -0.1), steel, c)
+		_mbox("BackPost", Vector3(0.05, 0.62, 0.05), Vector3(lx, 0.77, 0.22), wood, c, Vector3(0.1, 0, 0))
+	_mbox("ChairSeat", Vector3(0.52, 0.05, 0.5), Vector3(0, 0.485, 0), wood, c)
+	for k in 3:
+		_mbox("BackSlat", Vector3(0.44, 0.07, 0.025), Vector3(0, 0.68 + k * 0.17, 0.24 + k * 0.017), wood, c,
+			Vector3(0.1, 0, 0))
+	_mbox("ChestStrap", Vector3(0.46, 0.05, 0.012), Vector3(0, 0.86, 0.215), leather, c, Vector3(0.1, 0, 0))
+	for lx in [-0.23, 0.23]:
+		_mbox("AnkleStrap", Vector3(0.07, 0.04, 0.07), Vector3(lx, 0.12, -0.22), leather, c)
+	# ⚠️ The solid body stops at the SEAT: above it is the chair's E volume (layer 2, the UseProp),
+	# which a solid body reaching up to the backrest would swallow. The body is switched OFF while
+	# you sit in it, or move_and_slide would push a seated capsule out of the chair.
+	# ⚠️ NO SHADOWS (the second hand-play review, 2026-09-25). The projector stands BEHIND the chair,
+	# so the backrest threw its shadow across the lower half of the screen — and the player has no
+	# body, so a seated player saw an EMPTY chair's silhouette standing in front of the slides
+	# (measured: hiding the frame removed it; the camera itself sits 0.18 m in front of the backrest).
+	for part in c.get_children():
+		if part is GeometryInstance3D:
+			(part as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_chair_body = _solid("SubjectChairBody", Vector3(0.6, 0.46, 0.58), SUBJECT_CHAIR_POS + Vector3(0, 0.23, 0))
+	_chair_prop = UseProp.new()
+	_chair_prop.name = "SubjectChair"
+	_chair_prop.prompt = "E — sit"
+	_chair_prop.enabled = false
+	# ⚠️ Unlimited: UseProp's max_uses defaults to ONE, and round two (SERIES D) lets you stand up
+	# and sit again — the chair went inert after the first sit (check_intro_beats caught it).
+	_chair_prop.max_uses = 0
+	_chair_prop.position = SUBJECT_CHAIR_POS + Vector3(0, 0.8, 0)
+	add_child(_chair_prop)
+	_chair_prop.add_box_shape(Vector3(0.6, 0.62, 0.58))
+	_chair_prop.used.connect(_sit_in_chair)
+
+
+func _build_eeg_cart() -> void:
+	var steel := _steel_mat()
+	var dark := _mat(Color(0.12, 0.12, 0.11), 0.5, 0.4)
+	var cream := _mat(Color(0.62, 0.6, 0.52), 0.6)
+	var at := EEG_CART_POS
+	for lx in [-0.22, 0.22]:
+		for lz in [-0.17, 0.17]:
+			_mcyl("EegCartLeg", 0.012, 0.7, at + Vector3(lx, 0.36, lz), steel)
+			_mcyl("EegCaster", 0.03, 0.02, at + Vector3(lx, 0.03, lz), dark, null, Vector3(0, 0, PI / 2.0))
+	_mbox("EegCartTop", Vector3(0.5, 0.02, 0.4), at + Vector3(0, 0.72, 0), steel)
+	_mbox("EegCartShelf", Vector3(0.46, 0.015, 0.36), at + Vector3(0, 0.22, 0), steel)
+	# The machine: a cream-enamel case with a paper-chart roll, dials and a row of lead sockets.
+	var box := Node3D.new()
+	box.name = "EegMachine"
+	box.position = at + Vector3(0, 0.73, 0)
+	box.rotation.y = -0.5                     # turned toward the chair
+	add_child(box)
+	_mbox("EegCase", Vector3(0.44, 0.2, 0.3), Vector3(0, 0.1, 0), cream, box)
+	_mbox("EegPanel", Vector3(0.4, 0.14, 0.01), Vector3(0, 0.1, 0.152), dark, box)
+	for k in 4:
+		_mcyl("EegDial", 0.018, 0.012, Vector3(-0.14 + k * 0.07, 0.13, 0.16), _mat(Color(0.7, 0.68, 0.6), 0.4, 0.5), box,
+			Vector3(PI / 2.0, 0, 0))
+	_mcyl("EegChartRoll", 0.03, 0.36, Vector3(0, 0.23, -0.05), _mat(Color(0.86, 0.84, 0.78), 0.9), box,
+		Vector3(0, 0, PI / 2.0))
+	_mbox("EegChartPaper", Vector3(0.34, 0.003, 0.14), Vector3(0, 0.205, 0.06), _mat(Color(0.86, 0.84, 0.78), 0.9), box,
+		Vector3(-0.35, 0, 0))
+	# Loose leads: sagging from the sockets to the floor between the cart and the chair, then
+	# coiling up the chair's leg — thin dark cables, each a few straight runs (no colliders).
+	var lead := _mat(Color(0.05, 0.05, 0.05), 0.6)
+	var sock := box.global_transform * Vector3(0, 0.06, 0.16)
+	var chair_foot := SUBJECT_CHAIR_POS + Vector3(-0.2, 0.03, 0.1)
+	for k in 3:
+		var a: Vector3 = sock + Vector3(-0.05 + k * 0.05, 0, 0)
+		var floor_pt := a.lerp(chair_foot, 0.45) + Vector3(0.05 * k, 0, 0)
+		floor_pt.y = 0.012
+		var up_pt := chair_foot + Vector3(0.03 * k, 0.45 + 0.08 * k, 0)
+		for seg in [[a, floor_pt], [floor_pt, chair_foot + Vector3(0.03 * k, 0.012, 0)],
+				[chair_foot + Vector3(0.03 * k, 0.012, 0), up_pt]]:
+			var p0: Vector3 = seg[0]
+			var p1: Vector3 = seg[1]
+			var mid := (p0 + p1) * 0.5
+			var length := p0.distance_to(p1)
+			if length < 0.02:
+				continue
+			var mi := _mcyl("EegLead", 0.004, length, mid, lead)
+			mi.look_at_from_position(mid, p1, Vector3.UP if absf((p1 - p0).normalized().dot(Vector3.UP)) < 0.95 else Vector3.RIGHT)
+			mi.rotate_object_local(Vector3.RIGHT, PI / 2.0)
+	_solid("EegCartBody", Vector3(0.52, 0.95, 0.42), at + Vector3(0, 0.47, 0))
+
+
+func _build_forbidden_tray() -> void:
+	var at := TRAY_STAND_POS
+	var steel := _steel_mat()
+	for lx in [-0.22, 0.22]:
+		for lz in [-0.15, 0.15]:
+			_mcyl("TrayStandLeg", 0.011, 0.86, at + Vector3(lx, 0.43, lz), steel)
+	_mbox("TrayStandTop", Vector3(0.5, 0.012, 0.36), at + Vector3(0, 0.866, 0), steel)
+	for sz in [-1.0, 1.0]:
+		_mbox("TrayLip", Vector3(0.5, 0.03, 0.008), at + Vector3(0, 0.885, sz * 0.176), steel)
+	for sx in [-1.0, 1.0]:
+		_mbox("TrayLip", Vector3(0.008, 0.03, 0.36), at + Vector3(sx * 0.246, 0.885, 0), steel)
+	_solid("TrayStandBody", Vector3(0.5, 0.84, 0.36), at + Vector3(0, 0.42, 0))
+	# ⭐ WHAT IS NOT TO BE TOUCHED (polish, 2026-09-24 — "DO NOT TOUCH" needs an object): a loaded
+	# syringe beside a small dark vial, and a scalpel on a folded cloth. Real silhouettes, lit by
+	# their own clamp lamp. ⚠️ NOTHING on the tray is emissive — SCARY.md §8.8 forbids a self-lit
+	# scary prop; the lamp's bulb is the only emitter, and it is on the lamp.
+	var top := 0.872
+	var glass := _mat(Color(0.75, 0.8, 0.78, 0.45), 0.08)
+	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var liquid := _mat(Color(0.28, 0.05, 0.04), 0.2)
+	var s_at := at + Vector3(-0.06, top + 0.014, 0.03)
+	var s_rot := Vector3(0, 0.35, PI / 2.0)
+	var syringe := Node3D.new()
+	syringe.name = "Syringe"
+	syringe.position = s_at
+	syringe.rotation = s_rot
+	add_child(syringe)
+	_mcyl("SyringeBarrel", 0.012, 0.11, Vector3.ZERO, glass, syringe)
+	_mcyl("SyringeDose", 0.009, 0.05, Vector3(0, -0.025, 0), liquid, syringe)
+	_mcyl("SyringePlunger", 0.004, 0.07, Vector3(0, 0.085, 0), steel, syringe)
+	_mcyl("SyringeThumb", 0.014, 0.004, Vector3(0, 0.12, 0), steel, syringe)
+	_mcyl("SyringeFlange", 0.02, 0.004, Vector3(0, 0.055, 0), glass, syringe)
+	_mcyl("SyringeNeedle", 0.0012, 0.06, Vector3(0, -0.085, 0), steel, syringe)
+	_mcyl("VialGlass", 0.014, 0.05, at + Vector3(-0.17, top + 0.025, -0.06), glass)
+	_mcyl("VialLiquid", 0.011, 0.03, at + Vector3(-0.17, top + 0.016, -0.06), liquid)
+	_mcyl("VialCap", 0.0145, 0.012, at + Vector3(-0.17, top + 0.056, -0.06), _mat(Color(0.5, 0.48, 0.4), 0.3, 0.8))
+	_mbox("TrayCloth", Vector3(0.2, 0.006, 0.12), at + Vector3(0.04, top + 0.003, 0.1), _mat(Color(0.82, 0.8, 0.74), 0.95), null,
+		Vector3(0, 0.12, 0))
+	_mbox("Scalpel", Vector3(0.15, 0.004, 0.012), at + Vector3(0.04, top + 0.009, 0.1), steel, null, Vector3(0, -0.3, 0))
+	_mbox("ScalpelBlade", Vector3(0.04, 0.003, 0.016), at + Vector3(0.105, top + 0.009, 0.08), _mat(Color(0.8, 0.8, 0.82), 0.15, 0.95),
+		null, Vector3(0, -0.3, 0))
+	# The tag: a card propped on the tray, turned to the room and tilted back so it reads from
+	# the middle of the room (0.32 m wide: ~19 px capitals at 2 m on a 1080p frame).
+	var to_room := Vector2(0.0 - at.x, -15.0 - at.z).normalized()
+	var card := Node3D.new()
+	card.name = "TrayTagCard"
+	# At the tray's FAR corner from the room, so the syringe, vial and scalpel are in front of it.
+	card.position = at + Vector3(0.14, top + 0.078, -0.1)
+	card.rotation = Vector3(-0.35, atan2(to_room.x, to_room.y), 0)
+	add_child(card)
+	_mbox("TagBacking", Vector3(0.33, 0.165, 0.004), Vector3(0, 0, -0.004), _mat(Color(0.3, 0.05, 0.04), 0.8), card)
+	_art("TrayTag", Vector2(0.32, 0.16), Vector3(0, 0, 0.001), Vector3.ZERO, "tag_do_not_touch.png", 0.0, card)
+	# The clamp lamp, on the back of the stand: a gooseneck, a shade, and a small clinical pool.
+	var dark := _mat(Color(0.08, 0.08, 0.08), 0.5, 0.4)
+	_mcyl("TrayLampPost", 0.009, 0.62, at + Vector3(0.22, 1.18, -0.15), dark)
+	_mcyl("TrayLampNeck", 0.007, 0.3, at + Vector3(0.12, 1.5, -0.1), dark, null, Vector3(0.3, 0, PI / 2.0 - 0.5))
+	_mcyl("TrayLampShade", 0.055, 0.07, at + Vector3(0.0, 1.46, -0.04), dark, null, Vector3.ZERO, 0.02)
+	var tl := SpotLight3D.new()
+	tl.name = "ForbiddenTrayLamp"
+	add_child(tl)
+	tl.look_at_from_position(at + Vector3(0.0, 1.43, -0.04), at + Vector3(0, top, 0.02), Vector3.UP)
+	tl.light_color = Color(0.95, 0.97, 1.0)
+	tl.light_energy = 1.7
+	tl.spot_range = 1.6
+	tl.spot_angle = 30.0
+	tl.shadow_enabled = true
+	var tbm := _mat(Color(0.12, 0.12, 0.12), 0.5)
+	tbm.emission_enabled = true
+	tbm.emission = Color(0.95, 0.97, 1.0)
+	tbm.emission_energy_multiplier = 0.35
+	var tb := MeshInstance3D.new()
+	tb.name = "TrayLampBulb"
+	var tsm := SphereMesh.new()
+	tsm.radius = 0.016
+	tsm.height = 0.032
+	tb.mesh = tsm
+	tb.set_surface_override_material(0, tbm)
+	tb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	tl.add_child(tb)
+	var tray := UseProp.new()
+	tray.name = "ForbiddenTray"
+	tray.position = at + Vector3(0, 0.9, 0)
+	add_child(tray)
+	tray.add_box_shape(Vector3(0.5, 0.1, 0.36))
+	tray.used.connect(_on_tray_touched)
+
+
+func _set_slide(i: int) -> void:
+	_slide_i = i
+	if i < 0:
+		# Off: a dead grey screen, no light, no gaze source.
+		_screen_mat.albedo_texture = null
+		_screen_mat.emission_texture = null
+		_screen_mat.albedo_color = Color(0.36, 0.36, 0.34)
+		_screen_mat.emission_energy_multiplier = 0.0
+		if _screen_scary:
+			_screen_scary.scare_intensity = 0.0
+		return
+	var path: String = TEX + _slide_file(i)
+	if ResourceLoader.exists(path):
+		var tex: Texture2D = load(path)
+		_screen_mat.albedo_texture = tex
+		_screen_mat.emission_texture = tex
+	_screen_mat.albedo_color = Color(1, 1, 1)
+	_screen_mat.emission_energy_multiplier = SCREEN_EMISSION
+	_screen_scary.scare_intensity = _slide_intensity(i) if _seated else 0.0
+	_sfx_at("intro_projector_slide", _projector_audio.position, -4.0, 3.0)
+
+
+func _slide_file(i: int) -> String:
+	return String(SERIES_D[i]) if _series == 1 else String(SLIDES[i])
+
+
+func _slide_intensity(i: int) -> float:
+	return float(SERIES_D_INTENSITY[i]) if _series == 1 else float(SLIDE_INTENSITY[i])
+
+
+func _projector_on(on: bool) -> void:
+	_projector_light.light_energy = 1.6 if on else 0.0
+	_lens_mat.emission_energy_multiplier = 0.4 if on else 0.0
+	if on:
+		var s := GameState.load_audio("intro_projector_run")
+		if s:
+			_projector_audio.stream = s
+			if not _projector_audio.finished.is_connected(_projector_audio.play):
+				_projector_audio.finished.connect(_projector_audio.play)
+			_projector_audio.play()
+		_set_slide(0)
+		_slide_t = 0.0
+	else:
+		if _projector_audio.finished.is_connected(_projector_audio.play):
+			_projector_audio.finished.disconnect(_projector_audio.play)
+		_projector_audio.stop()
+		_set_slide(-1)
+
+
+func _in_calibration(p: Vector3) -> bool:
+	return p.x > -4.0 and p.x < 4.0 and p.z > -21.0 and p.z < -9.4
+
+
+func _in_airlock(p: Vector3) -> bool:
+	return p.x > -7.0 and p.x < -4.25 and p.z > -20.0 and p.z < -17.0
+
+
+# How squarely the camera faces the screen (1 = dead centre) and how far it is from it.
+func _screen_dot() -> float:
+	var cam: Camera3D = player.camera
+	var to: Vector3 = SCREEN_POS - cam.global_position
+	return (-cam.global_basis.z).normalized().dot(to.normalized())
+
+
+func _screen_dist() -> float:
+	var cam: Camera3D = player.camera
+	return cam.global_position.distance_to(SCREEN_POS)
+
+
+func _tick_calibration(delta: float) -> void:
+	if GameState.is_ending or _calib_state == 5:
+		_tick_airlock()
+		return
+	var p := player.global_position
+	match _calib_state:
+		0:
+			if _beats.has("blackout") and _in_calibration(p):
+				_calib_state = 1
+				_calib_t = 0.0
+				_advance("calibration")
+				_say("screen", _on_screen_line_done, _calib_speaker)
+		1:
+			# The slides run — and the screen is a gaze source — only while you are seated.
+			_screen_gate()
+			if not _seated:
+				_unseated_t += delta
+				if _unseated_t > UNSEATED_TIMEOUT:
+					_finish_gaze("NOTED.")
+				return
+			_calib_t += delta
+			if _tick_slides(delta):
+				_calib_state = 2
+				_away_t = 0.0
+				_caption("LOOK AWAY.", 3.0)
+			elif _calib_t > CALIB_TIMEOUT:
+				_finish_gaze("NOTED.")
+		2:
+			if _screen_dot() < AWAY_DOT:
+				_away_t += delta
+				if _away_t >= AWAY_TIME:
+					_finish_gaze("GOOD.")
+			else:
+				_away_t = 0.0
+		6:
+			_screen_gate()
+			if _series_d_running:
+				_tick_series_d(delta)
+		7:
+			_unseated_t += delta
+			if _unseated_t > SERIES_D_UNSEATED_TIMEOUT:
+				_finish_series_d("NOTED.")
+
+
+# Round one's carousel: title, then each stimulus ONCE, advancing only while you face the screen
+# (the same gaze gate as SERIES D — a slide shown to the back of your head was not seen). Returns
+# true once the LAST stimulus has had its full time: that, not a panic number, is when to look away.
+func _tick_slides(delta: float) -> bool:
+	if _slide_i < 0:
+		return false
+	if _screen_dot() < AWAY_DOT:
+		_series_d_away_t += delta
+		_series_d_nag_t += delta
+		if _series_d_away_t >= SERIES_D_LOOK_BACK_AFTER and _series_d_nag_t >= SERIES_D_NAG_EVERY:
+			_series_d_nag_t = 0.0
+			_caption("LOOK AT THE SCREEN.", 2.5)
+		return false
+	_series_d_away_t = 0.0
+	_slide_t += delta
+	if _slide_t < SLIDE_TIME:
+		return false
+	if _slide_i >= SLIDES.size() - 1:
+		return true
+	_slide_t = 0.0
+	_set_slide(_slide_i + 1)
+	return false
+
+
+func _on_screen_line_done() -> void:
+	if _calib_state != 1:
+		return
+	_projector_on(true)
+	_chair_prop.enabled = true
+	_caption("SIT DOWN.", 3.5, Color(0.86, 0.84, 0.72), func() -> bool: return _seated)
+
+
+# The screen is a gaze source only while you sit: standing, the projector runs its title card and
+# nothing on it can move the bar.
+func _screen_gate() -> void:
+	if _slide_i < 0 or _screen_scary == null:
+		return
+	_screen_scary.scare_intensity = _slide_intensity(_slide_i) if _seated else 0.0
+
+
+# ⭐ THE CHAIR (first hand playtest, 2026-09-24, capture #3: *"It was said do not look away until
+# instructed - but when I will be instructed? They are repeated in circles."*). Measured on the
+# player's own spot: 3.44 m from the screen, outside GAZE_RANGE 3.0 — the gaze ray never reached it,
+# panic never moved, and the 60 s fallback let them through untaught. Seated, the eye is ~2.4 m away.
+# The body is pinned with player.begin_qte() — the MOVEMENT-ONLY pin (look stays free, so the lesson
+# "look away" is still yours to perform); it also refuses E and sprint, which is right in a chair.
+func _sit_in_chair(_times: int) -> void:
+	if _seated or (_calib_state != 1 and _calib_state != 7):
+		return
+	_seated = true
+	_chair_prop.enabled = false
+	for c in _chair_body.get_children():
+		if c is CollisionShape3D:
+			(c as CollisionShape3D).disabled = true
+	player.begin_qte()
+	player.velocity = Vector3.ZERO
+	_sfx_at("intro_chair_sit", SUBJECT_CHAIR_POS + Vector3(0, 0.5, 0), 0.0, 3.0)
+	var from := player.global_position
+	var to := SUBJECT_CHAIR_POS + Vector3(0, 0.02, 0.06)
+	var t := create_tween().set_parallel(true)
+	t.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	t.tween_method(_set_player_pos, from, to, SEAT_TIME)
+	t.tween_property(player.camera, "position:y", SEATED_EYE - 0.02, SEAT_TIME)
+	var cam: Camera3D = player.camera
+	# turn_to_face measures pitch from the CURRENT eye; aim for the screen as seen from the seat.
+	var aim := SCREEN_POS + (from - to) + Vector3(0, cam.position.y - (SEATED_EYE - 0.02), 0)
+	player.turn_to_face(aim, SEAT_TIME)
+	if _calib_state == 7:
+		# Back in the chair: round two runs again from its title card.
+		_calib_state = 6
+		t.chain().tween_callback(_run_series_d.bind(false))
+
+
+func _stand_from_chair() -> void:
+	if not _seated:
+		return
+	_seated = false
+	var from := player.global_position
+	# To the WEST of the chair: the projector cart stands north-east, in the line of the walk.
+	var to := SUBJECT_CHAIR_POS + Vector3(-0.85, 0.05, 0.3)
+	var t := create_tween().set_parallel(true)
+	t.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	t.tween_method(_set_player_pos, from, to, SEAT_TIME)
+	t.tween_property(player.camera, "position:y", 1.65, SEAT_TIME)
+	t.finished.connect(_on_stood_from_chair)
+
+
+func _on_stood_from_chair() -> void:
+	player.end_qte()
+	for c in _chair_body.get_children():
+		if c is CollisionShape3D:
+			(c as CollisionShape3D).disabled = false
+
+
+func _finish_gaze(caption: String) -> void:
+	_projector_on(false)
+	_advance("gaze")
+	if caption == "GOOD." and _seated:
+		# ⭐ Round one taught; round two follows in the same chair. NOTED. (a timeout — the lesson
+		# untaught) goes straight on, as before: a player who never watched is not held for more.
+		_calib_state = 6
+		_series_d_running = false
+		_caption(caption, 1.5)
+		get_tree().create_timer(SERIES_D_DELAY).timeout.connect(_run_series_d.bind(true))
+		return
+	_calib_state = 3
+	_stand_from_chair()
+	_caption(caption, 2.0)
+	get_tree().create_timer(2.4).timeout.connect(_on_gaze_noted)
+
+
+# ---------------------------------------------------------------- SERIES D
+
+# The projector clacks back on with the new carousel. `first` = straight after round one (both
+# captions); a re-sit after standing gets only the rule.
+func _run_series_d(first: bool) -> void:
+	if _calib_state != 6 or not _seated:
+		return
+	_series = 1
+	_series_d_running = true
+	_series_d_t = 0.0
+	_projector_on(true)
+	_series_d_away_t = 0.0
+	_series_d_nag_t = SERIES_D_NAG_EVERY
+	# ⭐ LOOK BACK (fifth hand playtest, 2026-09-26: "When you look away you do not even understand
+	# that at some moment you need to look back - should be said"). Round one ENDS on "look away", so
+	# the player is facing the wall when this starts. The observer repeats VO3 — the same recording,
+	# so the voice budget is still five lines.
+	if first:
+		_caption("SERIES D.", 1.2)
+		_say("screen", Callable(), _calib_speaker)
+	else:
+		_caption("LOOK AT THE SCREEN.", 2.5)
+	_caption("STAY SEATED. THEY CANNOT REACH YOU.", 3.5)
+	_show_stand_hint(true)
+
+
+func _tick_series_d(delta: float) -> void:
+	_series_d_t += delta
+	# ⚠️ E is polled HERE: the chair pins you with player.begin_qte(), and a QTE refuses the player's
+	# own interact — the same reason beartrap.gd polls it. Any E counts; you are in the chair.
+	if _series_d_t > SERIES_D_E_GRACE and Input.is_action_just_pressed("interact"):
+		_stand_mid_series_d()
+		return
+	# The slides only move while you face the screen — a round played to the back of your head
+	# taught nothing (the fifth playtest's log: SERIES D completed with nobody watching).
+	if _screen_dot() < AWAY_DOT:
+		_series_d_away_t += delta
+		_series_d_nag_t += delta
+		if _series_d_away_t >= SERIES_D_LOOK_BACK_AFTER and _series_d_nag_t >= SERIES_D_NAG_EVERY:
+			_series_d_nag_t = 0.0
+			_caption("LOOK AT THE SCREEN.", 2.5)
+		return
+	_series_d_away_t = 0.0
+	_slide_t += delta
+	var hold := SERIES_D_TITLE_TIME if _slide_i == 0 else SERIES_D_SLIDE_TIME
+	if _slide_t < hold:
+		return
+	_slide_t = 0.0
+	if _slide_i >= SERIES_D.size() - 1:
+		_finish_series_d("GOOD.")
+	else:
+		_set_slide(_slide_i + 1)
+
+
+# Getting up mid-round: the slides stop, the chair answers E again, and the order repeats.
+func _stand_mid_series_d() -> void:
+	_calib_state = 7
+	_series_d_running = false
+	_unseated_t = 0.0
+	_show_stand_hint(false)
+	_projector_on(false)
+	_stand_from_chair()
+	_chair_prop.enabled = true
+	_advance("series_d_stood")
+	_caption("SIT DOWN.", 3.0, Color(0.86, 0.84, 0.72), func() -> bool: return _seated)
+
+
+func _finish_series_d(caption: String) -> void:
+	_calib_state = 3
+	_series_d_running = false
+	_show_stand_hint(false)
+	_projector_on(false)
+	_chair_prop.enabled = false
+	_stand_from_chair()
+	_advance("series_d")
+	_caption(caption, 2.0)
+	get_tree().create_timer(2.4).timeout.connect(_on_gaze_noted)
+
+
+# "E — stand up": the pin has no prompt of its own (the QTE hides the player's), so the level shows
+# one while round two runs — the way out has to be visible for staying in to be a choice.
+func _show_stand_hint(on: bool) -> void:
+	if on and _stand_hint == null:
+		_stand_hint = CanvasLayer.new()
+		_stand_hint.name = "StandHint"
+		_stand_hint.layer = 40
+		add_child(_stand_hint)
+		var lbl := Label.new()
+		lbl.text = "E — stand up"
+		lbl.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+		lbl.position.y -= 60.0
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.add_theme_color_override("font_color", Color(0.7, 0.66, 0.58, 0.9))
+		lbl.add_theme_font_size_override("font_size", 18)
+		_stand_hint.add_child(lbl)
+	if _stand_hint:
+		_stand_hint.visible = on
+
+
+func _on_gaze_noted() -> void:
+	_say("better", _on_calibrated, _calib_speaker)
+
+
+func _on_calibrated() -> void:
+	_calib_state = 5
+	_advance("calibrated")
+	var d: WingDoor = _doors.get("AirlockDoor")
+	if d:
+		_sfx_at("intro_cell_buzz", d.global_position + Vector3(0, 2.2, 0), 0.0, 5.0)
+
+
+func _on_tray_touched(_times: int) -> void:
+	# ⚠️ The only add_panic in the intro, and it cannot kill: the level's ceiling pins it at 0.6.
+	player.add_panic(player.PANIC_MAX)
+	_advance("tray")
+	# ⚠️ IMMEDIATE, never queued (sixth hand playtest, 2026-09-26: "you should get the trigger
+	# immediately and the note we said not touch"). Through the queue it landed behind VO3's caption
+	# and SIT DOWN., seconds after the spike it explains.
+	_immediate_line("WE SAID NOT TO TOUCH IT. NOTED.", 3.5, Color(0.9, 0.42, 0.36), "RebukeLine")
+
+
+func _tick_airlock() -> void:
+	if _airlock_state != 0 or not _beats.has("calibrated") or _beats.has("proceed"):
+		return
+	# ⭐ The patient first (fourth hand playtest): the buzzer and "You may proceed." wait until the
+	# shutter is down and HATCH_AFTER of silence has passed — never over the scream.
+	if _hatch_state == 1 or _hatch_state == 2:
+		return
+	if _in_airlock(player.global_position):
+		_airlock_state = 1
+		_sfx_at("intro_airlock_buzzer", Vector3(-5.5, 2.4, -18.5), 0.0, 5.0)
+		get_tree().create_timer(2.3).timeout.connect(_on_proceed)
+
+
+# ⚠️ The door unlocks as the line STARTS (fourth hand playtest, 2026-09-25: "The door cannot be
+# opened straight after you say you may proceed"). It used to wait for the stream to END, so for
+# ~2.4 s the caption said "You may proceed." and the door said "Not yet." — the player pressed E in
+# that window and read the door as broken.
+func _on_proceed() -> void:
+	_advance("proceed")
+	_say("proceed", Callable(), _airlock_speaker)
+
+
+# ---------------------------------------------------------------- the patient at the hatch
+
+# ⭐ THE PATIENT AT THE AIRLOCK HATCH (fourth hand playtest, 2026-09-25, capture #2: *"after you open
+# this door it is a good idea to have a screamer of another asylum patient saying they will kill all
+# of us"*; the user chose IN-WORLD). As the AirlockDoor opens, a patient slams into the barred hatch
+# dead ahead and SCREAMS on the same frame (the user's wordless `patient_scream` — ⭐ the user's
+# order, 2026-09-25: *"first a scream and a very sudden one. And secondly, they will kill all us"*:
+# no lead-in, no pre-duck, nothing rising before it), then, still at the bars under his light, SHOUTS
+# (`intro_patient_words`), and only then is dragged back into the dark, the light dies and a steel
+# shutter bangs down. Only then the buzzer.
+# ⚠️ NOT fullscreen and NOT the Screamer: the fullscreen face keeps meaning "you died" everywhere in
+# the game, and the intro has none. ZERO panic — nothing here is a ScaryObject or calls add_panic.
+# One shot: never on a back-door return (move_aside_instantly() emits no `opened`).
+const HATCH_X := -7.0                         # the airlock's west wall plane (HATCHES)
+const HATCH_Z := -18.5
+const HATCH_W := 0.6
+const HATCH_SILL := 1.15
+const HATCH_TOP := 1.75
+const HATCH_MID := (HATCH_SILL + HATCH_TOP) / 2.0
+const HATCH_FRAME_W := 0.07
+const HATCH_FRAME_D := WALL_T + 0.06          # 3 cm proud of each face (the glass frame's rule)
+const HATCH_BARS_X := HATCH_X + 0.05          # inside the wall's thickness, airlock side
+const FACE_SIZE := 0.46                       # 2 cm clear of the frame's lap all round
+const FACE_AT_BARS_X := HATCH_X - 0.08
+const FACE_SLAM_X := HATCH_X - 0.035          # the overshoot: into the bars, then recoil
+const FACE_HIDDEN_X := HATCH_X - 0.7
+const FACE_GONE_X := HATCH_X - 1.25           # dragged back (the cell's back face is at -8.5)
+# s after `opened`: the leaf (1.2 s, sine ease-out) is ~40 % open — the hatch is already in view and
+# the slam lands AS the door swings, not after a pause (0.55 s read as a beat of waiting).
+const HATCH_SLAM_AT := 0.35
+const HATCH_WORDS_GAP := 0.08                 # after the scream's own length: the words, still at the bars
+const HATCH_LIGHT_ENERGY := 1.8
+const HATCH_DRAG_TIME := 0.4                  # after the WORDS end: dragged back from the bars
+const HATCH_LIGHT_DIES_AFTER := 0.45          # after the words end
+const HATCH_SHUTTER_AFTER := 0.95             # after the words end
+const HATCH_SHUTTER_DROP := 0.14
+const HATCH_AFTER := 1.0                      # silence after the shutter before the buzzer
+# Gains from the files' MEASURED levels (volumedetect): patient_scream −1.2 dB mean / 0.0 peak —
+# already at the ceiling, so it plays near unity; intro_patient_words −14.7 / −3.1, so it is lifted
+# by the 13.5 dB gap and set 4 dB under the scream (one voice); the stand-in slam/shutter −20.5 mean.
+# The master's hard limiter (−0.5 dB) catches the peaks.
+# ⭐ LOUDER (fifth hand playtest, 2026-09-26: "should be louder"). The file is already at full scale, so
+# the levers are contrast + distance + drive: a −24 dB ambience hole on the slam frame, no fall-off
+# across the airlock (unit 6 m), and +6 dB more into the master limiter.
+const SCREAM_DB := 4.0
+const WORDS_DB := SCREAM_DB + 13.5 - 4.0
+const HATCH_SFX_DB := 6.0
+const HATCH_MAX_DB := 12.0
+const HATCH_UNIT := 6.0                       # no drop-off anywhere in the airlock (was 3.0)
+const SHUTTER_MUFFLE_DB := -14.0              # any voice tail still sounding, behind the steel
+const HATCH_BUS_DIP_DB := -24.0               # the wing's beds and music all but vanish (was −8)
+const PATIENT_CAPTION_COLOR := Color(0.93, 0.83, 0.47)   # his, not the observer's
+const PATIENT_WORDS := "THEY'LL KILL US. THEY'LL KILL ALL OF US!"
+
+var _hatch_state: int = 0      # 0 armed · 1 running · 2 shutter down · 3 settled
+var _hatch_log: Array[String] = []            # the hatch's sounds, in the order they started (tests)
+var _hatch_face: MeshInstance3D = null
+var _hatch_face_mat: StandardMaterial3D = null
+var _hatch_light: OmniLight3D = null
+var _hatch_bars: Node3D = null
+var _hatch_shutter: MeshInstance3D = null
+var _hatch_voice: AudioStreamPlayer3D = null   # the last of his sounds (muffled by the shutter)
+var _hatch_trembling: bool = false
+var _hatch_bus_db: float = 0.0
+
+
+func _build_patient_hatch() -> void:
+	var h: Dictionary = HATCHES[0]
+	# Close the full-height cut around the hatch (the windows' method: CSG, the wall's material,
+	# exactly T deep, faces continuing the wall's).
+	var sb := _make_box("PatientHatch_Sill", Vector3(WALL_T, HATCH_SILL, HATCH_W), Vector3(HATCH_X, HATCH_SILL / 2.0, HATCH_Z))
+	sb.material = _wall_mat
+	var hh := WING_H - HATCH_TOP
+	var hb := _make_box("PatientHatch_Head", Vector3(WALL_T, hh, HATCH_W), Vector3(HATCH_X, HATCH_TOP + hh / 2.0, HATCH_Z))
+	hb.material = _wall_mat
+	var steel := _mat(Color(0.16, 0.16, 0.15), 0.55, 0.6)
+	var fw := HATCH_FRAME_W
+	var fd := HATCH_FRAME_D
+	for side in [-1.0, 1.0]:
+		_mbox("HatchFrameV", Vector3(fd, HATCH_TOP - HATCH_SILL + fw * 2.0 - 0.04, fw),
+			Vector3(HATCH_X, HATCH_MID, HATCH_Z + side * (HATCH_W / 2.0 + fw / 2.0 - 0.02)), steel)
+	_mbox("HatchFrameSill", Vector3(fd, fw, HATCH_W + fw * 2.0), Vector3(HATCH_X, HATCH_SILL + fw / 2.0 - 0.02, HATCH_Z), steel)
+	_mbox("HatchFrameHead", Vector3(fd, fw, HATCH_W + fw * 2.0), Vector3(HATCH_X, HATCH_TOP - fw / 2.0 + 0.02, HATCH_Z), steel)
+	# The bars: five uprights and a flat cross-bar, on their own node so the slam can shake them.
+	_hatch_bars = Node3D.new()
+	_hatch_bars.name = "HatchBars"
+	_hatch_bars.position = Vector3(HATCH_BARS_X, HATCH_MID, HATCH_Z)
+	add_child(_hatch_bars)
+	var bar := _mat(Color(0.09, 0.09, 0.09), 0.45, 0.7)
+	for k in 5:
+		_mcyl("HatchBar", 0.012, HATCH_TOP - HATCH_SILL - 0.06, Vector3(0, 0, -0.2 + k * 0.1), bar, _hatch_bars)
+	_mbox("HatchCrossBar", Vector3(0.012, 0.03, HATCH_W - 0.08), Vector3(0, 0.02, 0), bar, _hatch_bars)
+	# ⚠️ Solid: quads and bars have no collision, and the cell behind is nowhere anyone may go.
+	_solid("PatientHatchBars", Vector3(0.05, HATCH_TOP - HATCH_SILL, HATCH_W), Vector3(HATCH_BARS_X, HATCH_MID, HATCH_Z))
+	# The shutter, raised in its rails above the hatch — seen before it is used. Rails bite 1 cm into
+	# the wall (never coplanar with its face); the plate hangs 6 mm clear of the frame's front.
+	var face_x := HATCH_X + WALL_T / 2.0                # the airlock-side wall face
+	var rail_d := 0.07
+	for side in [-1.0, 1.0]:
+		_mbox("HatchRail", Vector3(rail_d, 1.6, 0.025),
+			Vector3(face_x - 0.01 + rail_d / 2.0, 1.85, HATCH_Z + side * 0.37), steel)
+	_hatch_shutter = _mbox("HatchShutter", Vector3(0.02, 0.66, 0.7),
+		Vector3(HATCH_X + fd / 2.0 + 0.016, _shutter_y(false), HATCH_Z), _mat(Color(0.2, 0.19, 0.17), 0.6, 0.55))
+	_mbox("HatchShutterGrip", Vector3(0.03, 0.03, 0.22), Vector3(0.02, -0.26, 0), steel, _hatch_shutter)
+	# The patient: a real RGBA cutout (tools/make_intro_wing_art.py --series-d), facing the airlock.
+	_hatch_face = MeshInstance3D.new()
+	_hatch_face.name = "PatientFace"
+	var qm := QuadMesh.new()
+	qm.size = Vector2(FACE_SIZE, FACE_SIZE)
+	_hatch_face.mesh = qm
+	_hatch_face.rotation.y = PI / 2.0                   # the quad's +z -> +x, into the airlock
+	_hatch_face.position = Vector3(FACE_HIDDEN_X, HATCH_MID, HATCH_Z)
+	_hatch_face_mat = StandardMaterial3D.new()
+	_hatch_face_mat.roughness = 0.7
+	_hatch_face_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	if ResourceLoader.exists(TEX + "patient_hatch.png"):
+		var tex: Texture2D = load(TEX + "patient_hatch.png")
+		_hatch_face_mat.albedo_texture = tex
+		_hatch_face_mat.emission_enabled = true
+		_hatch_face_mat.emission_texture = tex
+		_hatch_face_mat.emission_energy_multiplier = 0.0
+	_hatch_face.material_override = _hatch_face_mat
+	_hatch_face.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_hatch_face.visible = false
+	add_child(_hatch_face)
+	# The light that snaps on: low, between the bars and his face — lit from below, and spilling
+	# out through the bars into the airlock. Shadowed, or it would light the airlock through the wall.
+	_hatch_light = OmniLight3D.new()
+	_hatch_light.name = "HatchLight"
+	_hatch_light.position = Vector3(HATCH_X + 0.02, HATCH_SILL + 0.08, HATCH_Z)
+	_hatch_light.light_color = Color(1.0, 0.86, 0.66)
+	_hatch_light.light_energy = 0.0
+	_hatch_light.omni_range = 1.8
+	_hatch_light.omni_attenuation = 1.0
+	_hatch_light.shadow_enabled = true
+	add_child(_hatch_light)
+	var d: WingDoor = _doors.get("AirlockDoor")
+	if d:
+		d.opened.connect(_on_airlock_opened)
+
+
+func _shutter_y(down: bool) -> float:
+	return HATCH_MID if down else HATCH_TOP + 0.42
+
+
+func _hatch_sfx(base: String, db: float) -> AudioStreamPlayer3D:
+	_hatch_log.append(base)
+	var p := _sfx_at(base, Vector3(HATCH_X - 0.3, HATCH_MID, HATCH_Z), db, HATCH_UNIT)
+	if p:
+		p.name = "Hatch_" + base
+		p.max_db = HATCH_MAX_DB
+	return p
+
+
+func _on_airlock_opened() -> void:
+	if _hatch_state != 0 or GameState.is_ending:
+		return
+	_hatch_state = 1
+	get_tree().create_timer(HATCH_SLAM_AT).timeout.connect(_hatch_slam)
+
+
+func _hatch_slam() -> void:
+	# ⚠️ ONE FRAME: the face, the light, the slam, the scream AND the ambience dip all start here —
+	# the dip is contrast under the scream, never a warning ahead of it.
+	var bus := AudioServer.get_bus_index(AudioBuses.AMBIENCE)
+	if bus >= 0:
+		_hatch_bus_db = AudioServer.get_bus_volume_db(bus)
+		AudioServer.set_bus_volume_db(bus, _hatch_bus_db + HATCH_BUS_DIP_DB)
+	_hatch_face.visible = true
+	_hatch_face.position = Vector3(FACE_HIDDEN_X + 0.25, HATCH_MID - 0.04, HATCH_Z)
+	_hatch_light.light_energy = HATCH_LIGHT_ENERGY
+	_hatch_face_mat.emission_energy_multiplier = 0.3
+	_hatch_sfx("intro_hatch_slam", HATCH_SFX_DB)
+	_hatch_voice = _hatch_sfx("patient_scream", SCREAM_DB)
+	var t := create_tween()
+	t.tween_property(_hatch_face, "position:x", FACE_SLAM_X, 0.08).set_ease(Tween.EASE_IN)
+	t.parallel().tween_property(_hatch_face, "position:y", HATCH_MID, 0.08)
+	t.tween_property(_hatch_face, "position:x", FACE_AT_BARS_X, 0.12).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	var shake := create_tween()
+	for k in 6:
+		shake.tween_property(_hatch_bars, "position:z", HATCH_Z + (0.012 if k % 2 == 0 else -0.012) * (1.0 - k / 6.0), 0.035)
+	shake.tween_property(_hatch_bars, "position:z", HATCH_Z, 0.04)
+	_hatch_trembling = true
+	var length := 2.37
+	if _hatch_voice and _hatch_voice.stream:
+		length = _hatch_voice.stream.get_length()
+	get_tree().create_timer(length + HATCH_WORDS_GAP).timeout.connect(_hatch_words)
+
+
+# Then, still pressed to the bars under his light: the words.
+func _hatch_words() -> void:
+	_hatch_voice = _hatch_sfx("intro_patient_words", WORDS_DB)
+	_patient_line(PATIENT_WORDS, 2.4)
+	var length := 2.33
+	if _hatch_voice and _hatch_voice.stream:
+		length = _hatch_voice.stream.get_length()
+	get_tree().create_timer(length + 0.05).timeout.connect(_hatch_dragged_back)
+
+
+# ⚠️ His words get their OWN line, above the observer's caption slot, and never queue. The first
+# tour put them through _caption(): the queue held them behind VO4's still-fading caption, so the
+# words were read only after the shutter had come down. He is not the observer — a different
+# speaker, a different line, a different colour — and a shout has to land with the voice.
+func _patient_line(text: String, seconds: float) -> void:
+	_immediate_line(text, seconds, PATIENT_CAPTION_COLOR, "PatientLine")
+
+
+# A line that must land WITH its event, never queued behind the observer's captions — the patient's
+# shout, and (sixth hand playtest, 2026-09-26) the tray's rebuke. It sits above the caption slot.
+func _immediate_line(text: String, seconds: float, color: Color, node_name: String) -> void:
+	_captions.append(text)
+	var old := get_node_or_null(node_name)
+	if old:
+		old.queue_free()
+		old.name = node_name + "Old"
+	var canvas := CanvasLayer.new()
+	canvas.name = node_name
+	canvas.layer = 50
+	add_child(canvas)
+	var lbl := Label.new()
+	lbl.name = "Text"
+	lbl.text = text
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 22)
+	lbl.add_theme_color_override("font_color", color)
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0))
+	lbl.add_theme_constant_override("outline_size", 6)
+	lbl.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	lbl.offset_top = -200.0
+	lbl.offset_bottom = -145.0
+	canvas.add_child(lbl)
+	var t := canvas.create_tween()
+	t.tween_property(lbl, "modulate:a", 1.0, 0.12).from(0.0)
+	t.tween_interval(seconds)
+	t.tween_property(lbl, "modulate:a", 0.0, 0.8)
+	t.finished.connect(canvas.queue_free)
+
+
+# Only after the words: he is dragged back from the bars and down, into the dark.
+func _hatch_dragged_back() -> void:
+	_hatch_trembling = false
+	var t := create_tween()
+	t.set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN)
+	t.tween_property(_hatch_face, "position:x", FACE_GONE_X, HATCH_DRAG_TIME)
+	t.parallel().tween_property(_hatch_face, "position:y", HATCH_MID - 0.22, HATCH_DRAG_TIME)
+	t.parallel().tween_property(_hatch_face, "rotation:x", 0.35, HATCH_DRAG_TIME)
+	get_tree().create_timer(HATCH_LIGHT_DIES_AFTER).timeout.connect(_hatch_light_dies)
+	get_tree().create_timer(HATCH_SHUTTER_AFTER).timeout.connect(_hatch_shutter_drop)
+
+
+func _hatch_light_dies() -> void:
+	var t := create_tween()
+	for e in [0.3, HATCH_LIGHT_ENERGY * 0.7, 0.0, HATCH_LIGHT_ENERGY * 0.4, 0.0]:
+		t.tween_property(_hatch_light, "light_energy", e, 0.045)
+	t.tween_callback(func() -> void:
+		_hatch_face.visible = false
+		_hatch_face_mat.emission_energy_multiplier = 0.0)
+
+
+func _hatch_shutter_drop() -> void:
+	_hatch_sfx("intro_hatch_shutter", HATCH_SFX_DB)
+	var t := create_tween()
+	t.tween_property(_hatch_shutter, "position:y", _shutter_y(true), HATCH_SHUTTER_DROP) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	t.tween_callback(_hatch_shut)
+	t.tween_property(_hatch_shutter, "position:y", _shutter_y(true) + 0.02, 0.05)
+	t.tween_property(_hatch_shutter, "position:y", _shutter_y(true), 0.06)
+
+
+func _hatch_shut() -> void:
+	_hatch_state = 2
+	_advance("hatch")
+	if is_instance_valid(_hatch_voice) and _hatch_voice.playing:
+		create_tween().tween_property(_hatch_voice, "volume_db", _hatch_voice.volume_db + SHUTTER_MUFFLE_DB, 0.05)
+	var bus := AudioServer.get_bus_index(AudioBuses.AMBIENCE)
+	if bus >= 0:
+		var from := AudioServer.get_bus_volume_db(bus)
+		create_tween().tween_method(func(v: float) -> void: AudioServer.set_bus_volume_db(bus, v),
+			from, _hatch_bus_db, 2.5)
+	get_tree().create_timer(HATCH_AFTER).timeout.connect(func() -> void: _hatch_state = 3)
+
+
+func _tick_hatch() -> void:
+	if not _hatch_trembling or _hatch_face == null:
+		return
+	var tt := Time.get_ticks_msec() / 1000.0
+	_hatch_face.position.y = HATCH_MID + sin(tt * 41.0) * 0.004 + sin(tt * 17.0) * 0.003
+	_hatch_face.position.z = HATCH_Z + sin(tt * 29.0) * 0.004
+	_hatch_light.light_energy = HATCH_LIGHT_ENERGY * (0.92 + 0.08 * sin(tt * 53.0))
+
+
+# Back from the Lab: the shutter is already down, the hatch dark, nobody behind it.
+func _hatch_restore() -> void:
+	_hatch_state = 3
+	if _hatch_shutter:
+		_hatch_shutter.position.y = _shutter_y(true)
+	if _hatch_face:
+		_hatch_face.visible = false
+	if _hatch_light:
+		_hatch_light.light_energy = 0.0
+
+
+# ---------------------------------------------------------------- the back door (the Lab -> here)
+
+# ⭐ spec/levels/README.md's contract. GameState captures this on the way OUT; coming back through
+# the Lab's back door (entered_from_ahead) the wing is built SOLVED and you stand in the airlock.
+func save_progress() -> Dictionary:
+	return {"beats": _beats.keys(), "note_read": GameState.intro_note_read}
+
+
+func _restore_progress() -> void:
+	if not GameState.entered_from_ahead:
+		return
+	var data := GameState.get_level_progress(0)
+	for b in ["straps", "torch", "blackout", "calibration", "gaze", "series_d", "calibrated", "hatch", "proceed"]:
+		_beats[b] = true
+	for b in data.get("beats", []):
+		_beats[String(b)] = true
+	GameState.intro_note_read = true
+	# The cell: nobody on the bed, the door open (the straps were built open).
+	_hall_state = 2
+	for d in _doors.values():
+		(d as WingDoor).move_aside_instantly()
+	# The ward: lit, the glimpse bed empty, the candle burning, the wheelchair already turned.
+	_switch_flipped = true
+	var sw := get_node_or_null("LightSwitch")
+	if sw:
+		sw.set("_used", true)
+		sw.set("_presses", SWITCH_PRESSES)
+	if is_instance_valid(_glimpse_form):
+		_glimpse_form.queue_free()
+	_glimpse_form = null
+	for light in _ceiling_lights:
+		if not is_equal_approx((light as OmniLight3D).position.z, TABLE_POS.z):
+			(light as OmniLight3D).light_energy = 0.9
+	candle_light.visible = true
+	candle_light.light_energy = BASE_ENERGY
+	if _candle_flame:
+		_candle_flame.visible = true
+	_candle_lit = true
+	_wheelchair_armed = false
+	_wheelchair_turned = true
+	var wc := get_node_or_null("Wheelchair") as Node3D
+	if wc:
+		wc.rotation.y += deg_to_rad(WHEELCHAIR_TURN_DEG)
+	if _env:
+		_env.ambient_light_energy = NORMAL_AMBIENT
+		_env.ambient_light_color = LIT_AMBIENT_COLOR
+	_calib_state = 5
+	_airlock_state = 1
+	_hatch_restore()
+	player.unlock_flashlight()
+	player.unfreeze_input()
+	# In the airlock, facing back into the wing (east, toward calibration).
+	player.global_position = Vector3(-5.2, 0.05, -18.2)
+	player.rotation.y = -PI / 2.0
+	player.camera.position.y = 1.65
+	player.camera.rotation.x = 0.0
+	player.set("_pitch", 0.0)
+	_refresh_doors()
 
 
 # ---------------------------------------------------------------- twist ending (unchanged)
@@ -1726,8 +4514,10 @@ func _spawn_cobwebs() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 870261 if not GameState.is_ending else 870262
 
-	var corner_x := ROOM_SIZE.x / 2.0 - 0.1
-	var corner_z := ROOM_SIZE.y / 2.0 - 0.1
+	# ⚠️ From the wall FACES (2026-09-24): with 0.3 walls "- 0.1" sat 5 cm INSIDE the plaster and
+	# only the inward pull below got the webs out; with RoomBuilder's 0.2 it would be on the face.
+	var corner_x := ROOM_SIZE.x / 2.0 - WALL_T / 2.0 - 0.05
+	var corner_z := ROOM_SIZE.y / 2.0 - WALL_T / 2.0 - 0.05
 	var y_anchor := ROOM_HEIGHT - 0.05
 
 	# Top corners as (x sign, z sign). The opening room only webs the two back
@@ -1801,6 +4591,11 @@ func _process(delta: float) -> void:
 			+ sin(_flicker_time * 0.6) * 0.1
 		return
 	_tick_wheelchair()
+	_tick_hall()
+	_tick_props(delta)
+	_tick_ward_fittings()
+	_tick_calibration(delta)
+	_tick_hatch()
 	if not candle_light or not _candle_lit:
 		return
 	candle_light.light_energy = BASE_ENERGY \

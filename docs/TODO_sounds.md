@@ -23,6 +23,40 @@ it will tick once per cycle.
 
 ---
 
+## 2026-09-24 — Intro: THE INTAKE WING (stand-ins, all wanted)
+
+Procedural stand-ins from `tools/make_sfx_intro.py` (stdlib only; `python3 tools/make_sfx_intro.py`
+writes ONLY these — the four older intro sounds are rewritten only with `--all`). Replace any of them
+by dropping a real recording into `game/assets/audio/intro/` under the **same base name**, then
+`--import`; no code changes. Levels measured with ffmpeg `volumedetect` (mean / max).
+
+| File (in `game/assets/audio/intro/`) | What it is | Real-sound prompt (for a sound designer / AI generator) | Stand-in (measured) | Suggested bus / volume |
+|---|---|---|---|---|
+| ~~`intro_strap_buckle.wav`~~ + `intro_strap_buckle_2.wav` + `intro_strap_buckle_3.wav` — ⚠️ **UNUSED since 2026-09-25** (the third hand playtest removed the buckling; nothing in the game plays them — left on disk, not deleted) | A leather restraint strap pulled free of its buckle — one take per strap (0, 1, 2), three takes cut from ONE user recording so the three no longer sound identical ✅ **USER RECORDING (2026-09-24)** — raw in `assets_src/audio/intro/user/`, rendered by `tools/import_intro_user_sfx.py` (trimmed, mono, mean matched to the stand-in); `make_sfx_intro.py` skips this slot. | "Close, dry: a thick leather hospital restraint strap drawn back through a steel buckle, leather creaking under tension, a slap of slack leather, the buckle tongue clinking free, 1 second, no room tone" | stick-slip creak, a leather slap at 0.47 s, three inharmonic clinks. −21.0 / −1.0 dB | 3D at the strap, 0 dB, unit 2 |
+| ~~`intro_cell_buzz.wav`~~ | The cell door's electric release after the third strap ✅ **USER RECORDING (2026-09-24)** — raw in `assets_src/audio/intro/user/`, rendered by `tools/import_intro_user_sfx.py` (trimmed, mono, mean matched to the stand-in); `make_sfx_intro.py` skips this slot. | "Institutional electric door release: a harsh 1-second buzzer with a rattling armature, then a heavy steel bolt shooting back, concrete room, 1.7 seconds" | clipped 120/240 Hz buzz with 31 Hz armature AM, then a bolt clack. −12.9 / −1.0 dB | 3D above the door, +2 dB |
+| ~~`intro_door_creak.wav`~~ | An old wooden ward door swinging open (every door in the wing) ✅ **USER RECORDING (2026-09-24)** — raw in `assets_src/audio/intro/user/`, rendered by `tools/import_intro_user_sfx.py` (trimmed, mono, mean matched to the stand-in); `make_sfx_intro.py` skips this slot. | "Old heavy wooden hospital door opening slowly on dry rusty hinges: a latch click, a long wavering hinge squeal, a soft knock at the stop, 1.6 seconds, empty corridor" | latch tick, stick-slip hinge squeal slowing, soft stop knock. −20.3 dB mean | 3D at the door, 0 dB |
+| `intro_door_rattle.wav` | A locked door tried: the handle rattling against its latch | "Someone trying a locked old door: the brass handle turned and rattled hard against a latch that will not give, 0.7 seconds, dry" | five knock+tone rattles. −22.5 / −1.0 dB | 3D at the door, −4 dB |
+| `intro_tap_rust.wav` | The cell tap's first turn: the pipe coughs rust before it runs | "An old tap turned on after years: pipes knock, air coughs and sputters, brown water spits and gurgles into a steel basin, then starts to run, 3 seconds" | low pipe knocks, band-noise sputter bursts thickening, bubble clicks. −17.1 / −1.0 dB | 3D at the sink, −6 dB |
+| `intro_tap_water.wav` | ⚠️ **LOOP** — a thin steady stream into a steel basin | "Seamless 3-second loop: a thin steady stream of tap water falling into a small steel hospital basin, close, no room reverb" | band noise + splash shimmer, tail cross-faded into the head. −15.6 / −6.0 dB | 3D at the sink, −6 dB, restarted on `finished` |
+| `intro_bulb_hum.wav` | ⚠️ **LOOP** — a bare filament bulb's mains buzz, under every caged bulb | "Seamless 4-second loop: the faint electrical buzz of a bare incandescent bulb on old wiring, 100 Hz hum with harmonics, very slight unsteady flutter" | 100/200/300 Hz + a 50 Hz edge, slow wobble. −14.1 / −8.0 dB | 3D per bulb, −24 dB, unit 1.2 (Ambience) — it dies in the blackout |
+| ~~`intro_power_cut.wav`~~ | The wing losing power as the ward door opens ✅ **USER RECORDING (2026-09-24)** — raw in `assets_src/audio/intro/user/`, rendered by `tools/import_intro_user_sfx.py` (trimmed, mono, mean matched to the stand-in); `make_sfx_intro.py` skips this slot. | "A building's power cutting out: a heavy relay slam, every electrical hum dropping away at once in a falling whine, a tick of cooling metal, 2.4 seconds" | relay thump, 120 → 18 Hz falling whine, a late tick. −19.7 / −1.0 dB | 3D at the ward door, +2 dB, unit 8 |
+| `intro_projector_run.wav` | ⚠️ **LOOP** — the calibration room's slide projector running: fan whirr, blade tone, lamp hum | "Seamless 4-second loop: a 1960s carousel slide projector running — cooling fan whirr, faint motor tone, lamp transformer hum, close" | band noise + 188 Hz blade tone + 100/200 Hz hum. −16.8 / −6.9 dB | 3D at the projector, −4 dB, unit 3 |
+| `intro_projector_slide.wav` | A carousel advancing to the next slide | "A vintage carousel slide projector changing slide: mechanical clack, slide dropping into the gate, click, 0.5 seconds" | three filtered clicks with short resonances. −23.8 / −1.0 dB | 3D at the projector, −4 dB |
+| `intro_chair_sit.wav` | ⭐ NEW (first hand playtest, 2026-09-24) — sitting down in the calibration chair: the weight landing, the old joints creaking, a loose wrist strap slapping the arm | "Someone sitting down heavily in an old wooden chair: a dull thump, the wooden joints creaking under the weight, then a loose leather strap slapping against the wooden armrest, 1 second, close, dry" | wooden thump, stick-slip joint creak through two resonances, a strap slap at 0.62 s. −19.8 / −1.0 dB | 3D at the chair, 0 dB, unit 3 |
+| `intro_airlock_buzzer.wav` | The airlock's release: a two-tone buzz, then the bolts letting go | "Institutional airlock door release: a harsh two-tone electric buzzer, a short pause, then heavy door bolts retracting, 2.2 seconds" | 150 Hz then 118 Hz clipped buzz, then a bolt thump. −11.1 / −1.0 dB | 3D in the airlock, 0 dB |
+| `intro_hatch_slam.wav` | ⭐ NEW (fourth hand playtest, 2026-09-25) — the patient slamming into the airlock hatch's steel bars | "A man's body slamming hard into a barred steel hatch in a concrete cell: a heavy dull thud, the iron bars ringing and rattling in their frame, 1.3 seconds, close, dry" | low 70 Hz thud + noise crack, five detuned bar partials (612–947 Hz) ringing out, a thinning rattle of knocks. −20.6 / −1.0 dB | 3D at the hatch, +6 dB, unit 3 (`HATCH_SFX_DB`) |
+| `intro_hatch_shutter.wav` | ⭐ NEW (2026-09-25) — the hatch's steel shutter dropping over the bars after the patient is dragged away | "A heavy steel shutter dropped down its rails over a cell hatch: a short metal scrape, a flat deafening bang, sheet metal ringing, a latch dropping into place, 1.6 seconds, concrete room" | rising noise scrape (0.16 s), an 88 Hz bang + crack + 431/1187/2210 Hz sheet ring, a latch click at 0.55 s. −20.5 / −1.0 dB | 3D at the hatch, +6 dB, unit 3 |
+| `intro_patient_words.wav` | ⭐ NEW (2026-09-25) — the patient at the hatch shouting *"They'll kill us. They'll kill ALL of us!"* (2.33 s). ⚠️ **STAND-IN**: macOS `say`, shouted and roughened by `tools/make_patient_voice.py` (the ElevenLabs key is invalid). NOT the observer — outside the five-line voice budget. Plays AFTER the user's wordless `patient_scream.ogg` (2.37 s, −1.2 dB mean — a user recording, not a TODO), which starts on the slam's own frame (the user: *"first a scream and a very sudden one. And secondly, they will kill all us"*) | "A hoarse, terrified man shouting through bars in an echoing concrete cell: 'They'll kill us. They'll kill ALL of us!' — voice cracking on 'all', ~2.5 s" | `say` voice, shouted/ragged. −14.7 / −3.1 dB | 3D at the hatch; gain from the measured levels: the scream's `SCREAM_DB` + 13.5 (the files' mean gap) − 4 = words 4 dB under the scream |
+| ~~`intro_session46_tape.wav`~~ | The reel-to-reel's "SESSION 46" reel (~40 s). ⚠️ **WORDLESS** — the voice is rationed to five lines ✅ **USER RECORDING (2026-09-24)** — raw in `assets_src/audio/intro/user/`, rendered by `tools/import_intro_user_sfx.py` (trimmed, mono, mean matched to the stand-in); `make_sfx_intro.py` skips this slot. | "40 seconds of an old reel-to-reel interview tape played back: capstan motor and heavy hiss, two voices murmuring indistinctly behind a wall (no intelligible words), one voice faltering, close breathing getting faster, a chair scraping, silence, one sharp gasp, then the tape running out and its tail flapping on the reel" | motor + hiss bed; formant-buzz murmur in turns; breathing that quickens; chair scrape at 20.4 s; gasp at 35.3 s; tail flap from 38.2 s. −23.5 / −3.1 dB | 3D at the deck, +2 dB, unit 3 |
+
+**The five observer lines** are TTS, not stand-ins in the same sense — `python3 tools/make_pa_voice.py
+intro` writes `pa_intro_{morning,fault,screen,better,proceed}.wav` (macOS `say` "Daniel" through the
+Lab PA's tannoy chain; the same person as `pa_trial4`). A human read of the same five lines, run
+through the same chain or a real tannoy, would be the upgrade. All five play since the second pass
+(2026-09-24): VO1 in the cell, VO2 at the blackout, VO3/VO4 in calibration, VO5 in the airlock.
+
+---
+
 ## 2026-09-24 — House porch pass (stand-ins)
 
 ✅ **2026-09-24 (b): six of these are the user's recordings now**, under the user's own names. The
@@ -39,7 +73,16 @@ only the three stand-ins still played:
   synthetic screams.
 - **`witch_scream.mp3`** is new: the witch's second glimpse, behind you in the Hallway.
 
-Still stand-ins, still wanted: `porch_wind_gust`, `guillotine_rope`, `forest_run_leaves`. The rows below for the other eight are history.
+Still stand-ins, still wanted: `porch_wind_gust`, `guillotine_rope`, `forest_run_leaves`, and (new
+2026-09-24 c) **`blade_pull`**. The rows below for the other eight are history.
+
+⭐ **2026-09-24 (c): `blade_pull.wav` — NEW, a stand-in, wanted.** The guillotine's blade is driven
+into a stump in a clearing out in the forest now (the forest became the required search); E pulls it
+free and this plays AT the stump (`house_blade_stump.gd`, 3D, 0 dB, unit size 5).
+
+| File (in `game/assets/audio/level_2_house/`) | What it is | Real-sound prompt (for a sound designer / AI generator) | Stand-in (measured) | Suggested bus / volume |
+|---|---|---|---|---|
+| `blade_pull.wav` | A heavy guillotine blade wrenched out of a wet tree stump | "A heavy steel blade levered and wrenched out of a wet rotten tree stump outdoors at night: wood creaking and groaning under strain, a short metal scrape, a wet sucking release, then the freed blade ringing briefly, 1.5 seconds, close, dry, no music" | stick-slip wood groan through two resonances rising for 0.78 s, a rising 2.2–4.8 kHz scrape from 0.44 s, a wet lowpassed suck and knock at 0.80 s, then four inharmonic plate partials (612 / 1487 / 2716 / 4130 Hz) ringing out; tanh. Peak −3.0, RMS −18.4, loudest-300 ms −12.3 | 3D at the stump, 0 dB (the caller's `PULL_DB`) |
 
 ⚠️ PLACEHOLDERS at the final path, **synthesised** by `tools/make_sfx_house_porch.py` (stdlib, seeded
 per sound, 44.1 kHz 16-bit mono). The user is supplying the real ones: drop the real file over the
@@ -115,7 +158,7 @@ them in.
 
 | File | Length | What it is | Where it fires |
 |---|---|---|---|
-| `game/assets/audio/intro/switch_stuck.wav` | ~0.5–0.8 s | **A light switch that does NOT throw.** A heavy mechanical clack that stops short — the sound of a switch hitting something and refusing, not a switch working. It must be clearly *different* from `switch_clunk` (the successful throw on the second press), because the whole beat is "that did not work, try again". A dry electrical fizz/pop layered under it is welcome. | `intro_room.gd:_on_switch_stuck()` — the FIRST press of the light switch |
+| ~~`game/assets/audio/intro/switch_stuck.wav`~~ ✅ **RESOLVED 2026-09-24 — the user's own recording**, rendered by `tools/import_intro_user_sfx.py`; `_on_switch_stuck()` already prefers it over the fallback below | ~0.5–0.8 s | **A light switch that does NOT throw.** A heavy mechanical clack that stops short — the sound of a switch hitting something and refusing, not a switch working. It must be clearly *different* from `switch_clunk` (the successful throw on the second press), because the whole beat is "that did not work, try again". A dry electrical fizz/pop layered under it is welcome. | `intro_room.gd:_on_switch_stuck()` — the FIRST press of the light switch |
 | `game/assets/audio/intro/wheelchair_turn.wav` | ~1.1 s | **A wheelchair turning on a concrete floor, by itself.** Caster squeak plus the low grind of loaded rubber pivoting; slow, deliberate, unhurried. Should feel like weight moving, not like a door hinge. Length wants to match `WHEELCHAIR_TURN_TIME` (1.1 s) so the sound ends as the turn ends. | `intro_room.gd:_tick_wheelchair()` — when the player gets within 3.2 m of the wheelchair and looks at it, after reading the note |
 
 **Current fallbacks** (what you hear until the files land):

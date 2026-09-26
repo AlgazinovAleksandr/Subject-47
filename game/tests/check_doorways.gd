@@ -39,6 +39,9 @@ const GATE_SCRIPTS := [
 	# archive_gate.gd (KONTUR A5): the transit door that slides open on the hidden keycard — a door,
 	# and doors are allowed to stand in a doorway.
 	"archive_gate.gd",
+	# wing_door.gd (the Intro's Intake Wing, 2026-09-24): a hinged interior door — its solid leaf
+	# is a `LeafBody` under the door's Hinge, found by this file's ancestor walk.
+	"wing_door.gd",
 ]
 # ...and node names, for gates built as bare CSG by the level itself.
 # ⭐ `LoopWallPlug` (2026-09-20): the Void walls up the LoopIn <-> LoopStraight doorway on lap 2
@@ -62,8 +65,22 @@ const GATE_NAMES := ["MorgueSeal", "MorgueShutter", "RosterSeal", "AirlockSeal",
 #               mandatory: a table that silently failed to load looks exactly the same.
 #   filed       {label: why a blocked doorway here is not being fixed in this pass}
 #   seeds       RNG seeds for a scene that builds itself from dice
+#   open        {door node: why} — doors swung open through the level's own
+#               `move_aside_instantly()` BEFORE the measurement, so the doorway is measured with
+#               the leaf where an opened door leaves it. That is a real assertion (an open leaf
+#               must clear its own opening) and it gives the control a clear doorway to seal in
+#               a level whose every door starts shut.
 const CONFIG := {
-	"SCENE_INTRO": {"no_doors": "intro_room.gd builds one hand-placed ward, no room graph"},
+	# ⭐ 2026-09-24: the Intake Wing is a RoomBuilder graph — five doorways, every one a WingDoor
+	# that starts SHUT. All five are opened first: the ward's doors are opened by the level itself
+	# (the straps, the torch, the switch + note) and the others by E.
+	"SCENE_INTRO": {"min_doors": 5, "open": {
+		"CellDoor": "releases when VO1 ends, after the wake-up",
+		"HallDoor": "opens on E",
+		"WardEntryDoor": "unlocks when the torch is taken",
+		"WardDoor": "unlocks when the ward is lit and the note read",
+		"AirlockDoor": "opens on E",
+	}},
 	"SCENE_LEVEL_1": {"min_doors": 10},
 	"SCENE_LEVEL_2": {"min_doors": 8},
 	"SCENE_CORRIDOR": {"no_doors": "corridor.gd builds a 320 m path from PATH_2D"},
@@ -146,6 +163,15 @@ func _process(delta: float) -> bool:
 	# ⚠️ TIME, never a frame count (X42); CSG colliders are not registered during `_ready()`
 	# (Issue 52), and a ray fired too early passes through everything.
 	if _stage == "measure":
+		if not cfg.get("open", {}).is_empty() and not bool(cfg.get("_opened", false)) \
+				and _t > float(cfg["settle"]) * 0.5:
+			cfg["_opened"] = true
+			for dn in cfg["open"]:
+				var dnode := current_scene.get_node_or_null(String(dn))
+				_ok("%s: door %s exists to open" % [cfg["label"], dn],
+					dnode != null and dnode.has_method("move_aside_instantly"))
+				if dnode and dnode.has_method("move_aside_instantly"):
+					dnode.call("move_aside_instantly")
 		if _t < float(cfg["settle"]):
 			return false
 		_measure(cfg)

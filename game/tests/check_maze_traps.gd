@@ -41,6 +41,7 @@ const TIMEOUT := 40.0
 
 var _t := 0.0
 var _stage := 0
+var _reseal_checked := false   # 2026-09-24 (f): the break → ESC → reopen pass runs once
 var _checks := 0
 var _fails: Array[String] = []
 var _scene: Node = null
@@ -243,12 +244,7 @@ func _process(delta: float) -> bool:
 			"%d armed" % (_solo.get("_fragments") as Array).size())
 		# Freeze the hunter and disarm the snares — this stage is about the objective gate,
 		# and a 1.2 s snare hold or a catch mid-teleport would only add flake.
-		_solo.set("_monster_start_timer", 999.0)
-		var none: Array[Vector2] = []
-		_solo.set("_snares", none)
-		var far := Vector2(-99999.0, -99999.0)
-		_solo.set("_monster_pos", far)
-		_solo.set("_patrol_pos", far)
+		_freeze_solo()
 		# ⚠️ THE POSITIVE CONTROL. Stand ON the mark with fragments still out.
 		_solo.set("_player_pos", _solo.get("_target_pos"))
 		_stage = 6
@@ -306,8 +302,36 @@ func _process(delta: float) -> bool:
 
 	elif _stage == 9 and _t > 0.5:
 		_ok("the hammer against a pane BREAKS the glass", _solo.get("_glass_broken") == true)
+		if not _reseal_checked:
+			# ⭐ 2026-09-24 (f): break → ESC → reopen. The hammer re-arms (ESC is not a
+			# checkpoint), so the glass must re-seal with it — it used to stay broken while
+			# being redrawn sealed. Then the whole hammer → glass run is driven again below.
+			_reseal_checked = true
+			_solo.call("_close")
+			_solo.call("open")
+			_freeze_solo()
+			_stage = 91
+			_t = 0.0
+			return false
 		_solo.set("_player_pos", _solo.get("_target_pos"))
 		_stage = 10
+		_t = 0.0
+
+	elif _stage == 91 and _t > 0.3:
+		_ok("after break → ESC → reopen the glass is SEALED again", _solo.get("_glass_broken") == false)
+		_ok("…the hammer is back on the board",
+			(_solo.get("_fragments") as Array).size() > 0)
+		var sealed_nodes: Array = _solo.get("_pane_nodes")
+		_ok("…and the panes drawn are the panes that block",
+			sealed_nodes.size() > 0 and sealed_nodes.size() == (_solo.get("_pane_rects") as Array).size())
+		_solo.set("_player_pos", _solo.get("_target_pos"))
+		_stage = 92
+		_t = 0.0
+
+	elif _stage == 92 and _t > 0.5:
+		_ok("…standing on the key after the reopen does NOT win",
+			_solo.get("_ui_open") == true and _solo.get("_glass_broken") == false)
+		_stage = 7
 		_t = 0.0
 
 	elif _stage == 10 and _t > 1.0:   # WIN_HOLD 0.4 s of the key lifting first
@@ -479,3 +503,14 @@ func _finish() -> void:
 			print("  FAIL: " + f)
 		print("RESULT: FAIL")
 		quit(1)
+
+
+# Hunter and patroller parked off the board, snares disarmed: the objective-gate stages are
+# about the hammer and the glass, and a catch or a 1.2 s snare hold would only add flake.
+func _freeze_solo() -> void:
+	_solo.set("_monster_start_timer", 999.0)
+	var none: Array[Vector2] = []
+	_solo.set("_snares", none)
+	var far := Vector2(-99999.0, -99999.0)
+	_solo.set("_monster_pos", far)
+	_solo.set("_patrol_pos", far)

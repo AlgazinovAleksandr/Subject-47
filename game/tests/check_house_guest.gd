@@ -7,7 +7,8 @@ extends SceneTree
 #
 # The ladder:
 #   1 map solved    -> (nothing since 2026-09-24 — the first PORCH VISIT arms the painting now,
-#                      and it still falls only when seen; the hole + watermelon are behind it)
+#                      precisely the first step onto the deck since 2026-09-24 c; it still falls
+#                      only when seen; the hole + watermelon are behind it)
 #   2 key taken     -> (nothing changes in the house)
 #   3 cellar opened -> arms the cellar sequence
 #   4 note read     -> the music box has moved to the Hallway, still playing
@@ -263,9 +264,17 @@ func _process(delta: float) -> bool:
 		_scene.call("_advance_guest", 1)
 		_ok("stage 1 (the map) no longer arms the painting",
 			not _flag("_painting_armed") and not _flag("_painting_fallen"))
-		_scene.call("_on_first_porch_visit")
-		_ok("the first porch visit ARMS the painting rather than dropping it",
+		# ⭐ 2026-09-24 (c): the FIRST STEP ONTO THE DECK arms it (decoupled from the scrawl, which
+		# now waits for a real look at the guillotine). Driven through the level's own
+		# `_tick_porch()` with the player standing on the deck, facing away from the frame.
+		var back_to := _player.global_position
+		_stand(Vector3(-9.3, 0.1, 4.2), Vector3(-9.3, 1.2, 0.0))
+		_scene.call("_tick_porch", 0.016)
+		_ok("the first step onto the deck ARMS the painting rather than dropping it",
 			_flag("_painting_armed") and not _flag("_painting_fallen"))
+		_ok("…without the porch scrawl (that waits for a real look at the guillotine)",
+			not _flag("_porch_visited"))
+		_stand(back_to, back_to + Vector3(0, 1.2, 1.0))
 		var hole := _scene.get_node_or_null("PlasterHole") as Node3D
 		var melon := _scene.get_node_or_null("HouseWatermelon")
 		_ok("before the fall the hole is hidden and the fruit is inert",
@@ -359,7 +368,7 @@ func _process(delta: float) -> bool:
 		_stage = 2
 		_t = 0.0
 
-	elif _stage == 2 and _t > 6.4:      # CHILD_APPEAR_DELAY is 5.5
+	elif _stage == 2 and _t > 6.4:      # CHILD_APPEAR_DELAY is 4.5 (5.5 until 2026-09-24 c)
 		# THE ASSERTION THIS BLOCK EXISTS FOR: the delay has elapsed, and it has NOT appeared.
 		_ok("the child does NOT appear while a note is open",
 			_scene.get_node_or_null("GuestChild") == null,

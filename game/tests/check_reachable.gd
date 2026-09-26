@@ -137,8 +137,24 @@ const CONFIG := {
 		# stepping off means the capsule clipping the frame, which a grid of standing
 		# positions cannot represent and a walking player does without noticing. Seed the
 		# floor beside the gurney instead, derived from the level's own constant.
-		"seeds": ["@intro_floor"], "gates": {}, "ignore": {},
-		"min_cells": 6000, "min_targets": 2,
+		# ⭐ 2026-09-24, the Intake Wing: five WingDoors, every one shut at load. Each is opened
+		# through its own `move_aside_instantly()` (the restore path), so the fill answers "with the
+		# wing solved, can the player reach everything in it?". The ward floor stays the seed.
+		"seeds": ["@intro_floor"], "gates": {
+			"CellDoor": "releases when VO1 ends, after the wake-up (the level drives it)",
+			"HallDoor": "opens on E",
+			"WardEntryDoor": "unlocks when the torch is taken",
+			"WardDoor": "unlocks when the ward is lit and the note read",
+			"AirlockDoor": "opens on E",
+		}, "ignore": {},
+		# ⭐ The standing eye (first hand playtest, 2026-09-24): the intro now opens with you LYING
+		# on the cell bed (camera 0.3), and before that sat you up (0.85) — every intro probe until
+		# now was taken from a sitting eye. A standing player's is player.gd's 1.65.
+		"eye": 1.65,
+		# Measured 2026-09-24 with the five doors open: 37 targets (the wing's doors, straps, tap,
+		# reel, notes, cabinet drawers, torch, the ward's switch and note). 2026-09-25: the straps
+		# are no longer interactable (no buckling); 51 targets with the calibration props.
+		"min_cells": 16000, "min_targets": 30,
 	},
 	"SCENE_LEVEL_1": {
 		"seeds": ["@player"],
@@ -717,6 +733,14 @@ func _measure(cfg: Dictionary) -> void:
 	_cap_h = caps.y
 	var cam := player.get_node_or_null("Camera3D") as Node3D
 	_eye = cam.position.y if cam else EYE_FALLBACK
+	# ⚠️ A scene that opens with the player NOT standing (the Intro wakes you LYING on the cell
+	# bed, camera 0.3 m over the body) would otherwise probe the whole level from a pillow-height
+	# eye. The row's `eye` says what a standing player's eye is; the camera is put there too,
+	# because the probes aim the real camera.
+	if cfg.has("eye") and cam:
+		_eye = float(cfg["eye"])
+		cam.position.y = _eye
+		cam.rotation = Vector3(cam.rotation.x, 0.0, 0.0)
 	var ir: Variant = player.get_script().get("INTERACT_RANGE")
 	_reach = (float(ir) if ir != null else 3.0) * REACH_FRACTION
 

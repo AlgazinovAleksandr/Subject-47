@@ -1,0 +1,23 @@
+# Every flux prompt tried for the intro, kept as a record. Only the raws a tool actually reads are
+# kept beside this file; the unused drafts (floor_a/b, wall_plaster_a/b/c, patient_a/c,
+# series_d_1a/1c/4a/4c/5a) were deleted on 2026-09-26 — their prompts below reproduce them.
+wall_plaster_a: flat straight-on photograph of a derelict asylum corridor wall, heavily peeling pale grey-green paint over old plaster, large flaking patches exposing darker plaster beneath, fine cracks, brown damp stains and water streaks running down, grime, dim even overhead light, no objects, no doors, texture filling the entire frame
+wall_plaster_b: close texture photo of decayed institutional wall, peeling grey-green lead paint curling off cracked plaster, mould blooms, rust-brown drip streaks, dirty and damp, flat frontal view, even lighting, fills frame, no objects
+floor_a: top-down photograph of a wet, stained concrete floor in an abandoned asylum, dark grey, shallow puddles with sheen, rust stains, grime, cracks, scattered plaster flakes, even light, seamless texture filling the frame
+wall_plaster_c: seamless tileable PBR albedo texture, peeling old grey-green painted plaster wall, flaking paint chips revealing grey plaster, hairline cracks, faint brown water stains, dirty, orthographic flat scan, uniform diffuse lighting, no shadows, no perspective, no objects
+wall_plaster_d: material texture swatch: weathered sage green asylum paint peeling from cracked plaster, patches of bare grey plaster, grime and damp discoloration, flat orthographic photo, evenly lit, tileable
+floor_b: seamless tileable PBR albedo texture, old dirty grey concrete floor, water stains, dark damp patches, grime, small cracks, fine grit, orthographic top-down scan, uniform diffuse lighting, no perspective, realistic photograph
+
+# SERIES D + the patient (fourth hand playtest, 2026-09-25) — flux-1-schnell, 4 steps, CF key #1.
+# S = "grainy black-and-white 1950s archival flash photograph, harsh on-camera flash, deep black shadows, heavy film grain, dust and scratches"
+# C = "a pale grey emaciated humanoid creature with impossibly long thin limbs and its head wrapped in dirty bandages"
+series_d_1b (FIG. 1, USED): Wide shot down a very long dark derelict asylum corridor lined with empty iron beds, and at the very far end, tiny and barely visible in the gloom, C standing hunched, its arms hanging down past its knees, S
+series_d_2a (FIG. 2, USED): A stained white cloth privacy curtain on a metal frame in a dark hospital ward, the tall thin silhouette of a figure with a bandage-wrapped head pressed against the curtain from behind, its long fingers pushing through the fabric, S
+series_d_3a (FIG. 3, USED): A pale emaciated figure with its head wrapped in dirty bandages crouching on the bare springs of a rusted iron hospital bed, long thin limbs folded, head turned toward the camera, mid shot in a dark asylum room, S
+series_d_4b (FIG. 4, USED): Close-up of the face of C pressed flat against a wired glass window in a heavy old door, the bandages slipping to show one black hollow eye and grey stretched skin, its long bony fingers splayed on the glass, S
+series_d_5b (FIG. 5, USED): Extreme close-up filling the entire frame, the bandaged head of C lunging straight into the camera lens, bandages torn away from a gaping black toothless mouth and one black hollow eye, motion blur, overexposed by the flash, S
+patient_b (the airlock hatch, USED): Close-up portrait of a gaunt shaved-head male asylum patient screaming in terror straight at the viewer, bulging wide eyes, mouth stretched wide open, sweat on pale skin, hollow cheeks, face lit harshly from below, everything behind him pitch black, grainy black-and-white photograph
+rejected: series_d_1a/1c (a man in a gown, too human / no ward), 4a/4c (neutral face / side view), 5a (comic nose), patient_a (a light bulb IN his mouth), patient_c (colour, snarling not terrified); series_d_2b refused by the API as "NSFW".
+stim_doll_a: grainy black and white 1950s archival clinical photograph of an old porcelain doll sitting upright on a hospital cot, its eyes scratched out and blacked, cracked face, harsh flash, plain wall behind, psychological test stimulus card, film grain, scratches
+stim_chair_a: grainy black and white 1950s archival photograph of an empty wooden restraint chair with leather straps under a single hanging lamp in a bare asylum room, harsh flash, deep shadows, film grain, dust and scratches
+stim_skull_a: vintage 1930s medical textbook illustration of a human skull in three-quarter view, engraved line art on yellowed paper, anatomical plate, faded ink, foxing stains, no text, no labels

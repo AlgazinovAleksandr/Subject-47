@@ -167,6 +167,10 @@ func _process(delta: float) -> bool:
 func _build_plan() -> void:
 	# No scrawl over the porch shots, and no random apparition wandering into a frame.
 	_l.set("_porch_visited", true)
+	# ⚠️ And the level's random blackout clock (+4 panic at 24–44 s): with the player's physics
+	# off here, `add_panic()` pushes the HUD's red blur and nothing ever pulls it back, so every
+	# frame after ~30 s was blurred (26/27 on 2026-09-24 d — measured, the witch adds 0).
+	_l.set("_blackout_clock", 99999.0)
 	var dir := _l.get_node_or_null("ApparitionDirector")
 	if dir:
 		dir.queue_free()
@@ -200,6 +204,9 @@ func _build_plan() -> void:
 		_stand(Vector3(-5.8, 0.1, 6.0), Vector3(-9.0, 1.0, 6.0)), false])
 	_shots.append(["04_porch_from_room", 0.5, func() -> void:
 		_stand(Vector3(-6.0, 0.1, 5.6), Vector3(-11.0, 1.0, 7.4)), false])
+	# ⭐ 2026-09-24 (c): the frame is BLADELESS until the blade comes back from the forest.
+	_shots.append(["05a_bladeless_from_window", 0.5, func() -> void:
+		_stand(Vector3(-8.2, 0.1, 5.4), Vector3(-10.35, 1.3, 7.75)), false])
 	_shots.append(["05_guillotine", 0.5, func() -> void:
 		_stand(Vector3(-9.1, 0.1, 6.3), Vector3(-10.35, 0.9, 7.75)), false])
 	_shots.append(["06_porch_to_yard", 0.5, func() -> void:
@@ -218,6 +225,27 @@ func _build_plan() -> void:
 		_l.call("_spawn_ghost", 1, Vector3(-25.0, 0, 11.0), Vector3(-25.0, 0, 0.0), _p), false])
 	_shots.append(["12_ghost_tall", 1.2, func() -> void:
 		_l.call("_spawn_ghost", 2, Vector3(-32.0, 0, 2.0), Vector3(-32.0, 0, 10.0), _p), false])
+	# --- ⭐ 2026-09-24 (c): the clearing and the stump with the blade in it ---
+	# ⭐⭐ (d): the stump is in the FAR NORTH-WEST CORNER behind one thick trunk (HIDE_TRUNK, to its
+	# south-east). The close poses stand on the side AWAY from that trunk; the 22_* poses stand on
+	# the two sightlines the trunk is there to cut.
+	var stump_at := Vector3(HouseOutdoors.BLADE_CLEARING.x, 0.0, HouseOutdoors.BLADE_CLEARING.y)
+	_shots.append(["20_stump_torch_4m", 0.6, func() -> void:
+		_stand(stump_at + Vector3(3.6, 0.1, 1.6), stump_at + Vector3(0, 0.55, 0)), false])
+	_shots.append(["21_stump_moon_only", 0.5, func() -> void:
+		_p.call("force_flashlight_off"), false])
+	_shots.append(["22a_trunk_hides_it_7m_on_the_rail_gap_line", 0.6, func() -> void:
+		_p.call("restore_flashlight")
+		var u := Vector3(-12.0 - stump_at.x, 0.0, 6.0 - stump_at.z).normalized()
+		_stand(stump_at + u * 7.0 + Vector3(0, 0.1, 0), stump_at + Vector3(0, 0.6, 0)), false])
+	_shots.append(["22b_from_the_forest_middle", 0.6, func() -> void:
+		_stand(Vector3(-26.0, 0.1, 6.0), stump_at + Vector3(0, 0.6, 0)), false])
+	_shots.append(["22c_from_the_rail_gap", 0.6, func() -> void:
+		_stand(Vector3(-12.3, 0.1, 6.0), stump_at + Vector3(0, 0.6, 0)), false])
+	_shots.append(["23_stump_close", 0.5, func() -> void:
+		_stand(stump_at + Vector3(0.9, 0.1, 1.5), stump_at + Vector3(0, 0.5, 0)), false])
+	_shots.append(["24_stump_pulled", 0.6, func() -> void:
+		_l.get_node("BladeStump").call("interact"), false])
 	# --- the painting down, the hole, the fruit ---
 	_shots.append(["13_painting_hole", 0.9, func() -> void:
 		_l.call("_force_painting_down")
@@ -225,15 +253,22 @@ func _build_plan() -> void:
 	_shots.append(["14_hole_close", 0.4, func() -> void:
 		_stand(Vector3(0.7, 0.1, 17.9), Vector3(0.85, 1.35, 19.0)), false])
 	# --- the guillotine loaded, then cut ---
+	# Blade mounted and fruit set, by the level's own restore path (the mount tween would hold
+	# `_busy` through a second interact on the same frame).
 	_shots.append(["15_guillotine_loaded", 0.6, func() -> void:
 		var g := _l.get_node("Guillotine")
-		g.set("melon_in_hand", true)
-		g.call("interact")
+		g.call("restore", "placed", false, true)
+		g.set("blade_in_hand", false)
+		_l.set("_blade_state", "mounted")
+		_l.set("_melon_state", "placed")
+		_l.call("_refresh_carried")
 		_stand(Vector3(-9.3, 0.1, 6.6), Vector3(-10.35, 0.7, 7.75)), false])
 	_shots.append(["16_guillotine_cut", 1.4, func() -> void:
 		_l.get_node("Guillotine").call("interact"), false])
-	_shots.append(["17_basket", 0.4, func() -> void:
-		_stand(Vector3(-9.55, 0.1, 6.95), Vector3(-9.9, 0.1, 7.35)), false])
+	# ⭐ 2026-09-24 (c): no basket — the cutters and one half on the deck boards.
+	_shots.append(["17_cutters_on_deck", 0.4, func() -> void:
+		var c := _l.get_node("Guillotine").call("cutters_node") as Node3D
+		_stand(Vector3(-9.2, 0.1, 6.6), c.global_position if c else Vector3(-9.9, 0.1, 7.35)), false])
 	# --- the witch, on the tree line ---
 	_shots.append(["18_witch_tree_line", 0.6, func() -> void:
 		_stand(Vector3(-11.0, 0.1, 6.0), Vector3(-18.0, 1.0, 7.0))
@@ -250,3 +285,23 @@ func _build_plan() -> void:
 			print("witch already on the tree line (glimpse 3)"), false])
 	_shots.append(["19_witch_note_table", 0.5, func() -> void:
 		_stand(Vector3(0.0, 0.1, -2.0), Vector3(1.1, 0.8, -0.6)), false])
+	# --- ⭐⭐ 2026-09-24 (d): the witch SEEN in the house ---
+	# A: standing where SafeNote_First is read, facing it; the level's own "the note was closed"
+	# path stages her, turns the camera and holds — captured mid-hold (turn 0.45 s, hold 1.5 s).
+	_shots.append(["25_witch_a_bedroom_doorway", 1.3, func() -> void:
+		for c in _l.get_children():
+			if c is Watcher:
+				c.queue_free()       # the tree-line figure from 18
+		var n1 := _l.get_node("SafeNote_First") as Node3D
+		_stand(Vector3(-7.0, 0.1, n1.global_position.z - 1.6), n1.global_position)
+		_l.call("_on_first_note_closed"), false])
+	_shots.append(["25b_after_release", 1.6, func() -> void: pass, false])
+	# B: the 8-minute sighting, the timer hooked to now, in the Hallway facing north.
+	_shots.append(["26_witch_b_behind_in_hallway", 1.5, func() -> void:
+		# z 9.8: clear of the Hallway's footsteps-overhead trigger box (z 7.25–8.75, +6 panic) — at
+		# z 9.0 the capsule entered it and the panic HUD blurred the frame (measured: B itself adds 0).
+		_stand(Vector3(0.0, 0.1, 9.8), Vector3(0.0, 1.4, 14.0))
+		_l.set("witch_b_after", 0.0), false])
+	# The mounted blade's art, close, in the frame (the loaded/cut shots above show it at 1.5 m).
+	_shots.append(["27_blade_art_in_frame", 0.5, func() -> void:
+		_stand(Vector3(-9.6, 0.1, 6.9), Vector3(-10.35, 0.85, 7.75)), false])

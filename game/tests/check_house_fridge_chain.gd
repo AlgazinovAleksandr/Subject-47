@@ -2,16 +2,18 @@ extends SceneTree
 
 # H2 (2026-09-13): the House's third digit is on the head in the CHAINED fridge.
 # ⭐ 2026-09-24 (the Porch pass): the bolt cutters are no longer under the Bedroom bed — they come
-# out of the watermelon in the porch guillotine's basket. This file only needs them IN HAND, so it
-# puts the guillotine in its CUT state by the level's own restore path and then takes the cutters
-# through the shipping E ray; `check_house_porch.gd` walks the whole chain that gets them there.
+# out of the watermelon the porch guillotine cuts, onto the deck boards (no basket since
+# 2026-09-24 c, and the guillotine needs its blade from the forest first). This file only needs
+# the cutters IN HAND, so it puts the guillotine in its CUT state by the level's own restore path
+# (blade mounted — a cut fruit implies it) and then takes the cutters through the shipping E ray;
+# `check_house_porch.gd` walks the whole chain that gets them there, blade walk included.
 #
 #   Godot --headless --path game --script res://tests/check_house_fridge_chain.gd
 #
 #   * the Bedroom wall note is gone; SAFE_NOTES_TOTAL is still 3
 #   * E on the chained fridge opens nothing (and the chain is still there)
-#   * nothing is under the Bedroom bed any more; the cutters lie in the guillotine's basket once
-#     the fruit is cut, and the shipping ray takes them from the deck
+#   * nothing is under the Bedroom bed any more; the cutters lie on the deck in front of the
+#     guillotine once the fruit is cut, and the shipping ray takes them from there
 #   * with the cutters in hand E cuts the chain; the fridge then opens; looking at the head for
 #     HEAD_READ_TIME registers SafeNote_Head and archives it
 #   * a snapshot round trip carries fridge_chained / cutters_held / the head digit
@@ -75,15 +77,18 @@ func _process(delta: float) -> bool:
 			if g == null:
 				return _done()
 			# Put the porch in the state the chain leaves it in — the level's own restore path
-			# (window burst silently, fruit cut, cutters in the basket), never a hand-built copy.
+			# (window burst silently, blade mounted, fruit cut, cutters on the deck), never a
+			# hand-built copy.
 			_lvl.get_node("HouseWindow").call("break_pane", false)
 			_lvl.set("_melon_state", "cut")
-			g.call("restore", "cut", false)
+			_lvl.set("_blade_state", "mounted")
+			g.call("restore", "cut", false, true)
 			var c := g.call("cutters_node") as Node3D
-			_ok("the cutters lie in the guillotine's basket", c != null)
+			_ok("the cutters lie on the deck in front of the guillotine", c != null
+				and c.global_position.y < 0.05, str(c.global_position.snappedf(0.01)) if c else "none")
 			if c == null:
 				return _done()
-			# From the front of the guillotine, on the deck, looking into the basket.
+			# From the front of the guillotine, on the deck, looking down at them.
 			var front: Vector3 = (g as Node3D).global_transform.basis.z
 			_stand((g as Node3D).global_position + front * 1.2 + Vector3(0, 0.1, 0), c.global_position)
 			var tgt = _p.call("ai_interact_target")

@@ -24,7 +24,8 @@ signal flipped
 #
 # So `glows` now gates only the LEVER INDICATOR, at a fraction of its old energy,
 # because red-vs-green is real state feedback ("did I already flip this?") rather
-# than an affordance. The panel never self-illuminates any more, in either mode.
+# than an affordance. The panel never self-illuminates on its own, in either mode —
+# the ONE exception is set_glow(), which a level drives explicitly (below).
 @export var glows: bool = true
 
 # ⚠️ Set true by a level whose breaker is PHYSICALLY SEALED behind something else — the
@@ -53,6 +54,8 @@ var _done: bool = false
 var _lever: CSGBox3D
 var _lever_mat: StandardMaterial3D
 var _pilot_mat: StandardMaterial3D
+var _panel_mat: StandardMaterial3D
+var _glow_k: float = 0.0
 
 
 func _ready() -> void:
@@ -79,6 +82,14 @@ const PANEL_TEX := "res://assets/textures/level_1_lab/lab_breaker_panel.png"
 const PANEL_TINT := Color(0.6, 0.6, 0.62)
 const PANEL_TINT_DIM := Color(0.28, 0.28, 0.29)
 
+# ⭐ 2026-09-24 (the user's call): the BreakerNook panel glows faintly while the player stands
+# INSIDE that one room — "just a slight shine so that you can see it in the dark, but only when
+# you get to the final room". The level drives it through set_glow(k); nothing here decides when.
+# The art itself is the emission texture, so the box outline and fuses read, not a flat patch.
+# ⚠️ Emission is most of a surface's colour in this project (no tonemapping, no glow — Issue 21);
+# keep this tiny. Everywhere outside the nook k is 0 and the Issue 62/63 darkness is untouched.
+const GLOW_MAX := 0.025   # measured 2026-09-24: 0.06 read as a solid grey box, 0.012 lost the art
+
 
 func _build() -> void:
 	var panel := CSGBox3D.new()
@@ -98,6 +109,7 @@ func _build() -> void:
 		pm.metallic = 0.6
 		pm.roughness = 0.5
 	panel.material = pm
+	_panel_mat = pm
 	add_child(panel)
 
 	# The handle is a HANDLE — dark moulded plastic, never the state colour. It used to
@@ -191,6 +203,26 @@ func _pilot_green() -> void:
 	_pilot_mat.albedo_color = Color(0.04, 0.30, 0.08)
 	if glows:
 		_pilot_mat.emission = Color(0.05, 0.7, 0.1)
+
+
+# 0 = no emission at all (the shipped dark state), 1 = GLOW_MAX. See GLOW_MAX.
+func set_glow(k: float) -> void:
+	k = clampf(k, 0.0, 1.0)
+	if not _panel_mat or is_equal_approx(k, _glow_k):
+		return
+	_glow_k = k
+	if k <= 0.0:
+		_panel_mat.emission_enabled = false
+		return
+	_panel_mat.emission_enabled = true
+	_panel_mat.emission = Color(1, 1, 1)
+	if _panel_mat.albedo_texture:
+		_panel_mat.emission_texture = _panel_mat.albedo_texture
+	_panel_mat.emission_energy_multiplier = GLOW_MAX * k
+
+
+func get_glow() -> float:
+	return _glow_k
 
 
 # player.gd asks this before showing a prompt or setting an interact target. See `blocked`.

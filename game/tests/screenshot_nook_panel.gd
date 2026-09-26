@@ -31,6 +31,15 @@ extends SceneTree
 # The wing is meant to be solved by ear (`_spawn_dark_beacon`) and by the panel-hum meter.
 # The panel is allowed to be found by touch at arm's length; it is not allowed to be a
 # landmark at 10 m.
+#
+# ⭐ 2026-09-24 (the user's call): INSIDE BreakerNook the panel now shines faintly
+# (`Breaker.set_glow`, driven by `level_1.gd:_tick_nook_glow`) so it can be found once you are
+# in the right room. The NOOK_POSES rows below stand in the room and from Shaft, wait out the
+# 1.5 s fade, and measure the same contrast — in the nook it SHOULD stand clear of the wall;
+# from Shaft it must not.
+# ⚠️ The DISTANCES rows still use the pre-2026-09-13 sightline (z = 7.7, when the nook was at
+# x = -37); the wing was rebuilt since, so those rows now look at whatever wall is in the way.
+# They are kept as history; the NOOK_POSES rows are the ones that face the panel today.
 
 const OUT := "/tmp/nook_panel/"
 const DISTANCES := [2.0, 3.5, 6.0, 10.0, 15.0]
@@ -40,6 +49,14 @@ const DISTANCES := [2.0, 3.5, 6.0, 10.0, 15.0]
 # probe that only ever samples its own convenient sightline is a probe that can miss the
 # frame the complaint came from.
 const CAPTURE_POSE := Vector3(-27.50, 0.10, 8.30)
+
+# [tag, x offset from the panel along BreakerNook's centre line (z = 16.5)] — or, for Shaft,
+# an absolute (x, z): 1.2 m south of the nook doorway, i.e. one room out.
+const NOOK_POSES := [
+	["nook 1.5m", 1.5], ["nook 3.0m", 3.0], ["nook 5.0m", 5.0],
+	["shaft", Vector2(-57.0, 13.3)],
+]
+const NOOK_SETTLE_S := 2.2   # longer than level_1.gd's NOOK_GLOW_FADE 1.5 s
 
 # A pixel difference this small cannot be seen on any display and is inside PNG rounding.
 const JND := 1.0 / 255.0
@@ -63,6 +80,7 @@ var _worst_far := 0.0
 # 11x11 box landed roughly a third of the way in from the top-left corner of where the panel
 # actually was: it measured WALL and reported the panel as dark. Always convert.
 var _px_scale := 1.0
+var _wait := 0.0
 
 
 func _initialize() -> void:
@@ -95,7 +113,7 @@ func _panel_corners() -> Array:
 	return out
 
 
-func _process(_delta: float) -> bool:
+func _process(delta: float) -> bool:
 	_frame += 1
 	if _frame < 12:
 		return false
@@ -118,7 +136,10 @@ func _process(_delta: float) -> bool:
 		print("     so leaving it in reports the RETICLE as the brightest pixel of the panel)")
 		print("    panel front face at %s, size %s" % [_panel.global_position, _panel.size])
 
-	if _step >= DISTANCES.size() + 1:
+	var n_old: int = DISTANCES.size() + 1
+	if _step >= n_old and _step < n_old + NOOK_POSES.size():
+		return _nook_pose(delta, NOOK_POSES[_step - n_old])
+	if _step >= n_old + NOOK_POSES.size():
 		print("")
 		for r in _rows:
 			print(r)
@@ -229,13 +250,44 @@ func _measure(img: Image, d: float, tag: String) -> void:
 	if d >= 6.0:
 		_worst_far = maxf(_worst_far, excess)
 
-	img.save_png(OUT + "nook_%02dm%s.png" % [int(d), "_capture" if tag != "" else ""])
+	img.save_png(OUT + "nook_%02dm%s.png" % [int(d), _suffix(tag)])
 	_save_crop(img, x0, y0, x1, y1, d, tag)
 
 	_rows.append(("  %5.1f m%s panel max %.4f  p99.5 %.4f  mean %.4f | wall max %.4f mean %.4f"
 		+ " | EXCESS %.4f (%.1f/255)  michelson %.3f  px over wall %d/%d")
 		% [d, " *" if tag != "" else "  ", panel_max, p995, panel_sum / float(panel_n), wall_max, wall_mean,
 			excess, excess * 255.0, michelson, over, panel_n])
+
+
+func _nook_pose(delta: float, pose: Array) -> bool:
+	var tag: String = pose[0]
+	var at := Vector3(-57.0, 0.1, 16.5)
+	if pose[1] is Vector2:
+		var v: Vector2 = pose[1]
+		at = Vector3(v.x, 0.1, v.y)
+	else:
+		at.x = _panel.global_position.x + float(pose[1])
+	if _wait == 0.0:
+		print("    .. %s: standing at %s" % [tag, at])
+	_player.global_position = at
+	_player.velocity = Vector3.ZERO
+	_player.lock_flashlight()
+	_player.ai_active = true
+	_player.ai_look_at(_panel.global_position)
+	_hide_hud(root)
+	_wait += delta
+	if _wait < NOOK_SETTLE_S:
+		return false
+	_wait = 0.0
+	var breaker: Node = _panel.get_parent()
+	var img := _cam.get_viewport().get_texture().get_image()
+	var vp_w: float = float(_cam.get_viewport().get_visible_rect().size.x)
+	_px_scale = float(img.get_width()) / maxf(1.0, vp_w)
+	var d: float = _panel.global_position.distance_to(at)
+	_rows.append("  -- %s  (glow k = %.2f)" % [tag, float(breaker.call("get_glow"))])
+	_measure(img, d, tag)
+	_step += 1
+	return false
 
 
 # A x24 exposure boost of the panel's neighbourhood, so a human can SEE what the numbers say.
@@ -253,4 +305,12 @@ func _save_crop(img: Image, x0: int, y0: int, x1: int, y1: int, d: float, tag: S
 			var c := crop.get_pixel(x, y)
 			crop.set_pixel(x, y, Color(minf(1.0, c.r * 24.0), minf(1.0, c.g * 24.0),
 				minf(1.0, c.b * 24.0)))
-	crop.save_png(OUT + "nook_%02dm%s_boost24x.png" % [int(d), "_capture" if tag != "" else ""])
+	crop.save_png(OUT + "nook_%02dm%s_boost24x.png" % [int(d), _suffix(tag)])
+
+
+func _suffix(tag: String) -> String:
+	if tag == "":
+		return ""
+	if tag == "capture pose":
+		return "_capture"
+	return "_" + tag.replace(" ", "_").replace(".", "")

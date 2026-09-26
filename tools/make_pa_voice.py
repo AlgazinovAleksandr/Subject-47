@@ -14,7 +14,25 @@ Voiced with macOS `say`, then degraded through ffmpeg into a 1970s tannoy: band-
 to a telephone-ish 300-3000 Hz, lightly overdriven, laid over a mains hum, and topped
 and tailed with relay clicks.
 
-Run:  python3 tools/make_pa_voice.py     (no venv needed — stdlib + say + ffmpeg)
+Run:  python3 tools/make_pa_voice.py            -> pa_trial4 only (the original behaviour)
+      python3 tools/make_pa_voice.py intro      -> the five Intake Wing lines (2026-09-24)
+      python3 tools/make_pa_voice.py all        -> both
+(no venv needed — stdlib + say + ffmpeg)
+
+⭐ A TABLE OF LINES SINCE 2026-09-24 (the Intake Wing). The observer who speaks in the intro is the
+same person as the Lab's PA — same voice, same rate, same tannoy chain — so the five intro lines are
+rows in `LINES` rather than a second tool. `pa_trial4`'s row is the old constants verbatim and its
+ffmpeg commands are the old strings verbatim; with the noise source seeded identically in both, the
+refactored tool writes a byte-identical file (checked by md5 when this landed).
+
+⚠️ TWO TRAPS, both measured:
+  * the output is NOT deterministic run to run: `anoisesrc` (the relay clicks) is unseeded, so two
+    runs of the ORIGINAL tool already differed by md5. Byte-identity is only meaningful with the
+    seed pinned on both sides.
+  * the shipped Lab asset is `pa_trial4.OGG`, and this tool writes `pa_trial4.WAV` beside it.
+    `GameState.load_audio()` tries wav BEFORE ogg, so running the trial4 row into the game folder
+    silently REPLACES the Lab's PA with this regeneration. That is why the default is unchanged
+    and the intro lines are opt-in by argument, never the other way round.
 """
 
 import shutil
@@ -25,6 +43,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "game/assets/audio/level_1_lab/pa_trial4.wav"
+INTRO_DIR = ROOT / "game/assets/audio/intro"
 
 VOICE = "Daniel"     # en_GB, dry and institutional — reads as a records clerk
 RATE = 172           # words per minute; unhurried, bored, reading from a file
@@ -38,6 +57,30 @@ LINE = (
     "Subject forty seven is not to be"
 )
 
+# group -> [(output path, text)]. `[[slnc N]]` is `say`'s own embedded silence, in ms — it is how
+# the 46 -> 47 slip gets its catch: the observer reads the wrong number, stops, and corrects it.
+# ⚠️ FIVE intro lines and no more — the voice is rationed (spec/levels/00-intro.md); every other
+# observer line in the wing is a `ScreenText.caption` or paper. Each of these is ALSO captioned
+# in game by the level, so the wording here must match `intro_room.gd`'s VO table.
+LINES = {
+    "trial4": [(OUT, LINE)],
+    "intro": [
+        # VO1 — the cell, as the wake-up settles.
+        (INTRO_DIR / "pa_intro_morning.wav",
+         # ⚠️ A CORRECTION, not a stutter (fourth hand playtest, 2026-09-25: "It should be like good
+         # morning 46, I mean, 47").
+         "Good morning, forty six. [[slnc 300]] I mean, [[slnc 200]] forty seven."),
+        # VO2 — the ward door: the relay drops mid-sentence (the chain's own dead cut).
+        (INTRO_DIR / "pa_intro_fault.wav", "We have a fault in"),
+        # VO3 — calibration opens.
+        (INTRO_DIR / "pa_intro_screen.wav", "Look at the screen, forty seven."),
+        # VO4 — calibration closes.
+        (INTRO_DIR / "pa_intro_better.wav", "Much better than last time."),
+        # VO5 — the airlock.
+        (INTRO_DIR / "pa_intro_proceed.wav", "You may proceed."),
+    ],
+}
+
 
 def need(binary):
     if shutil.which(binary) is None:
@@ -47,7 +90,20 @@ def need(binary):
 def main():
     need("say")
     need("ffmpeg")
+    want = sys.argv[1] if len(sys.argv) > 1 else "trial4"
+    groups = list(LINES) if want == "all" else [want]
+    for g in groups:
+        if g not in LINES:
+            sys.exit(f"error: unknown group {g!r} (have: {', '.join(LINES)}, all)")
+        for out, text in LINES[g]:
+            render(out, text)
 
+
+def render(OUT, LINE):
+    """One line through the tannoy chain. ⚠️ The parameter names shadow the module constants on
+    purpose: the body below is the pre-table `main()` VERBATIM, so pa_trial4's commands are
+    unchanged string for string."""
+    OUT.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         raw = tmp / "raw.aiff"

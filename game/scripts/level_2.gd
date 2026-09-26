@@ -13,10 +13,12 @@ extends Node3D
 # The living-room window is a real opening in the west wall now; the forest scare BURSTS it and
 # behind it are a porch with a GUILLOTINE and a moonlit forest that kills you if you stay out
 # (`_tick_forest_clock`, a user-approved level-local panic term). Digit 2's chain: the witch's
-# note -> the window -> the first porch visit (arms the painting) -> the painting falls -> the
-# WATERMELON in the hole behind it -> the guillotine -> the BOLT CUTTERS -> the fridge chain.
-# Geometry lives in house_outdoors.gd / house_window.gd; the props in house_guillotine.gd and
-# house_watermelon.gd; every BEAT is here.
+# note -> the window -> the first step onto the deck (arms the painting) -> the painting falls ->
+# the WATERMELON in the hole behind it -> the guillotine, which has NO BLADE (2026-09-24 c): the
+# blade is in a stump in a clearing out in the forest -> mount it, set the fruit, pull -> the BOLT
+# CUTTERS on the deck -> the fridge chain. Geometry lives in house_outdoors.gd / house_window.gd;
+# the props in house_guillotine.gd, house_blade_stump.gd and house_watermelon.gd; every BEAT is
+# here.
 
 const TEX := "res://assets/textures/level_2_house/"
 const PRESERVE := ["Environment", "AmbientPlayer", "CreakPlayer", "HUDCanvas", "Player"]
@@ -91,13 +93,16 @@ const GUEST_HALLWAY_SPOT := Vector3(0.0, 0.11, 7.4)     # Hallway, between you a
 const GUEST_CHILD_SPOT := Vector3(0.0, 0.0, 10.0)
 const CHILD_VOLUME_DB := 18.0        # "the scream should be much louder" (2026-07-29)
 # The cellar sequence, timed exactly as specified on the 2026-07-29 playtest.
-const CHILD_APPEAR_DELAY := 5.5      # dark first, then the child
+# ⭐ 2026-09-24 (c, playtest capture #4: "WHERE AM I? -> the doll is about a second too long"):
+# 5.5 -> 4.5, the user's call. The blackout is CHILD_APPEAR_DELAY + CHILD_HOLD = 7.5 s now.
+const CHILD_APPEAR_DELAY := 4.5      # dark first, then the child
 # H5 (2026-09-16, the user): a red WHERE AM I? while you are pinned in the dark — up at
-# CELLAR_WHERE_AT, held CELLAR_WHERE_HOLD, and GONE (0.6 in + hold + 1.4 out = 4.7 s) before the
-# doll at CHILD_APPEAR_DELAY. It must never share the screen with the figure.
+# CELLAR_WHERE_AT, held CELLAR_WHERE_HOLD, and GONE (0.7 + 0.6 in + hold + 1.4 out = 3.9 s) before
+# the doll at CHILD_APPEAR_DELAY (a 0.6 s margin). It must never share the screen with the figure.
+# ⭐ 2026-09-24 (c): hold 2.0 -> 1.2 with the doll a second earlier, the user's call.
 const CELLAR_WHERE_TEXT := "WHERE AM I?"
 const CELLAR_WHERE_AT := 0.7
-const CELLAR_WHERE_HOLD := 2.0
+const CELLAR_WHERE_HOLD := 1.2
 const CHILD_HOLD := 3.0              # …and the lights come back this long after
 const CHILD_DIST := 3.2              # the FAR end of the ladder now (was the first try)
 # ⭐ 2026-09-10 — near-first (the user: *"the doll should appear very close to you"*). At 1.7 m a
@@ -123,8 +128,9 @@ const PAINTING_FALL_DB := 8.0
 # puts the panel on the other side of it with ~0.5 m of wall between the two.
 const PAINTING_X := 0.85
 
-# The fridge — the single new panic term in the atmosphere pass. Voluntary, optional,
-# off the quest path, one-shot. See house_fridge.gd's header.
+# The fridge — the single new panic term in the atmosphere pass. One-shot. ⚠️ NOT optional and
+# NOT off the quest path any more: since 2026-09-13 digit 2 is on the forehead of the head inside
+# it (chained until the bolt cutters cut it). See house_fridge.gd's header.
 const FRIDGE_PANIC := 10.0
 
 # The footsteps overhead, after the scripted one-shot. Zero panic, on a long gap.
@@ -179,10 +185,31 @@ const WINDOW_BREAK_DELAY := 0.6
 const PORCH_SCRAWL := "SHALL I PUT SOMETHING THERE?"
 const PORCH_SCRAWL_TIME := 3.0
 const PORCH_SCRAWL_REPEAT := 4.0             # E on the empty lunette re-thinks it, no faster
-const PORCH_VISIT_DWELL := 2.0               # on the deck this long, or facing the guillotine
+# ⭐ 2026-09-24 (c, playtest capture #1: the scrawl "should appear after you first look at the
+# gilatin, not … immediately after you enter the back yard"). A REAL LOOK: the guillotine's centre
+# within range, the camera's 3-D forward within ~26 deg of it, a clear line of sight, all held
+# for GUILLOTINE_LOOK_HOLD. ⚠️ The old test was a FLAT dot >= 0.6 with no range and no LOS, plus
+# a 2 s dwell fallback — stepping west out of the window gives 0.69, so it fired on the first
+# deck frame, 0.25 s after the burst. The dwell fallback is gone; arming the painting no longer
+# waits on the look (`_tick_porch`), so nobody who never looks squarely at it is stranded.
+const GUILLOTINE_LOOK_RANGE := 5.0
+const GUILLOTINE_LOOK_DOT := 0.9
+const GUILLOTINE_LOOK_HOLD := 0.3
+const GUILLOTINE_LOOK_Y := 1.0               # its centre: the lunette and the uprights
 const PORCH_GHOST_DELAY := 4.0               # the guaranteed tree-line pass after the scrawl
 const PORCH_GHOST_WAIT_MAX := 6.0            # …waiting this much longer for a look at the yard
+# ⭐ 2026-09-24 (c): "looking at the yard" is the camera facing roughly WEST (it was fwd.x < -0.35,
+# which a camera pointed at the guillotine passes), and the guaranteed pass runs a FIXED lane
+# across that view — x -19.5, z 12 <-> 0, seen through the porch's open west side. ⚠️ The old
+# lane was projected from the camera's heading and clamped, and with the camera on the
+# guillotine it ran z 25 -> 15, crossing the x = -12 line at z 8..11, i.e. BEHIND the porch's
+# 2.4 m north fence — the one guaranteed ghost was probably never seen (ISSUES_SOLUTIONS).
+const YARD_LOOK_X := -0.7
+const TREE_LINE_GHOST_X := -19.5
+const TREE_LINE_GHOST_Z := Vector2(12.0, 0.0)
 const GUILLOTINE_AT := Vector3(-10.35, 0.0, 7.75)
+# ⭐ 2026-09-24 (c): the frame has no blade until you bring it back from the stump in the forest.
+const BLADE_SCRAWL := "WHERE IS THE BLADE?"
 
 # ⚠️⚠️ THE FOREST CLOCK — A NEW PANIC TERM, EXPLICITLY APPROVED BY THE USER (grill Q4, 2026-09-24).
 # ⚠️ DELIBERATE — the user's call 2026-09-24. Do not retune without them.
@@ -218,18 +245,48 @@ const GHOST_KINDS := [
 		"pitch": 0.62, "near": 14.0, "far": 19.0, "glow": 0.6 },
 ]
 
-# The witch: a note and three zero-panic glimpses (the second one screams — 2026-09-24 b). She NEVER moves toward you, chases or
-# kills (SCARY §8.4 — the Breach stays the only chase level).
+# The witch: a note, two silent zero-panic glimpses outdoors (1 through the glass, 3 on the tree
+# line) and — ⭐⭐ 2026-09-24 (d) — two SIGHTINGS in the house (A on closing the first note, B after
+# eight minutes), each with her scream and a forced camera turn, zero panic. She NEVER moves toward
+# you, chases or kills (SCARY §8.4 — the Breach stays the only chase level).
+# ⚠️ Glimpse 2 (the Hallway, behind you, after taking the fruit) is DELETED (2026-09-24 d): it
+# stood 12.9 m behind the player, beyond the 11 m torch, in a house at ambient 0.0 — heard, never
+# seen (playtest 2 capture #3). Its scream is what the sightings use.
 const WITCH_TEX := TEX + "house_witch.png"
 const WITCH_HEIGHT := 1.65
 const WITCH_RETRY := 0.3
 const WITCH_SCREAM_DB := 0.0     # the user's witch_scream is already hot (mean −5.6 dBFS)
-const WITCH_2_PATIENCE := 20.0   # glimpse 2 needs the Hallway BEHIND you; past this it is dropped
 const WITCH_1_SPOTS_X := [-19.0, -21.0, -17.5]   # along the view line through the glass
-const WITCH_2_SPOTS := [Vector3(0, 0, 4.2), Vector3(0, 0, 5.4), Vector3(0.5, 0, 4.6),
-	Vector3(-0.5, 0, 4.6), Vector3(0, 0, 6.6)]
 const WITCH_3_SPOTS := [Vector3(-17.0, 0, 9.5), Vector3(-17.5, 0, 12.5), Vector3(-18.0, 0, 7.0),
 	Vector3(-16.5, 0, 4.0), Vector3(-17.0, 0, 1.0), Vector3(-18.5, 0, 6.0)]
+# ⭐⭐ 2026-09-24 (d) — THE SIGHTINGS (the user: *"At least one time the baba yaga should be seen in
+# the house. I heard it but did not see"*; grill row 15: "Lab-style, no panic"). The Lab nook's and
+# the cellar child's idiom — the scream leads, the player is pinned (`freeze_input`, velocity zeroed
+# by hand, Issue 49) and `turn_to_face()`d onto her chest, she holds, fades, and they are released —
+# WITHOUT the nook's panic. ⚠️ ZERO PANIC, deliberately: a forced turn cannot be avoided, so it must
+# not cost (SCARY §8.11, and the governing rule — stop adding panic terms). A `Watcher` with
+# `require_los` (the LOS ray is also the only "inside a wall" probe, Issues 40/59), persistent so
+# only this beat decides when she goes. Postponed on WITCH_SIGHT_RETRY — never fired blind — while a
+# note or any pause is up, the player is already pinned (a QTE, the cellar), or the cellar blackout
+# runs; and a real-time WITCH_SIGHT_SAFETY release so a sighting can never strand the player frozen.
+const WITCH_SIGHT_TURN := 0.45       # CHILD_TURN_TIME / NOOK_TURN_TIME, the proven number
+const WITCH_SIGHT_HOLD := 1.5        # after the turn lands
+const WITCH_SIGHT_FADE := 0.4
+const WITCH_SIGHT_DIP := 0.4         # CHILD_DIP: the room goes quiet under the scream
+const WITCH_SIGHT_RETRY := 0.25      # CHILD_RETRY
+const WITCH_SIGHT_SAFETY := 5.0      # real time; the beat itself is 0.45 + 1.5 + 0.4 = 2.35 s
+const WITCH_CHEST_Y := 1.2           # the turn aims at her chest (a 1.65 m figure)
+# A: on closing SafeNote_First (the Bedroom's north wall), she stands in the Bedroom's east
+# doorway — the room's only way out. A placement LADDER, each rung through Watcher.spawn():
+# the doorway's inner side, its outer side on the Landing, mid-room toward it, 2.5 m behind you.
+const WITCH_A_DOOR := Vector3(-4.0, 0.0, 12.5)
+const WITCH_A_DIST := Vector2(1.6, 4.0)   # min / max from the player, first pass
+# B: once the level has run WITCH_B_AFTER s of GAME time (paused time excluded: `_process` does
+# not run under a pause) and A has happened, at the next safe moment INSIDE the house, she is
+# BEHIND you — the camera's back vector, a fan either side, 2.5–3.5 m.
+const WITCH_B_AFTER := 480.0         # ⚠️ the user's number (8 minutes) — `witch_b_after` is the test hook
+const WITCH_B_DIST := [3.0, 2.5, 3.5]
+const WITCH_B_FAN := [0.0, 15.0, -15.0, 30.0, -30.0]
 const WITCH_NOTE_TEXT := "An old woman lives in this house.\n\nShe follows you everywhere, even when you think you are alone.\n\nDo not look for her.\n\nShe likes to hide things inside fruit."
 
 var _builder: RoomBuilder
@@ -279,8 +336,10 @@ var _guillotine: HouseGuillotine = null
 var _melon: HouseWatermelon = null
 var _hole_decal: MeshInstance3D = null
 var _melon_state: String = "wall"          # wall | held | placed | cut
-var _porch_visited: bool = false
-var _porch_dwell: float = 0.0
+var _porch_visited: bool = false            # the first real look at the guillotine: the scrawl
+var _porch_look_t: float = 0.0               # how long the current look at it has been held
+var _stump: HouseBladeStump = null
+var _blade_state: String = "stump"           # stump | held | mounted (2026-09-24 c)
 var _porch_ghost_t: float = -1.0           # >= 0: counting to the guaranteed tree-line pass
 var _scrawl_cooldown: float = 0.0
 var _forest_rate: float = 0.0              # the clock's current charge, /s (0 = not charging)
@@ -288,14 +347,27 @@ var _ghost_clock: float = 0.0
 var _ghost_last: int = -1
 var _ghosts_spawned: int = 0
 var _witch_note_read: bool = false
-var _witch_fired: Array[int] = []           # which of the three glimpses have happened
+var _witch_fired: Array[int] = []           # which of the glimpses (1, 3) have happened
 var _witch_node: Watcher = null
 var _witch_retry: float = 0.0
 var _witch_seen_glass: bool = false         # glimpse 1: seen through the pane at least once
 var _witch_unseen_t: float = 0.0
-var _witch_2_wait: float = -1.0             # >= 0 while glimpse 2 is pending
 var _witch_3_pending: bool = false
 var _witch_logged: Dictionary = {}
+# ⭐⭐ 2026-09-24 (d): the two sightings.
+var witch_b_after: float = WITCH_B_AFTER    # TEST HOOK ONLY — the constant is the user's
+var _level_time: float = 0.0                # game time since the scene loaded (pauses excluded)
+var _witch_seen_a: bool = false
+var _witch_seen_b: bool = false
+var _witch_a_armed: bool = false            # SafeNote_First opened: fire when it closes
+var _witch_a_pending: bool = false          # …closed: stage it at the next safe moment
+var _sight_node: Watcher = null
+var _sight_t: float = -1.0                  # >= 0 while a sighting holds the player
+var _sight_id: int = 0
+var _sight_frozen: bool = false
+var _sight_fading: bool = false
+var _sight_retry: float = 0.0
+var _sight_logged: Dictionary = {}
 var _forest_beds: Array = []                # [player (2D or 3D), base_db] — the night outside
 
 
@@ -507,7 +579,7 @@ func save_progress() -> Dictionary:
 		"lock_lamp": _lock_lamp_on,
 		# H2: the chain and the cutters travel together with the digit (SafeNote_Head above).
 		"fridge_chained": bool(get_node("Fridge").call("is_chained")) if get_node_or_null("Fridge") else true,
-		# ⭐ 2026-09-24: "the cutters have been TAKEN" (from the guillotine's basket). They are on the
+		# ⭐ 2026-09-24: "the cutters have been TAKEN" (off the deck by the guillotine). They are on the
 		# carried line only while the fridge is still chained — `_refresh_carried()` decides that.
 		"cutters_held": _cutters_held,
 		# ⭐ THE PORCH (2026-09-24). Every one of these is a STATE to force on a back-door return,
@@ -521,8 +593,14 @@ func save_progress() -> Dictionary:
 		"painting_armed": _painting_armed,
 		"painting_fallen": _painting_fallen,
 		"melon_state": _melon_state,
+		# ⭐ 2026-09-24 (c): where the guillotine's blade is — "stump" (still in the forest),
+		# "held" (carried) or "mounted" (on the frame). Restored silently by `_restore_porch()`.
+		"blade_state": _blade_state,
 		"witch_note": _witch_note_read,
 		"witch_glimpses": _witch_fired.duplicate(),
+		# ⭐⭐ 2026-09-24 (d): the house sightings. Never replayed on a back-door return.
+		"witch_seen_a": _witch_seen_a,
+		"witch_seen_b": _witch_seen_b,
 	}
 
 
@@ -828,6 +906,9 @@ func _spawn_notes() -> void:
 	for n in [_safe_1, cellar_note]:
 		if n:
 			n.read.connect(_on_safe_note_read.bind(n))
+	# ⭐⭐ 2026-09-24 (d): closing the first note is sighting A (the witch in the Bedroom doorway).
+	if _safe_1:
+		_safe_1.read.connect(_arm_witch_a_on_note_close)
 	# Two trap notes (read-to-die).
 	_make_note(_builder.wall_point("Bathroom", Vector2(1, 0), 1.3, 0.1), -PI / 2.0,
 		"it got in it got in it got in it got in it got in\n\nDONT READ THIS dont read this stop stop stop stop", true)
@@ -1020,15 +1101,28 @@ func _spawn_porch() -> void:
 	_guillotine = HouseGuillotine.new()
 	_guillotine.name = "Guillotine"
 	_guillotine.position = GUILLOTINE_AT
-	# Its front (the basket, the lunette) turned toward the window: you meet it head-on as you
+	# Its front (the lunette, and the boards the cutters fall on) turned toward the window: you meet it head-on as you
 	# step out, and it is in the frame from inside the living room.
 	var to_window := Vector2(WINDOW_AT.x - GUILLOTINE_AT.x, WINDOW_AT.z - GUILLOTINE_AT.z)
 	_guillotine.rotation.y = atan2(to_window.x, to_window.y)
 	add_child(_guillotine)
 	_guillotine.empty_tried.connect(_on_guillotine_empty_tried)
+	_guillotine.blade_missing_tried.connect(_on_guillotine_blade_missing)
+	_guillotine.blade_mounted.connect(_on_guillotine_blade_mounted)
 	_guillotine.loaded.connect(_on_guillotine_loaded)
 	_guillotine.cut.connect(_on_guillotine_cut)
 	_guillotine.cutters_taken.connect(_on_guillotine_cutters_taken)
+
+	# ⭐ 2026-09-24 (c): the blade, in a stump in the clearing. Fixed, never re-rolled, no hint.
+	# ⭐⭐ (d): in the far north-west corner, behind one thick trunk (HouseOutdoors.HIDE_TRUNK), and
+	# yawed so the blade is edge-on to the two sightlines that trunk cuts.
+	_stump = HouseBladeStump.new()
+	_stump.name = "BladeStump"
+	_stump.position = Vector3(HouseOutdoors.BLADE_CLEARING.x, 0.0, HouseOutdoors.BLADE_CLEARING.y)
+	_stump.rotation.y = deg_to_rad(HouseOutdoors.BLADE_STUMP_YAW_DEG)
+	add_child(_stump)
+	HouseOutdoors.moonlit(_stump)
+	_stump.pulled.connect(_on_blade_pulled)
 
 	_ghost_clock = randf_range(GHOST_GAP_MIN, GHOST_GAP_MAX)
 
@@ -1124,14 +1218,18 @@ func _arm_painting() -> void:
 	if _painting_armed:
 		return
 	_painting_armed = true
-	_log("GUEST painting armed (first porch visit)")
+	_log("GUEST painting armed (first step onto the deck)")
 
 
 func _restore_porch(data: Dictionary) -> void:
 	_witch_note_read = bool(data.get("witch_note", false))
 	_witch_fired.clear()
+	# ⚠️ An older snapshot can still hold 2 (glimpse 2, deleted 2026-09-24 d). Harmless: nothing
+	# asks for it any more.
 	for g in data.get("witch_glimpses", []):
 		_witch_fired.append(int(g))
+	_witch_seen_a = bool(data.get("witch_seen_a", false))
+	_witch_seen_b = bool(data.get("witch_seen_b", false))
 	# A forest scare that fired is a window that burst — the burst always follows the flash.
 	if (bool(data.get("window_broken", false)) or _forest_fired) and is_instance_valid(_window):
 		_window.break_pane(false)
@@ -1143,9 +1241,17 @@ func _restore_porch(data: Dictionary) -> void:
 	if _melon_state != "wall" and is_instance_valid(_melon):
 		_melon.queue_free()
 		_melon = null
+	# ⭐ 2026-09-24 (c): the blade. A cut fruit means the blade was mounted (it did the cutting),
+	# whatever an older snapshot says. State, never the event: no pull sound, no toast.
+	_blade_state = String(data.get("blade_state", "stump"))
+	if _melon_state == "cut":
+		_blade_state = "mounted"
+	if _blade_state != "stump" and is_instance_valid(_stump):
+		_stump.restore_taken()
 	if is_instance_valid(_guillotine):
 		_guillotine.melon_in_hand = _melon_state == "held"
-		_guillotine.restore(_melon_state, _cutters_held)
+		_guillotine.blade_in_hand = _blade_state == "held"
+		_guillotine.restore(_melon_state, _cutters_held, _blade_state == "mounted")
 
 
 # ⭐ THE CARRIED LINE LISTS EVERYTHING HELD (2026-09-24). `GameState.set_carried()` takes ONE
@@ -1160,6 +1266,8 @@ func _refresh_carried() -> void:
 		items.append("cellar key")
 	if _melon_state == "held":
 		items.append("watermelon")
+	if _blade_state == "held":
+		items.append("guillotine blade")
 	if _cutters_held and _fridge_chained():
 		items.append("bolt cutters")
 	GameState.set_carried(" · ".join(items))
@@ -1176,7 +1284,8 @@ func _on_melon_taken() -> void:
 	if is_instance_valid(_guillotine):
 		_guillotine.melon_in_hand = true
 	_refresh_carried()
-	_witch_2_wait = 0.0          # she is at the far end of the Hallway, behind you
+	# (Glimpse 2 — the witch screaming behind you in the Hallway — used to be armed here. Deleted
+	# 2026-09-24 d: she stood beyond the torch and was heard, never seen. See the sightings.)
 	_log("PORCH watermelon taken from the hole behind the painting")
 
 
@@ -1188,14 +1297,43 @@ func _on_guillotine_empty_tried() -> void:
 	_log("PORCH guillotine: E on the empty lunette — the thought again")
 
 
+# ⭐ 2026-09-24 (c): E on a frame with no blade — the lunette or the rope, either way nothing can
+# drop. Throttled with the lunette's thought (one shared cooldown: two scrawls never stack).
+func _on_guillotine_blade_missing() -> void:
+	if _scrawl_cooldown > 0.0:
+		return
+	_scrawl_cooldown = PORCH_SCRAWL_REPEAT
+	ScreenText.scrawl(get_tree(), BLADE_SCRAWL, PORCH_SCRAWL_TIME)
+	_log("PORCH guillotine: no blade — WHERE IS THE BLADE?")
+
+
+func _on_blade_pulled() -> void:
+	_blade_state = "held"
+	if is_instance_valid(_guillotine):
+		_guillotine.blade_in_hand = true
+	_refresh_carried()
+	var p := _player()
+	# Panic is in the line since 2026-09-24 (the user asked "at what panic level I was when I took
+	# the blade" and the log could only be reconstructed): % of PANIC_MAX, like the PANIC lines.
+	_log("PORCH blade pulled out of the stump (player at %s, d=%.1f m, panic %d%%)" % [
+		p.global_position.snappedf(0.1) if p else Vector3.ZERO,
+		HouseOutdoors.forest_depth(p.global_position) if p else 0.0,
+		roundi(p.get_panic_ratio() * 100.0) if p else 0])
+
+
+func _on_guillotine_blade_mounted() -> void:
+	_blade_state = "mounted"
+	if is_instance_valid(_guillotine):
+		_guillotine.blade_in_hand = false
+	_refresh_carried()
+	_log("PORCH guillotine: the blade is mounted")
+
+
 func _on_guillotine_loaded() -> void:
 	_melon_state = "placed"
 	if is_instance_valid(_guillotine):
 		_guillotine.melon_in_hand = false
 	_refresh_carried()
-	if _witch_2_wait >= 0.0 and not _witch_fired.has(2):
-		_witch_2_wait = -1.0
-		_log("WITCH glimpse 2 ABANDONED — the fruit reached the lunette first")
 	_log("PORCH guillotine loaded")
 
 
@@ -1205,13 +1343,13 @@ func _on_guillotine_cut() -> void:
 	if p:
 		p.jolt_camera(0.04, 0.3)
 	_witch_3_pending = true      # …and she watches from the tree line
-	_log("PORCH guillotine: the blade dropped; the bolt cutters are in the basket")
+	_log("PORCH guillotine: the blade dropped; the bolt cutters are on the deck")
 
 
 func _on_guillotine_cutters_taken() -> void:
 	_cutters_held = true
 	_refresh_carried()
-	_log("PORCH bolt cutters taken from the guillotine's basket")
+	_log("PORCH bolt cutters taken off the deck by the guillotine")
 
 
 # ---------------------------------------------------------------- the porch: the first visit
@@ -1221,12 +1359,20 @@ func _tick_porch(delta: float) -> void:
 	var p := _player()
 	if not p:
 		return
-	if not _porch_visited and HouseOutdoors.on_deck(p.global_position):
-		_porch_dwell += delta
-		var facing := is_instance_valid(_guillotine) \
-			and _facing(p, _guillotine.global_position + Vector3(0, 1.0, 0), 0.6)
-		if facing or _porch_dwell >= PORCH_VISIT_DWELL:
-			_on_first_porch_visit()
+	var on_deck := HouseOutdoors.on_deck(p.global_position)
+	# ⭐ 2026-09-24 (c): the painting is armed by the FIRST STEP ONTO THE DECK — decoupled from the
+	# scrawl, which now waits for a real look at the guillotine. The user's rule ("the first porch
+	# visit, then the painting can fall") is kept, and a player who never looks squarely at the
+	# frame is never stranded without the fruit.
+	if on_deck and not _painting_armed:
+		_arm_painting()
+	if not _porch_visited and on_deck:
+		if _looking_at_guillotine(p):
+			_porch_look_t += delta
+			if _porch_look_t >= GUILLOTINE_LOOK_HOLD:
+				_on_first_porch_visit()
+		else:
+			_porch_look_t = 0.0
 	# The guaranteed tree-line pass, once the player is looking out at the yard (or it has waited
 	# long enough — then it runs anyway and is heard).
 	if _porch_ghost_t >= 0.0:
@@ -1237,16 +1383,38 @@ func _tick_porch(delta: float) -> void:
 				_spawn_tree_line_ghost(p)
 
 
-# The first time you are out on the deck: the thought, the painting armed, and a ghost to come.
+# The first real look at the guillotine, from the deck: the thought, and a ghost to come. (The
+# painting was armed a moment earlier, by the first step onto the deck — `_tick_porch`.)
 func _on_first_porch_visit() -> void:
 	if _porch_visited:
 		return
 	_porch_visited = true
 	ScreenText.scrawl(get_tree(), PORCH_SCRAWL, PORCH_SCRAWL_TIME)
 	_scrawl_cooldown = PORCH_SCRAWL_REPEAT
-	_arm_painting()
 	_porch_ghost_t = 0.0
-	_log("PORCH first visit — SHALL I PUT SOMETHING THERE?")
+	_log("PORCH first look at the guillotine — SHALL I PUT SOMETHING THERE?")
+
+
+# ⭐ 2026-09-24 (c): a REAL look — range, a 3-D camera dot to its centre, and a line of sight
+# (layer 1, the player excluded; the guillotine's own body counts as seeing it).
+func _looking_at_guillotine(p: CharacterBody3D) -> bool:
+	if not is_instance_valid(_guillotine):
+		return false
+	var cam := p.get_node_or_null("Camera3D") as Camera3D
+	if not cam:
+		return false
+	var centre := _guillotine.global_position + Vector3(0, GUILLOTINE_LOOK_Y, 0)
+	var to := centre - cam.global_position
+	var dist := to.length()
+	if dist > GUILLOTINE_LOOK_RANGE or dist < 0.05:
+		return false
+	if (-cam.global_basis.z).normalized().dot(to / dist) < GUILLOTINE_LOOK_DOT:
+		return false
+	var q := PhysicsRayQueryParameters3D.create(cam.global_position, centre)
+	q.collision_mask = 1
+	q.exclude = [p.get_rid()]
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	return hit.is_empty() or hit["collider"] == _guillotine
 
 
 func _facing(p: CharacterBody3D, target: Vector3, min_dot: float) -> bool:
@@ -1270,7 +1438,7 @@ func _cam_forward(p: CharacterBody3D) -> Vector3:
 
 
 func _looking_at_yard(p: CharacterBody3D) -> bool:
-	return _cam_forward(p).x < -0.35
+	return _cam_forward(p).x < YARD_LOOK_X
 
 
 # ---------------------------------------------------------------- the forest clock
@@ -1285,6 +1453,7 @@ func forest_rate_at(d: float) -> float:
 
 
 var _forest_deepest: float = 0.0
+var _forest_peak_pct: int = 0      # the log's peak panic for one excursion (instrumentation only)
 
 func _tick_forest_clock(delta: float) -> void:
 	var p := _player()
@@ -1296,12 +1465,17 @@ func _tick_forest_clock(delta: float) -> void:
 		return
 	var d := HouseOutdoors.forest_depth(p.global_position)
 	var rate := forest_rate_at(d)
+	var pct := roundi(p.get_panic_ratio() * 100.0)
 	if rate > 0.0 and _forest_rate <= 0.0:
 		_forest_deepest = d
-		_log("FOREST clock ON at d=%.1f m (%.2f /s)" % [d, rate])
+		_forest_peak_pct = pct
+		_log("FOREST clock ON at d=%.1f m (%.2f /s, panic %d%%)" % [d, rate, pct])
 	elif rate <= 0.0 and _forest_rate > 0.0:
-		_log("FOREST clock OFF — back on the deck (deepest %.1f m)" % _forest_deepest)
+		_log("FOREST clock OFF — back on the deck (deepest %.1f m, panic %d%%, peak %d%%)" % [
+			_forest_deepest, pct, _forest_peak_pct])
 	_forest_deepest = maxf(_forest_deepest, d)
+	if rate > 0.0:
+		_forest_peak_pct = maxi(_forest_peak_pct, pct)
 	_forest_rate = rate
 	if rate > 0.0:
 		p.add_panic(rate * delta)
@@ -1351,15 +1525,17 @@ func _spawn_cadence_ghost(p: CharacterBody3D) -> bool:
 
 
 # The guaranteed one: along the tree line, across the view from the porch, ~4 s after the thought.
+# ⭐ 2026-09-24 (c): a FIXED lane (x -19.5, z 12 <-> 0, either way), straight across what the
+# porch's open west side shows — no longer projected from the camera's heading (see
+# TREE_LINE_GHOST_X for the hidden lane that replaced).
 func _spawn_tree_line_ghost(p: CharacterBody3D) -> void:
-	var fwd := _cam_forward(p)
-	var line_x := -19.5
-	var z := 6.0
-	if fwd.x < -0.2:
-		z = p.global_position.z + fwd.z * ((line_x - p.global_position.x) / fwd.x)
-	z = clampf(z, HouseOutdoors.YARD_Z.x + 4.0, HouseOutdoors.YARD_Z.y - 4.0)
-	var dir := Vector3(0, 0, 1.0 if randf() < 0.5 else -1.0)
-	_spawn_ghost(0, Vector3(line_x, 0, z) - dir * 5.0, Vector3(line_x, 0, z) + dir * 5.0, p)
+	var a := Vector3(TREE_LINE_GHOST_X, 0, TREE_LINE_GHOST_Z.x)
+	var b := Vector3(TREE_LINE_GHOST_X, 0, TREE_LINE_GHOST_Z.y)
+	if randf() < 0.5:
+		var t := a
+		a = b
+		b = t
+	_spawn_ghost(0, a, b, p)
 
 
 func _spawn_ghost(k: int, a: Vector3, b: Vector3, p: CharacterBody3D) -> void:
@@ -1420,9 +1596,10 @@ func _clamp_yard(c: Vector3) -> Vector3:
 
 # ---------------------------------------------------------------- the witch
 #
-# Three one-shot glimpses, each a `Watcher` — zero panic, no collider, no rules — placed where
-# the player can see her and NEVER moving toward them. A glimpse that cannot be placed yet stays
-# PENDING (retried every WITCH_RETRY s, logged once); nothing is latched until a figure exists.
+# Two one-shot outdoor glimpses (1 and 3; glimpse 2 is deleted, 2026-09-24 d), each a `Watcher` —
+# zero panic, no collider, no rules — placed where the player can see her and NEVER moving toward
+# them. A glimpse that cannot be placed yet stays PENDING (retried every WITCH_RETRY s, logged
+# once); nothing is latched until a figure exists. The house SIGHTINGS (A, B) are further down.
 
 func _tick_witch(delta: float) -> void:
 	var p := _player()
@@ -1439,10 +1616,8 @@ func _tick_witch(delta: float) -> void:
 	if is_instance_valid(_witch_node):
 		# One at a time — but she FOLLOWS you: a later glimpse that is due takes her from wherever
 		# she was last left standing, provided nobody is looking at her there (a Watcher only
-		# leaves on its own by lifetime, approach or a look-back roll, and glimpse 2 is left
-		# behind you in the Hallway while you carry the fruit out to the porch).
-		var due := (_witch_2_wait >= 0.0 and not _witch_fired.has(2)) \
-			or (_witch_3_pending and not _witch_fired.has(3))
+		# leaves on its own by lifetime, approach or a look-back roll).
+		var due := _witch_3_pending and not _witch_fired.has(3)
 		if due and _witch_node.name != "Witch1" and not _witch_node.is_visible_to_player():
 			_witch_node.queue_free()
 			_witch_node = null
@@ -1451,14 +1626,6 @@ func _tick_witch(delta: float) -> void:
 	if not _witch_fired.has(1) and _witch_note_read and is_instance_valid(_window) \
 			and not _window.is_broken():
 		_try_witch_1(p)
-	# 2. The fruit taken: at the far end of the Hallway, behind you.
-	if _witch_2_wait >= 0.0 and not _witch_fired.has(2):
-		_witch_2_wait += WITCH_RETRY
-		if _witch_2_wait > WITCH_2_PATIENCE:
-			_witch_2_wait = -1.0
-			_log("WITCH glimpse 2 ABANDONED — no spot behind the player in %.0f s" % WITCH_2_PATIENCE)
-		else:
-			_try_witch_2(p)
 	# 3. The fruit cut: she watches from the tree line.
 	if _witch_3_pending and not _witch_fired.has(3) and not is_instance_valid(_witch_node):
 		_try_witch_3(p)
@@ -1497,21 +1664,6 @@ func _try_witch_1(p: CharacterBody3D) -> void:
 			_witch_placed(1, w, p)
 			return
 	_witch_postponed(1)
-
-
-func _try_witch_2(p: CharacterBody3D) -> void:
-	var fwd := _cam_forward(p)
-	for c in WITCH_2_SPOTS:
-		var to: Vector3 = c - p.global_position
-		to.y = 0.0
-		if to.length() < 5.0 or fwd.dot(to.normalized()) > 0.2:
-			continue                      # too close, or not BEHIND the player
-		var w := Watcher.spawn(self, c, WITCH_TEX, 5.0, true, WITCH_HEIGHT)
-		if w:
-			_witch_2_wait = -1.0
-			_witch_placed(2, w, p)
-			return
-	_witch_postponed(2)
 
 
 func _try_witch_3(p: CharacterBody3D) -> void:
@@ -1577,25 +1729,6 @@ func _witch_placed(n: int, w: Watcher, p: CharacterBody3D) -> void:
 	w.name = "Witch%d" % n
 	_log("WITCH glimpse %d at %s  (player at %s)" % [n, w.global_position.snappedf(0.1),
 		p.global_position.snappedf(0.1)])
-	# ⭐ 2026-09-24 (b): glimpse 2 — the one placed BEHIND you in the Hallway — screams, with the
-	# user's `witch_scream`, from where she stands. The sound is what turns you round; the figure
-	# is what you find. Zero panic, like every glimpse. The player is left at the level (not the
-	# Watcher) so the scream is not cut off when she vanishes on approach.
-	if n == 2:
-		var s := GameState.load_audio("witch_scream")
-		if s:
-			var a := AudioStreamPlayer3D.new()
-			a.name = "WitchScream"
-			a.stream = s
-			a.volume_db = WITCH_SCREAM_DB
-			a.max_db = WITCH_SCREAM_DB + 4.0
-			a.unit_size = 5.0
-			a.max_distance = 40.0
-			add_child(a)
-			a.global_position = w.global_position + Vector3(0, WITCH_HEIGHT * 0.85, 0)
-			a.finished.connect(a.queue_free)
-			a.play()
-			_log("WITCH glimpse 2 screams")
 
 
 func _witch_postponed(n: int) -> void:
@@ -1603,6 +1736,228 @@ func _witch_postponed(n: int) -> void:
 		return
 	_witch_logged[n] = true
 	_log("WITCH glimpse %d postponed — no placement yet, retrying" % n)
+
+
+# ---------------------------------------------------------------- the witch, SEEN in the house
+#
+# ⭐⭐ 2026-09-24 (d) — see WITCH_SIGHT_TURN for the why. Two one-shot sightings, zero panic:
+#   A  closing SafeNote_First -> she is in the Bedroom's doorway, ~3 m away (the placement ladder)
+#   B  WITCH_B_AFTER s of game time, A done -> she is BEHIND you, 2.5–3.5 m, inside the house
+# Each: `witch_scream` at her -> Ambience dip -> pinned + turned onto her chest over
+# WITCH_SIGHT_TURN -> WITCH_SIGHT_HOLD -> she fades over WITCH_SIGHT_FADE -> released.
+
+# `note.gd` emits `read` on OPEN (before the page is up); the beat waits for the page to close —
+# `_arm_child_on_note_close()`'s idiom. A METHOD connection, not a lambda, so a connection left
+# armed when a screamer drops the note (no `closed`) dies with the level.
+func _arm_witch_a_on_note_close() -> void:
+	if _witch_seen_a or _witch_a_armed:
+		return
+	_witch_a_armed = true
+	var nu := get_node_or_null("/root/NoteUI")
+	if nu == null or not nu.has_signal("closed"):
+		_on_first_note_closed()
+		return
+	nu.connect("closed", _on_first_note_closed, CONNECT_ONE_SHOT)
+
+
+func _on_first_note_closed() -> void:
+	if _witch_seen_a:
+		return
+	_witch_a_pending = true
+	_sight_retry = 0.0
+	_log("WITCH sighting A armed — the first note was closed")
+
+
+func _tick_sightings(delta: float) -> void:
+	_level_time += delta              # `_process` does not run under a pause: game time only
+	if _sight_t >= 0.0:
+		_tick_sighting_hold(delta)
+		return
+	_sight_retry -= delta
+	if _sight_retry > 0.0:
+		return
+	_sight_retry = WITCH_SIGHT_RETRY
+	var p := _player()
+	if not p:
+		return
+	if _witch_a_pending and not _witch_seen_a:
+		if _can_stage_sighting(p):
+			_witch_sighting_a(p)
+		else:
+			_sight_postponed("A", "the player cannot look yet")
+		return
+	if _witch_seen_a and not _witch_seen_b and _level_time >= witch_b_after:
+		if not _can_stage_sighting(p):
+			return
+		if not _in_any_room(p.global_position):
+			return                    # outdoors, on the deck or in the cellar: wait for the house
+		_witch_sighting_b(p)
+
+
+# The same refusals as `_can_show_child()` / `apparition_director.gd`, plus our own two.
+func _can_stage_sighting(p: CharacterBody3D) -> bool:
+	if get_tree().paused or NoteUI.is_open:
+		return false
+	if p.has_method("is_input_frozen") and p.is_input_frozen():
+		return false                  # a QTE pin, the cellar's pin, a locker…
+	if p.get("_qte_active") == true:
+		return false                  # the beartrap clamps without freezing
+	if _child_dark or _child_frozen:
+		return false                  # the cellar blackout owns the screen
+	return true
+
+
+func _in_any_room(pos: Vector3) -> bool:
+	for r in ROOMS:
+		if _in_room(pos, String(r["name"])):
+			return true
+	return false
+
+
+func _witch_sighting_a(p: CharacterBody3D) -> void:
+	var here := Vector3(p.global_position.x, 0.0, p.global_position.z)
+	var door := WITCH_A_DOOR
+	var to_door := door - here
+	var mid := here + to_door.normalized() * clampf(to_door.length() - 1.2, 1.8, 3.0) \
+		if to_door.length() > 0.1 else here
+	var ladder: Array = [
+		[door + Vector3(-1.0, 0, 0), "the doorway, inner side"],
+		[door + Vector3(1.0, 0, 0), "the doorway, outer side (the Landing)"],
+		[mid, "mid-room toward the doorway"],
+		[here - _cam_forward(p) * 2.5, "2.5 m behind the player"],
+	]
+	var got: Array = _place_sighting(p, ladder, WITCH_A_DIST.x, WITCH_A_DIST.y)
+	if got.is_empty():
+		got = _place_sighting(p, ladder, 1.2, 99.0)      # any distance rather than nothing
+	_witch_seen_a = true
+	_witch_a_pending = false
+	if got.is_empty():
+		# ⚠️ Never skipped silently: the scream and the turn toward the doorway still happen.
+		_log("WITCH sighting A: NO placement fitted (player at %s) — the scream and the turn only"
+			% p.global_position.snappedf(0.1))
+		_begin_sighting(p, null, "WitchA", door + Vector3(0, WITCH_CHEST_Y, 0), "none")
+		return
+	_begin_sighting(p, got[0], "WitchA", Vector3.ZERO, String(got[1]))
+
+
+func _witch_sighting_b(p: CharacterBody3D) -> void:
+	var here := Vector3(p.global_position.x, 0.0, p.global_position.z)
+	var back := -_cam_forward(p)
+	var ladder: Array = []
+	for a in WITCH_B_FAN:
+		for d in WITCH_B_DIST:
+			var c: Vector3 = here + back.rotated(Vector3.UP, deg_to_rad(float(a))) * float(d)
+			if _in_any_room(c):
+				ladder.append([c, "behind %.1f m, %+.0f deg" % [float(d), float(a)]])
+	var got: Array = _place_sighting(p, ladder, 2.0, 4.0)
+	if got.is_empty():
+		_sight_postponed("B", "no room behind the player here")
+		return                        # the next safe moment (WITCH_SIGHT_RETRY)
+	_witch_seen_b = true
+	_begin_sighting(p, got[0], "WitchB", Vector3.ZERO, String(got[1]))
+
+
+# The first rung whose spot is inside [min_d, max_d] of the player AND passes Watcher.spawn()'s
+# ray-only fit + line of sight. Returns [Watcher, rung label] or [].
+func _place_sighting(p: CharacterBody3D, ladder: Array, min_d: float, max_d: float) -> Array:
+	for rung in ladder:
+		var c: Vector3 = rung[0]
+		var dist := Vector2(c.x - p.global_position.x, c.z - p.global_position.z).length()
+		if dist < min_d or dist > max_d:
+			continue
+		var w := Watcher.spawn(self, c, WITCH_TEX, 0.0, true, WITCH_HEIGHT)
+		if w:
+			w.persistent = true       # only this beat decides when she goes
+			return [w, rung[1]]
+	return []
+
+
+func _begin_sighting(p: CharacterBody3D, w: Watcher, fig_name: String, fallback_look: Vector3,
+		rung: String) -> void:
+	# She is HERE now: whatever glimpse figure was left standing elsewhere goes.
+	if is_instance_valid(_witch_node):
+		_witch_node.queue_free()
+		_witch_node = null
+	var look := fallback_look
+	if w:
+		w.name = fig_name
+		look = w.global_position + Vector3(0, WITCH_CHEST_Y, 0)
+	_sight_node = w
+	# The scream LEADS, at her, into a room gone quiet.
+	HoldBreath.dip(get_tree(), WITCH_SIGHT_DIP)
+	_witch_scream_at(Vector3(look.x, (w.global_position.y if w else 0.0) + WITCH_HEIGHT * 0.85, look.z))
+	# ⚠️ The pin and the turn — `_cellar_child_appear()` / `level_1.gd:_nook_reveal()`. Velocity
+	# zeroed by hand (a frozen walker coasts, Issue 49); `turn_to_face()`, never `ai_look_at()`.
+	p.velocity.x = 0.0
+	p.velocity.z = 0.0
+	p.freeze_input()
+	_sight_frozen = true
+	p.turn_to_face(look, WITCH_SIGHT_TURN)
+	_sight_t = 0.0
+	_sight_fading = false
+	_sight_id += 1
+	var id := _sight_id
+	# The real-time safety release (process_always): nothing may leave the player pinned.
+	get_tree().create_timer(WITCH_SIGHT_SAFETY, true).timeout.connect(func() -> void:
+		if is_inside_tree() and _sight_id == id and _sight_t >= 0.0:
+			_log("WITCH %s: safety release after %.1f s" % [fig_name, WITCH_SIGHT_SAFETY])
+			_end_sighting())
+	_log("WITCH sighting %s (%s) at %s, %.2f m from the player at %s — zero panic" % [
+		fig_name, rung, (w.global_position.snappedf(0.1) if w else Vector3.ZERO),
+		(Vector2(w.global_position.x - p.global_position.x, w.global_position.z - p.global_position.z).length() if w else -1.0),
+		p.global_position.snappedf(0.1)])
+
+
+func _tick_sighting_hold(delta: float) -> void:
+	_sight_t += delta
+	if not _sight_fading and _sight_t >= WITCH_SIGHT_TURN + WITCH_SIGHT_HOLD:
+		_sight_fading = true
+		if is_instance_valid(_sight_node):
+			var mat := _sight_node.get("_mat") as StandardMaterial3D
+			if mat:
+				# Tweened BY the figure, so the tween dies with it.
+				_sight_node.create_tween().tween_property(mat, "albedo_color:a", 0.0, WITCH_SIGHT_FADE)
+	if _sight_t >= WITCH_SIGHT_TURN + WITCH_SIGHT_HOLD + WITCH_SIGHT_FADE:
+		_end_sighting()
+
+
+func _end_sighting() -> void:
+	_sight_t = -1.0
+	_sight_fading = false
+	if _sight_frozen:
+		_sight_frozen = false
+		var p := _player()
+		if p:
+			p.unfreeze_input()
+	if is_instance_valid(_sight_node):
+		_sight_node.queue_free()
+	_sight_node = null
+
+
+# The user's `witch_scream` (moved here from the deleted glimpse 2), at her. Left on the LEVEL so a
+# fading figure never cuts it off.
+func _witch_scream_at(at: Vector3) -> void:
+	var s := GameState.load_audio("witch_scream")
+	if s == null:
+		return
+	var a := AudioStreamPlayer3D.new()
+	a.name = "WitchScream"
+	a.stream = s
+	a.volume_db = WITCH_SCREAM_DB
+	a.max_db = WITCH_SCREAM_DB + 4.0
+	a.unit_size = 5.0
+	a.max_distance = 40.0
+	add_child(a)
+	a.global_position = at
+	a.finished.connect(a.queue_free)
+	a.play()
+
+
+func _sight_postponed(which: String, why: String) -> void:
+	if _sight_logged.has(which):
+		return
+	_sight_logged[which] = true
+	_log("WITCH sighting %s postponed — %s; retrying every %.2f s" % [which, why, WITCH_SIGHT_RETRY])
 
 
 func _in_room(pos: Vector3, room_name: String) -> bool:
@@ -2211,7 +2566,7 @@ func _spawn_cellar_contents() -> void:
 	# In a house that is now black by default the torch is not optional down here, so the tax only
 	# ever fired when the player had no say — and the cellar contains the one sequence that takes
 	# the torch away on purpose (`_begin_cellar_blackout()` force-kills it for CHILD_APPEAR_DELAY
-	# + CHILD_HOLD = 8.5 s) plus a beartrap on the entry line. That sequence survived only because
+	# + CHILD_HOLD = 7.5 s since 2026-09-24 c; 8.5 s before) plus a beartrap on the entry line. That sequence survived only because
 	# `set_smiler_active(true)` suspends the dark branch for its duration; nothing suspended it for
 	# the searching, the note-reading or the beartrap escape either side of it.
 	#
@@ -2234,7 +2589,7 @@ func _spawn_cellar_contents() -> void:
 	#
 	# ⚠️ DELIBERATE (2026-08-16). This trap sits 1.6 m past the cellar blackout trigger
 	# (`_spawn_cellar_props`'s event box spans x 3.5..6.5, z -3.9..-2.3) on the only heading
-	# into the room, inside an 8.5 s window in which `_begin_cellar_blackout()` kills every
+	# into the room, inside a 7.5 s window (8.5 s when this was decided) in which `_begin_cellar_blackout()` kills every
 	# lamp AND calls `force_flashlight_off()`. It fired in BOTH playtest sessions on
 	# 2026-08-16 — `ESCAPE_INITIAL_PANIC` 15 at (6.30, -1.50, -4.90) and at
 	# (6.20, -1.50, -4.30), each within ~1.2 m of it and within 3 s of the torch dying.
@@ -2489,7 +2844,7 @@ func _apply_guest_stage(stage: int) -> void:
 # 2026-07-29 playtest after two earlier placements failed to land:
 #
 #   1. the moment you reach the bottom of the ramp, every light dies AND the torch goes out
-#   2. ~5.5 s of nothing but the dark
+#   2. CHILD_APPEAR_DELAY (4.5 s since 2026-09-24 c; it was 5.5) of nothing but the dark
 #   3. the child, screaming, three metres in front of you
 #   4. ~3 s later the lights come back and it is gone
 #
@@ -3046,6 +3401,7 @@ func _process(delta: float) -> void:
 	_tick_forest_clock(delta)
 	_tick_ghosts(delta)
 	_tick_witch(delta)
+	_tick_sightings(delta)
 	_tick_outdoor_audio(delta)
 
 
@@ -3185,7 +3541,8 @@ func _tick_head_digit(delta: float) -> void:
 	ScreenText.caption(get_tree(), HEAD_NOTE_TEXT, 3.0)
 
 
-# ⭐ 2026-09-24: `_cutters_held` means the cutters have been TAKEN from the guillotine's basket.
+# ⭐ 2026-09-24: `_cutters_held` means the cutters have been TAKEN (off the deck, where the
+# guillotine drops them — there is no basket since 2026-09-24 c).
 # The old torch-aimed-at-the-floor rule under the Bedroom bed (`_tick_cutters`, `_spawn_cutters`,
 # CUTTERS_PITCH_DEG, CUTTERS_DIST) is deleted with the bed hiding place.
 var _cutters_held: bool = false
